@@ -39,7 +39,7 @@ final class MessageRepository: BaseRepository, MessageRepositoryProtocol {
         let predicate = #Predicate<Message> { $0.id == messageId }
         let descriptor = FetchDescriptor<Message>(predicate: predicate)
         guard let message = try? modelContext.fetch(descriptor).first else {
-            throw AgentClientError.dataCorrupted
+            throw ClaudeError.streamFailed(NSError(domain: "agentGui", code: 404, userInfo: [NSLocalizedDescriptionKey: "消息未找到"]))
         }
         message.status = status
         try modelContext.save()

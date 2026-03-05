@@ -10,35 +10,27 @@ import Foundation
 
 @Model
 final class AppSettings {
+    /// Anthropic API 密钥
+    var apiKey: String
+
+    /// 自定义 Base URL（留空则使用官方 https://api.anthropic.com）
+    var baseURL: String
+
+    /// 使用的 Claude 模型 ID
+    var selectedModel: String
+
     /// 主题模式
     var themeMode: ThemeMode
-
-    /// 自动批准策略
-    var autoApprovePolicy: AutoApprovePolicy
-
-    /// 启动时自动连接上次 Agent
-    var autoConnectOnStartup: Bool
-
-    /// 默认 Agent ID
-    var defaultAgentId: UUID?
-
-    /// 最大会话历史数量
-    var maxSessionHistory: Int
 
     /// 消息字体大小
     var messageFontSize: Double
 
-    /// 是否显示工具调用详情
-    var showToolCallDetails: Bool
-
     init() {
+        self.apiKey = ""
+        self.baseURL = ""
+        self.selectedModel = "claude-opus-4-5"
         self.themeMode = .system
-        self.autoApprovePolicy = .askAlways
-        self.autoConnectOnStartup = false
-        self.defaultAgentId = nil
-        self.maxSessionHistory = 1000
-        self.messageFontSize = 13.0
-        self.showToolCallDetails = true
+        self.messageFontSize = 14.0
     }
 }
 
@@ -58,15 +50,14 @@ extension AppSettings {
     }
 }
 
-// MARK: - Computed Properties
+// MARK: - Available Models
 extension AppSettings {
-    /// 是否自动批准文件读取
-    var autoApproveFileReads: Bool {
-        return autoApprovePolicy == .approveReads || autoApprovePolicy == .approveAll
-    }
-
-    /// 是否自动批准所有操作
-    var autoApproveAll: Bool {
-        return autoApprovePolicy == .approveAll
-    }
+    static let availableModels: [(id: String, name: String)] = [
+        ("claude-opus-4-5", "Claude Opus 4.5"),
+        ("claude-sonnet-4-5", "Claude Sonnet 4.5"),
+        ("claude-haiku-4-5", "Claude Haiku 4.5"),
+        ("claude-3-7-sonnet-20250219", "Claude 3.7 Sonnet"),
+        ("claude-3-5-sonnet-latest", "Claude 3.5 Sonnet"),
+        ("claude-3-5-haiku-latest", "Claude 3.5 Haiku"),
+    ]
 }

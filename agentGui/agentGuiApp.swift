@@ -10,17 +10,17 @@ import SwiftData
 
 @main
 struct agentGuiApp: App {
+
+    @State private var claudeService = ClaudeService()
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            AgentConfiguration.self,
             AppSettings.self,
             Session.self,
             Message.self,
             ToolCall.self,
-            PermissionRequest.self,
         ])
 
-        // 配置索引以优化查询性能
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
         do {
@@ -36,6 +36,13 @@ struct agentGuiApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(claudeService)
+                .onAppear {
+                    // 从持久化设置加载 API Key
+                    let context = sharedModelContainer.mainContext
+                    let settings = AppSettings.getOrCreate(in: context)
+                    claudeService.configure(apiKey: settings.apiKey, baseURL: settings.baseURL)
+                }
         }
         .modelContainer(sharedModelContainer)
     }

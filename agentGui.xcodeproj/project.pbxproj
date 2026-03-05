@@ -6,13 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		12D6F8622F3ACC3F00B21E2D /* ACP in Frameworks */ = {isa = PBXBuildFile; productRef = 12D6F8612F3ACC3F00B21E2D /* ACP */; };
-		12D6F8642F3ACC3F00B21E2D /* ACPHTTP in Frameworks */ = {isa = PBXBuildFile; productRef = 12D6F8632F3ACC3F00B21E2D /* ACPHTTP */; };
-		12D6F8662F3ACC3F00B21E2D /* ACPModel in Frameworks */ = {isa = PBXBuildFile; productRef = 12D6F8652F3ACC3F00B21E2D /* ACPModel */; };
-		12D6F8682F3ACC3F00B21E2D /* ACPRegistry in Frameworks */ = {isa = PBXBuildFile; productRef = 12D6F8672F3ACC3F00B21E2D /* ACPRegistry */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		12D6F8442F3ACA8400B21E2D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,6 +22,10 @@
 			remoteInfo = agentGui;
 		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXBuildFile section */
+		12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */ = {isa = PBXBuildFile; productRef = 12266AFA2F59CDD700450C6E /* SwiftAnthropic */; };
+/* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		12D6F8342F3ACA8200B21E2D /* agentGui.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = agentGui.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -59,10 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				12D6F8682F3ACC3F00B21E2D /* ACPRegistry in Frameworks */,
-				12D6F8662F3ACC3F00B21E2D /* ACPModel in Frameworks */,
-				12D6F8622F3ACC3F00B21E2D /* ACP in Frameworks */,
-				12D6F8642F3ACC3F00B21E2D /* ACPHTTP in Frameworks */,
+				12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -123,10 +117,7 @@
 			);
 			name = agentGui;
 			packageProductDependencies = (
-				12D6F8612F3ACC3F00B21E2D /* ACP */,
-				12D6F8632F3ACC3F00B21E2D /* ACPHTTP */,
-				12D6F8652F3ACC3F00B21E2D /* ACPModel */,
-				12D6F8672F3ACC3F00B21E2D /* ACPRegistry */,
+				12266AFA2F59CDD700450C6E /* SwiftAnthropic */,
 			);
 			productName = agentGui;
 			productReference = 12D6F8342F3ACA8200B21E2D /* agentGui.app */;
@@ -211,7 +202,7 @@
 			mainGroup = 12D6F82B2F3ACA8200B21E2D;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				12D6F8602F3ACC3F00B21E2D /* XCRemoteSwiftPackageReference "swift-acp" */,
+				12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 12D6F8352F3ACA8200B21E2D /* Products */;
@@ -627,36 +618,21 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		12D6F8602F3ACC3F00B21E2D /* XCRemoteSwiftPackageReference "swift-acp" */ = {
+		12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/wiedymi/swift-acp.git";
+			repositoryURL = "https://github.com/jamesrochabrun/SwiftAnthropic.git";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.2.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		12D6F8612F3ACC3F00B21E2D /* ACP */ = {
+		12266AFA2F59CDD700450C6E /* SwiftAnthropic */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 12D6F8602F3ACC3F00B21E2D /* XCRemoteSwiftPackageReference "swift-acp" */;
-			productName = ACP;
-		};
-		12D6F8632F3ACC3F00B21E2D /* ACPHTTP */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 12D6F8602F3ACC3F00B21E2D /* XCRemoteSwiftPackageReference "swift-acp" */;
-			productName = ACPHTTP;
-		};
-		12D6F8652F3ACC3F00B21E2D /* ACPModel */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 12D6F8602F3ACC3F00B21E2D /* XCRemoteSwiftPackageReference "swift-acp" */;
-			productName = ACPModel;
-		};
-		12D6F8672F3ACC3F00B21E2D /* ACPRegistry */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 12D6F8602F3ACC3F00B21E2D /* XCRemoteSwiftPackageReference "swift-acp" */;
-			productName = ACPRegistry;
+			package = 12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */;
+			productName = SwiftAnthropic;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

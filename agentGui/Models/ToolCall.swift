@@ -90,16 +90,20 @@ extension ToolCall {
         return status.displayName
     }
 
-    /// 格式化的文件路径
+    /// 格式化的文件路径（截短显示）
     var displayPath: String? {
         guard let path = filePath else { return nil }
-        return ACPAdapters.shortenPath(path)
+        let components = path.components(separatedBy: "/")
+        if components.count > 3 {
+            return ".../" + components.suffix(2).joined(separator: "/")
+        }
+        return path
     }
 
     /// 文件名
     var fileName: String? {
         guard let path = filePath else { return nil }
-        return ACPAdapters.fileName(from: path)
+        return (path as NSString).lastPathComponent
     }
 }
 

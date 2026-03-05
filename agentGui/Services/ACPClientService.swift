@@ -1,194 +1,141 @@
 //
-//  ACPClientService.swift
+//  ClaudeService.swift
 //  agentGui
-//
-//  Created by feint on 2026/2/10.
 //
 
 import Foundation
-import ACP
-import ACPModel
+import SwiftAnthropic
+import SwiftData
 
-/// ACP 客户端服务 Actor，封装 swift-acp Client
-actor ACPClientService {
+/// Claude API 服务，使用 SwiftAnthropic 与 Claude 交互
+@Observable
+@MainActor
+final class ClaudeService {
 
-    // MARK: - Properties
+    // MARK: - Observable State
 
-    private let client: Client
-    private var activeSessions: [String: String] = [:]
-    private var currentAgentInfo: AgentInfo?
-    private var connectionState: ConnectionState = .disconnected
+    /// 是否正在流式生成
+    var isStreaming: Bool = false
 
-    // MARK: - Types
+    /// 最近的错误信息
+    var lastError: String?
 
-    /// 连接状态
-    enum ConnectionState: Sendable {
-        case disconnected
-        case connecting
-        case connected(agentInfo: AgentInfo)
-        case error(String)
+    // MARK: - Private
 
-        var isConnected: Bool {
-            if case .connected = self { return true }
-            return false
+    private var service: (any AnthropicService)?
+
+    // MARK: - Configuration
+
+    /// 服务是否已配置 API Key
+    var isConfigured: Bool { service != nil }
+
+    /// 使用 API Key 和可选的 Base URL 初始化服务
+    func configure(apiKey: String, baseURL: String = "") {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            service = nil
+            return
         }
-    }
-
-    // MARK: - Initialization
-
-    init() {
-        self.client = Client()
-    }
-
-    // MARK: - Connection Management
-
-    /// 连接 Agent
-    func connect(agent: AgentConfiguration) async throws {
-        connectionState = .connecting
-
-        do {
-            // 启动 Agent 进程
-            if agent.isLocal {
-                guard let path = agent.executablePath else {
-                    throw AgentClientError.agentNotFound(path: "未指定")
-                }
-                let args = agent.arguments.isEmpty ? [] : agent.arguments
-                try await client.launch(
-                    agentPath: path,
-                    arguments: args,
-                    workingDirectory: agent.defaultWorkingDirectory
-                )
-            }
-
-            // 初始化握手
-            let initResponse = try await client.initialize(
-                protocolVersion: 1,
-                capabilities: ClientCapabilities(
-                    fs: FileSystemCapabilities(readTextFile: true, writeTextFile: true),
-                    terminal: true
-                )
-            )
-
-            // 保存 Agent 信息
-            if let agentInfo = initResponse.agentInfo {
-                currentAgentInfo = AgentInfo(
-                    name: agentInfo.name,
-                    version: agentInfo.version,
-                    protocolVersion: initResponse.protocolVersion,
-                    capabilities: AgentCapabilities(
-                        supportsStreaming: true,
-                        supportsTools: true,
-                        supportsModes: false
-                    )
-                )
-            }
-
-            connectionState = .connected(agentInfo: currentAgentInfo ?? AgentInfo(
-                name: agent.name,
-                version: "1.0.0"
-            ))
-
-        } catch {
-            connectionState = .error(error.localizedDescription)
-            throw AgentClientError.connectionFailed(underlying: error)
+        let basePath = baseURL.trimmingCharacters(in: .whitespaces)
+        if basePath.isEmpty {
+            service = AnthropicServiceFactory.service(apiKey: trimmed, betaHeaders: nil)
+        } else {
+            service = AnthropicServiceFactory.service(apiKey: trimmed, basePath: basePath, betaHeaders: nil)
         }
-    }
-
-    /// 断开连接
-    func disconnect() async {
-        await client.terminate()
-        activeSessions.removeAll()
-        currentAgentInfo = nil
-        connectionState = .disconnected
-    }
-
-    // MARK: - Session Management
-
-    /// 创建会话
-    func createSession(workingDirectory: String) async throws -> Session {
-        guard connectionState.isConnected else {
-            throw AgentClientError.sessionCreationFailed
-        }
-
-        let response = try await client.newSession(
-            workingDirectory: workingDirectory,
-            mcpServers: []
-        )
-
-        let sessionId = response.sessionId
-        activeSessions[sessionId.value] = workingDirectory
-
-        return Session(
-            sessionId: sessionId.value,
-            title: Session.generateTitle(from: workingDirectory),
-            workingDirectory: workingDirectory
-        )
-    }
-
-    /// 结束会话
-    func closeSession(sessionId: String) async throws {
-        activeSessions.removeValue(forKey: sessionId)
     }
 
     // MARK: - Messaging
 
-    /// 发送提示
-    func sendPrompt(text: String, sessionId: String) async throws {
-        // TODO: 实现发送提示
+    /// 发送消息并流式接收 Claude 响应
+    /// - Parameters:
+    ///   - text: 用户输入的文本
+    ///   - session: 当前对话会话
+    ///   - modelId: 使用的模型 ID
+    ///   - modelContext: SwiftData 上下文
+    func sendMessage(
+        text: String,
+        session: Session,
+        modelId: String,
+        modelContext: ModelContext
+    ) async throws {
+        guard let service else {
+            throw ClaudeError.notConfigured
+        }
+
+        isStreaming = true
+        lastError = nil
+        defer { isStreaming = false }
+
+        // 构建消息历史
+        let sortedMessages = session.messages.sorted { $0.sequence < $1.sequence }
+        var apiMessages: [MessageParameter.Message] = []
+
+        for msg in sortedMessages {
+            guard let content = msg.textContent, !content.isEmpty else { continue }
+            let role: MessageParameter.Message.Role = msg.direction == .user ? .user : .assistant
+            apiMessages.append(MessageParameter.Message(role: role, content: .text(content)))
+        }
+
+        // 添加当前用户消息
+        apiMessages.append(MessageParameter.Message(role: .user, content: .text(text)))
+
+        let parameters = MessageParameter(
+            model: .other(modelId),
+            messages: apiMessages,
+            maxTokens: 8192
+        )
+
+        // 创建助手消息占位符（流式更新时实时修改）
+        let assistantMessage = Message.agentMessage(text: "", session: session)
+        assistantMessage.status = .pending
+        modelContext.insert(assistantMessage)
+        try? modelContext.save()
+
+        do {
+            let stream = try await service.streamMessage(parameters)
+            var fullText = ""
+
+            for try await event in stream {
+                if let deltaText = event.delta?.text {
+                    fullText += deltaText
+                    assistantMessage.textContent = fullText
+                }
+            }
+
+            assistantMessage.status = .completed
+            if assistantMessage.textContent?.isEmpty ?? true {
+                assistantMessage.textContent = "(无响应)"
+            }
+
+            // 根据第一条用户消息自动设置会话标题
+            if session.title == "新对话" || session.title.isEmpty {
+                session.title = String(text.prefix(40))
+            }
+
+        } catch {
+            assistantMessage.status = .failed
+            assistantMessage.textContent = "错误: \(error.localizedDescription)"
+            lastError = error.localizedDescription
+            throw ClaudeError.streamFailed(error)
+        }
+
+        session.updatedAt = Date()
+        try? modelContext.save()
     }
+}
 
-    /// 取消会话操作
-    func cancelSession(sessionId: String) async throws {
-        // TODO: 实现取消操作
-    }
+// MARK: - Errors
 
-    /// 设置会话模式
-    func setMode(sessionId: String, modeId: String) async throws {
-        // TODO: 实现设置模式
-    }
+enum ClaudeError: LocalizedError {
+    case notConfigured
+    case streamFailed(Error)
 
-    // MARK: - Streaming Updates
-
-    /// 订阅会话更新流
-    func subscribeToUpdates(sessionId: String) -> AsyncStream<SessionUpdate> {
-        AsyncStream { continuation in
-            // TODO: 实现流式更新
-            continuation.finish()
+    var errorDescription: String? {
+        switch self {
+        case .notConfigured:
+            return "请先在设置中配置 Anthropic API 密钥"
+        case .streamFailed(let error):
+            return "请求失败: \(error.localizedDescription)"
         }
     }
-
-    // MARK: - State
-
-    /// 当前连接状态
-    func getConnectionState() -> ConnectionState {
-        connectionState
-    }
-
-    /// Agent 信息
-    func getAgentInfo() -> AgentInfo? {
-        currentAgentInfo
-    }
-
-    /// 活跃会话列表
-    func getActiveSessions() -> [String] {
-        Array(activeSessions.keys)
-    }
-}
-
-// MARK: - Session Update Types
-
-/// 会话更新事件
-enum SessionUpdate: Sendable {
-    case messageChunk(String)
-    case toolCall(ToolCallEvent)
-    case modeChanged(SessionMode)
-    case error(Error)
-}
-
-struct ToolCallEvent: Sendable {
-    let toolCallId: String
-    let kind: ToolKind
-    let status: ToolStatus
-    let title: String?
-    let filePath: String?
 }

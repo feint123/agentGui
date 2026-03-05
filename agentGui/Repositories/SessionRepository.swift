@@ -29,15 +29,6 @@ final class SessionRepository: BaseRepository, SessionRepositoryProtocol {
         return try? modelContext.fetch(descriptor).first
     }
 
-    func fetch(byAgentId agentId: UUID) async throws -> [Session] {
-        let predicate = #Predicate<Session> { $0.agent?.id == agentId }
-        let descriptor = FetchDescriptor<Session>(
-            predicate: predicate,
-            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
-        )
-        return try modelContext.fetch(descriptor)
-    }
-
     func create(_ session: Session) async throws {
         modelContext.insert(session)
         try modelContext.save()
