@@ -1,0 +1,15 @@
+{
+  "originHash" : "4c6a6fc50ed58f8ad8ae1213308cd9a924f9eafaadd38d1cb34d70a35171ea83",
+  "pins" : [
+    {
+      "identity" : "swift-acp",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/wiedymi/swift-acp.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "4c3f6071a842575be837317e25e177ab41dc2f85"
+      }
+    }
+  ],
+  "version" : 3
+}
