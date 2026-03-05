@@ -455,6 +455,22 @@ private struct MessageBubbleView: View {
                     }
                 }
                 .padding(14)
+
+                // 工具调用卡片（仅 agent 消息）
+                if message.direction == .agent {
+                    let sortedCalls = message.toolCalls.sorted {
+                        ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast)
+                    }
+                    if !sortedCalls.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(sortedCalls) { toolCall in
+                                ToolCallBubbleView(toolCall: toolCall)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 10)
+                    }
+                }
             }
         }
         .background(bubbleBackground)

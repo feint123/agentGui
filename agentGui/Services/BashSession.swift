@@ -1,0 +1,112 @@
+//
+//  BashSession.swift
+//  agentGui
+//
+
+import Foundation
+
+/// 持久化 bash session，通过轮询哨兵标记检测命令完成
+actor BashSession {
+
+    private var process: Process?
+    private var stdinHandle: FileHandle?
+
+    /// 当前命令的输出缓冲
+    private var outputBuffer = ""
+    /// 等待的哨兵字符串
+    private var currentSentinel = ""
+    /// 最大缓冲字节数 (50 KB)
+    private let maxOutputBytes = 50_000
+
+    // MARK: - Lifecycle
+
+    func start(workingDirectory: String? = nil) {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/bash")
+        proc.arguments = []
+        proc.environment = ProcessInfo.processInfo.environment
+
+        if let wd = workingDirectory, !wd.isEmpty {
+            proc.currentDirectoryURL = URL(fileURLWithPath: wd)
+        }
+
+        let inPipe = Pipe()
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        proc.standardInput = inPipe
+        proc.standardOutput = outPipe
+        proc.standardError = errPipe
+
+        outPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let str = String(data: data, encoding: .utf8) else { return }
+            Task { await self?.append(str) }
+        }
+        errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let str = String(data: data, encoding: .utf8) else { return }
+            Task { await self?.append(str) }
+        }
+
+        try? proc.run()
+        self.process = proc
+        self.stdinHandle = inPipe.fileHandleForWriting
+    }
+
+    private func append(_ str: String) {
+        outputBuffer += str
+        if outputBuffer.count > maxOutputBytes {
+            outputBuffer = String(outputBuffer.suffix(maxOutputBytes))
+        }
+    }
+
+    // MARK: - Execution
+
+    /// 在持久化 session 中执行命令，最多等待 timeout 秒
+    func execute(_ command: String, timeout: TimeInterval = 30) async -> String {
+        if !(process?.isRunning ?? false) {
+            start()
+        }
+
+        let sentinel = "BASH_DONE_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        currentSentinel = sentinel
+        outputBuffer = ""
+
+        // 包裹命令捕获 stderr，然后输出哨兵
+        let cmd = "{ \(command); } 2>&1; printf '\\n%s\\n' '\(sentinel)'\n"
+        stdinHandle?.write(Data(cmd.utf8))
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            // 检查哨兵
+            if outputBuffer.contains(sentinel) {
+                let parts = outputBuffer.components(separatedBy: sentinel)
+                let result = (parts.first ?? "").trimmingCharacters(in: .newlines)
+                currentSentinel = ""
+                outputBuffer = ""
+                return result.isEmpty ? "(no output)" : result
+            }
+            if Date() > deadline {
+                let partial = outputBuffer
+                currentSentinel = ""
+                outputBuffer = ""
+                return partial + (partial.isEmpty ? "" : "\n") + "[Timed out after \(Int(timeout))s]"
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms 轮询
+        }
+    }
+
+    func restart(workingDirectory: String? = nil) {
+        process?.terminate()
+        process = nil
+        stdinHandle = nil
+        outputBuffer = ""
+        currentSentinel = ""
+        start(workingDirectory: workingDirectory)
+    }
+
+    func terminate() {
+        process?.terminate()
+        process = nil
+    }
+}

@@ -25,12 +25,24 @@ final class AppSettings {
     /// 消息字体大小
     var messageFontSize: Double
 
+    /// 启用 Text Editor Tool（文件读写）
+    var enableTextEditorTool: Bool
+
+    /// 启用 Bash Tool（执行 shell 命令）
+    var enableBashTool: Bool
+
+    /// Bash / 文件工具的工作目录（留空则使用 HOME）
+    var workingDirectory: String
+
     init() {
         self.apiKey = ""
         self.baseURL = ""
         self.selectedModel = "claude-opus-4-5"
         self.themeMode = .system
         self.messageFontSize = 14.0
+        self.enableTextEditorTool = true
+        self.enableBashTool = false
+        self.workingDirectory = ""
     }
 }
 
