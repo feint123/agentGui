@@ -10,26 +10,52 @@ import AppKit
 
 // MARK: - Markdown Message View
 
-/// 块级 Markdown 渲染视图，将消息分割为文本段和代码块段分别渲染
+/// 块级 Markdown 渲染视图
+/// 按行扫描，识别标题 / 分割线 / 表格 / 代码块 / 普通文本段，各类型专属渲染
 struct MarkdownMessageView: View {
     let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(parseSegments(text)) { segment in
-                switch segment.kind {
-                case .markdown:
-                    markdownText(segment.content)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                case .code(let language):
-                    CodeBlockView(code: segment.content, language: language)
-                }
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(parseBlocks(text)) { block in
+                blockView(block)
             }
         }
     }
 
-    private func markdownText(_ raw: String) -> Text {
+    // MARK: - Block Rendering
+
+    @ViewBuilder
+    private func blockView(_ block: MarkdownBlock) -> some View {
+        switch block.kind {
+        case .text:
+            inlineText(block.content)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+        case .heading(let level):
+            inlineText(block.content)
+                .font(headingFont(level))
+                .bold()
+                .textSelection(.enabled)
+                .padding(.top, level <= 2 ? 6 : 2)
+                .padding(.bottom, 2)
+
+        case .divider:
+            Divider()
+                .padding(.vertical, 4)
+
+        case .code(let language):
+            CodeBlockView(code: block.content, language: language)
+
+        case .table(let headers, let alignments, let rows):
+            MarkdownTableView(headers: headers, alignments: alignments, rows: rows)
+        }
+    }
+
+    // MARK: - Inline Markdown (AttributedString)
+
+    private func inlineText(_ raw: String) -> Text {
         let trimmed = raw.trimmingCharacters(in: .newlines)
         guard !trimmed.isEmpty else { return Text("") }
         if let attr = try? AttributedString(
@@ -41,69 +67,222 @@ struct MarkdownMessageView: View {
         return Text(trimmed)
     }
 
-    // MARK: - Segment Parsing
+    private func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: return .title
+        case 2: return .title2
+        case 3: return .title3
+        case 4: return .headline
+        case 5: return .subheadline
+        default: return .footnote
+        }
+    }
 
-    private func parseSegments(_ input: String) -> [MessageSegment] {
-        var segments: [MessageSegment] = []
-        var remaining = input
-        let pattern = #"```([^\n`]*)\n([\s\S]*?)```"#
+    // MARK: - Block Parser
 
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return [MessageSegment(kind: .markdown, content: input)]
+    private func parseBlocks(_ input: String) -> [MarkdownBlock] {
+        var blocks: [MarkdownBlock] = []
+        let lines = input.components(separatedBy: "\n")
+        var i = 0
+        var textBuffer: [String] = []
+
+        func flushText() {
+            let joined = textBuffer.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            if !joined.isEmpty {
+                blocks.append(MarkdownBlock(kind: .text, content: joined))
+            }
+            textBuffer = []
         }
 
-        var searchRange = remaining.startIndex..<remaining.endIndex
+        while i < lines.count {
+            let line = lines[i]
 
-        while true {
-            let nsRange = NSRange(searchRange, in: remaining)
-            guard let match = regex.firstMatch(in: remaining, range: nsRange) else {
-                // 剩余全部作为 markdown 段
-                let tail = String(remaining[searchRange])
-                if !tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    segments.append(MessageSegment(kind: .markdown, content: tail))
+            // ── Fenced code block ──
+            if line.hasPrefix("```") {
+                flushText()
+                let lang = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                var code: [String] = []
+                i += 1
+                while i < lines.count && !lines[i].hasPrefix("```") {
+                    code.append(lines[i])
+                    i += 1
                 }
-                break
+                blocks.append(MarkdownBlock(
+                    kind: .code(language: lang.isEmpty ? nil : lang),
+                    content: code.joined(separator: "\n")
+                ))
+                i += 1
+                continue
             }
 
-            let matchRange = Range(match.range, in: remaining)!
-
-            // 代码块之前的文本
-            let before = String(remaining[searchRange.lowerBound..<matchRange.lowerBound])
-            if !before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                segments.append(MessageSegment(kind: .markdown, content: before))
+            // ── ATX Heading  # … ######  ──
+            if let m = line.firstMatch(of: /^(#{1,6})\s+(.+)$/) {
+                flushText()
+                let level = m.1.count
+                let text = String(m.2)
+                blocks.append(MarkdownBlock(kind: .heading(level: level), content: text))
+                i += 1
+                continue
             }
 
-            // 语言标签
-            let langRange = match.range(at: 1)
-            let language = langRange.location != NSNotFound
-                ? (Range(langRange, in: remaining).map { String(remaining[$0]) } ?? "")
-                : ""
+            // ── Setext Heading (=== or ---) — only if prev line is text ──
+            if i + 1 < lines.count {
+                let next = lines[i + 1]
+                if !line.trimmingCharacters(in: .whitespaces).isEmpty,
+                   next.allSatisfy({ $0 == "=" }) && next.count >= 2 {
+                    flushText()
+                    blocks.append(MarkdownBlock(kind: .heading(level: 1), content: line))
+                    i += 2
+                    continue
+                }
+                if !line.trimmingCharacters(in: .whitespaces).isEmpty,
+                   next.allSatisfy({ $0 == "-" }) && next.count >= 2 {
+                    flushText()
+                    blocks.append(MarkdownBlock(kind: .heading(level: 2), content: line))
+                    i += 2
+                    continue
+                }
+            }
 
-            // 代码内容
-            let codeRange = match.range(at: 2)
-            let code = codeRange.location != NSNotFound
-                ? (Range(codeRange, in: remaining).map { String(remaining[$0]) } ?? "")
-                : ""
+            // ── Thematic break / Divider (--- *** ___) ──
+            let stripped = line.trimmingCharacters(in: .whitespaces)
+            if isThematicBreak(stripped) {
+                flushText()
+                blocks.append(MarkdownBlock(kind: .divider, content: ""))
+                i += 1
+                continue
+            }
 
-            segments.append(MessageSegment(kind: .code(language: language.isEmpty ? nil : language), content: code))
+            // ── GFM Table ──
+            if looksLikeTableRow(line) && i + 1 < lines.count && isTableSeparator(lines[i + 1]) {
+                flushText()
+                let headers = parseTableCells(line)
+                let sepCells = parseTableCells(lines[i + 1])
+                let alignments = sepCells.map { tableAlignment($0) }
+                var rows: [[String]] = []
+                i += 2
+                while i < lines.count && looksLikeTableRow(lines[i]) {
+                    rows.append(parseTableCells(lines[i]))
+                    i += 1
+                }
+                blocks.append(MarkdownBlock(
+                    kind: .table(headers: headers, alignments: alignments, rows: rows),
+                    content: ""
+                ))
+                continue
+            }
 
-            searchRange = matchRange.upperBound..<remaining.endIndex
+            // ── Regular text ──
+            textBuffer.append(line)
+            i += 1
         }
 
-        return segments.isEmpty ? [MessageSegment(kind: .markdown, content: input)] : segments
+        flushText()
+        return blocks
+    }
+
+    // MARK: - Table Helpers
+
+    private func looksLikeTableRow(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        return t.hasPrefix("|") && t.hasSuffix("|") && t.count > 2
+    }
+
+    private func isTableSeparator(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("|") else { return false }
+        return t.allSatisfy { $0 == "|" || $0 == "-" || $0 == ":" || $0 == " " }
+    }
+
+    private func parseTableCells(_ line: String) -> [String] {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        let inner = t.hasPrefix("|") ? String(t.dropFirst()) : t
+        let stripped = inner.hasSuffix("|") ? String(inner.dropLast()) : inner
+        return stripped.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    private func tableAlignment(_ cell: String) -> HorizontalAlignment {
+        let t = cell.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix(":") && t.hasSuffix(":") { return .center }
+        if t.hasSuffix(":") { return .trailing }
+        return .leading
+    }
+
+    private func isThematicBreak(_ s: String) -> Bool {
+        guard s.count >= 3 else { return false }
+        let chars = Set(s.filter { !$0.isWhitespace })
+        return chars.count == 1 && (chars.contains("-") || chars.contains("*") || chars.contains("_"))
     }
 }
 
-// MARK: - Message Segment
+// MARK: - Markdown Block Model
 
-private struct MessageSegment: Identifiable {
+private struct MarkdownBlock: Identifiable {
     let id = UUID()
     enum Kind {
-        case markdown
+        case text
+        case heading(level: Int)
+        case divider
         case code(language: String?)
+        case table(headers: [String], alignments: [HorizontalAlignment], rows: [[String]])
     }
     let kind: Kind
     let content: String
+}
+
+// MARK: - Table View
+
+private struct MarkdownTableView: View {
+    let headers: [String]
+    let alignments: [HorizontalAlignment]
+    let rows: [[String]]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+                // Header row
+                GridRow {
+                    ForEach(Array(headers.enumerated()), id: \.offset) { idx, header in
+                        Text(header)
+                            .font(.callout)
+                            .bold()
+                            .frame(maxWidth: .infinity, alignment: .init(horizontal: alignment(idx), vertical: .center))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(.ultraThinMaterial)
+                    }
+                }
+                Divider()
+
+                // Data rows
+                ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
+                    GridRow {
+                        ForEach(0..<headers.count, id: \.self) { colIdx in
+                            let cell = colIdx < row.count ? row[colIdx] : ""
+                            Text(cell)
+                                .font(.callout)
+                                .frame(maxWidth: .infinity, alignment: .init(horizontal: alignment(colIdx), vertical: .center))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(rowIdx.isMultiple(of: 2)
+                                    ? Color.primary.opacity(0.03)
+                                    : Color.clear)
+                        }
+                    }
+                    if rowIdx < rows.count - 1 {
+                        Divider().opacity(0.4)
+                    }
+                }
+            }
+        }
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 1))
+    }
+
+    private func alignment(_ idx: Int) -> HorizontalAlignment {
+        idx < alignments.count ? alignments[idx] : .leading
+    }
 }
 
 // MARK: - Code Block View
@@ -116,7 +295,6 @@ struct CodeBlockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header bar
             HStack {
                 Text(language ?? "code")
                     .font(.caption)
@@ -137,7 +315,6 @@ struct CodeBlockView: View {
 
             Divider()
 
-            // Code content
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code.trimmingCharacters(in: .newlines))
                     .font(.system(.footnote, design: .monospaced))
@@ -157,11 +334,10 @@ struct CodeBlockView: View {
     private func copyCode() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(code, forType: .string)
-        withAnimation {
-            isCopied = true
-        }
+        withAnimation { isCopied = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation { isCopied = false }
         }
     }
 }
+
