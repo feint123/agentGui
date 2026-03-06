@@ -118,7 +118,7 @@ extension ClaudeService {
         toolUseId: String,
         toolName: String,
         input: MessageResponse.Content.Input,
-        message: Message,
+        message: Message?,
         agentRound: AgentRound? = nil
     ) -> ToolCall {
         let path = input["path"]?.stringValue
@@ -172,6 +172,11 @@ extension ClaudeService {
         case "ask_user_question":
             kind = .askUser
             title = "提问用户"
+        case "run_subagent":
+            kind = .subagent
+            let agentName = input["agent_name"]?.stringValue ?? ""
+            let definition = SubagentDefinition.find(named: agentName)
+            title = "子代理: \(definition?.displayName ?? agentName)"
         default:
             kind = .other
             title = toolName
@@ -182,6 +187,12 @@ extension ClaudeService {
         record.filePath = path
         record.diffContent = diffContent
         record.startTime = Date()
+
+        if kind == .subagent {
+            record.subagentAgentName = input["agent_name"]?.stringValue
+            record.subagentTask = input["task"]?.stringValue
+        }
+
         return record
     }
 }

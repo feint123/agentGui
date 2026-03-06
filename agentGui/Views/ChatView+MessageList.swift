@@ -48,20 +48,6 @@ extension ChatView {
                         )
                         .id(message.id)
                     }
-
-                    if claudeService.isStreaming {
-                        HStack {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                            Text("Claude 正在思考...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 8)
-                        .id("streaming-indicator")
-                    }
                 }
                 .padding(.vertical, 16)
                 .padding(.horizontal, 12)
@@ -76,9 +62,7 @@ extension ChatView {
 
     func scrollToBottom(proxy: ScrollViewProxy) {
         withAnimation(.easeOut(duration: 0.2)) {
-            if claudeService.isStreaming {
-                proxy.scrollTo("streaming-indicator", anchor: .bottom)
-            } else if let last = allMessages.last {
+            if let last = allMessages.last {
                 proxy.scrollTo(last.id, anchor: .bottom)
             }
         }

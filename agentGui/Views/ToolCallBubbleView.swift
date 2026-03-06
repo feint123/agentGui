@@ -14,8 +14,9 @@ struct ToolCallBubbleView: View {
 
     init(toolCall: ToolCall) {
         self.toolCall = toolCall
-        // 执行中时默认展开
-        _isExpanded = State(initialValue: toolCall.status == .inProgress)
+        // 子代理卡片默认折叠；其他工具执行中时默认展开
+        let expanded = toolCall.kind != .subagent && toolCall.status == .inProgress
+        _isExpanded = State(initialValue: expanded)
     }
 
     var body: some View {
@@ -34,7 +35,8 @@ struct ToolCallBubbleView: View {
                 .stroke(Color.primary.opacity(0.07), lineWidth: 1)
         )
         .onChange(of: toolCall.status) { _, newStatus in
-            if newStatus == .inProgress { isExpanded = true }
+            // 子代理卡片不自动展开
+            if newStatus == .inProgress && toolCall.kind != .subagent { isExpanded = true }
         }
     }
 
@@ -95,12 +97,52 @@ struct ToolCallBubbleView: View {
     @ViewBuilder
     private var detailContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // ask_user_question: show parsed Q&A
-            if toolCall.kind == .askUser {
+            if toolCall.kind == .subagent {
+                subagentDetail
+            } else if toolCall.kind == .askUser {
                 askUserDetail
             } else {
                 standardDetail
             }
+        }
+    }
+
+    // MARK: - Subagent Detail
+
+    @ViewBuilder
+    private var subagentDetail: some View {
+        // Task description
+        if let task = toolCall.subagentTask, !task.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("任务")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text(task)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(4)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+            }
+        }
+
+        // Subagent rounds timeline
+        let rounds = toolCall.subagentRounds.sorted { $0.roundIndex < $1.roundIndex }
+        if !rounds.isEmpty {
+            Divider().opacity(0.5)
+            SubagentTimelineView(rounds: rounds)
+                .padding(.top, 2)
+        } else if toolCall.status == .inProgress {
+            HStack(spacing: 6) {
+                ProgressView().scaleEffect(0.6)
+                Text("子代理执行中…")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
         }
     }
 

@@ -46,10 +46,20 @@ final class ToolCall {
     /// 关联的 Agentic Loop 轮次（nil 表示历史数据）
     var agentRound: AgentRound?
 
+    /// 子代理名称（kind == .subagent 时使用）
+    var subagentAgentName: String?
+
+    /// 子代理任务描述（kind == .subagent 时使用）
+    var subagentTask: String?
+
+    /// 子代理的 agentic loop 轮次（kind == .subagent 时使用）
+    @Relationship(deleteRule: .cascade, inverse: \AgentRound.subagentToolCall)
+    var subagentRounds: [AgentRound] = []
+
     init(
         toolCallId: String,
         kind: ToolKind,
-        message: Message,
+        message: Message? = nil,
         agentRound: AgentRound? = nil
     ) {
         self.id = UUID()

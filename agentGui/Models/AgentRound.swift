@@ -27,14 +27,17 @@ final class AgentRound {
     /// 时间戳
     var timestamp: Date
 
-    /// 关联的消息
+    /// 关联的消息（主 Agent 轮次时有值；子代理轮次时为 nil）
     var message: Message?
+
+    /// 关联的子代理 ToolCall（仅子代理轮次使用，互斥于 message）
+    var subagentToolCall: ToolCall?
 
     /// 本轮的工具调用列表
     @Relationship(deleteRule: .cascade, inverse: \ToolCall.agentRound)
     var toolCalls: [ToolCall] = []
 
-    init(roundIndex: Int, message: Message) {
+    init(roundIndex: Int, message: Message? = nil) {
         self.id = UUID()
         self.roundIndex = roundIndex
         self.timestamp = Date()

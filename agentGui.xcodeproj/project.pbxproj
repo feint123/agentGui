@@ -7,7 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */ = {isa = PBXBuildFile; productRef = 12266AFA2F59CDD700450C6E /* SwiftAnthropic */; };                1222AEDB2F5B4A3500A4A73D /* BeautifulMermaid in Frameworks */ = {isa = PBXBuildFile; productRef = 1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */; };/* End PBXBuildFile section */
+		1222AEDB2F5B4A3500A4A73D /* BeautifulMermaid in Frameworks */ = {isa = PBXBuildFile; productRef = 1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */; };
+		12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */ = {isa = PBXBuildFile; productRef = 12266AFA2F59CDD700450C6E /* SwiftAnthropic */; };
+/* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		12D6F8442F3ACA8400B21E2D /* PBXContainerItemProxy */ = {
@@ -56,7 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */,
-					1222AEDB2F5B4A3500A4A73D /* BeautifulMermaid in Frameworks */,
+				1222AEDB2F5B4A3500A4A73D /* BeautifulMermaid in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,7 +120,7 @@
 			name = agentGui;
 			packageProductDependencies = (
 				12266AFA2F59CDD700450C6E /* SwiftAnthropic */,
-					1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */,
+				1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */,
 			);
 			productName = agentGui;
 			productReference = 12D6F8342F3ACA8200B21E2D /* agentGui.app */;
@@ -649,17 +651,17 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1222AED92F5B4A3500A4A73D /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */;
+			productName = BeautifulMermaid;
+		};
 		12266AFA2F59CDD700450C6E /* SwiftAnthropic */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */;
 			productName = SwiftAnthropic;
 		};
-		1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */ = {
-				isa = XCSwiftPackageProductDependency;
-				package = 1222AED92F5B4A3500A4A73D /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */;
-				productName = BeautifulMermaid;
-			};
-		/* End XCSwiftPackageProductDependency section */
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 12D6F82C2F3ACA8200B21E2D /* Project object */;
 }
