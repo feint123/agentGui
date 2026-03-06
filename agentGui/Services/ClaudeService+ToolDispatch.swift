@@ -20,7 +20,7 @@ extension ClaudeService {
     ) async -> String {
         switch name {
         case "str_replace_based_edit_tool", "str_replace_editor":
-            return executeTextEditorTool(input: input)
+            return await executeTextEditorTool(input: input)
         case "bash":
             let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
             let session = getBashSession(for: sessionId, workingDirectory: wd)
@@ -76,7 +76,7 @@ extension ClaudeService {
         case "str_replace_based_edit_tool", "str_replace_editor":
             let cmd = input["command"]?.stringValue ?? "?"
             switch cmd {
-            case "view":
+            case "view", "read", "open":
                 kind = .read
                 title = "查看 \(fileName)"
             case "str_replace":

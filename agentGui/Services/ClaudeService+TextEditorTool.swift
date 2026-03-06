@@ -10,41 +10,45 @@ import SwiftAnthropic
 
 extension ClaudeService {
 
-    func executeTextEditorTool(input: MessageResponse.Content.Input) -> String {
-        guard let command = input["command"]?.stringValue else {
-            return "Error: missing 'command' parameter"
-        }
-        guard let path = input["path"]?.stringValue else {
-            return "Error: missing 'path' parameter"
-        }
+    /// Dispatches text editor commands. Runs all blocking file I/O off the MainActor
+    /// via Task.detached to prevent freezing the UI.
+    func executeTextEditorTool(input: MessageResponse.Content.Input) async -> String {
+        // Extract input values on MainActor before hopping off
+        let command   = input["command"]?.stringValue
+        let path      = input["path"]?.stringValue
+        let oldStr    = input["old_str"]?.stringValue
+        let newStr    = input["new_str"]?.stringValue
+        let fileText  = input["file_text"]?.stringValue
+        let insertLine = input["insert_line"]?.intValue
+        let viewRange  = input["view_range"]?.arrayValue?.compactMap { $0.intValue }
 
-        switch command {
-        case "view":
-            let range = input["view_range"]?.arrayValue?.compactMap { $0.intValue }
-            return textEditorView(path: path, viewRange: range)
-        case "str_replace":
-            guard let oldStr = input["old_str"]?.stringValue else { return "Error: missing 'old_str'" }
-            let newStr = input["new_str"]?.stringValue ?? ""
-            return textEditorStrReplace(path: path, oldStr: oldStr, newStr: newStr)
-        case "create":
-            guard let fileText = input["file_text"]?.stringValue else { return "Error: missing 'file_text'" }
-            return textEditorWrite(path: path, fileText: fileText)
-        case "write":
-            // Claude 4 uses 'write' to overwrite entire file content
-            let fileText = input["new_str"]?.stringValue ?? input["file_text"]?.stringValue ?? ""
-            return textEditorWrite(path: path, fileText: fileText)
-        case "insert":
-            guard let line = input["insert_line"]?.intValue,
-                  let newStr = input["new_str"]?.stringValue else { return "Error: missing parameters" }
-            return textEditorInsert(path: path, insertLine: line, newStr: newStr)
-        default:
-            return "Error: unknown command '\(command)'"
-        }
+        return await Task.detached(priority: .userInitiated) {
+            guard let command else { return "Error: missing 'command' parameter" }
+            guard let path    else { return "Error: missing 'path' parameter" }
+
+            switch command {
+            case "view", "read", "open":
+                return Self.textEditorView(path: path, viewRange: viewRange)
+            case "str_replace":
+                guard let oldStr else { return "Error: missing 'old_str'" }
+                return Self.textEditorStrReplace(path: path, oldStr: oldStr, newStr: newStr ?? "")
+            case "create":
+                guard let fileText else { return "Error: missing 'file_text'" }
+                return Self.textEditorWrite(path: path, fileText: fileText)
+            case "write":
+                return Self.textEditorWrite(path: path, fileText: newStr ?? fileText ?? "")
+            case "insert":
+                guard let insertLine, let newStr else { return "Error: missing parameters" }
+                return Self.textEditorInsert(path: path, insertLine: insertLine, newStr: newStr)
+            default:
+                return "Error: unknown command '\(command)'"
+            }
+        }.value
     }
 
-    // MARK: - File Operations
+    // MARK: - File Operations (nonisolated static — no actor isolation needed)
 
-    private func textEditorView(path: String, viewRange: [Int]?) -> String {
+    nonisolated private static func textEditorView(path: String, viewRange: [Int]?) -> String {
         do {
             let content = try String(contentsOfFile: path, encoding: .utf8)
             let lines = content.components(separatedBy: "\n")
@@ -66,7 +70,7 @@ extension ClaudeService {
         }
     }
 
-    private func textEditorStrReplace(path: String, oldStr: String, newStr: String) -> String {
+    nonisolated private static func textEditorStrReplace(path: String, oldStr: String, newStr: String) -> String {
         do {
             let content = try String(contentsOfFile: path, encoding: .utf8)
             let count = content.components(separatedBy: oldStr).count - 1
@@ -80,7 +84,7 @@ extension ClaudeService {
         }
     }
 
-    private func textEditorWrite(path: String, fileText: String) -> String {
+    nonisolated private static func textEditorWrite(path: String, fileText: String) -> String {
         do {
             let dir = (path as NSString).deletingLastPathComponent
             if !dir.isEmpty {
@@ -93,7 +97,7 @@ extension ClaudeService {
         }
     }
 
-    private func textEditorInsert(path: String, insertLine: Int, newStr: String) -> String {
+    nonisolated private static func textEditorInsert(path: String, insertLine: Int, newStr: String) -> String {
         do {
             let content = try String(contentsOfFile: path, encoding: .utf8)
             var lines = content.components(separatedBy: "\n")
@@ -106,3 +110,4 @@ extension ClaudeService {
         }
     }
 }
+
