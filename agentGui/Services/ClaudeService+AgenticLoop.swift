@@ -236,6 +236,58 @@ extension ClaudeService {
             ))
         }
 
+        // ask_user_question is always available
+        tools.append(.function(
+            name: "ask_user_question",
+            description: """
+            Ask the user one or more questions with structured multiple-choice options. \
+            Execution pauses until the user submits answers. \
+            Use this when you need clarification or a decision before proceeding.
+
+            Each element in `questions` must follow this exact shape:
+            {
+              "question":   string  — the question sentence shown to the user,
+              "header":     string  — short section label displayed above the question (e.g. "Language", "Confirm"),
+              "options":    array of { "label": string, "description": string } — the selectable choices,
+              "multiSelect": bool  — true to allow multiple selections, false for single choice
+            }
+
+            Example call:
+            {
+              "questions": [
+                {
+                  "question": "Which programming language should I use?",
+                  "header": "Language",
+                  "options": [
+                    { "label": "Swift",  "description": "Apple platforms, type-safe" },
+                    { "label": "Python", "description": "Scripting, data science" },
+                    { "label": "Rust",   "description": "Systems, performance" }
+                  ],
+                  "multiSelect": false
+                }
+              ]
+            }
+
+            The tool returns JSON:
+            {
+              "answers": [
+                { "question": "...", "header": "...", "selected": ["Swift"] }
+              ]
+            }
+            If the user cancels, "selected" will be an empty array [].
+            """,
+            inputSchema: .init(
+                type: .object,
+                properties: [
+                    "questions": .init(
+                        type: .array,
+                        description: "Array of question objects. Each must have: question (string), header (string), options (array of {label, description}), multiSelect (bool)."
+                    )
+                ],
+                required: ["questions"]
+            )
+        ))
+
         return tools
     }
 }

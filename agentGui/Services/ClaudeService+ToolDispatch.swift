@@ -33,8 +33,55 @@ extension ClaudeService {
                 return content
             }
             return "Error: skill '\(skillName)' not found"
+        case "ask_user_question":
+            return await executeAskUserQuestion(input: input)
         default:
             return "Error: unknown tool '\(name)'"
+        }
+    }
+
+    // MARK: Ask User Question
+
+    func executeAskUserQuestion(input: MessageResponse.Content.Input) async -> String {
+        // Parse the questions array from the DynamicContent input
+        guard let questionsValue = input["questions"] else {
+            return "{\"error\": \"missing 'questions' parameter\"}"
+        }
+
+        // DynamicContent is Decodable-only, so convert to Any via JSONSerialization
+        let anyValue = dynamicContentToAny(questionsValue)
+        guard
+            let arrayValue = anyValue as? [[String: Any]],
+            let data = try? JSONSerialization.data(withJSONObject: arrayValue),
+            let questions = try? JSONDecoder().decode([AskUserQuestion].self, from: data)
+        else {
+            return "{\"error\": \"failed to parse questions\"}"
+        }
+
+        // Suspend the agentic loop. ClaudeService is @MainActor so self.pendingUserQuestion
+        // can be set directly without a Task wrapper.
+        let result = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            self.pendingUserQuestion = AskUserQuestionRequest(
+                questions: questions,
+                continuation: continuation
+            )
+        }
+        // Clear pending state now that the user has responded
+        self.pendingUserQuestion = nil
+        return result
+    }
+
+    /// Recursively convert DynamicContent (Decodable-only) to a JSONSerialization-compatible Any.
+    private func dynamicContentToAny(_ content: MessageResponse.Content.DynamicContent) -> Any {
+        switch content {
+        case .string(let s):  return s
+        case .integer(let i): return i
+        case .double(let d):  return d
+        case .bool(let b):    return b
+        case .null:           return NSNull()
+        case .array(let arr): return arr.map { dynamicContentToAny($0) }
+        case .dictionary(let dict):
+            return dict.mapValues { dynamicContentToAny($0) }
         }
     }
 
@@ -122,6 +169,9 @@ extension ClaudeService {
             kind = .other
             let skillName = input["name"]?.stringValue ?? ""
             title = "加载技能: \(skillName)"
+        case "ask_user_question":
+            kind = .askUser
+            title = "提问用户"
         default:
             kind = .other
             title = toolName

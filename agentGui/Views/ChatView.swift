@@ -56,6 +56,18 @@ struct ChatView: View {
         } message: {
             if let error = errorMessage { Text(error) }
         }
+        .sheet(item: Binding(
+            get: { claudeService.pendingUserQuestion },
+            set: { newVal in
+                if newVal == nil {
+                    // Cancel if not yet resolved (guard inside cancel() is a no-op if already submitted)
+                    claudeService.pendingUserQuestion?.cancel()
+                    claudeService.pendingUserQuestion = nil
+                }
+            }
+        )) { request in
+            AskUserQuestionView(request: request)
+        }
     }
 
     // MARK: - Messages Area

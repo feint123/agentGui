@@ -92,39 +92,89 @@ struct ToolCallBubbleView: View {
         }
     }
 
-    // MARK: - Detail Content
-
     @ViewBuilder
     private var detailContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // 文件路径
-            if let path = toolCall.filePath {
-                HStack(spacing: 4) {
-                    Image(systemName: "doc")
-                        .font(.caption2)
+            // ask_user_question: show parsed Q&A
+            if toolCall.kind == .askUser {
+                askUserDetail
+            } else {
+                standardDetail
+            }
+        }
+    }
+
+    // MARK: - Ask User Detail
+
+    @ViewBuilder
+    private var askUserDetail: some View {
+        if let output = toolCall.terminalOutput,
+           let data = output.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let answers = json["answers"] as? [[String: Any]] {
+            ForEach(answers.indices, id: \.self) { i in
+                let answer = answers[i]
+                let question = answer["question"] as? String ?? ""
+                let selected = answer["selected"] as? [String] ?? []
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(question)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(path)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(2)
+                    if selected.isEmpty {
+                        Text("(已取消)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        ForEach(selected, id: \.self) { label in
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.green)
+                                Text(label)
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                            }
+                        }
+                    }
                 }
+                if i < answers.count - 1 { Divider().opacity(0.4) }
             }
+        } else if let output = toolCall.terminalOutput, !output.isEmpty {
+            outputBlock(output)
+        }
+    }
 
-            // bash 命令
-            if toolCall.kind == .execute, let cmd = toolCall.title, !cmd.isEmpty {
-                codeBlock(label: nil, content: "$ \(cmd)")
-            }
+    // MARK: - Standard Detail
 
-            // str_replace diff
-            if toolCall.kind == .edit, let diff = toolCall.diffContent {
-                codeBlock(label: "Changes", content: diff)
+    @ViewBuilder
+    private var standardDetail: some View {
+        // 文件路径
+        if let path = toolCall.filePath {
+            HStack(spacing: 4) {
+                Image(systemName: "doc")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(path)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
             }
+        }
 
-            // 输出/结果
-            if let output = toolCall.terminalOutput, !output.isEmpty {
-                outputBlock(output)
-            }
+        // bash 命令
+        if toolCall.kind == .execute, let cmd = toolCall.title, !cmd.isEmpty {
+            codeBlock(label: nil, content: "$ \(cmd)")
+        }
+
+        // str_replace diff
+        if toolCall.kind == .edit, let diff = toolCall.diffContent {
+            codeBlock(label: "Changes", content: diff)
+        }
+
+        // 输出/结果
+        if let output = toolCall.terminalOutput, !output.isEmpty {
+            outputBlock(output)
         }
     }
 

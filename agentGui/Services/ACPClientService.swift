@@ -7,6 +7,59 @@ import Foundation
 import SwiftAnthropic
 import SwiftData
 
+// MARK: - Ask User Question Request
+
+/// 代表一道要提问给用户的题目中的一个选项
+struct AskUserQuestionOption: Decodable {
+    let label: String
+    let description: String
+}
+
+/// 代表一道要提问给用户的题目
+struct AskUserQuestion: Decodable {
+    let question: String
+    let header: String
+    let options: [AskUserQuestionOption]
+    let multiSelect: Bool
+}
+
+/// 挂起状态：当 Claude 调用 ask_user_question 时创建，用于暂停 agentic loop 直到用户回答
+final class AskUserQuestionRequest: Identifiable {
+    let id = UUID()
+    let questions: [AskUserQuestion]
+    private let continuation: CheckedContinuation<String, Never>
+    private var resolved = false
+
+    init(questions: [AskUserQuestion], continuation: CheckedContinuation<String, Never>) {
+        self.questions = questions
+        self.continuation = continuation
+    }
+
+    /// 由 UI 调用：传入每道题的已选 label 列表，恢复 agentic loop
+    func submit(selections: [[String]]) {
+        guard !resolved else { return }
+        resolved = true
+        let answers = zip(questions, selections).map { question, selected in
+            [
+                "question": question.question,
+                "header": question.header,
+                "selected": selected
+            ] as [String: Any]
+        }
+        let payload: [String: Any] = ["answers": answers]
+        let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])) ?? Data()
+        let result = String(data: data, encoding: .utf8) ?? "{\"answers\":[]}"
+        continuation.resume(returning: result)
+    }
+
+    /// 用户取消（关闭 sheet），返回空答案以避免 agentic loop 永久挂起
+    func cancel() {
+        guard !resolved else { return }
+        resolved = true
+        continuation.resume(returning: "{\"answers\":[]}")
+    }
+}
+
 // MARK: - Claude Service
 
 /// Claude API 服务，使用 SwiftAnthropic 与 Claude 交互
@@ -18,6 +71,9 @@ final class ClaudeService {
 
     var isStreaming: Bool = false
     var lastError: String?
+
+    /// 当 Claude 调用 ask_user_question 时设置，触发 ChatView 弹出问题 sheet
+    var pendingUserQuestion: AskUserQuestionRequest?
 
     // MARK: - Internal Storage
 

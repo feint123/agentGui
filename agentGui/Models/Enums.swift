@@ -45,6 +45,7 @@ enum ToolKind: String, Codable {
     case fetch = "fetch"
     case plan = "plan"
     case switchMode = "switch_mode"
+    case askUser = "ask_user"
     case other = "other"
 
     var icon: String {
@@ -58,6 +59,7 @@ enum ToolKind: String, Codable {
         case .fetch: return "arrow.down.doc"
         case .plan: return "list.bullet"
         case .switchMode: return "arrow.triangle.2.circlepath"
+        case .askUser: return "questionmark.circle"
         case .other: return "gearshape"
         }
     }
@@ -73,6 +75,7 @@ enum ToolKind: String, Codable {
         case .fetch: return "获取"
         case .plan: return "计划"
         case .switchMode: return "切换模式"
+        case .askUser: return "提问用户"
         case .other: return "其他"
         }
     }
