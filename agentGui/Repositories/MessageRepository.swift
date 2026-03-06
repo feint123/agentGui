@@ -68,4 +68,21 @@ final class MessageRepository: BaseRepository, MessageRepositoryProtocol {
         let messages = try await fetch(bySessionId: sessionId)
         return messages.last
     }
+
+    /// 删除单条消息
+    func delete(_ message: Message) throws {
+        modelContext.delete(message)
+        try modelContext.save()
+    }
+
+    /// 删除指定 sequence 起（含）的所有属于该会话的消息
+    func deleteMessages(fromSequence sequence: Int, sessionId: String) throws {
+        let predicate = #Predicate<Message> { $0.session?.sessionId == sessionId }
+        let descriptor = FetchDescriptor<Message>(predicate: predicate)
+        let messages = try modelContext.fetch(descriptor)
+        for message in messages where message.sequence >= sequence {
+            modelContext.delete(message)
+        }
+        try modelContext.save()
+    }
 }

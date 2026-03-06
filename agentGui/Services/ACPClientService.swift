@@ -114,9 +114,7 @@ final class ClaudeService {
         lastError = nil
         defer { isStreaming = false }
 
-        let settings = AppSettings.getOrCreate(in: modelContext)
-
-        // 构建消息历史（仅文本内容）
+        // 构建消息历史（仅文本内容）+ 新用户消息
         let sortedMessages = session.messages.sorted { $0.sequence < $1.sequence }
         var apiMessages: [MessageParameter.Message] = []
         for msg in sortedMessages {
@@ -126,15 +124,118 @@ final class ClaudeService {
         }
         apiMessages.append(MessageParameter.Message(role: .user, content: .text(text)))
 
+        try await resumeSend(
+            apiMessages: apiMessages,
+            service: service,
+            session: session,
+            modelId: modelId,
+            modelContext: modelContext
+        )
+
+        if session.title == "新对话" || session.title.isEmpty {
+            session.title = String(text.prefix(40))
+        }
+    }
+
+    /// 删除最后一条 agent 消息并重新发送
+    func regenerate(
+        session: Session,
+        modelId: String,
+        modelContext: ModelContext
+    ) async throws {
+        guard let service else { throw ClaudeError.notConfigured }
+
+        isStreaming = true
+        lastError = nil
+        defer { isStreaming = false }
+
+        let sortedMessages = session.messages.sorted { $0.sequence < $1.sequence }
+        let lastUserSeq = sortedMessages.last(where: { $0.direction == .user })?.sequence ?? -1
+
+        // 先构建 API 消息历史（仅保留 user 及之前）
+        var apiMessages: [MessageParameter.Message] = []
+        for msg in sortedMessages where msg.sequence <= lastUserSeq {
+            guard let content = msg.textContent, !content.isEmpty else { continue }
+            let role: MessageParameter.Message.Role = msg.direction == .user ? .user : .assistant
+            apiMessages.append(MessageParameter.Message(role: role, content: .text(content)))
+        }
+        guard !apiMessages.isEmpty else { return }
+
+        // 删除最后的 agent 消息
+        for msg in sortedMessages where msg.sequence > lastUserSeq {
+            modelContext.delete(msg)
+        }
+        try? modelContext.save()
+
+        try await resumeSend(
+            apiMessages: apiMessages,
+            service: service,
+            session: session,
+            modelId: modelId,
+            modelContext: modelContext
+        )
+    }
+
+    /// 编辑用户消息文本并重新发送（删除该消息之后的所有消息）
+    func editAndResend(
+        message: Message,
+        newText: String,
+        session: Session,
+        modelId: String,
+        modelContext: ModelContext
+    ) async throws {
+        guard let service else { throw ClaudeError.notConfigured }
+
+        isStreaming = true
+        lastError = nil
+        defer { isStreaming = false }
+
+        let sortedMessages = session.messages.sorted { $0.sequence < $1.sequence }
+        message.textContent = newText
+
+        // 先构建 API 消息历史（含被编辑的消息）
+        var apiMessages: [MessageParameter.Message] = []
+        for msg in sortedMessages where msg.sequence <= message.sequence {
+            guard let content = msg.textContent, !content.isEmpty else { continue }
+            let role: MessageParameter.Message.Role = msg.direction == .user ? .user : .assistant
+            apiMessages.append(MessageParameter.Message(role: role, content: .text(content)))
+        }
+        guard !apiMessages.isEmpty else { return }
+
+        // 删除被编辑消息之后的所有消息
+        for msg in sortedMessages where msg.sequence > message.sequence {
+            modelContext.delete(msg)
+        }
+        try? modelContext.save()
+
+        try await resumeSend(
+            apiMessages: apiMessages,
+            service: service,
+            session: session,
+            modelId: modelId,
+            modelContext: modelContext
+        )
+    }
+
+    // MARK: - Private Resume Helper
+
+    private func resumeSend(
+        apiMessages: [MessageParameter.Message],
+        service: any AnthropicService,
+        session: Session,
+        modelId: String,
+        modelContext: ModelContext
+    ) async throws {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let enabledSkills = skillService?.enabledSkills(enabledNames: settings.enabledSkillNames) ?? []
+        let systemPrompt = buildSkillSystemPrompt(enabledSkills)
+        let tools = buildTools(modelId: modelId, settings: settings, enabledSkills: enabledSkills)
+
         // 创建 assistant 消息占位符
         let assistantMessage = Message.agentMessage(text: "", session: session)
         assistantMessage.status = .pending
         modelContext.insert(assistantMessage)
         try? modelContext.save()
-
-        let enabledSkills = skillService?.enabledSkills(enabledNames: settings.enabledSkillNames) ?? []
-        let systemPrompt = buildSkillSystemPrompt(enabledSkills)
-        let tools = buildTools(modelId: modelId, settings: settings, enabledSkills: enabledSkills)
 
         do {
             try await runAgenticLoop(
@@ -148,14 +249,9 @@ final class ClaudeService {
                 settings: settings,
                 modelContext: modelContext
             )
-
             assistantMessage.status = .completed
             if assistantMessage.textContent?.isEmpty ?? true {
                 assistantMessage.textContent = "(无响应)"
-            }
-
-            if session.title == "新对话" || session.title.isEmpty {
-                session.title = String(text.prefix(40))
             }
         } catch {
             assistantMessage.status = .failed
