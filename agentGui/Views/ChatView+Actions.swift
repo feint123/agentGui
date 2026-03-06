@@ -44,6 +44,8 @@ extension ChatView {
                 modelId: modelId,
                 modelContext: modelContext
             )
+        } catch is CancellationError {
+            // User stopped the stream — no error to show
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -76,7 +78,7 @@ extension ChatView {
 
     func regenerate() {
         guard !claudeService.isStreaming else { return }
-        Task {
+        activeTask = Task {
             let settings = AppSettings.getOrCreate(in: modelContext)
             do {
                 try await claudeService.regenerate(
@@ -84,6 +86,8 @@ extension ChatView {
                     modelId: settings.selectedModel,
                     modelContext: modelContext
                 )
+            } catch is CancellationError {
+                // User stopped
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -92,7 +96,7 @@ extension ChatView {
 
     func editAndResend(message: Message, newText: String) {
         guard !claudeService.isStreaming else { return }
-        Task {
+        activeTask = Task {
             let settings = AppSettings.getOrCreate(in: modelContext)
             do {
                 try await claudeService.editAndResend(
@@ -102,9 +106,16 @@ extension ChatView {
                     modelId: settings.selectedModel,
                     modelContext: modelContext
                 )
+            } catch is CancellationError {
+                // User stopped
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    func stopStreaming() {
+        activeTask?.cancel()
+        activeTask = nil
     }
 }

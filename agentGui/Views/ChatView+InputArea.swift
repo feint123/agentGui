@@ -109,22 +109,29 @@ extension ChatView {
     }
 
     var sendButton: some View {
-        Button {
-            Task { await sendMessage() }
-        } label: {
+        Group {
             if claudeService.isStreaming {
-                ProgressView()
-                    .scaleEffect(0.7)
-                    .frame(width: 30, height: 30)
+                Button {
+                    stopStreaming()
+                } label: {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(Color.red.opacity(0.85))
+                }
+                .buttonStyle(.plain)
             } else {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30))
-                    .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.4))
+                Button {
+                    activeTask = Task { await sendMessage() }
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.4))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .keyboardShortcut(.return, modifiers: .command)
             }
         }
-        .buttonStyle(.plain)
-        .disabled(!canSend || claudeService.isStreaming)
-        .keyboardShortcut(.return, modifiers: .command)
     }
 
     var canSend: Bool {

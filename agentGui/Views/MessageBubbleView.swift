@@ -201,7 +201,7 @@ struct MessageBubbleView: View {
                     onEdit?(text)
                     isEditing = false
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .font(.callout)

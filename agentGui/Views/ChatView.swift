@@ -28,6 +28,7 @@ struct ChatView: View {
     @State var attachedFiles: [AttachedFile] = []
     @State var isDropTargeted = false
     @State var deleteFromConfirmMessage: Message?
+    @State var activeTask: Task<Void, Never>?
 
     @FocusState var isInputFocused: Bool
 

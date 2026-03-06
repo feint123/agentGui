@@ -49,6 +49,7 @@ extension ClaudeService {
         var loopNumbers = 0
 
         while continueLoop {
+            try Task.checkCancellation()
             loopNumbers += 1
             if loopNumbers > 10 {
                 // Safety check to prevent infinite loops
@@ -61,7 +62,7 @@ extension ClaudeService {
             let budget = settings.extendedThinkingBudget
             // thinking budget must be < maxTokens; give at least 4096 for response
             let maxTokens = useThinking ? max(budget + 4096, 16000) : 8192
-
+            print("Using model \(modelId) with maxTokens \(maxTokens)")
             let systemValue: MessageParameter.System? = systemPrompt.isEmpty ? nil : .text(systemPrompt)
             let params = MessageParameter(
                 model: .other(modelId),
@@ -71,8 +72,9 @@ extension ClaudeService {
                 tools: tools.isEmpty ? nil : tools,
                 thinking: useThinking ? .init(budgetTokens: budget) : nil
             )
+            print("Sending message with \(params.messages.count) messages, system prompt: \(systemPrompt.isEmpty ? "none" : "present")")
             let stream = try await service.streamMessage(params)
-
+            print("Received stream for loop iteration \(roundIndex)")
             // Create a round record for this iteration
             let round = AgentRound(roundIndex: roundIndex, message: assistantMessage)
             modelContext.insert(round)
@@ -85,6 +87,7 @@ extension ClaudeService {
             var stopReason: String? = nil
 
             for try await event in stream {
+                print("Received stream event for loop iteration \(roundIndex): contentBlock=\(event.contentBlock != nil), delta=\(event.delta != nil)")
                 // content_block_start — register new block
                 if let block = event.contentBlock {
                     if block.type == "tool_use", let id = block.id, let name = block.name {
@@ -95,7 +98,7 @@ extension ClaudeService {
                         currentBlockIndex = nil
                     }
                 }
-
+                print("Pending tools after content block processing: \(pendingTools)")
                 // content_block_delta — accumulate text / thinking / partial JSON
                 if let delta = event.delta {
                     switch delta.type {
@@ -155,9 +158,10 @@ extension ClaudeService {
                let sig = currentRoundThinking.signature {
                 assistantObjects.append(.thinking(currentRoundThinking.content, sig))
             }
-
+            print("Assistant objects for this round: \(assistantObjects)")
             // Execute tools and continue loop, or stop
             if stopReason == "tool_use" && !pendingTools.isEmpty {
+                print("Processing tool uses for loop iteration \(roundIndex)")
                 let sorted = pendingTools.sorted { $0.key < $1.key }.map { $0.value }
 
                 if !currentRoundText.isEmpty {
@@ -166,6 +170,7 @@ extension ClaudeService {
                 var toolResultObjects: [MessageParameter.Message.Content.ContentObject] = []
 
                 for pending in sorted {
+                    print("Executing tool \(pending.name) with input: \(pending.partialJson)")
                     let input = pending.parsedInput
                     assistantObjects.append(.toolUse(pending.id, pending.name, input))
 
