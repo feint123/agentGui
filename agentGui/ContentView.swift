@@ -56,6 +56,7 @@ struct SettingsView: View {
                 apiKeySection
                 modelSection
                 appearanceSection
+                toolsSection
                 aboutSection
             }
             .formStyle(.grouped)
@@ -136,6 +137,68 @@ struct SettingsView: View {
                         Text(mode.displayName).tag(mode)
                     }
                 }
+            }
+        }
+    }
+
+    // MARK: - Tools Section
+
+    @ViewBuilder
+    private var toolsSection: some View {
+        if let settings {
+            Section {
+                Toggle("启用文本编辑器工具（文件读写）", isOn: Binding(
+                    get: { settings.enableTextEditorTool },
+                    set: { settings.enableTextEditorTool = $0; try? modelContext.save() }
+                ))
+
+                Toggle("启用 Bash 工具（执行 shell 命令）", isOn: Binding(
+                    get: { settings.enableBashTool },
+                    set: { settings.enableBashTool = $0; try? modelContext.save() }
+                ))
+
+                if settings.enableBashTool {
+                    TextField("工作目录（留空使用 HOME）", text: Binding(
+                        get: { settings.workingDirectory },
+                        set: { settings.workingDirectory = $0; try? modelContext.save() }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                }
+            } header: {
+                Text("工具")
+            } footer: {
+                Text("工具让 Claude 能够读写文件、执行终端命令。仅在可信环境中启用。")
+            }
+
+            Section {
+                Toggle("启用 Extended Thinking（Claude 3.7 及更高版本）", isOn: Binding(
+                    get: { settings.enableExtendedThinking },
+                    set: { settings.enableExtendedThinking = $0; try? modelContext.save() }
+                ))
+
+                if settings.enableExtendedThinking {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Token 预算")
+                            Spacer()
+                            Text("\(settings.extendedThinkingBudget)")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { Double(settings.extendedThinkingBudget) },
+                                set: { settings.extendedThinkingBudget = Int($0); try? modelContext.save() }
+                            ),
+                            in: 1000...32000,
+                            step: 1000
+                        )
+                    }
+                }
+            } header: {
+                Text("Extended Thinking")
+            } footer: {
+                Text("开启后，Claude 3.7 及更高版本会在回答前进行深度推理，结果将以折叠气泡展示。")
             }
         }
     }

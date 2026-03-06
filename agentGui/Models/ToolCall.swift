@@ -43,10 +43,14 @@ final class ToolCall {
     /// 关联的消息
     var message: Message?
 
+    /// 关联的 Agentic Loop 轮次（nil 表示历史数据）
+    var agentRound: AgentRound?
+
     init(
         toolCallId: String,
         kind: ToolKind,
-        message: Message
+        message: Message,
+        agentRound: AgentRound? = nil
     ) {
         self.id = UUID()
         self.toolCallId = toolCallId
@@ -59,6 +63,7 @@ final class ToolCall {
         self.startTime = Date()
         self.endTime = nil
         self.message = message
+        self.agentRound = agentRound
     }
 }
 

@@ -19,6 +19,7 @@ struct agentGuiApp: App {
             Session.self,
             Message.self,
             ToolCall.self,
+            AgentRound.self,
         ])
 
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)

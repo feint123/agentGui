@@ -34,15 +34,23 @@ final class AppSettings {
     /// Bash / 文件工具的工作目录（留空则使用 HOME）
     var workingDirectory: String
 
+    /// 是否启用 Extended Thinking（适用 Claude 3.7+）
+    var enableExtendedThinking: Bool
+
+    /// Extended Thinking token 预算
+    var extendedThinkingBudget: Int
+
     init() {
         self.apiKey = ""
         self.baseURL = ""
-        self.selectedModel = "claude-opus-4-5"
+        self.selectedModel = "claude-sonnet-4-6"
         self.themeMode = .system
         self.messageFontSize = 14.0
         self.enableTextEditorTool = true
         self.enableBashTool = false
         self.workingDirectory = ""
+        self.enableExtendedThinking = false
+        self.extendedThinkingBudget = 10000
     }
 }
 
@@ -65,9 +73,13 @@ extension AppSettings {
 // MARK: - Available Models
 extension AppSettings {
     static let availableModels: [(id: String, name: String)] = [
+        // Claude 4
+        ("claude-opus-4-6", "Claude Opus 4.6"),
+        ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
         ("claude-opus-4-5", "Claude Opus 4.5"),
         ("claude-sonnet-4-5", "Claude Sonnet 4.5"),
         ("claude-haiku-4-5", "Claude Haiku 4.5"),
+        // Claude 3
         ("claude-3-7-sonnet-20250219", "Claude 3.7 Sonnet"),
         ("claude-3-5-sonnet-latest", "Claude 3.5 Sonnet"),
         ("claude-3-5-haiku-latest", "Claude 3.5 Haiku"),

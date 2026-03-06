@@ -63,7 +63,8 @@ extension ClaudeService {
         toolUseId: String,
         toolName: String,
         input: MessageResponse.Content.Input,
-        message: Message
+        message: Message,
+        agentRound: AgentRound? = nil
     ) -> ToolCall {
         let path = input["path"]?.stringValue
         let fileName = path.map { ($0 as NSString).lastPathComponent } ?? ""
@@ -110,7 +111,7 @@ extension ClaudeService {
             title = toolName
         }
 
-        let record = ToolCall(toolCallId: toolUseId, kind: kind, message: message)
+        let record = ToolCall(toolCallId: toolUseId, kind: kind, message: message, agentRound: agentRound)
         record.title = title
         record.filePath = path
         record.diffContent = diffContent

@@ -41,6 +41,10 @@ final class Message {
     @Relationship(deleteRule: .cascade, inverse: \ToolCall.message)
     var toolCalls: [ToolCall] = []
 
+    /// 关联的 Agentic Loop 轮次
+    @Relationship(deleteRule: .cascade, inverse: \AgentRound.message)
+    var agentRounds: [AgentRound] = []
+
     init(
         direction: MessageDirection,
         contentType: ContentType = .text,

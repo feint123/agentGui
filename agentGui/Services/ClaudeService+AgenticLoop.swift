@@ -20,6 +20,13 @@ struct PendingToolUse {
     }
 }
 
+// MARK: - Pending Thinking Block
+
+struct PendingThinking {
+    var content: String = ""
+    var signature: String? = nil
+}
+
 // MARK: - Agentic Loop
 
 extension ClaudeService {
@@ -37,44 +44,84 @@ extension ClaudeService {
         var loopMessages = apiMessages
         var accumulatedText = ""
         var continueLoop = true
+        var roundIndex = 0
 
         while continueLoop {
+            let useThinking = settings.enableExtendedThinking && isThinkingCapable(modelId: modelId)
+            let budget = settings.extendedThinkingBudget
+            // thinking budget must be < maxTokens; give at least 4096 for response
+            let maxTokens = useThinking ? max(budget + 4096, 16000) : 8192
+
             let params = MessageParameter(
                 model: .other(modelId),
                 messages: loopMessages,
-                maxTokens: 8192,
-                tools: tools.isEmpty ? nil : tools
+                maxTokens: maxTokens,
+                tools: tools.isEmpty ? nil : tools,
+                thinking: useThinking ? .init(budgetTokens: budget) : nil
             )
             let stream = try await service.streamMessage(params)
 
+            // Create a round record for this iteration
+            let round = AgentRound(roundIndex: roundIndex, message: assistantMessage)
+            modelContext.insert(round)
+            try? modelContext.save()
+            roundIndex += 1
+
             var currentRoundText = ""
+            var currentRoundThinking = PendingThinking()
             var pendingTools: [Int: PendingToolUse] = [:]
             var currentBlockIndex: Int? = nil
             var stopReason: String? = nil
 
             for try await event in stream {
-                // content_block_start — register new tool_use block
+                // content_block_start — register new block
                 if let block = event.contentBlock {
                     if block.type == "tool_use", let id = block.id, let name = block.name {
                         let idx = event.index ?? pendingTools.count
                         pendingTools[idx] = PendingToolUse(id: id, name: name)
                         currentBlockIndex = idx
-                    } else if block.type == "text" {
+                    } else {
                         currentBlockIndex = nil
                     }
                 }
 
-                // content_block_delta — accumulate text or partial JSON
+                // content_block_delta — accumulate text / thinking / partial JSON
                 if let delta = event.delta {
-                    if let text = delta.text {
-                        currentRoundText += text
-                        let joined = accumulatedText.isEmpty
-                            ? currentRoundText
-                            : accumulatedText + "\n\n" + currentRoundText
-                        assistantMessage.textContent = joined
-                    } else if let json = delta.partialJson, let idx = currentBlockIndex {
-                        pendingTools[idx]?.partialJson += json
+                    switch delta.type {
+                    case "text_delta":
+                        if let text = delta.text {
+                            currentRoundText += text
+                            round.text = currentRoundText
+                            let joined = accumulatedText.isEmpty
+                                ? currentRoundText
+                                : accumulatedText + "\n\n" + currentRoundText
+                            assistantMessage.textContent = joined
+                        }
+                    case "thinking_delta":
+                        if let thinking = delta.thinking {
+                            currentRoundThinking.content += thinking
+                            round.thinkingContent = currentRoundThinking.content
+                        }
+                    case "signature_delta":
+                        if let sig = delta.signature {
+                            currentRoundThinking.signature = sig
+                            round.thinkingSignature = sig
+                        }
+                    default:
+                        // legacy text delta (non-streaming thinking models)
+                        if let text = delta.text {
+                            currentRoundText += text
+                            round.text = currentRoundText
+                            let joined = accumulatedText.isEmpty
+                                ? currentRoundText
+                                : accumulatedText + "\n\n" + currentRoundText
+                            assistantMessage.textContent = joined
+                        }
+                        if let json = delta.partialJson, let idx = currentBlockIndex {
+                            pendingTools[idx]?.partialJson += json
+                        }
                     }
+
                     if let reason = delta.stopReason {
                         stopReason = reason
                     }
@@ -86,13 +133,23 @@ extension ClaudeService {
                 if !accumulatedText.isEmpty { accumulatedText += "\n\n" }
                 accumulatedText += currentRoundText
                 assistantMessage.textContent = accumulatedText
+                round.text = currentRoundText
+            }
+            try? modelContext.save()
+
+            // Build assistant content objects for this round (for next API call)
+            var assistantObjects: [MessageParameter.Message.Content.ContentObject] = []
+
+            // Include thinking blocks from this round (required for multi-turn)
+            if useThinking && !currentRoundThinking.content.isEmpty,
+               let sig = currentRoundThinking.signature {
+                assistantObjects.append(.thinking(currentRoundThinking.content, sig))
             }
 
             // Execute tools and continue loop, or stop
             if stopReason == "tool_use" && !pendingTools.isEmpty {
                 let sorted = pendingTools.sorted { $0.key < $1.key }.map { $0.value }
 
-                var assistantObjects: [MessageParameter.Message.Content.ContentObject] = []
                 if !currentRoundText.isEmpty {
                     assistantObjects.append(.text(currentRoundText))
                 }
@@ -106,7 +163,8 @@ extension ClaudeService {
                         toolUseId: pending.id,
                         toolName: pending.name,
                         input: input,
-                        message: assistantMessage
+                        message: assistantMessage,
+                        agentRound: round
                     )
                     modelContext.insert(record)
                     try? modelContext.save()
@@ -131,6 +189,15 @@ extension ClaudeService {
                 continueLoop = false
             }
         }
+    }
+
+    // MARK: - Helpers
+
+    /// Returns true if the model supports Extended Thinking (3.7 Sonnet and all later models)
+    private func isThinkingCapable(modelId: String) -> Bool {
+        // Claude 3.7+ and all Claude 4 series support Extended Thinking
+        let thinkingModels = ["claude-3-7", "claude-3.7", "claude-opus-4", "claude-sonnet-4", "claude-haiku-4"]
+        return thinkingModels.contains { modelId.contains($0) }
     }
 
     // MARK: - Tool List Builder

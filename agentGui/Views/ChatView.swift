@@ -433,31 +433,19 @@ private struct MessageBubbleView: View {
                     .font(.body)
                     .foregroundStyle(.red)
                     .padding(14)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    if message.direction == .agent {
+            } else if message.direction == .agent {
+                // Agent messages: use timeline if rounds are available, fallback for legacy data
+                if message.agentRounds.isEmpty {
+                    // Legacy / streaming-in-progress: flat view
+                    VStack(alignment: .leading, spacing: 8) {
                         MarkdownMessageView(text: content.text)
-                    } else {
-                        Text(content.text)
-                            .font(.body)
-                            .textSelection(.enabled)
+                        if !content.files.isEmpty { fileReferenceBadge(count: content.files.count) }
+                        if isStreaming {
+                            ProgressView().scaleEffect(0.5).frame(height: 12)
+                        }
                     }
+                    .padding(14)
 
-                    // 文件引用标记
-                    if !content.files.isEmpty {
-                        fileReferenceBadge(count: content.files.count)
-                    }
-
-                    if isStreaming {
-                        ProgressView()
-                            .scaleEffect(0.5)
-                            .frame(height: 12)
-                    }
-                }
-                .padding(14)
-
-                // 工具调用卡片（仅 agent 消息）
-                if message.direction == .agent {
                     let sortedCalls = message.toolCalls.sorted {
                         ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast)
                     }
@@ -470,7 +458,32 @@ private struct MessageBubbleView: View {
                         .padding(.horizontal, 14)
                         .padding(.bottom, 10)
                     }
+                } else {
+                    // Timeline view: step-by-step rounds
+                    AgentStepTimelineView(message: message)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+
+                    if isStreaming {
+                        HStack(spacing: 6) {
+                            ProgressView().scaleEffect(0.5)
+                            Text("正在思考…")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 10)
+                    }
                 }
+            } else {
+                // User / system messages: plain text
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(content.text)
+                        .font(.body)
+                        .textSelection(.enabled)
+                    if !content.files.isEmpty { fileReferenceBadge(count: content.files.count) }
+                }
+                .padding(14)
             }
         }
         .background(bubbleBackground)
