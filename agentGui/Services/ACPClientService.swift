@@ -349,6 +349,10 @@ final class ClaudeService {
         case "create":
             guard let fileText = input["file_text"]?.stringValue else { return "Error: missing 'file_text'" }
             return textEditorCreate(path: path, fileText: fileText)
+        case "write":
+            // Claude 4 uses 'write' to overwrite entire file content
+            let fileText = input["new_str"]?.stringValue ?? input["file_text"]?.stringValue ?? ""
+            return textEditorCreate(path: path, fileText: fileText)
         case "insert":
             guard let line = input["insert_line"]?.intValue,
                   let newStr = input["new_str"]?.stringValue else { return "Error: missing parameters" }
@@ -451,6 +455,9 @@ final class ClaudeService {
             case "create":
                 kind = .edit
                 title = "创建 \(fileName)"
+            case "write":
+                kind = .edit
+                title = "写入 \(fileName)"
             case "insert":
                 kind = .edit
                 title = "插入 \(fileName)"
