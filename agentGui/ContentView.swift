@@ -43,7 +43,7 @@ struct SettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(ClaudeService.self) private var claudeService
-
+    @Environment(SkillService.self) private var skillService
     @State private var settings: AppSettings?
     @State private var apiKeyInput: String = ""
     @State private var baseURLInput: String = ""
@@ -57,6 +57,7 @@ struct SettingsView: View {
                 modelSection
                 appearanceSection
                 toolsSection
+                skillsSection
                 aboutSection
             }
             .formStyle(.grouped)
@@ -200,6 +201,62 @@ struct SettingsView: View {
             } footer: {
                 Text("开启后，Claude 3.7 及更高版本会在回答前进行深度推理，结果将以折叠气泡展示。")
             }
+        }
+    }
+
+    // MARK: - Skills Section
+
+    @ViewBuilder
+    private var skillsSection: some View {
+        Section {
+            if skillService.availableSkills.isEmpty {
+                HStack {
+                    Image(systemName: "tray")
+                        .foregroundStyle(.secondary)
+                    Text("未发现技能")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                if let settings {
+                    ForEach(skillService.availableSkills) { skill in
+                        let isEnabled = settings.enabledSkillNames.contains(skill.directoryName)
+                        Toggle(isOn: Binding(
+                            get: { isEnabled },
+                            set: { newValue in
+                                var names = settings.enabledSkillNames
+                                if newValue {
+                                    if !names.contains(skill.directoryName) {
+                                        names.append(skill.directoryName)
+                                    }
+                                } else {
+                                    names.removeAll { $0 == skill.directoryName }
+                                }
+                                settings.enabledSkillNames = names
+                                try? modelContext.save()
+                            }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(skill.name)
+                                if !skill.description.isEmpty {
+                                    Text(skill.description)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Button("刷新技能列表") {
+                skillService.clearCache()
+                skillService.loadSkills()
+            }
+            .buttonStyle(.glassProminent)
+        } header: {
+            Text("Skills")
+        } footer: {
+            Text("展示 ~/.claude/skills 目录中的技能。启用后，Claude 将能在对话中主动调用对应技能的指导。")
         }
     }
 

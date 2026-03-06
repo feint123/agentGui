@@ -25,6 +25,14 @@ extension ClaudeService {
             let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
             let session = getBashSession(for: sessionId, workingDirectory: wd)
             return await executeBashTool(input: input, session: session, workingDirectory: wd)
+        case "read_skill":
+            guard let skillName = input["name"]?.stringValue else {
+                return "Error: missing 'name' parameter"
+            }
+            if let content = skillService?.readSkillContent(name: skillName) {
+                return content
+            }
+            return "Error: skill '\(skillName)' not found"
         default:
             return "Error: unknown tool '\(name)'"
         }
@@ -106,6 +114,14 @@ extension ClaudeService {
             } else {
                 title = String((input["command"]?.stringValue ?? "").prefix(80))
             }
+        case "code_execution":
+            kind = .execute
+            let code = input["code"]?.stringValue ?? ""
+            title = "执行代码: \(String(code.prefix(60)))"
+        case "read_skill":
+            kind = .other
+            let skillName = input["name"]?.stringValue ?? ""
+            title = "加载技能: \(skillName)"
         default:
             kind = .other
             title = toolName

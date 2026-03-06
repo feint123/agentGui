@@ -12,6 +12,7 @@ import SwiftData
 struct agentGuiApp: App {
 
     @State private var claudeService = ClaudeService()
+    @State private var skillService = SkillService()
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -38,11 +39,14 @@ struct agentGuiApp: App {
         WindowGroup {
             ContentView()
                 .environment(claudeService)
+                .environment(skillService)
                 .onAppear {
                     // 从持久化设置加载 API Key
                     let context = sharedModelContainer.mainContext
                     let settings = AppSettings.getOrCreate(in: context)
                     claudeService.configure(apiKey: settings.apiKey, baseURL: settings.baseURL)
+                    claudeService.skillService = skillService
+                    skillService.loadSkills()
                 }
         }
         .modelContainer(sharedModelContainer)

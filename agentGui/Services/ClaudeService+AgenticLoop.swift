@@ -37,6 +37,7 @@ extension ClaudeService {
         service: any AnthropicService,
         modelId: String,
         tools: [MessageParameter.Tool],
+        systemPrompt: String = "",
         session: Session,
         settings: AppSettings,
         modelContext: ModelContext
@@ -52,10 +53,12 @@ extension ClaudeService {
             // thinking budget must be < maxTokens; give at least 4096 for response
             let maxTokens = useThinking ? max(budget + 4096, 16000) : 8192
 
+            let systemValue: MessageParameter.System? = systemPrompt.isEmpty ? nil : .text(systemPrompt)
             let params = MessageParameter(
                 model: .other(modelId),
                 messages: loopMessages,
                 maxTokens: maxTokens,
+                system: systemValue,
                 tools: tools.isEmpty ? nil : tools,
                 thinking: useThinking ? .init(budgetTokens: budget) : nil
             )
@@ -202,7 +205,7 @@ extension ClaudeService {
 
     // MARK: - Tool List Builder
 
-    func buildTools(modelId: String, settings: AppSettings) -> [MessageParameter.Tool] {
+    func buildTools(modelId: String, settings: AppSettings, enabledSkills: [Skill] = []) -> [MessageParameter.Tool] {
         var tools: [MessageParameter.Tool] = []
 
         if settings.enableTextEditorTool {
@@ -214,6 +217,23 @@ extension ClaudeService {
 
         if settings.enableBashTool {
             tools.append(.hosted(type: "bash_20250124", name: "bash"))
+        }
+
+        if !enabledSkills.isEmpty {
+            tools.append(.function(
+                name: "read_skill",
+                description: "Load the full instructions of a skill by name. Use when the user's request matches a skill's purpose.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "name": .init(
+                            type: .string,
+                            description: "The skill name, e.g. 'brainstorming'"
+                        )
+                    ],
+                    required: ["name"]
+                )
+            ))
         }
 
         return tools

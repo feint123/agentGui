@@ -26,6 +26,9 @@ final class ClaudeService {
     /// 每个 Session 对应一个持久化 bash session（key = sessionId）
     var bashSessions: [String: BashSession] = [:]
 
+    /// Skill service reference for tool dispatch and system prompt
+    var skillService: SkillService?
+
     // MARK: - Configuration
 
     var isConfigured: Bool { service != nil }
@@ -73,7 +76,9 @@ final class ClaudeService {
         modelContext.insert(assistantMessage)
         try? modelContext.save()
 
-        let tools = buildTools(modelId: modelId, settings: settings)
+        let enabledSkills = skillService?.enabledSkills(enabledNames: settings.enabledSkillNames) ?? []
+        let systemPrompt = buildSkillSystemPrompt(enabledSkills)
+        let tools = buildTools(modelId: modelId, settings: settings, enabledSkills: enabledSkills)
 
         do {
             try await runAgenticLoop(
@@ -82,6 +87,7 @@ final class ClaudeService {
                 service: service,
                 modelId: modelId,
                 tools: tools,
+                systemPrompt: systemPrompt,
                 session: session,
                 settings: settings,
                 modelContext: modelContext
@@ -104,5 +110,21 @@ final class ClaudeService {
 
         session.updatedAt = Date()
         try? modelContext.save()
+    }
+
+    // MARK: - Skill System Prompt
+
+    private func buildSkillSystemPrompt(_ skills: [Skill]) -> String {
+        guard !skills.isEmpty else { return "" }
+        var lines = [
+            "## Available Skills",
+            "Use the 'read_skill' tool to load a skill's full instructions when the user's request matches its purpose.",
+            ""
+        ]
+        for skill in skills {
+            let desc = skill.description.isEmpty ? "(no description)" : skill.description
+            lines.append("- **\(skill.name)**: \(desc)")
+        }
+        return lines.joined(separator: "\n")
     }
 }

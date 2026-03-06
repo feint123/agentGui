@@ -104,12 +104,6 @@ struct ChatView: View {
                 .padding(.vertical, 16)
                 .padding(.horizontal, 12)
             }
-            .onChange(of: allMessages.count) { _, _ in
-                scrollToBottom(proxy: proxy)
-            }
-            .onChange(of: claudeService.isStreaming) { _, _ in
-                scrollToBottom(proxy: proxy)
-            }
             .onChange(of: allMessages.last?.textContent) { _, _ in
                 if claudeService.isStreaming {
                     scrollToBottom(proxy: proxy)

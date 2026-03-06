@@ -40,6 +40,9 @@ final class AppSettings {
     /// Extended Thinking token 预算
     var extendedThinkingBudget: Int
 
+    /// JSON array of enabled skill directoryNames, e.g. ["brainstorming","web-search"]
+    var enabledSkillNamesJSON: String
+
     init() {
         self.apiKey = ""
         self.baseURL = ""
@@ -51,6 +54,20 @@ final class AppSettings {
         self.workingDirectory = ""
         self.enableExtendedThinking = false
         self.extendedThinkingBudget = 10000
+        self.enabledSkillNamesJSON = "[]"
+    }
+}
+
+// MARK: - Skill Helpers
+extension AppSettings {
+    /// Decoded list of enabled skill directoryNames.
+    var enabledSkillNames: [String] {
+        get {
+            (try? JSONDecoder().decode([String].self, from: Data(enabledSkillNamesJSON.utf8))) ?? []
+        }
+        set {
+            enabledSkillNamesJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]"
+        }
     }
 }
 
