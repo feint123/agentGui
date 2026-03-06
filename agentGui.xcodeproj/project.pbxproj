@@ -7,8 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */ = {isa = PBXBuildFile; productRef = 12266AFA2F59CDD700450C6E /* SwiftAnthropic */; };
-/* End PBXBuildFile section */
+		12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */ = {isa = PBXBuildFile; productRef = 12266AFA2F59CDD700450C6E /* SwiftAnthropic */; };                1222AEDB2F5B4A3500A4A73D /* BeautifulMermaid in Frameworks */ = {isa = PBXBuildFile; productRef = 1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */; };/* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		12D6F8442F3ACA8400B21E2D /* PBXContainerItemProxy */ = {
@@ -57,6 +56,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */,
+					1222AEDB2F5B4A3500A4A73D /* BeautifulMermaid in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +118,7 @@
 			name = agentGui;
 			packageProductDependencies = (
 				12266AFA2F59CDD700450C6E /* SwiftAnthropic */,
+					1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */,
 			);
 			productName = agentGui;
 			productReference = 12D6F8342F3ACA8200B21E2D /* agentGui.app */;
@@ -203,6 +204,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */,
+				1222AED92F5B4A3500A4A73D /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 12D6F8352F3ACA8200B21E2D /* Products */;
@@ -628,6 +630,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		1222AED92F5B4A3500A4A73D /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/lukilabs/beautiful-mermaid-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.1;
+			};
+		};
 		12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/jamesrochabrun/SwiftAnthropic.git";
@@ -644,7 +654,12 @@
 			package = 12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */;
 			productName = SwiftAnthropic;
 		};
-/* End XCSwiftPackageProductDependency section */
+		1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = 1222AED92F5B4A3500A4A73D /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */;
+				productName = BeautifulMermaid;
+			};
+		/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 12D6F82C2F3ACA8200B21E2D /* Project object */;
 }

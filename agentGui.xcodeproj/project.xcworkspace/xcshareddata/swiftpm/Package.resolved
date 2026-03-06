@@ -1,5 +1,5 @@
 {
-  "originHash" : "b50d0b54adf352ea56284b627c062d94285d15897f6e3f57175c217168b6f5c9",
+  "originHash" : "9c28bad4c5b5c13dd84caf3e10f9ae0b78a9c22d2a29f70268d69b0082a292dd",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -8,6 +8,24 @@
       "state" : {
         "revision" : "2fc4652fb4689eb24af10e55cabaa61d8ba774fd",
         "version" : "1.32.0"
+      }
+    },
+    {
+      "identity" : "beautiful-mermaid-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lukilabs/beautiful-mermaid-swift.git",
+      "state" : {
+        "revision" : "c6a63655285c5e479d6641c774acb0a8739f8ad7",
+        "version" : "0.1.1"
+      }
+    },
+    {
+      "identity" : "dagre-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lukilabs/dagre-swift",
+      "state" : {
+        "revision" : "92efb78b73a8b665ee74bacfb0f1f5b17bbe1b38",
+        "version" : "0.1.0"
       }
     },
     {
