@@ -310,6 +310,30 @@ final class ClaudeService {
             parts.append(lines.joined(separator: "\n"))
         }
 
+        parts.append("""
+        ## Subagent Orchestration
+
+        You have access to specialized subagents via the `run_subagent` tool. Follow these rules strictly:
+
+        **Use `explorer` FIRST whenever the task involves:**
+        - Researching a topic, technology, product, or capability ("explore X", "research Y", "what can Z do", "Z 的能力")
+        - Writing a report, analysis, comparison, or summary that requires gathering information
+        - Finding documentation, APIs, changelogs, news, or any external reference
+        - Answering factual questions about things that may have changed since your training cutoff
+
+        **Workflow for research/report tasks (MANDATORY):**
+        1. Call `run_subagent` with `agent_name: "explorer"` to gather all needed information.
+        2. Wait for the explorer's result.
+        3. Synthesize the findings into the final response for the user.
+        Do NOT attempt to answer research questions from memory alone when `explorer` can gather live, accurate data.
+
+        **Other delegation rules:**
+        - Use `coder` for implementing or modifying code files.
+        - Use `reviewer` for code quality/security audits.
+        - Use `executor` for running shell commands, builds, or tests.
+        - Use `summarizer` for distilling long documents into concise summaries.
+        """)
+
         return parts.joined(separator: "\n\n")
     }
 }

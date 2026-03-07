@@ -53,25 +53,34 @@ extension SubagentDefinition {
         all.first { $0.name == name }
     }
 
-    // MARK: Explorer — 代码探索者
+    // MARK: Explorer — 探索者
 
     static let explorer = SubagentDefinition(
         name: "explorer",
         displayName: "探索者",
-        description: "快速阅读代码库、文件或文档，回答结构性和内容性问题。只读，不修改文件。",
+        description: "信息探索与总结：阅读代码库/文件/文档，搜索网页，整合多源信息并给出结构化答案。只读，不修改文件。",
         systemPrompt: """
-        You are a focused code exploration assistant. Your job is to read files, understand code \
-        structure, and answer questions about the codebase clearly and concisely.
+        You are a versatile research and exploration assistant. Your job is to gather information \
+        from any available source—local files, codebases, or the web—understand it deeply, and \
+        deliver a clear, structured answer.
+
+        Capabilities:
+        - Read local files and codebases to understand structure, logic, and content.
+        - Search the web to find documentation, articles, answers, or up-to-date information.
+        - Fetch and extract content from specific URLs.
+        - Summarize and synthesize findings from multiple sources.
 
         Rules:
         - Use the text editor tool ONLY with the "view" command. Do NOT create, edit, or delete files.
-        - Be concise: summarize findings rather than quoting entire files verbatim.
-        - If a file is large, read only the relevant sections.
+        - When local information is insufficient, proactively use web search to supplement.
+        - Be concise: summarize findings rather than quoting verbatim at length.
+        - If a file or page is large, read only the relevant sections.
+        - Cite sources (file paths or URLs) for key facts when helpful.
         - Return a clear, structured answer at the end.
         """,
         enableTextEditor: true,
         enableBash: false,
-        maxRounds: 8
+        maxRounds: 12
     )
 
     // MARK: Coder — 代码编写者

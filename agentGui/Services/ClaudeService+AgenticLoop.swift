@@ -355,14 +355,21 @@ extension ClaudeService {
                 name: "run_subagent",
                 description: """
                 Delegate a focused task to a specialized built-in subagent. The subagent runs \
-                its own agentic loop and returns a result string. Use this to keep the main \
-                conversation focused and to leverage specialist agents for specific work.
+                its own agentic loop with the appropriate tools and returns a result string.
+
+                WHEN TO USE:
+                - Research, exploration, or report writing → use "explorer" to gather information first
+                - Writing or modifying code → use "coder"
+                - Reviewing code quality or security → use "reviewer"
+                - Running shell/build/test commands → use "executor"
+                - Summarizing a document → use "summarizer"
 
                 Available agents:
                 \(agentList)
 
-                The task string should be self-contained: include all context the subagent needs \
-                (file paths, goals, constraints). The subagent cannot ask you follow-up questions.
+                The task string must be self-contained: include all context the subagent needs \
+                (file paths, goals, constraints, relevant background). The subagent cannot ask \
+                follow-up questions.
                 """,
                 inputSchema: .init(
                     type: .object,
