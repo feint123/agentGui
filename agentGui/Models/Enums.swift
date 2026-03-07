@@ -87,6 +87,27 @@ enum ToolKind: String, Codable {
     }
 }
 
+// MARK: - Tool Result Status
+/// 工具执行结果的语义状态，供 ToolExecutionResult 携带并传递给调用侧。
+enum ToolResultStatus: Equatable {
+    /// 执行成功，结果可信
+    case success
+    /// 执行失败（非重试类），如文件未找到、参数校验失败
+    case failure
+    /// 瞬时失败，可以重试（网络抖动、子进程崩溃等）
+    case retryableFailure
+    /// 命令或请求超时
+    case timeout
+    /// 操作系统或沙盒权限拒绝
+    case permissionDenied
+    /// 模型输入缺少必需参数
+    case missingParameter
+    /// 输入 JSON 或参数值无法解析
+    case parseError
+    /// 工具名称未注册
+    case unknownTool
+}
+
 // MARK: - Tool Status
 /// 工具状态枚举
 enum ToolStatus: String, Codable {

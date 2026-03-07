@@ -183,11 +183,11 @@ extension ClaudeService {
                         sessionId: sessionId
                     )
                     toolRecord.terminalOutput = toolResult.text
-                    toolRecord.status = .success
+                    toolRecord.status = toolResult.toolCallStatus
                     toolRecord.endTime = Date()
                     try? modelContext.save()
 
-                    toolResultObjects.append(.toolResult(pending.id, toolResult.text))
+                    toolResultObjects.append(.toolResult(pending.id, toolResult.text, isError: toolResult.isError ? true : nil))
                     toolResultObjects.append(contentsOf: toolResult.mediaContent)
                 }
 

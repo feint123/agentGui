@@ -220,10 +220,10 @@ extension ClaudeService {
                         )
                     }
                     record.terminalOutput = result.text
-                    record.status = .success
+                    record.status = result.toolCallStatus
                     record.endTime = Date()
 
-                    toolResultObjects.append(.toolResult(pending.id, result.text))
+                    toolResultObjects.append(.toolResult(pending.id, result.text, isError: result.isError ? true : nil))
                     toolResultObjects.append(contentsOf: result.mediaContent)
                 }
 

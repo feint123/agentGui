@@ -16,20 +16,20 @@ extension ClaudeService {
     /// see and describe the image. Supports png, jpg, jpeg, gif, webp (≤ 20 MB).
     func executeAnalyzeImageTool(input: MessageResponse.Content.Input) async -> ToolExecutionResult {
         guard let path = input["file_path"]?.stringValue else {
-            return ToolExecutionResult("Error: missing 'file_path' parameter")
+            return .missingParameter("file_path")
         }
         let url = URL(fileURLWithPath: path)
         guard AttachedFile.pathIsImage(path) else {
-            return ToolExecutionResult("Error: '\(url.lastPathComponent)' is not a supported image type (png, jpg, jpeg, gif, webp)")
+            return .failure("Error: '\(url.lastPathComponent)' is not a supported image type (png, jpg, jpeg, gif, webp)")
         }
         guard FileManager.default.fileExists(atPath: path) else {
-            return ToolExecutionResult("Error: file not found at path: \(path)")
+            return .failure("Error: file not found at path: \(path)")
         }
 
         do {
             let data = try Data(contentsOf: url)
             guard data.count <= 20 * 1024 * 1024 else {
-                return ToolExecutionResult("Error: image file exceeds 20 MB limit (\(data.count / 1024 / 1024) MB)")
+                return .failure("Error: image file exceeds 20 MB limit (\(data.count / 1024 / 1024) MB)")
             }
 
             let ext = url.pathExtension.lowercased()
@@ -57,7 +57,7 @@ extension ClaudeService {
                 textSection = ocrText
             }
 
-            return ToolExecutionResult(
+            return .success(
                 """
                 Image: \(url.lastPathComponent)
 
@@ -69,8 +69,10 @@ extension ClaudeService {
                 """,
                 mediaContent: [.image(imageSource)]
             )
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError {
+            return .permissionDenied("Error: permission denied reading image file: \(url.lastPathComponent)")
         } catch {
-            return ToolExecutionResult("Error reading image file: \(error.localizedDescription)")
+            return .failure("Error reading image file: \(error.localizedDescription)")
         }
     }
 
@@ -115,24 +117,24 @@ extension ClaudeService {
     /// Returns the text page-by-page so Claude can understand the document content.
     func executeReadPDFTool(input: MessageResponse.Content.Input) async -> ToolExecutionResult {
         guard let path = input["file_path"]?.stringValue else {
-            return ToolExecutionResult("Error: missing 'file_path' parameter")
+            return .missingParameter("file_path")
         }
         let url = URL(fileURLWithPath: path)
         guard AttachedFile.pathIsPDF(path) else {
-            return ToolExecutionResult("Error: '\(url.lastPathComponent)' is not a PDF file")
+            return .failure("Error: '\(url.lastPathComponent)' is not a PDF file")
         }
         guard FileManager.default.fileExists(atPath: path) else {
-            return ToolExecutionResult("Error: file not found at path: \(path)")
+            return .failure("Error: file not found at path: \(path)")
         }
 
         if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
            let size = attrs[.size] as? Int, size > 50 * 1024 * 1024 {
-            return ToolExecutionResult("Error: PDF file exceeds 50 MB limit (\(size / 1024 / 1024) MB)")
+            return .failure("Error: PDF file exceeds 50 MB limit (\(size / 1024 / 1024) MB)")
         }
 
-        return await Task.detached(priority: .userInitiated) { [url] in
+        let (pdfText, succeeded) = await Task.detached(priority: .userInitiated) { [url] in
             guard let pdf = PDFDocument(url: url) else {
-                return ToolExecutionResult("Error: could not open PDF document")
+                return ("Error: could not open PDF document", false)
             }
 
             let pageCount = pdf.pageCount
@@ -145,9 +147,10 @@ extension ClaudeService {
 
             let header = "PDF: \(url.lastPathComponent)\nPages: \(pageCount)\n\n"
             if pages.isEmpty {
-                return ToolExecutionResult(header + "(No selectable text found. This PDF may contain only scanned images.)")
+                return (header + "(No selectable text found. This PDF may contain only scanned images.)", true)
             }
-            return ToolExecutionResult(header + pages.joined(separator: "\n\n"))
+            return (header + pages.joined(separator: "\n\n"), true)
         }.value
+        return succeeded ? ToolExecutionResult(pdfText) : .failure(pdfText)
     }
 }
