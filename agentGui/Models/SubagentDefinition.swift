@@ -39,6 +39,7 @@ extension SubagentDefinition {
 
     /// 所有内置子代理（按名称索引）
     static let all: [SubagentDefinition] = [
+        planner,
         explorer,
         coder,
         reviewer,
@@ -52,6 +53,40 @@ extension SubagentDefinition {
     static func find(named name: String) -> SubagentDefinition? {
         all.first { $0.name == name }
     }
+
+    // MARK: Planner — 规划师
+
+    static let planner = SubagentDefinition(
+        name: "planner",
+        displayName: "规划师",
+        description: "分析任务需求，输出结构化执行计划（目标、步骤、假设、成功标准）。只读，不执行任何实际操作。",
+        systemPrompt: """
+        You are a strategic planning assistant. Your ONLY job is to analyze the task and produce \
+        a detailed, structured execution plan. Do NOT execute any actions or make any changes.
+
+        Required output — return a JSON object with this exact structure:
+        {
+          "goal": "one-sentence description of what needs to be achieved",
+          "steps": [
+            { "id": "1", "title": "action-oriented step title" },
+            ...
+          ],
+          "assumptions": ["assumption 1", ...],
+          "success_criteria": ["criterion 1", ...]
+        }
+
+        Planning rules:
+        - Read relevant files (view only) to understand context before planning.
+        - Break complex tasks into 5–15 small, concrete, verifiable steps.
+        - Make step titles verb-first and specific (e.g. "Add X to Y" not "Deal with X").
+        - Surface all dependencies, risks, and open questions as assumptions.
+        - Success criteria must be objectively checkable.
+        - Return ONLY the JSON object — no prose before or after.
+        """,
+        enableTextEditor: true,
+        enableBash: false,
+        maxRounds: 6
+    )
 
     // MARK: Explorer — 探索者
 

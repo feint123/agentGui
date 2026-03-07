@@ -106,6 +106,12 @@ final class ClaudeService {
     /// 每个 Session 的 TodoList（key = sessionId）
     var sessionTodoLists: [String: [TodoItem]] = [:]
 
+    /// 每个 Session 的执行计划（key = sessionId）
+    var sessionExecutionPlans: [String: ExecutionPlan] = [:]
+
+    /// 每个 Session 的完成验证记录（key = sessionId）
+    var sessionVerifications: [String: CompletionVerification] = [:]
+
     /// Skill service reference for tool dispatch and system prompt
     var skillService: SkillService?
 
@@ -338,6 +344,37 @@ final class ClaudeService {
         - Use `reviewer` for code quality/security audits.
         - Use `executor` for running shell commands, builds, or tests.
         - Use `summarizer` for distilling long documents into concise summaries.
+        - Use `planner` for very large or ambiguous tasks where you need a structured plan before starting.
+        """)
+
+        parts.append("""
+        ## Planning Protocol
+
+        For **complex tasks** — defined as tasks requiring 3+ distinct steps, touching multiple \
+        files or systems, or combining research with implementation — follow this workflow:
+
+        ### 1. PLAN
+        Call `create_execution_plan` at the very start to produce a structured plan artifact.
+        - Break the work into 5–15 concrete, verb-first steps.
+        - List key assumptions and success criteria.
+        - For very large or ambiguous tasks, delegate planning to `run_subagent` (agent_name: "planner") \
+          and use its JSON output as the basis for your `create_execution_plan` call.
+
+        ### 2. EXECUTE
+        Work through the plan steps in order.
+        - Keep `update_todo_list` in sync: mark steps `in_progress` when started, `done` when complete.
+        - If an assumption proves wrong, note it and adapt — do not silently abandon the plan.
+
+        ### 3. VERIFY
+        Before giving the final response, call `verify_completion` to explicitly state:
+        - What was tested or confirmed (e.g. "build succeeded", "output matched expected value").
+        - What was NOT verified and why (e.g. "UI not tested — no test harness available").
+
+        ### 4. SUMMARIZE
+        End with a concise summary of what was done, what changed, and any recommended follow-up.
+
+        **Simple tasks** (e.g. single-file edits, direct Q&A, quick lookups) do NOT need a plan. \
+        Use your judgment — the goal is clarity and accountability, not ceremony.
         """)
 
         return parts.joined(separator: "\n\n")
