@@ -50,6 +50,15 @@ extension ClaudeService {
         while continueLoop  {
             try Task.checkCancellation()
             print("Starting agentic loop iteration \(roundIndex) with \(loopMessages.count) messages")
+
+            // Context compression: compress if usage exceeds threshold
+            await compressIfNeeded(
+                messages: &loopMessages,
+                service: service,
+                modelId: modelId
+            )
+
+            currentModelId = modelId
             let useThinking = settings.enableExtendedThinking && isThinkingCapable(modelId: modelId)
             let budget = settings.extendedThinkingBudget
             // thinking budget must be < maxTokens; give at least 4096 for response
@@ -65,6 +74,20 @@ extension ClaudeService {
                 thinking: useThinking ? .init(budgetTokens: budget) : nil
             )
             print("Sending message with \(params.messages.count) messages, system prompt: \(systemPrompt.isEmpty ? "none" : "present")")
+
+            // Count input tokens before streaming (reliable: countTokens API always returns input_tokens)
+            if let tokenCount = try? await service.countTokens(
+                parameter: MessageTokenCountParameter(
+                    model: .other(modelId),
+                    messages: loopMessages,
+                    system: systemValue,
+                    tools: tools.isEmpty ? nil : tools
+                )
+            ) {
+                currentInputTokens = tokenCount.inputTokens
+                print("Input tokens: \(tokenCount.inputTokens) (\(Int(contextUsageRatio * 100))%)")
+            }
+
             let stream = try await service.streamMessage(params)
             print("Received stream for loop iteration \(roundIndex)")
             // Create a round record for this iteration

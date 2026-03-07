@@ -29,6 +29,14 @@ extension ChatView {
                 Image(systemName: "ellipsis.circle")
             }
         }
+         ToolbarItem(placement: .primaryAction) {
+            Button {
+                createNewSession()
+            } label: {
+                Image(systemName: "plus")
+            }
+            .help("新建对话")
+         }
     }
 
     // MARK: - Session Picker
@@ -48,14 +56,6 @@ extension ChatView {
             .labelsHidden()
             .pickerStyle(.menu)
             .frame(maxWidth: 200)
-
-            Button {
-                createNewSession()
-            } label: {
-                Image(systemName: "plus")
-            }
-            .buttonStyle(.borderless)
-            .help("新建对话")
         }
     }
 

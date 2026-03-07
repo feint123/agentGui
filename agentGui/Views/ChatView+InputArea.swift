@@ -53,16 +53,23 @@ extension ChatView {
                     .shadow(color: .black.opacity(0.06), radius: 8, y: -2)
             )
             .padding(.horizontal, 16)
-            .padding(.bottom, 16)
-            .padding(.top, 8)
-            .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
-                handleFileDrop(providers: providers)
-            }
+        .padding(.bottom, 6)
+        .padding(.top, 8)
+        .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
+            handleFileDrop(providers: providers)
         }
-        .background(.bar)
-    }
 
-    var fileChipsRow: some View {
+        HStack {
+            Spacer()
+            ContextUsageRingView(service: claudeService)
+            Spacer()
+        }
+        .padding(.bottom, 10)
+    }
+    .background(.bar)
+}
+
+var fileChipsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(attachedFiles) { file in

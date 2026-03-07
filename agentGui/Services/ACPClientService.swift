@@ -75,6 +75,27 @@ final class ClaudeService {
     /// 当 Claude 调用 ask_user_question 时设置，触发 ChatView 弹出问题 sheet
     var pendingUserQuestion: AskUserQuestionRequest?
 
+    /// 当前请求的输入 token 数（来自 message_start 事件）
+    var currentInputTokens: Int = 0
+
+    /// 当前正在使用的模型 ID（用于计算上下文窗口大小）
+    var currentModelId: String = ""
+
+    // MARK: - Context Window Helpers
+
+    /// 根据模型 ID 返回上下文窗口大小（tokens）
+    func contextWindowSize(for modelId: String) -> Int {
+        // Claude 3.5 Haiku / all Claude 4 series: 200k
+        return 200_000
+    }
+
+    /// 当前上下文使用率（0.0 ~ 1.0）
+    var contextUsageRatio: Double {
+        let windowSize = contextWindowSize(for: currentModelId)
+        guard windowSize > 0, currentInputTokens > 0 else { return 0 }
+        return Double(currentInputTokens) / Double(windowSize)
+    }
+
     // MARK: - Internal Storage
 
     var service: (any AnthropicService)?
