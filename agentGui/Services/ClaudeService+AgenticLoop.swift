@@ -40,14 +40,15 @@ extension ClaudeService {
         systemPrompt: String = "",
         session: Session,
         settings: AppSettings,
-        modelContext: ModelContext
+        modelContext: ModelContext,
+        maxRounds: Int = 16
     ) async throws {
         var loopMessages = apiMessages
         var accumulatedText = ""
         var continueLoop = true
         var roundIndex = 0
 
-        while continueLoop  {
+        while continueLoop && roundIndex < maxRounds {
             try Task.checkCancellation()
             print("Starting agentic loop iteration \(roundIndex) with \(loopMessages.count) messages")
 
@@ -172,6 +173,9 @@ extension ClaudeService {
                 assistantObjects.append(.thinking(currentRoundThinking.content, sig))
             }
             print("Assistant objects for this round: \(assistantObjects)")
+            // Persist stop reason on this round
+            round.stopReason = stopReason
+
             // Execute tools and continue loop, or stop
             if stopReason == "tool_use" && !pendingTools.isEmpty {
                 print("Processing tool uses for loop iteration \(roundIndex)")
@@ -225,10 +229,53 @@ extension ClaudeService {
 
                 loopMessages.append(MessageParameter.Message(role: .assistant, content: .list(assistantObjects)))
                 loopMessages.append(MessageParameter.Message(role: .user, content: .list(toolResultObjects)))
+
+            } else if stopReason == "end_turn" {
+                // Normal completion
+                continueLoop = false
+
+            } else if stopReason == "max_tokens" {
+                // Model hit token limit mid-response; ask it to continue without replanning
+                print("max_tokens reached at round \(roundIndex - 1), appending continuation turn")
+                if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
+                if !assistantObjects.isEmpty {
+                    loopMessages.append(MessageParameter.Message(role: .assistant, content: .list(assistantObjects)))
+                }
+                loopMessages.append(MessageParameter.Message(
+                    role: .user,
+                    content: .text("Please continue your previous response exactly where you left off. Do not repeat what you already wrote and do not re-plan — just continue.")
+                ))
+
+            } else if stopReason == "pause_turn" {
+                // Server-side sampling pause; resume by feeding the partial response back
+                print("pause_turn at round \(roundIndex - 1), resuming server-side sampling")
+                if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
+                if !assistantObjects.isEmpty {
+                    loopMessages.append(MessageParameter.Message(role: .assistant, content: .list(assistantObjects)))
+                }
+                // No explicit user message; append a minimal turn to maintain role alternation
+                loopMessages.append(MessageParameter.Message(
+                    role: .user,
+                    content: .text("Continue.")
+                ))
+
             } else {
+                // nil or unknown stop reason — treat as abnormal termination
+                let reason = stopReason ?? "nil"
+                print("Unexpected stop reason '\(reason)' at round \(roundIndex - 1), terminating loop")
+                let errorNote = "\n\n⚠️ Agent loop ended unexpectedly (stop_reason: \(reason))."
+                assistantMessage.textContent = (assistantMessage.textContent ?? "") + errorNote
                 continueLoop = false
             }
         }
+
+        // Safety: loop exited because maxRounds was reached (not a natural stop)
+        if roundIndex >= maxRounds && continueLoop {
+            print("Agent loop reached maxRounds (\(maxRounds)), terminating")
+            let notice = "\n\n⚠️ Agent loop stopped after reaching the maximum of \(maxRounds) rounds."
+            assistantMessage.textContent = (assistantMessage.textContent ?? "") + notice
+        }
+
         try? modelContext.save()
     }
 

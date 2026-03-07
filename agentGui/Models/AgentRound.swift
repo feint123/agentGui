@@ -33,6 +33,9 @@ final class AgentRound {
     /// 关联的子代理 ToolCall（仅子代理轮次使用，互斥于 message）
     var subagentToolCall: ToolCall?
 
+    /// API 停止原因："end_turn" / "tool_use" / "max_tokens" / "pause_turn" / nil = 异常终止
+    var stopReason: String?
+
     /// 本轮的工具调用列表
     @Relationship(deleteRule: .cascade, inverse: \ToolCall.agentRound)
     var toolCalls: [ToolCall] = []

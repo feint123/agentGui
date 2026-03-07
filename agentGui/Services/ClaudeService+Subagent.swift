@@ -140,11 +140,15 @@ extension ClaudeService {
                 }
             }
 
+            // Accumulate round text
             if !currentRoundText.isEmpty {
                 if !accumulatedText.isEmpty { accumulatedText += "\n\n" }
                 accumulatedText += currentRoundText
                 round.text = currentRoundText
             }
+
+            // Persist stop reason on this round
+            round.stopReason = stopReason
             try? modelContext.save()
 
             var assistantObjects: [MessageParameter.Message.Content.ContentObject] = []
@@ -189,8 +193,44 @@ extension ClaudeService {
 
                 loopMessages.append(.init(role: .assistant, content: .list(assistantObjects)))
                 loopMessages.append(.init(role: .user, content: .list(toolResultObjects)))
-            } else {
+
+            } else if stopReason == "end_turn" {
                 continueLoop = false
+
+            } else if stopReason == "max_tokens" {
+                print("Subagent max_tokens at round \(roundIndex - 1), appending continuation turn")
+                if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
+                if !assistantObjects.isEmpty {
+                    loopMessages.append(.init(role: .assistant, content: .list(assistantObjects)))
+                }
+                loopMessages.append(.init(
+                    role: .user,
+                    content: .text("Please continue your previous response exactly where you left off. Do not repeat what you already wrote and do not re-plan — just continue.")
+                ))
+
+            } else if stopReason == "pause_turn" {
+                print("Subagent pause_turn at round \(roundIndex - 1), resuming")
+                if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
+                if !assistantObjects.isEmpty {
+                    loopMessages.append(.init(role: .assistant, content: .list(assistantObjects)))
+                }
+                loopMessages.append(.init(role: .user, content: .text("Continue.")))
+
+            } else {
+                let reason = stopReason ?? "nil"
+                print("Subagent unexpected stop reason '\(reason)' at round \(roundIndex - 1), terminating")
+                if !accumulatedText.isEmpty {
+                    accumulatedText += "\n\n⚠️ Subagent loop ended unexpectedly (stop_reason: \(reason))."
+                }
+                continueLoop = false
+            }
+        }
+
+        // Safety: maxRounds guard
+        if roundIndex >= definition.maxRounds && continueLoop {
+            print("Subagent reached maxRounds (\(definition.maxRounds)), terminating")
+            if !accumulatedText.isEmpty {
+                accumulatedText += "\n\n⚠️ Subagent stopped after reaching the maximum of \(definition.maxRounds) rounds."
             }
         }
 

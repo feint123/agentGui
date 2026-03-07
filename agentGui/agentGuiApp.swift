@@ -27,7 +27,11 @@ struct agentGuiApp: App {
             AgentRound.self,
         ])
 
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let storeDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".agentgui")
+        try? FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+        let storeURL = storeDirectory.appendingPathComponent("default.store")
+        let modelConfiguration = ModelConfiguration(schema: schema, url: storeURL)
 
         do {
             return try ModelContainer(
