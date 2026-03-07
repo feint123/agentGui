@@ -63,6 +63,8 @@ extension ClaudeService {
             return await executeAnalyzeImageTool(input: input)
         case "read_pdf":
             return await executeReadPDFTool(input: input)
+        case "memory_write":
+            return ToolExecutionResult(executeMemoryWrite(input: input))
         default:
             return ToolExecutionResult("Error: unknown tool '\(name)'")
         }
@@ -179,6 +181,8 @@ extension ClaudeService {
             return await executeAnalyzeImageTool(input: input)
         case "read_pdf":
             return await executeReadPDFTool(input: input)
+        case "memory_write":
+            return ToolExecutionResult(executeMemoryWrite(input: input))
         default:
             return ToolExecutionResult("Error: unknown tool '\(name)'")
         }
@@ -192,6 +196,22 @@ extension ClaudeService {
         Task { await newSession.start(workingDirectory: workingDirectory) }
         bashSessions[sessionId] = newSession
         return newSession
+    }
+
+    // MARK: Memory Write
+
+    func executeMemoryWrite(input: MessageResponse.Content.Input) -> String {
+        guard let content = input["content"]?.stringValue else {
+            return "Error: missing 'content' parameter"
+        }
+        let modeString = input["mode"]?.stringValue ?? "append"
+        let mode: MemoryWriteMode = modeString == "overwrite" ? .overwrite : .append
+        switch ConfigDirectoryManager.shared.writeMemory(content: content, mode: mode) {
+        case .success:
+            return "Memory updated successfully (mode: \(modeString))."
+        case .failure(let error):
+            return "Error writing memory: \(error.localizedDescription)"
+        }
     }
 
     // MARK: Bash Tool

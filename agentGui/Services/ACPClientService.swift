@@ -293,6 +293,12 @@ final class ClaudeService {
     private func buildSystemPrompt(skills: [Skill], workingDirectory: String) -> String {
         var parts: [String] = []
 
+        // Long-term memory — read from ~/.agentgui/memory.md on every call so it's always fresh
+        let memory = ConfigDirectoryManager.shared.readMemory()
+        if !memory.isEmpty {
+            parts.append("## Long-term Memory\n\(memory)")
+        }
+
         if !workingDirectory.isEmpty {
             parts.append("## Working Directory\nThe current working directory for all file and bash tool operations is: \(workingDirectory)")
         }

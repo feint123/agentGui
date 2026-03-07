@@ -58,6 +58,8 @@ struct SettingsView: View {
     @State private var showAPIKey: Bool = false
     @State private var showOllamaAPIKey: Bool = false
     @State private var isSaved: Bool = false
+    @State private var memoryContent: String = ""
+    @State private var isMemorySaved: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -66,6 +68,7 @@ struct SettingsView: View {
                 modelSection
                 appearanceSection
                 toolsSection
+                memorySection
                 aboutSection
             }
             .formStyle(.grouped)
@@ -256,6 +259,28 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Memory Section
+
+    private var memorySection: some View {
+        Section {
+            TextEditor(text: $memoryContent)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 140, maxHeight: 280)
+                .scrollContentBackground(.hidden)
+                .background(Color(nsColor: .textBackgroundColor))
+                .cornerRadius(6)
+
+            Button(isMemorySaved ? "已保存 ✓" : "保存记忆") {
+                saveMemory()
+            }
+            .foregroundStyle(isMemorySaved ? .green : .accentColor)
+        } header: {
+            Text("长期记忆")
+        } footer: {
+            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。")
+        }
+    }
+
     // MARK: - About Section
 
     private var aboutSection: some View {
@@ -294,6 +319,7 @@ struct SettingsView: View {
         apiKeyInput = s.apiKey
         baseURLInput = s.baseURL
         ollamaAPIKeyInput = s.ollamaAPIKey
+        memoryContent = ConfigDirectoryManager.shared.readMemory()
     }
 
     private func saveSettings() {
@@ -308,6 +334,14 @@ struct SettingsView: View {
         withAnimation { isSaved = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation { isSaved = false }
+        }
+    }
+
+    private func saveMemory() {
+        ConfigDirectoryManager.shared.writeMemory(content: memoryContent, mode: .overwrite)
+        withAnimation { isMemorySaved = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { isMemorySaved = false }
         }
     }
 }

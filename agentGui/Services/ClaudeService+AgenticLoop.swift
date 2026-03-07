@@ -501,6 +501,26 @@ extension ClaudeService {
             )
         ))
 
+        // memory_write: always available — lets Claude persist facts across sessions
+        tools.append(.function(
+            name: "memory_write",
+            description: """
+            Update the long-term memory file (~/.agentgui/memory.md). \
+            Memory is injected into the system prompt at the start of every conversation, \
+            so anything stored here will be available in future sessions. \
+            Use 'overwrite' to replace the full content, 'append' to add new facts at the end. \
+            Keep entries concise. Write important facts, preferences, or context the user wants you to remember.
+            """,
+            inputSchema: .init(
+                type: .object,
+                properties: [
+                    "content": .init(type: .string, description: "The text to write into memory.md"),
+                    "mode": .init(type: .string, description: "'overwrite' to replace all content, 'append' to add to the end (default: append)")
+                ],
+                required: ["content"]
+            )
+        ))
+
         return tools
     }
 }

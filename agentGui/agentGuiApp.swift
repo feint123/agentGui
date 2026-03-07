@@ -11,6 +11,10 @@ import SwiftData
 @main
 struct agentGuiApp: App {
 
+    init() {
+        ConfigDirectoryManager.shared.setup()
+    }
+
     @State private var claudeService = ClaudeService()
     @State private var skillService = SkillService()
 
