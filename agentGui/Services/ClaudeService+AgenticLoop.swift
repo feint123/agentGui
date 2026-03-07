@@ -46,14 +46,16 @@ extension ClaudeService {
         var loopMessages = apiMessages
         var accumulatedText = ""
         var loopCtx = AgentLoopContext(phase: .executing)
+        var loopMemory = ContextMemory()
 
         while loopCtx.shouldContinue && loopCtx.roundIndex < maxRounds {
             try Task.checkCancellation()
             print("[\(loopCtx.phase)] Starting round \(loopCtx.roundIndex) with \(loopMessages.count) messages")
 
-            // Context compression: compress if usage exceeds threshold
+            // Context compression: compress old messages into hierarchical memory if threshold exceeded
             await compressIfNeeded(
                 messages: &loopMessages,
+                memory: &loopMemory,
                 service: service,
                 modelId: modelId
             )

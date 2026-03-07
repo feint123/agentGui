@@ -72,22 +72,13 @@ struct MessageBubbleView: View {
         HStack(alignment: .top, spacing: 0) {
             Spacer(minLength: 60)
             VStack(alignment: .trailing, spacing: 4) {
+                userHeaderRow
                 if isEditing {
                     editingView
                         .frame(maxWidth: 560, alignment: .trailing)
                 } else {
                     userBubble
                         .frame(maxWidth: 560, alignment: .trailing)
-                        .overlay(alignment: .bottomTrailing) {
-                            if isHovered && !isEditing && !isStreaming {
-                                messageActionsRow
-                                    .padding(6)
-                                    .transition(.asymmetric(
-                                        insertion: .opacity.combined(with: .offset(y: 2)),
-                                        removal: .opacity
-                                    ))
-                            }
-                        }
                 }
             }
         }
@@ -95,6 +86,29 @@ struct MessageBubbleView: View {
             withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovered }
         }
         .contextMenu { contextMenuItems }
+    }
+
+    /// Compact header row for user messages: hover actions, timestamp, name (right-aligned).
+    private var userHeaderRow: some View {
+        HStack(spacing: 5) {
+            if isHovered && !isEditing && !isStreaming {
+                messageActionsRow
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(y: -2)),
+                        removal: .opacity
+                    ))
+            }
+            Text(message.timestamp.formatted(date: .omitted, time: .shortened))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Text(senderName)
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+            Image(systemName: "person.circle.fill")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var userBubble: some View {

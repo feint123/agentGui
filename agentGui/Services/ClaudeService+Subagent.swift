@@ -65,6 +65,7 @@ extension ClaudeService {
         var accumulatedText = ""
         var continueLoop = true
         var roundIndex = 0
+        var loopMemory = ContextMemory()
 
         let subagentTools = buildSubagentTools(modelId: modelId, definition: definition, settings: settings)
         let systemValue: MessageParameter.System? = definition.systemPrompt.isEmpty
@@ -72,6 +73,26 @@ extension ClaudeService {
             : .text(definition.systemPrompt)
 
         while continueLoop && roundIndex < definition.maxRounds {
+            // Count tokens and compress into hierarchical memory if context is getting large
+            if let tokenCount = try? await service.countTokens(
+                parameter: MessageTokenCountParameter(
+                    model: .other(modelId),
+                    messages: loopMessages,
+                    system: systemValue,
+                    tools: subagentTools.isEmpty ? nil : subagentTools
+                )
+            ) {
+                currentInputTokens = tokenCount.inputTokens
+                currentModelId = modelId
+                print("Subagent input tokens: \(tokenCount.inputTokens) (\(Int(contextUsageRatio * 100))%)")
+            }
+            await compressIfNeeded(
+                messages: &loopMessages,
+                memory: &loopMemory,
+                service: service,
+                modelId: modelId
+            )
+
             let useThinking = settings.enableExtendedThinking && isThinkingCapable(modelId: modelId)
             let budget = settings.extendedThinkingBudget
             let maxTokens = useThinking ? max(budget + 4096, 16000) : 8192
