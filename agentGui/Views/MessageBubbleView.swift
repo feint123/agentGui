@@ -77,13 +77,16 @@ struct MessageBubbleView: View {
                 } else {
                     userBubble
                         .frame(maxWidth: 560, alignment: .trailing)
-                }
-                if isHovered && !isEditing && !isStreaming {
-                    messageActionsRow
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: 2)),
-                            removal: .opacity
-                        ))
+                        .overlay(alignment: .bottomTrailing) {
+                            if isHovered && !isEditing && !isStreaming {
+                                messageActionsRow
+                                    .padding(6)
+                                    .transition(.asymmetric(
+                                        insertion: .opacity.combined(with: .offset(y: 2)),
+                                        removal: .opacity
+                                    ))
+                            }
+                        }
                 }
             }
         }
@@ -132,15 +135,15 @@ struct MessageBubbleView: View {
 
             // Content
             agentContent
-
-            // Hover actions
-            if isHovered && !isStreaming {
-                messageActionsRow
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .offset(y: 2)),
-                        removal: .opacity
-                    ))
-            }
+                .overlay(alignment: .bottomTrailing) {
+                    if isHovered && !isStreaming {
+                        messageActionsRow
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .offset(y: 2)),
+                                removal: .opacity
+                            ))
+                    }
+                }
 
             // Retry button (always visible on failure)
             if message.status == .failed, let retry = onRetry {

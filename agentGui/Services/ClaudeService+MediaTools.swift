@@ -5,6 +5,7 @@
 
 import Foundation
 import PDFKit
+import Vision
 import SwiftAnthropic
 
 extension ClaudeService {
@@ -47,12 +48,64 @@ extension ClaudeService {
                 data: base64
             )
 
+            // Run Vision OCR on the image
+            let ocrText = await Self.extractText(from: data)
+            let textSection: String
+            if ocrText.isEmpty {
+                textSection = "(No text detected by OCR)"
+            } else {
+                textSection = ocrText
+            }
+
             return ToolExecutionResult(
-                "Image loaded: \(url.lastPathComponent). Analyze the image content shown above.",
+                """
+                Image: \(url.lastPathComponent)
+
+                === OCR Extracted Text ===
+                \(textSection)
+                === End OCR Text ===
+
+                The image is attached above. Analyze both the visual content and the extracted text.
+                """,
                 mediaContent: [.image(imageSource)]
             )
         } catch {
             return ToolExecutionResult("Error reading image file: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Vision OCR helper
+
+    /// Extract all text from image data using VNRecognizeTextRequest.
+    private static func extractText(from data: Data) async -> String {
+        await withCheckedContinuation { continuation in
+            guard let cgImage = { () -> CGImage? in
+                guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+                return CGImageSourceCreateImageAtIndex(src, 0, nil)
+            }() else {
+                continuation.resume(returning: "")
+                return
+            }
+
+            let request = VNRecognizeTextRequest { req, error in
+                guard error == nil,
+                      let observations = req.results as? [VNRecognizedTextObservation] else {
+                    continuation.resume(returning: "")
+                    return
+                }
+                let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+                continuation.resume(returning: lines.joined(separator: "\n"))
+            }
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+            request.automaticallyDetectsLanguage = true
+
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                continuation.resume(returning: "")
+            }
         }
     }
 

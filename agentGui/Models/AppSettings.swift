@@ -49,6 +49,12 @@ final class AppSettings {
     /// 启用 Web Fetch 工具（获取网页内容）
     var enableWebFetchTool: Bool
 
+    /// Ollama API Key（用于 Ollama Web Search）
+    var ollamaAPIKey: String = ""   
+
+    /// 启用 Ollama Web Search（优先于 Bing）
+    var enableOllamaWebSearch: Bool = false
+
 
     init() {
         self.apiKey = ""
@@ -64,6 +70,8 @@ final class AppSettings {
         self.enabledSkillNamesJSON = "[]"
         self.enableWebSearchTool = false
         self.enableWebFetchTool = false
+        self.ollamaAPIKey = ""
+        self.enableOllamaWebSearch = false
     }
 }
 

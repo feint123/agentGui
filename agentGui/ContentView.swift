@@ -54,7 +54,9 @@ struct SettingsView: View {
     @State private var settings: AppSettings?
     @State private var apiKeyInput: String = ""
     @State private var baseURLInput: String = ""
+    @State private var ollamaAPIKeyInput: String = ""
     @State private var showAPIKey: Bool = false
+    @State private var showOllamaAPIKey: Bool = false
     @State private var isSaved: Bool = false
 
     var body: some View {
@@ -177,6 +179,39 @@ struct SettingsView: View {
                     set: { settings.enableWebSearchTool = $0; try? modelContext.save() }
                 ))
 
+                if settings.enableWebSearchTool {
+                    Toggle("优先使用 Ollama Web Search", isOn: Binding(
+                        get: { settings.enableOllamaWebSearch },
+                        set: { settings.enableOllamaWebSearch = $0; try? modelContext.save() }
+                    ))
+                    .padding(.leading, 16)
+
+                    if settings.enableOllamaWebSearch {
+                        HStack {
+                            if showOllamaAPIKey {
+                                TextField("Ollama API Key", text: $ollamaAPIKeyInput)
+                                    .textFieldStyle(.roundedBorder)
+                            } else {
+                                SecureField("Ollama API Key", text: $ollamaAPIKeyInput)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                            Button {
+                                showOllamaAPIKey.toggle()
+                            } label: {
+                                Image(systemName: showOllamaAPIKey ? "eye.slash" : "eye")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            Button("保存") {
+                                settings.ollamaAPIKey = ollamaAPIKeyInput
+                                try? modelContext.save()
+                            }
+                            .disabled(ollamaAPIKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                        .padding(.leading, 16)
+                    }
+                }
+
 
                 Toggle("启用 Web Fetch 工具（获取网页内容）", isOn: Binding(
                     get: { settings.enableWebFetchTool },
@@ -258,6 +293,7 @@ struct SettingsView: View {
         settings = s
         apiKeyInput = s.apiKey
         baseURLInput = s.baseURL
+        ollamaAPIKeyInput = s.ollamaAPIKey
     }
 
     private func saveSettings() {

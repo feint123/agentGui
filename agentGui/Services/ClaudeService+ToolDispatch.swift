@@ -51,6 +51,9 @@ extension ClaudeService {
         case "update_todo_list":
             return ToolExecutionResult(executeUpdateTodoList(input: input, sessionId: sessionId))
         case "web_search":
+            if settings.enableOllamaWebSearch && !settings.ollamaAPIKey.isEmpty {
+                return ToolExecutionResult(await executeOllamaWebSearchTool(input: input, apiKey: settings.ollamaAPIKey))
+            }
             return ToolExecutionResult(await executeWebSearchTool(input: input))
         case "web_fetch":
             return ToolExecutionResult(await executeWebFetchTool(input: input))
@@ -164,6 +167,9 @@ extension ClaudeService {
         case "update_todo_list":
             return ToolExecutionResult(executeUpdateTodoList(input: input, sessionId: sessionId))
         case "web_search":
+            if settings.enableOllamaWebSearch && !settings.ollamaAPIKey.isEmpty {
+                return ToolExecutionResult(await executeOllamaWebSearchTool(input: input, apiKey: settings.ollamaAPIKey))
+            }
             return ToolExecutionResult(await executeWebSearchTool(input: input))
         case "web_fetch":
             return ToolExecutionResult(await executeWebFetchTool(input: input))

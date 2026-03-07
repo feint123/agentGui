@@ -10,6 +10,66 @@ import SwiftAnthropic
 
 extension ClaudeService {
 
+    // MARK: - Ollama web_search
+
+    func executeOllamaWebSearchTool(input: MessageResponse.Content.Input, apiKey: String) async -> String {
+        guard let query = input["query"]?.stringValue else {
+            return "Error: missing 'query' parameter"
+        }
+        let maxResults = min(input["count"]?.intValue ?? 5, 10)
+
+        guard let url = URL(string: "https://ollama.com/api/web_search") else {
+            return "Error: failed to build Ollama search URL"
+        }
+
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = ["query": query, "max_results": maxResults]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
+            return "Error: failed to encode request body"
+        }
+        request.httpBody = bodyData
+
+        do {
+            print("[ollama_web_search] Query: \(query)")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            print("[ollama_web_search] HTTP status: \(statusCode), data size: \(data.count) bytes")
+            if !(200...299).contains(statusCode) {
+                let body = String(data: data, encoding: .utf8)?.prefix(300) ?? "(unreadable)"
+                return "Error: Ollama web search returned HTTP \(statusCode): \(body)"
+            }
+            guard
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let results = json["results"] as? [[String: Any]]
+            else {
+                return "Error: unexpected response format from Ollama web search"
+            }
+
+            if results.isEmpty {
+                return "No results found for: \"\(query)\""
+            }
+
+            var lines = ["Search results for: \"\(query)\"\n"]
+            for (idx, result) in results.enumerated() {
+                let title   = result["title"]   as? String ?? ""
+                let url     = result["url"]     as? String ?? ""
+                let content = result["content"] as? String ?? ""
+                lines.append("\(idx + 1). \(title)")
+                lines.append("   \(url)")
+                if !content.isEmpty { lines.append("   \(content)") }
+                lines.append("")
+            }
+            return lines.joined(separator: "\n")
+        } catch {
+            print("[ollama_web_search] Request error: \(error)")
+            return "Error: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - web_search
 
     func executeWebSearchTool(input: MessageResponse.Content.Input) async -> String {
