@@ -260,7 +260,7 @@ extension ClaudeService {
 
                     let result: ToolExecutionResult
                     if pending.name == "run_subagent" {
-                        result = ToolExecutionResult(await executeRunSubagentTool(
+                        let agentMsg = await executeRunSubagentTool(
                             input: input,
                             toolCallRecord: record,
                             service: service,
@@ -268,7 +268,12 @@ extension ClaudeService {
                             settings: settings,
                             sessionId: sessionId,
                             modelContext: modelContext
-                        ))
+                        )
+                        result = agentMsg.toExecutionResult()
+                        record.subagentResultKind = agentMsg.content.kindLabel
+                        if !agentMsg.metadata.isEmpty {
+                            record.subagentMessageMetadata = agentMsg.metadata
+                        }
                     } else {
                         result = await executeTool(
                             name: pending.name,

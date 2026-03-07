@@ -52,6 +52,12 @@ final class ToolCall {
     /// 子代理任务描述（kind == .subagent 时使用）
     var subagentTask: String?
 
+    /// AgentMessage 内容类型标签："text" | "structured" | "error"（kind == .subagent 时使用）
+    var subagentResultKind: String?
+
+    /// AgentMessage 携带的元数据键值对（轮次数、耗时等）（kind == .subagent 时使用）
+    var subagentMessageMetadata: [String: String]?
+
     /// 子代理的 agentic loop 轮次（kind == .subagent 时使用）
     @Relationship(deleteRule: .cascade, inverse: \AgentRound.subagentToolCall)
     var subagentRounds: [AgentRound] = []

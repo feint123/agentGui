@@ -71,6 +71,15 @@ struct SubagentTaskCardView: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if let kind = toolCall.subagentResultKind, kind == "structured" {
+                    Text("JSON")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.12))
+                        .clipShape(Capsule())
+                }
                 if !sortedRounds.isEmpty {
                     Text("\(sortedRounds.count) 轮")
                         .font(.caption2)
@@ -131,6 +140,24 @@ struct SubagentTaskCardView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 2)
+            }
+
+            // AgentMessage metadata (rounds, elapsed, etc.)
+            if let meta = toolCall.subagentMessageMetadata, !meta.isEmpty {
+                let pairs = meta.sorted { $0.key < $1.key }
+                labeledBlock(label: "消息元数据") {
+                    HStack(spacing: 8) {
+                        ForEach(pairs, id: \.key) { key, value in
+                            HStack(spacing: 3) {
+                                Text(key)
+                                    .foregroundStyle(.tertiary)
+                                Text(value)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.caption2)
+                        }
+                    }
+                }
             }
 
             // Full timeline

@@ -12,6 +12,7 @@ import SwiftData
 extension ClaudeService {
 
     /// 执行 run_subagent 工具调用：解析参数、查找定义、运行嵌套 loop
+    /// 返回 AgentMessage（带发送方、接收方、内容类型和元数据）而非纯字符串。
     func executeRunSubagentTool(
         input: MessageResponse.Content.Input,
         toolCallRecord: ToolCall,
@@ -20,16 +21,16 @@ extension ClaudeService {
         settings: AppSettings,
         sessionId: String,
         modelContext: ModelContext
-    ) async -> String {
+    ) async -> AgentMessage {
         guard let agentName = input["agent_name"]?.stringValue else {
-            return "Error: missing 'agent_name' parameter"
+            return .error("missing 'agent_name' parameter", sender: "system")
         }
         guard let task = input["task"]?.stringValue else {
-            return "Error: missing 'task' parameter"
+            return .error("missing 'task' parameter", sender: "system")
         }
         guard let definition = SubagentDefinition.find(named: agentName) else {
             let available = SubagentDefinition.all.map(\.name).joined(separator: ", ")
-            return "Error: unknown agent '\(agentName)'. Available: \(available)"
+            return .error("unknown agent '\(agentName)'. Available: \(available)", sender: "system")
         }
 
         do {
@@ -44,11 +45,12 @@ extension ClaudeService {
                 modelContext: modelContext
             )
         } catch {
-            return "Subagent error: \(error.localizedDescription)"
+            return .error(error.localizedDescription, sender: agentName)
         }
     }
 
-    /// 子代理的嵌套 agentic loop — 通过 runCoreAgentLoop 复用主代理的核心流程
+    /// 子代理的嵌套 agentic loop — 通过 runCoreAgentLoop 复用主代理的核心流程。
+    /// 返回 AgentMessage：自动检测 JSON 结构化输出，并附带执行轮次等元数据。
     private func runSubagentLoop(
         task: String,
         definition: SubagentDefinition,
@@ -58,7 +60,8 @@ extension ClaudeService {
         settings: AppSettings,
         sessionId: String,
         modelContext: ModelContext
-    ) async throws -> String {
+    ) async throws -> AgentMessage {
+        let startTime = Date()
         var loopMessages: [MessageParameter.Message] = [.init(role: .user, content: .text(task))]
         let system: MessageParameter.System? = definition.systemPrompt.isEmpty
             ? nil
@@ -81,7 +84,14 @@ extension ClaudeService {
             parentMessage: nil,
             onTextAccumulated: { _ in }
         )
-        return result.isEmpty ? "(subagent produced no output)" : result
+        let output = result.isEmpty ? "(subagent produced no output)" : result
+        let elapsed = Date().timeIntervalSince(startTime)
+        let metadata: [String: String] = [
+            "agent":    definition.name,
+            "rounds":   String(min(loopMessages.count / 2, definition.maxRounds)),
+            "elapsed":  String(format: "%.2fs", elapsed)
+        ]
+        return .detecting(text: output, sender: definition.name, metadata: metadata)
     }
 
     /// 为子代理构建工具列表（根据定义配置，不添加 run_subagent / ask_user_question）
