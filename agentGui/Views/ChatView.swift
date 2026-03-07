@@ -16,12 +16,14 @@ struct ChatView: View {
 
     @Environment(\.modelContext) var modelContext
     @Environment(ClaudeService.self) var claudeService
+    @Environment(WorkspaceState.self) var workspaceState
 
     // MARK: - Properties
 
     let session: Session
 
     @Query var allMessages: [Message]
+    @Query(sort: \Session.updatedAt, order: .reverse) var allSessions: [Session]
 
     @State var inputText = ""
     @State var errorMessage: String?

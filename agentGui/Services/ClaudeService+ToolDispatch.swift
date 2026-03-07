@@ -16,15 +16,16 @@ extension ClaudeService {
         name: String,
         input: MessageResponse.Content.Input,
         settings: AppSettings,
-        sessionId: String
+        session: Session
     ) async -> String {
+        let sessionId = session.sessionId
         switch name {
         case "str_replace_based_edit_tool", "str_replace_editor":
             return await executeTextEditorTool(input: input)
         case "bash":
-            let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
-            let session = getBashSession(for: sessionId, workingDirectory: wd)
-            return await executeBashTool(input: input, session: session, workingDirectory: wd)
+            let wd = effectiveWorkingDirectory(session: session, settings: settings)
+            let bashSess = getBashSession(for: sessionId, workingDirectory: wd)
+            return await executeBashTool(input: input, session: bashSess, workingDirectory: wd)
         case "read_skill":
             guard let skillName = input["name"]?.stringValue else {
                 return "Error: missing 'name' parameter"
@@ -82,6 +83,46 @@ extension ClaudeService {
         case .array(let arr): return arr.map { dynamicContentToAny($0) }
         case .dictionary(let dict):
             return dict.mapValues { dynamicContentToAny($0) }
+        }
+    }
+
+    // MARK: Bash Session Management
+
+    // MARK: - Effective Working Directory
+
+    func effectiveWorkingDirectory(session: Session, settings: AppSettings) -> String? {
+        if !session.workingDirectory.isEmpty { return session.workingDirectory }
+        if !settings.workingDirectory.isEmpty { return settings.workingDirectory }
+        return nil
+    }
+
+    /// Convenience overload used by subagent loops that only have a sessionId string.
+    /// Falls back to global settings working directory.
+    func executeTool(
+        name: String,
+        input: MessageResponse.Content.Input,
+        settings: AppSettings,
+        sessionId: String
+    ) async -> String {
+        let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
+        switch name {
+        case "str_replace_based_edit_tool", "str_replace_editor":
+            return await executeTextEditorTool(input: input)
+        case "bash":
+            let bashSess = getBashSession(for: sessionId, workingDirectory: wd)
+            return await executeBashTool(input: input, session: bashSess, workingDirectory: wd)
+        case "read_skill":
+            guard let skillName = input["name"]?.stringValue else {
+                return "Error: missing 'name' parameter"
+            }
+            if let content = skillService?.readSkillContent(name: skillName) {
+                return content
+            }
+            return "Error: skill '\(skillName)' not found"
+        case "ask_user_question":
+            return await executeAskUserQuestion(input: input)
+        default:
+            return "Error: unknown tool '\(name)'"
         }
     }
 

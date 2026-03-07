@@ -46,17 +46,9 @@ extension ClaudeService {
         var accumulatedText = ""
         var continueLoop = true
         var roundIndex = 0
-        var loopNumbers = 0
 
-        while continueLoop {
+        while continueLoop  {
             try Task.checkCancellation()
-            loopNumbers += 1
-            if loopNumbers > 10 {
-                // Safety check to prevent infinite loops
-                let errorText = "Error: exceeded maximum loop iterations"
-                assistantMessage.textContent = errorText
-                break
-            }
             print("Starting agentic loop iteration \(roundIndex) with \(loopMessages.count) messages")
             let useThinking = settings.enableExtendedThinking && isThinkingCapable(modelId: modelId)
             let budget = settings.extendedThinkingBudget
@@ -199,7 +191,7 @@ extension ClaudeService {
                             name: pending.name,
                             input: input,
                             settings: settings,
-                            sessionId: session.sessionId
+                            session: session
                         )
                     }
                     record.terminalOutput = result

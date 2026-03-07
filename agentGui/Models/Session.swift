@@ -25,6 +25,9 @@ final class Session {
     /// 是否活跃
     var isActive: Bool
 
+    /// 会话级工作目录（空字符串表示使用全局 AppSettings.workingDirectory）
+    var workingDirectory: String = ""
+
     /// 关联的消息
     @Relationship(deleteRule: .cascade, inverse: \Message.session)
     var messages: [Message] = []

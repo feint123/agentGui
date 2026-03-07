@@ -6,40 +6,69 @@
 //
 
 import SwiftUI
+import SwiftData
 
-/// 主界面分割视图
-/// 左侧显示对话列表，右侧显示聊天界面
+/// 主界面三栏分割视图
+/// 左侧：文件浏览器
+/// 中间：文件编辑器
+/// 右侧：聊天界面（含顶部对话 Picker）
 struct MainSplitView: View {
 
     // MARK: - Properties
 
-    @State private var selectedSession: Session?
+    @State private var workspaceState = WorkspaceState()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @Environment(\.modelContext) private var modelContext
+
+    // MARK: - Query
+
+    @Query(sort: \Session.updatedAt, order: .reverse)
+    private var sessions: [Session]
 
     // MARK: - Body
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SessionListView { session in
-                selectedSession = session
-            }
+            WorkspacePanelView()
+                .navigationTitle("文件")
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
+        } content: {
+            FileEditorView()
+                .navigationSplitViewColumnWidth(min: 280, ideal: 400, max: 700)
         } detail: {
-            if let session = selectedSession {
+            if let session = workspaceState.selectedSession {
                 ChatView(session: session)
             } else {
                 emptyDetailState
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .environment(workspaceState)
+        .onAppear {
+            if workspaceState.selectedSession == nil {
+                workspaceState.selectedSession = sessions.first
+            }
+        }
+        .onChange(of: sessions) { _, newSessions in
+            // If selected session was deleted, fall back to most recent
+            if let current = workspaceState.selectedSession,
+               !newSessions.contains(where: { $0.persistentModelID == current.persistentModelID }) {
+                workspaceState.selectedSession = newSessions.first
+            }
+            // If nothing selected and sessions exist, auto-select
+            if workspaceState.selectedSession == nil {
+                workspaceState.selectedSession = newSessions.first
+            }
+        }
     }
 
     // MARK: - Empty Detail State
 
     private var emptyDetailState: some View {
         ContentUnavailableView {
-            Label("选择对话", systemImage: "bubble.left.and.bubble.right")
+            Label("无对话", systemImage: "bubble.left.and.bubble.right")
         } description: {
-            Text("从左侧选择对话，或点击 + 开始新对话")
+            Text("点击工具栏的 + 开始新对话")
         }
     }
 }
