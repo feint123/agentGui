@@ -24,7 +24,7 @@ struct ThinkingBubbleView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.purple.opacity(0.2), lineWidth: 1)
+                .stroke(.purple.opacity(0.2), lineWidth: 1)
         )
     }
 

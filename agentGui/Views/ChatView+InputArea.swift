@@ -144,7 +144,7 @@ var fileChipsRow: some View {
                 } label: {
                     Image(systemName: "stop.circle.fill")
                         .font(.system(size: 30))
-                        .foregroundStyle(Color.red.opacity(0.85))
+                        .foregroundStyle(.red)
                 }
                 .buttonStyle(.plain)
             } else {

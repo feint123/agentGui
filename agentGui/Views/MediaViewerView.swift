@@ -232,7 +232,7 @@ func mediaThumbImage(url: URL) async -> NSImage? {
             let size = NSSize(width: bounds.width * scale, height: bounds.height * scale)
             return NSImage(size: size, flipped: false) { _ in
                 guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-                ctx.setFillColor(NSColor.white.cgColor)
+                ctx.setFillColor(NSColor.controlBackgroundColor.cgColor)
                 ctx.fill(NSRect(origin: .zero, size: size))
                 ctx.scaleBy(x: scale, y: scale)
                 page.draw(with: .mediaBox, to: ctx)

@@ -155,7 +155,7 @@ struct AskUserQuestionView: View {
                             .frame(width: 18, height: 18)
                         if isSelected {
                             Circle()
-                                .fill(Color.white)
+                                .fill(.primary)
                                 .frame(width: 8, height: 8)
                         }
                     }

@@ -77,7 +77,7 @@ struct SubagentTaskCardView: View {
                         .foregroundStyle(.blue)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.12))
+                        .background(.blue.opacity(0.12))
                         .clipShape(Capsule())
                 }
                 if !sortedRounds.isEmpty {

@@ -55,6 +55,15 @@ struct PlanStep: Codable, Identifiable {
         self.status = status
         self.result = result
     }
+
+    // Custom decoder: the model only sends { id, title }; status and result are optional.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id     = try c.decode(String.self, forKey: .id)
+        title  = try c.decode(String.self, forKey: .title)
+        status = try c.decodeIfPresent(PlanStepStatus.self, forKey: .status) ?? .pending
+        result = try c.decodeIfPresent(String.self, forKey: .result)
+    }
 }
 
 // MARK: - ExecutionPlan

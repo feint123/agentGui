@@ -159,7 +159,7 @@ struct MessageBubbleView: View {
         HStack(spacing: 5) {
             Image(systemName: message.direction == .agent ? "sparkle" : "info.circle.fill")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(message.direction == .agent ? Color.orange : Color.secondary)
+                .foregroundStyle(message.direction == .agent ? .orange : .secondary)
             Text(senderName)
                 .font(.caption)
                 .fontWeight(.medium)

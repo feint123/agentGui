@@ -43,7 +43,7 @@ extension ClaudeService {
         session: Session,
         settings: AppSettings,
         modelContext: ModelContext,
-        maxRounds: Int = 16
+        maxRounds: Int = 50
     ) async throws {
         var loopMessages = apiMessages
         let system: MessageParameter.System? = systemPrompt.isEmpty ? nil : .text(systemPrompt)

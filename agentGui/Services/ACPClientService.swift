@@ -154,6 +154,8 @@ final class ClaudeService {
         }
         apiMessages.append(MessageParameter.Message(role: .user, content: .text(text)))
 
+        let isFirstMessage = session.title == "新对话" || session.title.isEmpty
+
         try await resumeSend(
             apiMessages: apiMessages,
             service: service,
@@ -162,8 +164,8 @@ final class ClaudeService {
             modelContext: modelContext
         )
 
-        if session.title == "新对话" || session.title.isEmpty {
-            session.title = String(text.prefix(40))
+        if isFirstMessage {
+            Task { await generateTitle(for: session, firstMessage: text, modelContext: modelContext) }
         }
     }
 
@@ -292,6 +294,32 @@ final class ClaudeService {
 
         session.updatedAt = Date()
         try? modelContext.save()
+    }
+
+    // MARK: - Title Generation
+
+    func generateTitle(for session: Session, firstMessage: String, modelContext: ModelContext) async {
+        guard let service else { return }
+        let prompt = "用不超过10个字概括这个对话主题（只输出标题，不加引号）：\(firstMessage)"
+        let messages: [MessageParameter.Message] = [
+            MessageParameter.Message(role: .user, content: .text(prompt))
+        ]
+        let parameters = MessageParameter(
+            model: .other("claude-haiku-4-5"),
+            messages: messages,
+            maxTokens: 64
+        )
+        do {
+            let response = try await service.createMessage(parameters)
+            if case .text(let title, _) = response.content.first, !title.isEmpty {
+                session.title = title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                try? modelContext.save()
+            }
+        } catch {
+            // Title generation is best-effort; fall back to truncated first message
+            session.title = String(firstMessage.prefix(30))
+            try? modelContext.save()
+        }
     }
 
     // MARK: - System Prompt Builder
