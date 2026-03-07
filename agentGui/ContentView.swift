@@ -21,6 +21,12 @@ struct ContentView: View {
                 }
                 .tag(AppTab.chat)
 
+            SkillsView()
+                .tabItem {
+                    Label("Skills", systemImage: selectedTab == .skills ? "wand.and.stars" : "wand.and.stars")
+                }
+                .tag(AppTab.skills)
+
             SettingsView()
                 .tabItem {
                     Label("设置", systemImage: selectedTab == .settings ? "gearshape.fill" : "gearshape")
@@ -33,6 +39,7 @@ struct ContentView: View {
 
 enum AppTab: String, CaseIterable {
     case chat
+    case skills
     case settings
 }
 
@@ -57,7 +64,6 @@ struct SettingsView: View {
                 modelSection
                 appearanceSection
                 toolsSection
-                skillsSection
                 aboutSection
             }
             .formStyle(.grouped)
@@ -215,62 +221,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Skills Section
-
-    @ViewBuilder
-    private var skillsSection: some View {
-        Section {
-            if skillService.availableSkills.isEmpty {
-                HStack {
-                    Image(systemName: "tray")
-                        .foregroundStyle(.secondary)
-                    Text("未发现技能")
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                if let settings {
-                    ForEach(skillService.availableSkills) { skill in
-                        let isEnabled = settings.enabledSkillNames.contains(skill.directoryName)
-                        Toggle(isOn: Binding(
-                            get: { isEnabled },
-                            set: { newValue in
-                                var names = settings.enabledSkillNames
-                                if newValue {
-                                    if !names.contains(skill.directoryName) {
-                                        names.append(skill.directoryName)
-                                    }
-                                } else {
-                                    names.removeAll { $0 == skill.directoryName }
-                                }
-                                settings.enabledSkillNames = names
-                                try? modelContext.save()
-                            }
-                        )) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(skill.name)
-                                if !skill.description.isEmpty {
-                                    Text(skill.description)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Button("刷新技能列表") {
-                skillService.clearCache()
-                skillService.loadSkills()
-            }
-            .buttonStyle(.glassProminent)
-        } header: {
-            Text("Skills")
-        } footer: {
-            Text("展示 ~/.claude/skills 目录中的技能。启用后，Claude 将能在对话中主动调用对应技能的指导。")
-        }
-    }
-
     // MARK: - About Section
 
     private var aboutSection: some View {
@@ -322,6 +272,77 @@ struct SettingsView: View {
         withAnimation { isSaved = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation { isSaved = false }
+        }
+    }
+}
+
+// MARK: - Skills View
+
+struct SkillsView: View {
+
+    @Environment(\.modelContext) private var modelContext
+    @Environment(SkillService.self) private var skillService
+    @State private var settings: AppSettings?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    if skillService.availableSkills.isEmpty {
+                        HStack {
+                            Image(systemName: "tray")
+                                .foregroundStyle(.secondary)
+                            Text("未发现技能")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        if let settings {
+                            ForEach(skillService.availableSkills) { skill in
+                                let isEnabled = settings.enabledSkillNames.contains(skill.directoryName)
+                                Toggle(isOn: Binding(
+                                    get: { isEnabled },
+                                    set: { newValue in
+                                        var names = settings.enabledSkillNames
+                                        if newValue {
+                                            if !names.contains(skill.directoryName) {
+                                                names.append(skill.directoryName)
+                                            }
+                                        } else {
+                                            names.removeAll { $0 == skill.directoryName }
+                                        }
+                                        settings.enabledSkillNames = names
+                                        try? modelContext.save()
+                                    }
+                                )) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(skill.name)
+                                        if !skill.description.isEmpty {
+                                            Text(skill.description)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(2)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Button("刷新技能列表") {
+                        skillService.clearCache()
+                        skillService.loadSkills()
+                    }
+                    .buttonStyle(.glassProminent)
+                } header: {
+                    Text("已安装的技能")
+                } footer: {
+                    Text("展示 ~/.claude/skills 目录中的技能。启用后，Claude 将能在对话中主动调用对应技能的指导。")
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Skills")
+            .onAppear {
+                settings = AppSettings.getOrCreate(in: modelContext)
+            }
         }
     }
 }
