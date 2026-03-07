@@ -25,9 +25,17 @@ actor BashSession {
     func start(workingDirectory: String? = nil) {
         lastWorkingDirectory = workingDirectory
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/bash")
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
         proc.arguments = []
-        proc.environment = ProcessInfo.processInfo.environment
+
+        // Resolve the user's full login-shell PATH so tools like npx, brew, nvm etc. are found.
+        // macOS app sandboxing inherits a minimal PATH; running a one-shot login shell
+        // (sourcing ~/.zshrc for nvm-style setups) gives us the real PATH.
+        var env = ProcessInfo.processInfo.environment
+        if let loginPath = BashSession.resolveLoginShellPath(), !loginPath.isEmpty {
+            env["PATH"] = loginPath
+        }
+        proc.environment = env
 
         if let wd = workingDirectory, !wd.isEmpty {
             proc.currentDirectoryURL = URL(fileURLWithPath: wd)
@@ -117,5 +125,24 @@ actor BashSession {
     func terminate() {
         process?.terminate()
         process = nil
+    }
+
+    // MARK: - Login PATH Resolution
+
+    /// Runs a one-shot login zsh shell to obtain the user's real PATH.
+    /// Sources ~/.zshrc inline so that nvm / volta / etc. path additions are included.
+    nonisolated private static func resolveLoginShellPath() -> String? {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        // -l = login shell: loads /etc/zprofile and ~/.zprofile (Homebrew, etc.)
+        // We also source ~/.zshrc to capture nvm/volta/etc. PATH additions.
+        proc.arguments = ["-l", "-c", "[ -f ~/.zshrc ] && source ~/.zshrc 2>/dev/null; echo $PATH"]
+        let outPipe = Pipe()
+        proc.standardOutput = outPipe
+        proc.standardError = Pipe() // discard stderr
+        try? proc.run()
+        proc.waitUntilExit()
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
