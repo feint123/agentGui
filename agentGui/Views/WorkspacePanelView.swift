@@ -30,6 +30,7 @@ struct WorkspacePanelView: View {
     // MARK: - Environment
 
     @Environment(WorkspaceState.self) private var workspaceState
+    @Environment(ClaudeService.self) private var claudeService
     @Environment(\.modelContext) private var modelContext
 
     // MARK: - State
@@ -46,9 +47,21 @@ struct WorkspacePanelView: View {
             directoryBar
             Divider()
                 .opacity(0.4)
+            if !todoItems.isEmpty {
+                TodoListView(items: todoItems)
+                Divider()
+                    .opacity(0.4)
+            }
             treeContent
         }
         .onAppear { loadFromWorkspaceState() }
+    }
+
+    // MARK: - Todo Items
+
+    private var todoItems: [TodoItem] {
+        guard let session = workspaceState.selectedSession else { return [] }
+        return claudeService.sessionTodoLists[session.sessionId] ?? []
     }
 
     // MARK: - Top directory bar

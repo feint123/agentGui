@@ -181,7 +181,7 @@ extension SubagentDefinition {
         - Return clean, ready-to-use text
         """,
         enableTextEditor: true,
-        enableBash: false,
+        enableBash: true,
         maxRounds: 8
     )
 

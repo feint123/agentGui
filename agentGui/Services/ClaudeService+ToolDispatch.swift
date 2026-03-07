@@ -34,11 +34,32 @@ extension ClaudeService {
                 return content
             }
             return "Error: skill '\(skillName)' not found"
+        case "update_todo_list":
+            return executeUpdateTodoList(input: input, sessionId: sessionId)
         case "ask_user_question":
             return await executeAskUserQuestion(input: input)
         default:
             return "Error: unknown tool '\(name)'"
         }
+    }
+
+    // MARK: Update Todo List
+
+    @discardableResult
+    func executeUpdateTodoList(input: MessageResponse.Content.Input, sessionId: String) -> String {
+        guard let itemsValue = input["items"] else {
+            return "Error: missing 'items' parameter"
+        }
+        let anyValue = dynamicContentToAny(itemsValue)
+        guard
+            let arrayValue = anyValue as? [[String: Any]],
+            let data = try? JSONSerialization.data(withJSONObject: arrayValue),
+            let items = try? JSONDecoder().decode([TodoItem].self, from: data)
+        else {
+            return "Error: failed to parse 'items' array"
+        }
+        sessionTodoLists[sessionId] = items
+        return "Todo list updated with \(items.count) items."
     }
 
     // MARK: Ask User Question
@@ -118,6 +139,8 @@ extension ClaudeService {
                 return content
             }
             return "Error: skill '\(skillName)' not found"
+        case "update_todo_list":
+            return executeUpdateTodoList(input: input, sessionId: sessionId)
         case "ask_user_question":
             return await executeAskUserQuestion(input: input)
         default:
@@ -217,6 +240,10 @@ extension ClaudeService {
             let agentName = input["agent_name"]?.stringValue ?? ""
             let definition = SubagentDefinition.find(named: agentName)
             title = "子代理: \(definition?.displayName ?? agentName)"
+        case "update_todo_list":
+            kind = .todo
+            let itemCount = input["items"]?.arrayValue?.count ?? 0
+            title = "更新任务列表 (\(itemCount)项)"
         default:
             kind = .other
             title = toolName

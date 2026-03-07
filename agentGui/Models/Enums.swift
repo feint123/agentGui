@@ -47,6 +47,7 @@ enum ToolKind: String, Codable {
     case switchMode = "switch_mode"
     case askUser = "ask_user"
     case subagent = "subagent"
+    case todo = "todo"
     case other = "other"
 
     var icon: String {
@@ -62,6 +63,7 @@ enum ToolKind: String, Codable {
         case .switchMode: return "arrow.triangle.2.circlepath"
         case .askUser: return "questionmark.circle"
         case .subagent: return "person.badge.plus"
+        case .todo: return "checklist"
         case .other: return "gearshape"
         }
     }
@@ -79,6 +81,7 @@ enum ToolKind: String, Codable {
         case .switchMode: return "切换模式"
         case .askUser: return "提问用户"
         case .subagent: return "子代理"
+        case .todo: return "任务列表"
         case .other: return "其他"
         }
     }

@@ -285,6 +285,33 @@ extension ClaudeService {
             ))
         }
 
+        // update_todo_list: available to all agents (main and subagent)
+        tools.append(.function(
+            name: "update_todo_list",
+            description: """
+            Update the current task list shown in the workspace panel. \
+            Use this to track progress on complex, multi-step tasks. \
+            Each call REPLACES the entire todo list for the current session. \
+            Call early to lay out planned steps, and update status as tasks progress.
+
+            Statuses:
+            - pending: not yet started
+            - in_progress: currently working on it (at most one at a time)
+            - done: completed successfully
+            - cancelled: skipped or no longer needed
+            """,
+            inputSchema: .init(
+                type: .object,
+                properties: [
+                    "items": .init(
+                        type: .array,
+                        description: #"Full list of todo items. Each item: { "id": string, "title": string, "status": "pending"|"in_progress"|"done"|"cancelled", "notes": string (optional) }"#
+                    )
+                ],
+                required: ["items"]
+            )
+        ))
+
         // ask_user_question is always available to the main agent only
         tools.append(.function(
             name: "ask_user_question",

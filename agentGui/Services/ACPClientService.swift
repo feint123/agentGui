@@ -82,6 +82,9 @@ final class ClaudeService {
     /// 每个 Session 对应一个持久化 bash session（key = sessionId）
     var bashSessions: [String: BashSession] = [:]
 
+    /// 每个 Session 的 TodoList（key = sessionId）
+    var sessionTodoLists: [String: [TodoItem]] = [:]
+
     /// Skill service reference for tool dispatch and system prompt
     var skillService: SkillService?
 

@@ -17,10 +17,13 @@ actor BashSession {
     private var currentSentinel = ""
     /// 最大缓冲字节数 (50 KB)
     private let maxOutputBytes = 50_000
+    /// 启动时使用的工作目录（用于自动重启）
+    private var lastWorkingDirectory: String? = nil
 
     // MARK: - Lifecycle
 
     func start(workingDirectory: String? = nil) {
+        lastWorkingDirectory = workingDirectory
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/bash")
         proc.arguments = []
@@ -66,10 +69,14 @@ actor BashSession {
     func execute(_ command: String, timeout: TimeInterval = 30) async -> String {
         if !(process?.isRunning ?? false) {
             start()
+            // Give bash time to fully initialize before writing to stdin
+            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
         }
 
         let sentinel = "BASH_DONE_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         currentSentinel = sentinel
+        // Yield to flush any pending readabilityHandler append tasks from the previous command
+        await Task.yield()
         outputBuffer = ""
 
         // 包裹命令捕获 stderr，然后输出哨兵
@@ -90,7 +97,9 @@ actor BashSession {
                 let partial = outputBuffer
                 currentSentinel = ""
                 outputBuffer = ""
-                return partial + (partial.isEmpty ? "" : "\n") + "[Timed out after \(Int(timeout))s]"
+                // Restart the bash session so subsequent commands work in a clean state
+                restart(workingDirectory: lastWorkingDirectory)
+                return partial + (partial.isEmpty ? "" : "\n") + "[Timed out after \(Int(timeout))s — bash session restarted]"
             }
             try? await Task.sleep(nanoseconds: 50_000_000) // 50ms 轮询
         }

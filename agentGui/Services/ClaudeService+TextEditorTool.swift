@@ -78,7 +78,7 @@ extension ClaudeService {
             if count > 1 { return "Error: old_str appears \(count) times (ambiguous). Add more context." }
             let updated = content.replacingOccurrences(of: oldStr, with: newStr, options: .literal)
             try updated.write(toFile: path, atomically: true, encoding: .utf8)
-            return "Replaced text in '\(path)'."
+            return "Replaced text in '\(path)'.\n\nVerification:\n\(readBackFile(path: path))"
         } catch {
             return "Error: \(error.localizedDescription)"
         }
@@ -91,7 +91,7 @@ extension ClaudeService {
                 try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             }
             try fileText.write(toFile: path, atomically: true, encoding: .utf8)
-            return "Written '\(path)'."
+            return "Written '\(path)'.\n\nVerification:\n\(readBackFile(path: path))"
         } catch {
             return "Error: \(error.localizedDescription)"
         }
@@ -104,9 +104,31 @@ extension ClaudeService {
             let idx = max(0, min(insertLine, lines.count))
             lines.insert(contentsOf: newStr.components(separatedBy: "\n"), at: idx)
             try lines.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
-            return "Inserted text after line \(insertLine) in '\(path)'."
+            return "Inserted text after line \(insertLine) in '\(path)'.\n\nVerification:\n\(readBackFile(path: path))"
         } catch {
             return "Error: \(error.localizedDescription)"
+        }
+    }
+
+    /// Reads back a file for verification. Shows all lines if ≤100, otherwise first 100 with a note.
+    nonisolated private static func readBackFile(path: String) -> String {
+        do {
+            let content = try String(contentsOfFile: path, encoding: .utf8)
+            let lines = content.components(separatedBy: "\n")
+            let totalLines = lines.count
+            let limit = 100
+            if totalLines <= limit {
+                return lines.enumerated()
+                    .map { "\($0.offset + 1)\t\($0.element)" }
+                    .joined(separator: "\n")
+            } else {
+                let preview = lines.prefix(limit).enumerated()
+                    .map { "\($0.offset + 1)\t\($0.element)" }
+                    .joined(separator: "\n")
+                return "\(preview)\n(file has \(totalLines) lines total, showing first \(limit))"
+            }
+        } catch {
+            return "(could not read back file: \(error.localizedDescription))"
         }
     }
 }

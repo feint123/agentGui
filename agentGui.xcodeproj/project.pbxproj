@@ -9,6 +9,9 @@
 /* Begin PBXBuildFile section */
 		1222AEDB2F5B4A3500A4A73D /* (null) in Frameworks */ = {isa = PBXBuildFile; };
 		12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */ = {isa = PBXBuildFile; productRef = 12266AFA2F59CDD700450C6E /* SwiftAnthropic */; };
+		12DF952F2F5BC7F600258995 /* BeautifulMermaid in Frameworks */ = {isa = PBXBuildFile; productRef = 1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */; };
+		12DF95302F5BC7F600258995 /* CodeEditSourceEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 1222B2302F5BC3C900A4A73D /* CodeEditSourceEditor */; };
+		12DF95312F5BC7F600258995 /* CodeEditLanguages in Frameworks */ = {isa = PBXBuildFile; productRef = 1222B2312F5BC3C900A4A73D /* CodeEditLanguages */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +60,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				12DF95312F5BC7F600258995 /* CodeEditLanguages in Frameworks */,
+				12DF95302F5BC7F600258995 /* CodeEditSourceEditor in Frameworks */,
+				12DF952F2F5BC7F600258995 /* BeautifulMermaid in Frameworks */,
 				12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */,
 				1222AEDB2F5B4A3500A4A73D /* (null) in Frameworks */,
 			);
