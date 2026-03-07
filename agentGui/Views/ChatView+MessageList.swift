@@ -29,29 +29,29 @@ extension ChatView {
 
     var messageListView: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 16) {
-                    ForEach(allMessages) { message in
-                        MessageBubbleView(
-                            message: message,
-                            isStreaming: claudeService.isStreaming,
-                            onCopy: { copyMessage(message) },
-                            onEdit: message.direction == .user
-                                ? { newText in editAndResend(message: message, newText: newText) }
-                                : nil,
-                            onDelete: { deleteMessage(message) },
-                            onDeleteFrom: { deleteFrom(message) },
-                            onRegenerate: message.direction == .agent ? { regenerate() } : nil,
-                            onRetry: (message.direction == .agent && message.status == .failed)
-                                ? { regenerate() }
-                                : nil
-                        )
-                        .id(message.id)
-                    }
+            List {
+                ForEach(allMessages) { message in
+                    MessageBubbleView(
+                        message: message,
+                        isStreaming: claudeService.isStreaming,
+                        onCopy: { copyMessage(message) },
+                        onEdit: message.direction == .user
+                            ? { newText in editAndResend(message: message, newText: newText) }
+                            : nil,
+                        onDelete: { deleteMessage(message) },
+                        onDeleteFrom: { deleteFrom(message) },
+                        onRegenerate: message.direction == .agent ? { regenerate() } : nil,
+                        onRetry: (message.direction == .agent && message.status == .failed)
+                            ? { regenerate() }
+                            : nil
+                    )
+                    .id(message.id)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 }
-                .padding(.vertical, 16)
-                .padding(.horizontal, 16)
             }
+            .listStyle(.plain)
             .onChange(of: allMessages.last?.textContent) { _, _ in
                 if claudeService.isStreaming {
                     scrollToBottom(proxy: proxy)
