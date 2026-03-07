@@ -91,7 +91,6 @@ extension ClaudeService {
     // MARK: - Effective Working Directory
 
     func effectiveWorkingDirectory(session: Session, settings: AppSettings) -> String? {
-        if !session.workingDirectory.isEmpty { return session.workingDirectory }
         if !settings.workingDirectory.isEmpty { return settings.workingDirectory }
         return nil
     }

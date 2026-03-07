@@ -32,6 +32,11 @@ struct ChatView: View {
     @State var deleteFromConfirmMessage: Message?
     @State var activeTask: Task<Void, Never>?
 
+    // MARK: - @ Mention
+    @State var mentionQuery: String? = nil
+    @State var mentionCandidates: [URL] = []
+    @State var mentionWorkingDir: String = ""
+
     @FocusState var isInputFocused: Bool
 
     // MARK: - Initializer

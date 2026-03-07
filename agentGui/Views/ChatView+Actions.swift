@@ -21,6 +21,8 @@ extension ChatView {
         }
 
         var fullText = trimmed
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        fullText = expandMentions(in: fullText, workingDirectory: settings.workingDirectory)
         if !attachedFiles.isEmpty {
             let refs = attachedFiles.map { "- \($0.path)" }.joined(separator: "\n")
             fullText += "\n\nReferenced files:\n\(refs)"
@@ -34,7 +36,6 @@ extension ChatView {
         modelContext.insert(userMessage)
         try? modelContext.save()
 
-        let settings = AppSettings.getOrCreate(in: modelContext)
         let modelId = settings.selectedModel
 
         do {
@@ -49,6 +50,30 @@ extension ChatView {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    // MARK: - @ Mention Expansion
+
+    /// Replaces @relPath tokens with their absolute path when the file exists under workingDirectory.
+    func expandMentions(in text: String, workingDirectory: String) -> String {
+        guard !workingDirectory.isEmpty,
+              let regex = try? NSRegularExpression(pattern: #"@(\S+)"#)
+        else { return text }
+        let ns = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        var result = text
+        // Iterate in reverse so replacements don't shift earlier offsets
+        for match in matches.reversed() {
+            guard match.numberOfRanges == 2 else { continue }
+            let relRange = match.range(at: 1)
+            let relPath = ns.substring(with: relRange)
+            let absPath = (workingDirectory as NSString).appendingPathComponent(relPath)
+            guard FileManager.default.fileExists(atPath: absPath) else { continue }
+            if let swiftRange = Range(match.range(at: 0), in: result) {
+                result.replaceSubrange(swiftRange, with: absPath)
+            }
+        }
+        return result
     }
 
     // MARK: - Message Actions

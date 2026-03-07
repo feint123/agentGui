@@ -228,7 +228,7 @@ final class ClaudeService {
     ) async throws {
         let settings = AppSettings.getOrCreate(in: modelContext)
         let enabledSkills = skillService?.enabledSkills(enabledNames: settings.enabledSkillNames) ?? []
-        let systemPrompt = buildSkillSystemPrompt(enabledSkills)
+        let systemPrompt = buildSystemPrompt(skills: enabledSkills, workingDirectory: settings.workingDirectory)
         let tools = buildTools(modelId: modelId, settings: settings, enabledSkills: enabledSkills)
 
         // 创建 assistant 消息占位符
@@ -264,19 +264,28 @@ final class ClaudeService {
         try? modelContext.save()
     }
 
-    // MARK: - Skill System Prompt
+    // MARK: - System Prompt Builder
 
-    private func buildSkillSystemPrompt(_ skills: [Skill]) -> String {
-        guard !skills.isEmpty else { return "" }
-        var lines = [
-            "## Available Skills",
-            "Use the 'read_skill' tool to load a skill's full instructions when the user's request matches its purpose.",
-            ""
-        ]
-        for skill in skills {
-            let desc = skill.description.isEmpty ? "(no description)" : skill.description
-            lines.append("- **\(skill.name)**: \(desc)")
+    private func buildSystemPrompt(skills: [Skill], workingDirectory: String) -> String {
+        var parts: [String] = []
+
+        if !workingDirectory.isEmpty {
+            parts.append("## Working Directory\nThe current working directory for all file and bash tool operations is: \(workingDirectory)")
         }
-        return lines.joined(separator: "\n")
+
+        if !skills.isEmpty {
+            var lines = [
+                "## Available Skills",
+                "Use the 'read_skill' tool to load a skill's full instructions when the user's request matches its purpose.",
+                ""
+            ]
+            for skill in skills {
+                let desc = skill.description.isEmpty ? "(no description)" : skill.description
+                lines.append("- **\(skill.name)**: \(desc)")
+            }
+            parts.append(lines.joined(separator: "\n"))
+        }
+
+        return parts.joined(separator: "\n\n")
     }
 }

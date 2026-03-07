@@ -49,9 +49,6 @@ struct WorkspacePanelView: View {
             treeContent
         }
         .onAppear { loadFromWorkspaceState() }
-        .onChange(of: workspaceState.selectedSession) { _, _ in
-            loadFromWorkspaceState()
-        }
     }
 
     // MARK: - Top directory bar
@@ -138,14 +135,9 @@ struct WorkspacePanelView: View {
         panel.prompt = "选择"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         setDirectory(url)
-        if let session = workspaceState.selectedSession {
-            session.workingDirectory = url.path
-            try? modelContext.save()
-        } else {
-            let settings = AppSettings.getOrCreate(in: modelContext)
-            settings.workingDirectory = url.path
-            try? modelContext.save()
-        }
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        settings.workingDirectory = url.path
+        try? modelContext.save()
     }
 
     private func setDirectory(_ url: URL) {
@@ -156,7 +148,7 @@ struct WorkspacePanelView: View {
 
     private func loadFromWorkspaceState() {
         let settings = AppSettings.getOrCreate(in: modelContext)
-        let dir = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
+        let dir = settings.workingDirectory
         guard !dir.isEmpty else {
             rootNodes = []
             currentDirectory = nil

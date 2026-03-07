@@ -5,6 +5,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import AppKit
 
 extension ChatView {
 
@@ -12,6 +13,9 @@ extension ChatView {
 
     var inputArea: some View {
         VStack(spacing: 0) {
+            if mentionQuery != nil && !mentionCandidates.isEmpty {
+                mentionPopupCard
+            }
             Divider()
                 .opacity(0.5)
 
@@ -21,13 +25,13 @@ extension ChatView {
                 }
 
                 HStack(alignment: .bottom, spacing: 10) {
-                    TextEditor(text: $inputText)
-                        .focused($isInputFocused)
-                        .scrollContentBackground(.hidden)
-                        .background(Color.clear)
-                        .frame(minHeight: 28, maxHeight: 130)
-                        .padding(.horizontal, 4)
-                        .disabled(claudeService.isStreaming)
+                    MentionAwareEditor(
+                        text: $inputText,
+                        isDisabled: claudeService.isStreaming,
+                        onTextChange: { updateMentionState($0) }
+                    )
+                    .frame(minHeight: 28, maxHeight: 130)
+                    .padding(.horizontal, 4)
 
                     sendButton
                 }
@@ -158,5 +162,228 @@ extension ChatView {
             }
         }
         return handled
+    }
+
+    // MARK: - @ Mention Popup
+
+    @ViewBuilder
+    var mentionPopupCard: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(mentionCandidates.prefix(8)), id: \.self) { url in
+                mentionRow(url: url)
+            }
+        }
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.10), radius: 8, y: -2)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
+        .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)))
+    }
+
+    func mentionRow(url: URL) -> some View {
+        let relPath: String = {
+            guard !mentionWorkingDir.isEmpty,
+                  url.path.hasPrefix(mentionWorkingDir + "/") else { return url.path }
+            return String(url.path.dropFirst(mentionWorkingDir.count + 1))
+        }()
+        return Button {
+            insertMention(url: url, relPath: relPath)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: fileIcon(for: url.lastPathComponent))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(url.lastPathComponent)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if relPath != url.lastPathComponent {
+                        Text(relPath)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - @ Mention Logic
+
+    func updateMentionState(_ text: String) {
+        guard let query = detectMentionQuery(in: text) else {
+            if mentionQuery != nil {
+                withAnimation(.easeOut(duration: 0.12)) { mentionQuery = nil }
+                mentionCandidates = []
+            }
+            return
+        }
+        let wd = AppSettings.getOrCreate(in: modelContext).workingDirectory
+        guard !wd.isEmpty else {
+            mentionQuery = query
+            mentionCandidates = []
+            return
+        }
+        mentionQuery = query
+        mentionWorkingDir = wd
+        let baseURL = URL(fileURLWithPath: wd)
+        Task.detached(priority: .userInitiated) {
+            let all = Self.collectWorkspaceFiles(at: baseURL)
+            let filtered: [URL] = query.isEmpty
+                ? Array(all.prefix(10))
+                : all.filter {
+                    $0.lastPathComponent.localizedCaseInsensitiveContains(query) ||
+                    $0.path.localizedCaseInsensitiveContains(query)
+                  }.prefix(8).map { $0 }
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.1)) {
+                    self.mentionCandidates = filtered
+                }
+            }
+        }
+    }
+
+    func detectMentionQuery(in text: String) -> String? {
+        guard let lastSep = text.lastIndex(where: { $0.isWhitespace || $0.isNewline }) else {
+            guard text.hasPrefix("@") else { return nil }
+            return String(text.dropFirst())
+        }
+        let afterSep = text.index(after: lastSep)
+        guard afterSep < text.endIndex else { return nil }
+        let word = String(text[afterSep...])
+        guard word.hasPrefix("@") else { return nil }
+        return String(word.dropFirst())
+    }
+
+    func insertMention(url: URL, relPath: String) {
+        let query = mentionQuery ?? ""
+        let target = "@\(query)"
+        if let range = inputText.range(of: target, options: .backwards) {
+            inputText.replaceSubrange(range, with: "@\(relPath)")
+        }
+        withAnimation(.easeOut(duration: 0.12)) { mentionQuery = nil }
+        mentionCandidates = []
+    }
+
+    nonisolated static func collectWorkspaceFiles(at url: URL, depth: Int = 0) -> [URL] {
+        guard depth < 6 else { return [] }
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: .skipsHiddenFiles
+        ) else { return [] }
+        var results: [URL] = []
+        for item in items.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDir { results += collectWorkspaceFiles(at: item, depth: depth + 1) }
+            else { results.append(item) }
+        }
+        return results
+    }
+}
+
+// MARK: - MentionAwareEditor
+
+/// NSTextView-backed text editor that highlights @mention tokens with accent-color styling.
+private struct MentionAwareEditor: NSViewRepresentable {
+
+    @Binding var text: String
+    var isDisabled: Bool = false
+    var onTextChange: (String) -> Void = { _ in }
+
+    // MARK: Base attributes
+
+    static let baseAttributes: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+        .foregroundColor: NSColor.labelColor
+    ]
+
+    // MARK: NSViewRepresentable
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        guard let tv = scrollView.documentView as? NSTextView else { return scrollView }
+        tv.delegate = context.coordinator
+        tv.isRichText = false
+        tv.allowsUndo = true
+        tv.font = .systemFont(ofSize: NSFont.systemFontSize)
+        tv.textColor = .labelColor
+        tv.backgroundColor = .clear
+        tv.drawsBackground = false
+        tv.textContainerInset = NSSize(width: 0, height: 3)
+        tv.isAutomaticQuoteSubstitutionEnabled = false
+        tv.isAutomaticDashSubstitutionEnabled = false
+        tv.isAutomaticSpellingCorrectionEnabled = false
+        tv.isAutomaticTextReplacementEnabled = false
+        tv.typingAttributes = Self.baseAttributes
+        scrollView.backgroundColor = .clear
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = false
+        scrollView.autohidesScrollers = true
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let tv = scrollView.documentView as? NSTextView else { return }
+        tv.isEditable = !isDisabled
+        if tv.string != text {
+            let sel = tv.selectedRanges
+            tv.string = text
+            tv.selectedRanges = sel
+            Self.applyMentionStyling(to: tv)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    // MARK: Styling
+
+    static func applyMentionStyling(to tv: NSTextView) {
+        guard let storage = tv.textStorage else { return }
+        let fullRange = NSRange(location: 0, length: storage.length)
+        storage.beginEditing()
+        storage.setAttributes(baseAttributes, range: fullRange)
+        if let regex = try? NSRegularExpression(pattern: #"@\S+"#) {
+            for match in regex.matches(in: storage.string, range: fullRange) {
+                storage.addAttributes([
+                    .foregroundColor: NSColor.controlAccentColor,
+                    .backgroundColor: NSColor.controlAccentColor.withAlphaComponent(0.12)
+                ], range: match.range)
+            }
+        }
+        storage.endEditing()
+        // Reset typing attributes so newly typed text after a mention token uses base style
+        tv.typingAttributes = baseAttributes
+    }
+
+    // MARK: Coordinator
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: MentionAwareEditor
+        init(_ parent: MentionAwareEditor) { self.parent = parent }
+
+        func textDidChange(_ notification: Notification) {
+            guard let tv = notification.object as? NSTextView else { return }
+            parent.text = tv.string
+            parent.onTextChange(tv.string)
+            // Apply styling async to avoid mutating storage during its own edit cycle
+            DispatchQueue.main.async { [weak tv] in
+                guard let tv else { return }
+                MentionAwareEditor.applyMentionStyling(to: tv)
+            }
+        }
     }
 }
