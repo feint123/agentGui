@@ -11,7 +11,7 @@ extension ChatView {
 
     var messagesArea: some View {
         Group {
-            if allMessages.isEmpty {
+            if allMessages.isEmpty || isClearingMessages {
                 emptyStateView
             } else {
                 messageListView

@@ -85,6 +85,8 @@ extension ChatView {
     }
 
     func deleteMessage(_ message: Message) {
+        _ = message.toolCalls
+        _ = message.agentRounds
         modelContext.delete(message)
         try? modelContext.save()
     }
@@ -94,8 +96,14 @@ extension ChatView {
     }
 
     func confirmDeleteFrom(_ message: Message) {
+        activeTask?.cancel()
+        activeTask = nil
         let seq = message.sequence
-        for msg in allMessages where msg.sequence >= seq {
+        // Snapshot and pre-resolve faults before deletion
+        let snapshot = allMessages.filter { $0.sequence >= seq }
+        for msg in snapshot {
+            _ = msg.toolCalls
+            _ = msg.agentRounds
             modelContext.delete(msg)
         }
         try? modelContext.save()

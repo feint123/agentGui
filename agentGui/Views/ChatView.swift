@@ -31,6 +31,8 @@ struct ChatView: View {
     @State var isDropTargeted = false
     @State var deleteFromConfirmMessage: Message?
     @State var activeTask: Task<Void, Never>?
+    /// Prevents ForEach from accessing Message objects that are about to be deleted
+    @State var isClearingMessages = false
 
     // MARK: - @ Mention
     @State var mentionQuery: String? = nil

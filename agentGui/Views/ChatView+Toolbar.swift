@@ -62,10 +62,23 @@ extension ChatView {
     // MARK: - Actions
 
     func clearMessages() {
-        for message in allMessages {
-            modelContext.delete(message)
+        activeTask?.cancel()
+        activeTask = nil
+        // Setting this flag causes messagesArea to immediately render empty,
+        // removing all SwiftUI views that hold references to Message objects.
+        // The actual deletion is deferred to the next run-loop iteration so SwiftUI
+        // has a chance to re-render (detach those views) before backing data is gone.
+        isClearingMessages = true
+        Task { @MainActor in
+            let snapshot = Array(allMessages)
+            for message in snapshot {
+                _ = message.toolCalls
+                _ = message.agentRounds
+                modelContext.delete(message)
+            }
+            try? modelContext.save()
+            isClearingMessages = false
         }
-        try? modelContext.save()
     }
 
     func createNewSession() {
