@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1222AEDB2F5B4A3500A4A73D /* BeautifulMermaid in Frameworks */ = {isa = PBXBuildFile; productRef = 1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */; };
+		1222AEDB2F5B4A3500A4A73D /* (null) in Frameworks */ = {isa = PBXBuildFile; };
 		12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */ = {isa = PBXBuildFile; productRef = 12266AFA2F59CDD700450C6E /* SwiftAnthropic */; };
 /* End PBXBuildFile section */
 
@@ -58,7 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */,
-				1222AEDB2F5B4A3500A4A73D /* BeautifulMermaid in Frameworks */,
+				1222AEDB2F5B4A3500A4A73D /* (null) in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -119,8 +119,10 @@
 			);
 			name = agentGui;
 			packageProductDependencies = (
-				12266AFA2F59CDD700450C6E /* SwiftAnthropic */,
 				1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */,
+				1222B2302F5BC3C900A4A73D /* CodeEditSourceEditor */,
+				1222B2312F5BC3C900A4A73D /* CodeEditLanguages */,
+				12266AFA2F59CDD700450C6E /* SwiftAnthropic */,
 			);
 			productName = agentGui;
 			productReference = 12D6F8342F3ACA8200B21E2D /* agentGui.app */;
@@ -207,6 +209,7 @@
 			packageReferences = (
 				12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */,
 				1222AED92F5B4A3500A4A73D /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */,
+				1222B22F2F5BC3C900A4A73D /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 12D6F8352F3ACA8200B21E2D /* Products */;
@@ -640,6 +643,14 @@
 				minimumVersion = 0.1.1;
 			};
 		};
+		1222B22F2F5BC3C900A4A73D /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CodeEditApp/CodeEditSourceEditor.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.15.2;
+			};
+		};
 		12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/jamesrochabrun/SwiftAnthropic.git";
@@ -655,6 +666,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 1222AED92F5B4A3500A4A73D /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */;
 			productName = BeautifulMermaid;
+		};
+		1222B2302F5BC3C900A4A73D /* CodeEditSourceEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1222B22F2F5BC3C900A4A73D /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
+			productName = CodeEditSourceEditor;
+		};
+		1222B2312F5BC3C900A4A73D /* CodeEditLanguages */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1222B22F2F5BC3C900A4A73D /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
+			productName = CodeEditLanguages;
 		};
 		12266AFA2F59CDD700450C6E /* SwiftAnthropic */ = {
 			isa = XCSwiftPackageProductDependency;
