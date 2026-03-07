@@ -165,6 +165,17 @@ struct SettingsView: View {
                     ))
                     .textFieldStyle(.roundedBorder)
                 }
+
+                Toggle("启用 Web Search 工具（Bing 搜索）", isOn: Binding(
+                    get: { settings.enableWebSearchTool },
+                    set: { settings.enableWebSearchTool = $0; try? modelContext.save() }
+                ))
+
+
+                Toggle("启用 Web Fetch 工具（获取网页内容）", isOn: Binding(
+                    get: { settings.enableWebFetchTool },
+                    set: { settings.enableWebFetchTool = $0; try? modelContext.save() }
+                ))
             } header: {
                 Text("工具")
             } footer: {

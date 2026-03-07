@@ -43,6 +43,13 @@ final class AppSettings {
     /// JSON array of enabled skill directoryNames, e.g. ["brainstorming","web-search"]
     var enabledSkillNamesJSON: String
 
+    /// 启用 Web Search 工具（Bing 搜索）
+    var enableWebSearchTool: Bool
+
+    /// 启用 Web Fetch 工具（获取网页内容）
+    var enableWebFetchTool: Bool
+
+
     init() {
         self.apiKey = ""
         self.baseURL = ""
@@ -55,6 +62,8 @@ final class AppSettings {
         self.enableExtendedThinking = false
         self.extendedThinkingBudget = 10000
         self.enabledSkillNamesJSON = "[]"
+        self.enableWebSearchTool = false
+        self.enableWebFetchTool = false
     }
 }
 

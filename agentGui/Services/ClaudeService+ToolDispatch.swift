@@ -36,6 +36,10 @@ extension ClaudeService {
             return "Error: skill '\(skillName)' not found"
         case "update_todo_list":
             return executeUpdateTodoList(input: input, sessionId: sessionId)
+        case "web_search":
+            return await executeWebSearchTool(input: input)
+        case "web_fetch":
+            return await executeWebFetchTool(input: input)
         case "ask_user_question":
             return await executeAskUserQuestion(input: input)
         default:
@@ -141,6 +145,10 @@ extension ClaudeService {
             return "Error: skill '\(skillName)' not found"
         case "update_todo_list":
             return executeUpdateTodoList(input: input, sessionId: sessionId)
+        case "web_search":
+            return await executeWebSearchTool(input: input)
+        case "web_fetch":
+            return await executeWebFetchTool(input: input)
         case "ask_user_question":
             return await executeAskUserQuestion(input: input)
         default:
@@ -244,6 +252,14 @@ extension ClaudeService {
             kind = .todo
             let itemCount = input["items"]?.arrayValue?.count ?? 0
             title = "更新任务列表 (\(itemCount)项)"
+        case "web_search":
+            kind = .search
+            let query = input["query"]?.stringValue ?? ""
+            title = "搜索: \(String(query.prefix(60)))"
+        case "web_fetch":
+            kind = .fetch
+            let fetchUrl = input["url"]?.stringValue ?? ""
+            title = "获取: \(String(fetchUrl.prefix(60)))"
         default:
             kind = .other
             title = toolName

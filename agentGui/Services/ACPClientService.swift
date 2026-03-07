@@ -120,7 +120,7 @@ final class ClaudeService {
         if basePath.isEmpty {
             service = AnthropicServiceFactory.service(apiKey: trimmed, betaHeaders: nil)
         } else {
-            service = AnthropicServiceFactory.service(apiKey: trimmed, basePath: basePath, betaHeaders: nil, debugEnabled: true)
+            service = AnthropicServiceFactory.service(apiKey: trimmed, basePath: basePath, betaHeaders: nil, debugEnabled: false)
         }
     }
 

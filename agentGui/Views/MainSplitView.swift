@@ -70,6 +70,19 @@ struct MainSplitView: View {
         } description: {
             Text("点击工具栏的 + 开始新对话")
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    let newSession = Session()
+                    modelContext.insert(newSession)
+                    try? modelContext.save()
+                    workspaceState.selectedSession = newSession
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .help("新建对话")
+            }
+        }
     }
 }
 
