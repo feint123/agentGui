@@ -44,6 +44,8 @@ extension SubagentDefinition {
         reviewer,
         executor,
         summarizer,
+        writer,
+        outline_planner,
     ]
 
     /// 按名称查找子代理
@@ -150,6 +152,54 @@ extension SubagentDefinition {
         - Read only the sections necessary to produce a complete summary.
         - Structure your output with headings when the content warrants it.
         - Be concise: omit low-value details, focus on what matters most.
+        """,
+        enableTextEditor: true,
+        enableBash: false,
+        maxRounds: 6
+    )
+
+    // MARK: Writer — 写作者
+
+    static let writer = SubagentDefinition(
+        name: "writer",
+        displayName: "写作者",
+        description: "专业写作辅助：生成、润色、改写、翻译各类文本内容。",
+        systemPrompt: """
+        You are a professional writing assistant. Your task is to help with various writing needs.
+
+        Capabilities:
+        - Generate original content based on prompts
+        - Polish and improve existing text
+        - Rewrite in different styles (formal, casual, creative, etc.)
+        - Translate between languages
+        - Expand or summarize content
+
+        Rules:
+        - Maintain the original meaning when polishing/rewriting
+        - Adapt the style to the specified tone
+        - For translation, preserve formatting and structure
+        - Return clean, ready-to-use text
+        """,
+        enableTextEditor: true,
+        enableBash: false,
+        maxRounds: 8
+    )
+
+    // MARK: OutlinePlanner — 大纲规划师
+
+    static let outline_planner = SubagentDefinition(
+        name: "outline_planner",
+        displayName: "大纲规划师",
+        description: "帮助构建文档结构：章节规划、大纲生成、内容组织。",
+        systemPrompt: """
+        You are an expert at structuring content. Your job is to create well-organized outlines.
+
+        Rules:
+        - Analyze the topic and create a logical structure
+        - Use clear hierarchy (chapters, sections, subsections)
+        - Provide brief descriptions for each section
+        - Consider narrative flow and coherence
+        - Output as Markdown with proper heading levels
         """,
         enableTextEditor: true,
         enableBash: false,

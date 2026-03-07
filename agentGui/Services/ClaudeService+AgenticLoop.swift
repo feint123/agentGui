@@ -79,7 +79,6 @@ extension ClaudeService {
             var stopReason: String? = nil
 
             for try await event in stream {
-                print("Received stream event for loop iteration \(roundIndex): contentBlock=\(event.contentBlock != nil), delta=\(event.delta != nil)")
                 // content_block_start — register new block
                 if let block = event.contentBlock {
                     if block.type == "tool_use", let id = block.id, let name = block.name {
@@ -90,7 +89,6 @@ extension ClaudeService {
                         currentBlockIndex = nil
                     }
                 }
-                print("Pending tools after content block processing: \(pendingTools)")
                 // content_block_delta — accumulate text / thinking / partial JSON
                 if let delta = event.delta {
                     switch delta.type {
