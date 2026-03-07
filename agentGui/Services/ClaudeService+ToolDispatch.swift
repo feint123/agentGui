@@ -6,6 +6,20 @@
 import Foundation
 import SwiftAnthropic
 
+// MARK: - ToolExecutionResult
+
+/// Wraps the string result from a tool execution plus optional media content objects
+/// (e.g. images) that are injected into the same user-turn message alongside the text result.
+struct ToolExecutionResult {
+    let text: String
+    let mediaContent: [MessageParameter.Message.Content.ContentObject]
+
+    init(_ text: String, mediaContent: [MessageParameter.Message.Content.ContentObject] = []) {
+        self.text = text
+        self.mediaContent = mediaContent
+    }
+}
+
 // MARK: - Tool Dispatch & Bash Session Management
 
 extension ClaudeService {
@@ -17,33 +31,37 @@ extension ClaudeService {
         input: MessageResponse.Content.Input,
         settings: AppSettings,
         session: Session
-    ) async -> String {
+    ) async -> ToolExecutionResult {
         let sessionId = session.sessionId
         switch name {
         case "str_replace_based_edit_tool", "str_replace_editor":
-            return await executeTextEditorTool(input: input)
+            return ToolExecutionResult(await executeTextEditorTool(input: input))
         case "bash":
             let wd = effectiveWorkingDirectory(session: session, settings: settings)
             let bashSess = getBashSession(for: sessionId, workingDirectory: wd)
-            return await executeBashTool(input: input, session: bashSess, workingDirectory: wd)
+            return ToolExecutionResult(await executeBashTool(input: input, session: bashSess, workingDirectory: wd))
         case "read_skill":
             guard let skillName = input["name"]?.stringValue else {
-                return "Error: missing 'name' parameter"
+                return ToolExecutionResult("Error: missing 'name' parameter")
             }
             if let content = skillService?.readSkillContent(name: skillName) {
-                return content
+                return ToolExecutionResult(content)
             }
-            return "Error: skill '\(skillName)' not found"
+            return ToolExecutionResult("Error: skill '\(skillName)' not found")
         case "update_todo_list":
-            return executeUpdateTodoList(input: input, sessionId: sessionId)
+            return ToolExecutionResult(executeUpdateTodoList(input: input, sessionId: sessionId))
         case "web_search":
-            return await executeWebSearchTool(input: input)
+            return ToolExecutionResult(await executeWebSearchTool(input: input))
         case "web_fetch":
-            return await executeWebFetchTool(input: input)
+            return ToolExecutionResult(await executeWebFetchTool(input: input))
         case "ask_user_question":
-            return await executeAskUserQuestion(input: input)
+            return ToolExecutionResult(await executeAskUserQuestion(input: input))
+        case "analyze_image":
+            return await executeAnalyzeImageTool(input: input)
+        case "read_pdf":
+            return await executeReadPDFTool(input: input)
         default:
-            return "Error: unknown tool '\(name)'"
+            return ToolExecutionResult("Error: unknown tool '\(name)'")
         }
     }
 
@@ -127,32 +145,36 @@ extension ClaudeService {
         input: MessageResponse.Content.Input,
         settings: AppSettings,
         sessionId: String
-    ) async -> String {
+    ) async -> ToolExecutionResult {
         let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
         switch name {
         case "str_replace_based_edit_tool", "str_replace_editor":
-            return await executeTextEditorTool(input: input)
+            return ToolExecutionResult(await executeTextEditorTool(input: input))
         case "bash":
             let bashSess = getBashSession(for: sessionId, workingDirectory: wd)
-            return await executeBashTool(input: input, session: bashSess, workingDirectory: wd)
+            return ToolExecutionResult(await executeBashTool(input: input, session: bashSess, workingDirectory: wd))
         case "read_skill":
             guard let skillName = input["name"]?.stringValue else {
-                return "Error: missing 'name' parameter"
+                return ToolExecutionResult("Error: missing 'name' parameter")
             }
             if let content = skillService?.readSkillContent(name: skillName) {
-                return content
+                return ToolExecutionResult(content)
             }
-            return "Error: skill '\(skillName)' not found"
+            return ToolExecutionResult("Error: skill '\(skillName)' not found")
         case "update_todo_list":
-            return executeUpdateTodoList(input: input, sessionId: sessionId)
+            return ToolExecutionResult(executeUpdateTodoList(input: input, sessionId: sessionId))
         case "web_search":
-            return await executeWebSearchTool(input: input)
+            return ToolExecutionResult(await executeWebSearchTool(input: input))
         case "web_fetch":
-            return await executeWebFetchTool(input: input)
+            return ToolExecutionResult(await executeWebFetchTool(input: input))
         case "ask_user_question":
-            return await executeAskUserQuestion(input: input)
+            return ToolExecutionResult(await executeAskUserQuestion(input: input))
+        case "analyze_image":
+            return await executeAnalyzeImageTool(input: input)
+        case "read_pdf":
+            return await executeReadPDFTool(input: input)
         default:
-            return "Error: unknown tool '\(name)'"
+            return ToolExecutionResult("Error: unknown tool '\(name)'")
         }
     }
 

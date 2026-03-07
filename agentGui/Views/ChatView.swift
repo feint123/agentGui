@@ -29,6 +29,7 @@ struct ChatView: View {
     @State var errorMessage: String?
     @State var attachedFiles: [AttachedFile] = []
     @State var isDropTargeted = false
+    @State var viewingMedia: MediaItem? = nil
     @State var deleteFromConfirmMessage: Message?
     @State var activeTask: Task<Void, Never>?
     /// Prevents ForEach from accessing Message objects that are about to be deleted
@@ -77,6 +78,9 @@ struct ChatView: View {
             }
         )) { request in
             AskUserQuestionView(request: request)
+        }
+        .sheet(item: $viewingMedia) { item in
+            MediaViewerView(item: item)
         }
         .confirmationDialog(
             "删除此消息及之后的所有对话？",

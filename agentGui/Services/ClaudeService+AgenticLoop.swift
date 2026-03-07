@@ -196,9 +196,9 @@ extension ClaudeService {
                     )
                     modelContext.insert(record)
 
-                    let result: String
+                    let result: ToolExecutionResult
                     if pending.name == "run_subagent" {
-                        result = await executeRunSubagentTool(
+                        result = ToolExecutionResult(await executeRunSubagentTool(
                             input: input,
                             toolCallRecord: record,
                             service: service,
@@ -206,7 +206,7 @@ extension ClaudeService {
                             settings: settings,
                             sessionId: session.sessionId,
                             modelContext: modelContext
-                        )
+                        ))
                     } else {
                         result = await executeTool(
                             name: pending.name,
@@ -215,11 +215,12 @@ extension ClaudeService {
                             session: session
                         )
                     }
-                    record.terminalOutput = result
+                    record.terminalOutput = result.text
                     record.status = .success
                     record.endTime = Date()
 
-                    toolResultObjects.append(.toolResult(pending.id, result))
+                    toolResultObjects.append(.toolResult(pending.id, result.text))
+                    toolResultObjects.append(contentsOf: result.mediaContent)
                 }
 
                 loopMessages.append(MessageParameter.Message(role: .assistant, content: .list(assistantObjects)))
@@ -456,6 +457,40 @@ extension ClaudeService {
                     )
                 ],
                 required: ["questions"]
+            )
+        ))
+
+        tools.append(.function(
+            name: "analyze_image",
+            description: """
+            Load a local image file and analyze its visual content. \
+            Provides the image directly to Claude's vision capabilities. \
+            Supports png, jpg, jpeg, gif, webp (max 20 MB). \
+            Use this when the user references an image file or you need to understand visual content.
+            """,
+            inputSchema: .init(
+                type: .object,
+                properties: [
+                    "file_path": .init(type: .string, description: "Absolute path to the image file")
+                ],
+                required: ["file_path"]
+            )
+        ))
+
+        tools.append(.function(
+            name: "read_pdf",
+            description: """
+            Extract all text content from a local PDF file using PDFKit. \
+            Returns the text page-by-page so you can read, summarize, or answer questions about it. \
+            For scanned PDFs without selectable text, use bash with pdftotext or similar. \
+            Max 50 MB.
+            """,
+            inputSchema: .init(
+                type: .object,
+                properties: [
+                    "file_path": .init(type: .string, description: "Absolute path to the PDF file")
+                ],
+                required: ["file_path"]
             )
         ))
 

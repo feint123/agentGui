@@ -28,7 +28,13 @@ extension ChatView {
                     MentionAwareEditor(
                         text: $inputText,
                         isDisabled: claudeService.isStreaming,
-                        onTextChange: { updateMentionState($0) }
+                        onTextChange: { updateMentionState($0) },
+                        onFileDrop: { urls in
+                            for url in urls {
+                                guard !attachedFiles.contains(where: { $0.url == url }) else { continue }
+                                attachedFiles.append(AttachedFile(name: url.lastPathComponent, url: url))
+                            }
+                        }
                     )
                     .frame(minHeight: 28, maxHeight: 130)
                     .padding(.horizontal, 4)
@@ -71,11 +77,22 @@ extension ChatView {
 
 var fileChipsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
                 ForEach(attachedFiles) { file in
-                    fileChip(file)
+                    if file.isImage || file.isPDF {
+                        FileThumbnailView(
+                            file: file,
+                            onRemove: { attachedFiles.removeAll { $0.id == file.id } },
+                            onTap: { viewingMedia = MediaItem(url: file.url) }
+                        )
+                        .padding(.top, 4)
+                    } else {
+                        fileChip(file)
+                            .padding(.top, 4)
+                    }
                 }
             }
+            .padding(.bottom, 6)
         }
     }
 
@@ -152,16 +169,32 @@ var fileChipsRow: some View {
     // MARK: - File Drop
 
     func handleFileDrop(providers: [NSItemProvider]) -> Bool {
+        print("[Drop] received \(providers.count) provider(s)")
         var handled = false
         for provider in providers {
+            print("[Drop] hasFileURL=\(provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)) registeredTypes=\(provider.registeredTypeIdentifiers)")
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
-                    guard let data = item as? Data,
-                          let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, error in
+                    print("[Drop] loadItem item=\(String(describing: item)) type=\(type(of: item)) error=\(String(describing: error))")
+                    let url: URL?
+                    if let u = item as? URL {
+                        url = u
+                    } else if let nsurl = item as? NSURL, let u = nsurl as URL? {
+                        url = u
+                    } else if let data = item as? Data {
+                        url = URL(dataRepresentation: data, relativeTo: nil)
+                    } else {
+                        print("[Drop] ⚠️ cannot extract URL from item")
+                        url = nil
+                    }
+                    guard let url else { return }
+                    print("[Drop] resolved URL: \(url.path)")
                     let file = AttachedFile(name: url.lastPathComponent, url: url)
                     DispatchQueue.main.async {
+                        print("[Drop] appending file on main; current count=\(self.attachedFiles.count)")
                         if !self.attachedFiles.contains(where: { $0.url == url }) {
                             self.attachedFiles.append(file)
+                            print("[Drop] ✅ attachedFiles.count=\(self.attachedFiles.count)")
                         }
                     }
                 }
@@ -304,12 +337,46 @@ var fileChipsRow: some View {
 
 // MARK: - MentionAwareEditor
 
+/// NSTextView subclass that intercepts file URL drops and forwards them via a callback,
+/// preventing the text view from consuming drops meant for the outer SwiftUI drop target.
+private final class FileForwardingTextView: NSTextView {
+    var onFileDropped: (([URL]) -> Void)?
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self],
+                                                   options: [.urlReadingFileURLsOnly: true]) {
+            return .copy
+        }
+        return super.draggingEntered(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self],
+                                                   options: [.urlReadingFileURLsOnly: true]) {
+            return true
+        }
+        return super.prepareForDragOperation(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let raw = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        )
+        let urls = raw?.compactMap { ($0 as? NSURL) as URL? } ?? []
+        guard !urls.isEmpty else { return super.performDragOperation(sender) }
+        DispatchQueue.main.async { [weak self] in self?.onFileDropped?(urls) }
+        return true
+    }
+}
+
 /// NSTextView-backed text editor that highlights @mention tokens with accent-color styling.
 private struct MentionAwareEditor: NSViewRepresentable {
 
     @Binding var text: String
     var isDisabled: Bool = false
     var onTextChange: (String) -> Void = { _ in }
+    var onFileDrop: ([URL]) -> Void = { _ in }
 
     // MARK: Base attributes
 
@@ -321,8 +388,12 @@ private struct MentionAwareEditor: NSViewRepresentable {
     // MARK: NSViewRepresentable
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        guard let tv = scrollView.documentView as? NSTextView else { return scrollView }
+        let tv = FileForwardingTextView()
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         tv.delegate = context.coordinator
         tv.isRichText = false
         tv.allowsUndo = true
@@ -336,6 +407,10 @@ private struct MentionAwareEditor: NSViewRepresentable {
         tv.isAutomaticSpellingCorrectionEnabled = false
         tv.isAutomaticTextReplacementEnabled = false
         tv.typingAttributes = Self.baseAttributes
+        tv.onFileDropped = onFileDrop
+
+        let scrollView = NSScrollView()
+        scrollView.documentView = tv
         scrollView.backgroundColor = .clear
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
@@ -344,8 +419,9 @@ private struct MentionAwareEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let tv = scrollView.documentView as? NSTextView else { return }
+        guard let tv = scrollView.documentView as? FileForwardingTextView else { return }
         tv.isEditable = !isDisabled
+        tv.onFileDropped = onFileDrop
         if tv.string != text {
             let sel = tv.selectedRanges
             tv.string = text

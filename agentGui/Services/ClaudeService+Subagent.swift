@@ -178,12 +178,13 @@ extension ClaudeService {
                         settings: settings,
                         sessionId: sessionId
                     )
-                    toolRecord.terminalOutput = toolResult
+                    toolRecord.terminalOutput = toolResult.text
                     toolRecord.status = .success
                     toolRecord.endTime = Date()
                     try? modelContext.save()
 
-                    toolResultObjects.append(.toolResult(pending.id, toolResult))
+                    toolResultObjects.append(.toolResult(pending.id, toolResult.text))
+                    toolResultObjects.append(contentsOf: toolResult.mediaContent)
                 }
 
                 loopMessages.append(.init(role: .assistant, content: .list(assistantObjects)))

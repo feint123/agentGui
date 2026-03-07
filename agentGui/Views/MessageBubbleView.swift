@@ -18,27 +18,50 @@ struct MessageBubbleView: View {
     @State private var isHovered = false
     @State private var isEditing = false
     @State private var editText = ""
+    @State private var viewingMedia: MediaItem? = nil
 
-    // 解析消息文本和文件引用
-    private var parsedContent: (text: String, files: [String]) {
+    // 解析消息文本和文件引用，将部件分类: 图片/PDF/其他
+    private struct ParsedContent {
+        let text: String
+        let images: [String]
+        let pdfs: [String]
+        let others: [String]
+        var hasMedia: Bool { !images.isEmpty || !pdfs.isEmpty }
+    }
+
+    private var parsedContent: ParsedContent {
         let raw = message.textContent ?? ""
         let separator = "\n\nReferenced files:\n"
-        if let range = raw.range(of: separator) {
-            let text = String(raw[raw.startIndex..<range.lowerBound])
-            let filesSection = String(raw[range.upperBound...])
-            let files = filesSection
-                .split(separator: "\n")
-                .map { $0.hasPrefix("- ") ? String($0.dropFirst(2)) : String($0) }
-            return (text, files)
+        guard let range = raw.range(of: separator) else {
+            return ParsedContent(text: raw, images: [], pdfs: [], others: [])
         }
-        return (raw, [])
+        let text = String(raw[raw.startIndex..<range.lowerBound])
+        let filesSection = String(raw[range.upperBound...])
+        let paths = filesSection
+            .split(separator: "\n")
+            .map { $0.hasPrefix("- ") ? String($0.dropFirst(2)) : String($0) }
+            .filter { !$0.isEmpty }
+        var images: [String] = []
+        var pdfs: [String] = []
+        var others: [String] = []
+        for path in paths {
+            if AttachedFile.pathIsImage(path) { images.append(path) }
+            else if AttachedFile.pathIsPDF(path) { pdfs.append(path) }
+            else { others.append(path) }
+        }
+        return ParsedContent(text: text, images: images, pdfs: pdfs, others: others)
     }
 
     var body: some View {
-        if message.direction == .user {
-            userMessageRow
-        } else {
-            agentMessageRow
+        Group {
+            if message.direction == .user {
+                userMessageRow
+            } else {
+                agentMessageRow
+            }
+        }
+        .sheet(item: $viewingMedia) { item in
+            MediaViewerView(item: item)
         }
     }
 
@@ -76,7 +99,10 @@ struct MessageBubbleView: View {
             Text(content.text)
                 .font(.body)
                 .textSelection(.enabled)
-            if !content.files.isEmpty { fileReferenceBadge(count: content.files.count) }
+            if !content.images.isEmpty || !content.pdfs.isEmpty {
+                mediaGrid(images: content.images, pdfs: content.pdfs)
+            }
+            if !content.others.isEmpty { fileReferenceBadge(count: content.others.count) }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -146,7 +172,10 @@ struct MessageBubbleView: View {
                 if !content.text.isEmpty {
                     MarkdownMessageView(text: content.text)
                 }
-                if !content.files.isEmpty { fileReferenceBadge(count: content.files.count) }
+                if !content.images.isEmpty || !content.pdfs.isEmpty {
+                    mediaGrid(images: content.images, pdfs: content.pdfs)
+                }
+                if !content.others.isEmpty { fileReferenceBadge(count: content.others.count) }
                 let sortedCalls = message.toolCalls.sorted {
                     ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast)
                 }
@@ -308,6 +337,17 @@ struct MessageBubbleView: View {
         .padding(.vertical, 3)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
+    }
+
+    private func mediaGrid(images: [String], pdfs: [String]) -> some View {
+        let all = images.map { ($0, false) } + pdfs.map { ($0, true) }
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 6)], spacing: 6) {
+            ForEach(all, id: \.0) { path, _ in
+                MediaThumbnailCell(path: path) {
+                    viewingMedia = MediaItem(url: URL(fileURLWithPath: path))
+                }
+            }
+        }
     }
 
 }

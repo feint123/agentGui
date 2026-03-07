@@ -14,4 +14,16 @@ struct AttachedFile: Identifiable {
     let url: URL
 
     var path: String { url.path }
+
+    var isImage: Bool { AttachedFile.pathIsImage(url.path) }
+    var isPDF: Bool { AttachedFile.pathIsPDF(url.path) }
+
+    static func pathIsImage(_ path: String) -> Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "bmp"].contains(ext)
+    }
+
+    static func pathIsPDF(_ path: String) -> Bool {
+        (path as NSString).pathExtension.lowercased() == "pdf"
+    }
 }

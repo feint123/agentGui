@@ -5,8 +5,12 @@
 
 import SwiftUI
 import AppKit
-import CodeEditSourceEditor
-import CodeEditLanguages
+import PDFKit
+import STTextView
+
+// MARK: - File viewer type
+
+private enum FileViewerType { case text, image, pdf }
 
 /// 中间栏：文件编辑器，显示并可编辑当前在文件树中选中的文件
 struct FileEditorView: View {
@@ -14,28 +18,18 @@ struct FileEditorView: View {
     // MARK: - Environment
 
     @Environment(WorkspaceState.self) private var workspaceState
-    @Environment(\.colorScheme) private var colorScheme
 
     // MARK: - State
 
-    /// Shared backing store. Passed once to SourceEditor; subsequent content
-    /// changes via `replaceCharacters` propagate directly to the text view
-    /// without any SwiftUI recreate cycle — avoiding the coordinator teardown
-    /// race that caused the "index N is invalid" crash with `.id()`.
-    @State private var textStorage = NSTextStorage()
-
+    @State private var textContent: String = ""
     @State private var loadedFileURL: URL?
     /// Snapshot of the file content at last load/save; used for dirty detection.
     @State private var fileContent: String = ""
     @State private var errorMessage: String?
     @State private var isSaving = false
-    @State private var language: CodeLanguage = .default
-    @State private var editorState = SourceEditorState()
     @State private var hasUnsavedChanges: Bool = false
-
-    private var theme: EditorTheme {
-        colorScheme == .dark ? .dark : .light
-    }
+    @State private var viewerType: FileViewerType = .text
+    @State private var viewerImage: NSImage? = nil
 
     // MARK: - Body
 
@@ -47,8 +41,8 @@ struct FileEditorView: View {
                 emptyState
             }
         }
-        .onChange(of: editorState) { _, _ in
-            hasUnsavedChanges = loadedFileURL != nil && textStorage.string != fileContent
+        .onChange(of: textContent) { _, newValue in
+            hasUnsavedChanges = loadedFileURL != nil && newValue != fileContent
         }
         .onChange(of: workspaceState.selectedFile) { _, newURL in
             if let url = newURL {
@@ -70,7 +64,7 @@ struct FileEditorView: View {
         VStack(spacing: 0) {
             // Title bar
             HStack(spacing: 6) {
-                Image(systemName: "doc.text")
+                Image(systemName: viewerType == .pdf ? "doc.richtext" : viewerType == .image ? "photo" : "doc.text")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(url.lastPathComponent + (hasUnsavedChanges ? " •" : ""))
@@ -78,19 +72,21 @@ struct FileEditorView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button {
-                    saveFile(url)
-                } label: {
-                    if isSaving {
-                        ProgressView().scaleEffect(0.6).frame(width: 16, height: 16)
-                    } else {
-                        Image(systemName: "square.and.arrow.down")
+                if viewerType == .text {
+                    Button {
+                        saveFile(url)
+                    } label: {
+                        if isSaving {
+                            ProgressView().scaleEffect(0.6).frame(width: 16, height: 16)
+                        } else {
+                            Image(systemName: "square.and.arrow.down")
+                        }
                     }
+                    .buttonStyle(.borderless)
+                    .disabled(!hasUnsavedChanges || isSaving)
+                    .help("保存 (⌘S)")
+                    .keyboardShortcut("s", modifiers: .command)
                 }
-                .buttonStyle(.borderless)
-                .disabled(!hasUnsavedChanges || isSaving)
-                .help("保存 (⌘S)")
-                .keyboardShortcut("s", modifiers: .command)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -98,30 +94,39 @@ struct FileEditorView: View {
 
             Divider()
 
-            // SourceEditor backed by the shared NSTextStorage.
-            // No .id() — content is updated via replaceCharacters, not by
-            // recreating the view. Language changes are applied automatically
-            // by updateNSViewController.
-            SourceEditor(
-                textStorage,
-                language: language,
-                configuration: SourceEditorConfiguration(
-                    appearance: .init(
-                        theme: theme,
-                        font: .monospacedSystemFont(ofSize: 13, weight: .regular),
-                        wrapLines: true
-                    ),
-                    behavior: .init(indentOption: .spaces(count: 4)),
-                    peripherals: .init(showGutter: true, showMinimap: false)
-                ),
-                state: $editorState
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            fileContentView(for: url)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
             if loadedFileURL != url {
                 loadFile(url)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func fileContentView(for url: URL) -> some View {
+        switch viewerType {
+        case .text:
+            STTextViewRepresentable(text: $textContent)
+        case .image:
+            Group {
+                if let img = viewerImage {
+                    ScrollView([.horizontal, .vertical]) {
+                        Image(nsImage: img)
+                            .resizable()
+                            .scaledToFit()
+                            .padding(16)
+                            .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .background(Color(NSColor.textBackgroundColor))
+        case .pdf:
+            PDFKitView(url: url)
         }
     }
 
@@ -138,47 +143,57 @@ struct FileEditorView: View {
     // MARK: - File I/O
 
     private func loadFile(_ url: URL) {
-        let text: String
+        if AttachedFile.pathIsImage(url.path) {
+            loadedFileURL = url
+            viewerType = .image
+            hasUnsavedChanges = false
+            viewerImage = nil
+            Task.detached(priority: .userInitiated) { [url] in
+                let img = NSImage(contentsOf: url)
+                await MainActor.run { self.viewerImage = img }
+            }
+            return
+        }
+        if AttachedFile.pathIsPDF(url.path) {
+            loadedFileURL = url
+            viewerType = .pdf
+            hasUnsavedChanges = false
+            viewerImage = nil
+            return
+        }
+
+        // Text file
+        viewerType = .text
+        let loadedText: String
         do {
-            text = try String(contentsOf: url, encoding: .utf8)
+            loadedText = try String(contentsOf: url, encoding: .utf8)
         } catch {
             if let t = try? String(contentsOf: url, encoding: .isoLatin1) {
-                text = t
+                loadedText = t
             } else {
                 errorMessage = "无法读取文件：\(error.localizedDescription)"
                 return
             }
         }
 
-        // Replace text storage content directly; the text view updates
-        // immediately because it is backed by this same storage object.
-        textStorage.beginEditing()
-        textStorage.replaceCharacters(
-            in: NSRange(location: 0, length: textStorage.length),
-            with: text
-        )
-        textStorage.endEditing()
-
-        fileContent = text
+        fileContent = loadedText
+        textContent = loadedText
         loadedFileURL = url
-        language = CodeLanguage.detectLanguageFrom(url: url, prefixBuffer: String(text.prefix(500)))
         hasUnsavedChanges = false
-        // nil cursor positions → makeNSViewController skips setCursorPositions entirely
-        editorState = SourceEditorState()
     }
 
     private func clearEditor() {
-        textStorage.beginEditing()
-        textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length), with: "")
-        textStorage.endEditing()
+        textContent = ""
         fileContent = ""
         loadedFileURL = nil
         hasUnsavedChanges = false
+        viewerType = .text
+        viewerImage = nil
     }
 
     private func saveFile(_ url: URL) {
         isSaving = true
-        let textToSave = textStorage.string
+        let textToSave = textContent
         Task.detached(priority: .userInitiated) {
             do {
                 try textToSave.write(to: url, atomically: true, encoding: .utf8)
@@ -197,63 +212,42 @@ struct FileEditorView: View {
     }
 }
 
-// MARK: - EditorTheme system defaults
+// MARK: - STTextView NSViewRepresentable
 
-private extension EditorTheme {
-    static var light: EditorTheme {
-        EditorTheme(
-            text: Attribute(color: rgb(0x000000)),
-            insertionPoint: rgb(0x007AFF),
-            invisibles: Attribute(color: rgb(0xD6D6D6)),
-            background: rgb(0xFFFFFF),
-            lineHighlight: rgb(0xECF5FF),
-            selection: rgb(0xB2D7FF),
-            keywords: Attribute(color: rgb(0x9B2393), bold: true),
-            commands: Attribute(color: rgb(0x326D74)),
-            types: Attribute(color: rgb(0x0B4F79)),
-            attributes: Attribute(color: rgb(0x815F03)),
-            variables: Attribute(color: rgb(0x0F68A0)),
-            values: Attribute(color: rgb(0x6C36A9)),
-            numbers: Attribute(color: rgb(0x1C00CF)),
-            strings: Attribute(color: rgb(0xC41A16)),
-            characters: Attribute(color: rgb(0x1C00CF)),
-            comments: Attribute(color: rgb(0x267507))
-        )
+private struct STTextViewRepresentable: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = STTextView.scrollableTextView()
+        let textView = scrollView.documentView as! STTextView
+        textView.delegate = context.coordinator
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.showsLineNumbers = true
+        textView.highlightSelectedLine = true
+        textView.isHorizontallyResizable = false  // wrap lines
+        textView.text = text
+        return scrollView
     }
 
-    static var dark: EditorTheme {
-        EditorTheme(
-            text: Attribute(color: rgb(0xDFE1E8)),
-            insertionPoint: rgb(0x007AFF),
-            invisibles: Attribute(color: rgb(0x53606E)),
-            background: rgb(0x292A30),
-            lineHighlight: rgb(0x2F3239),
-            selection: rgb(0x646F83),
-            keywords: Attribute(color: rgb(0xFC5FA3), bold: true),
-            commands: Attribute(color: rgb(0x67B7A4)),
-            types: Attribute(color: rgb(0x5DD8FF)),
-            attributes: Attribute(color: rgb(0xD9C97C)),
-            variables: Attribute(color: rgb(0x5DD8FF)),
-            values: Attribute(color: rgb(0xD0A8FF)),
-            numbers: Attribute(color: rgb(0xD0BF69)),
-            strings: Attribute(color: rgb(0xFF8170)),
-            characters: Attribute(color: rgb(0xD0BF69)),
-            comments: Attribute(color: rgb(0x6C7986))
-        )
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        let textView = scrollView.documentView as! STTextView
+        if textView.text != text {
+            let sel = textView.textLayoutManager.textSelections
+            textView.text = text
+            textView.textLayoutManager.textSelections = sel
+        }
     }
 
-    /// Create a concrete sRGB NSColor from a 0xRRGGBB hex value (no dynamic catalog lookup).
-    private static func rgb(_ hex: Int) -> NSColor {
-        NSColor(
-            colorSpace: .sRGB,
-            components: [
-                CGFloat((hex >> 16) & 0xFF) / 255,
-                CGFloat((hex >> 8) & 0xFF) / 255,
-                CGFloat(hex & 0xFF) / 255,
-                1.0
-            ],
-            count: 4
-        )
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, STTextViewDelegate {
+        var parent: STTextViewRepresentable
+        init(_ parent: STTextViewRepresentable) { self.parent = parent }
+
+        func textViewDidChangeText(_ notification: Notification) {
+            guard let tv = notification.object as? STTextView else { return }
+            parent.text = tv.text ?? ""
+        }
     }
 }
 
