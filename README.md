@@ -51,48 +51,30 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui build
 
 agentGui 的核心是 **Agentic Loop** —— 一个多轮执行循环，让 Claude 能够自主调用工具、观察结果并持续迭代，直到任务完成。
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Agentic Loop                              │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌─────────┐    ┌─────────────┐    ┌──────────────┐        │
-│  │  用户   │───▶│  消息历史   │───▶│ Claude API   │        │
-│  │  输入   │    │  (context)  │    │  (streaming) │        │
-│  └─────────┘    └─────────────┘    └──────┬───────┘        │
-│                                              │                │
-│                                        ┌─────▼─────┐        │
-│                                        │  解析响应  │        │
-│                                        └─────┬─────┘        │
-│                                              │                │
-│                    ┌─────────────────────────┼────────────┐  │
-│                    │                         │            │  │
-│            ┌───────▼───────┐       ┌────────▼────────┐    │  │
-│            │  累积文本内容  │       │   工具调用列表   │    │  │
-│            └───────────────┘       └────────┬────────┘    │  │
-│                                             │             │  │
-│                                     ┌───────▼───────┐     │  │
-│                                     │  逐个执行工具  │     │  │
-│                                     └───────┬───────┘     │  │
-│                                             │             │  │
-│                                    ┌────────▼────────┐    │  │
-│                                    │   收集结果      │    │  │
-│                                    │   更新历史      │    │  │
-│                                    └────────┬────────┘    │  │
-│                                             │             │  │
-│                                       有工具调用?          │  │
-│                                             │             │  │
-│                                    ┌────────▼────────┐    │  │
-│                                    │     YES         │    │  │
-│                                    │  继续下一轮 ─────┼────┘  │
-│                                    └────────┬────────┘       │
-│                                             │                │
-│                                    ┌────────▼────────┐       │
-│                                    │     NO          │       │
-│                                    │  结束循环        │       │
-│                                    └─────────────────┘       │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    Start([用户输入]) --> History[消息历史 Context]
+    History --> API[Claude API Streaming]
+
+    API --> Parse[解析响应]
+
+    Parse --> Text[累积文本内容]
+    Parse --> HasTools{有工具调用?}
+
+    HasTools -->|Yes| Tools[工具调用列表]
+    HasTools -->|No| End([结束循环])
+
+    Tools --> Execute[逐个执行工具]
+    Execute --> Collect[收集结果 更新历史]
+    Collect --> History
+
+    classDef process fill:#e1f5fe,stroke:#01579b
+    classDef decision fill:#fff9c4,stroke:#f57f17
+    classDef terminal fill:#e8f5e9,stroke:#2e7d32
+
+    class History,API,Parse,Tools,Execute,Collect process
+    class HasTools decision
+    class Start,End terminal
 ```
 
 **核心特性：**
