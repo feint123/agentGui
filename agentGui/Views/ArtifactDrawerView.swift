@@ -17,9 +17,12 @@ struct ArtifactDrawerView: View {
     // MARK: - Data
 
     /// All tool calls from direct message calls and per-round calls, in chronological order.
+    /// Only include message-level tool calls that have no agentRound, to avoid duplicates
+    /// (round-owned calls already own a message reference via SwiftData's inverse relationship).
     private var allToolCalls: [ToolCall] {
+        let directCalls = message.toolCalls.filter { $0.agentRound == nil }
         let roundCalls = message.agentRounds.flatMap { $0.toolCalls }
-        return (message.toolCalls + roundCalls).sorted {
+        return (directCalls + roundCalls).sorted {
             ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast)
         }
     }

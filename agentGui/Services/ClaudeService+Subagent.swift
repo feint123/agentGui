@@ -48,7 +48,7 @@ extension ClaudeService {
         }
     }
 
-    /// 子代理的嵌套 agentic loop：不允许递归调用 run_subagent / ask_user_question
+    /// 子代理的嵌套 agentic loop — 通过 runCoreAgentLoop 复用主代理的核心流程
     private func runSubagentLoop(
         task: String,
         definition: SubagentDefinition,
@@ -59,203 +59,29 @@ extension ClaudeService {
         sessionId: String,
         modelContext: ModelContext
     ) async throws -> String {
-        var loopMessages: [MessageParameter.Message] = [
-            .init(role: .user, content: .text(task))
-        ]
-        var accumulatedText = ""
-        var continueLoop = true
-        var roundIndex = 0
-        var loopMemory = ContextMemory()
-
-        let subagentTools = buildSubagentTools(modelId: modelId, definition: definition, settings: settings)
-        let systemValue: MessageParameter.System? = definition.systemPrompt.isEmpty
+        var loopMessages: [MessageParameter.Message] = [.init(role: .user, content: .text(task))]
+        let system: MessageParameter.System? = definition.systemPrompt.isEmpty
             ? nil
             : .text(definition.systemPrompt)
-
-        while continueLoop && roundIndex < definition.maxRounds {
-            // Count tokens and compress into hierarchical memory if context is getting large
-            if let tokenCount = try? await service.countTokens(
-                parameter: MessageTokenCountParameter(
-                    model: .other(modelId),
-                    messages: loopMessages,
-                    system: systemValue,
-                    tools: subagentTools.isEmpty ? nil : subagentTools
-                )
-            ) {
-                currentInputTokens = tokenCount.inputTokens
-                currentModelId = modelId
-                print("Subagent input tokens: \(tokenCount.inputTokens) (\(Int(contextUsageRatio * 100))%)")
-            }
-            await compressIfNeeded(
-                messages: &loopMessages,
-                memory: &loopMemory,
-                service: service,
-                modelId: modelId
-            )
-
-            let useThinking = settings.enableExtendedThinking && isThinkingCapable(modelId: modelId)
-            let budget = settings.extendedThinkingBudget
-            let maxTokens = useThinking ? max(budget + 4096, 16000) : 8192
-
-            let params = MessageParameter(
-                model: .other(modelId),
-                messages: loopMessages,
-                maxTokens: maxTokens,
-                system: systemValue,
-                tools: subagentTools.isEmpty ? nil : subagentTools,
-                thinking: useThinking ? .init(budgetTokens: budget) : nil
-            )
-            let stream = try await service.streamMessage(params)
-
-            // Create a round linked to the parent ToolCall (not a Message)
-            let round = AgentRound(roundIndex: roundIndex)
-            round.subagentToolCall = toolCallRecord
-            modelContext.insert(round)
-            try? modelContext.save()
-            roundIndex += 1
-
-            var currentRoundText = ""
-            var currentRoundThinking = PendingThinking()
-            var pendingTools: [Int: PendingToolUse] = [:]
-            var currentBlockIndex: Int? = nil
-            var stopReason: String? = nil
-
-            for try await event in stream {
-                if let block = event.contentBlock {
-                    if block.type == "tool_use", let id = block.id, let name = block.name {
-                        let idx = event.index ?? pendingTools.count
-                        pendingTools[idx] = PendingToolUse(id: id, name: name)
-                        currentBlockIndex = idx
-                    } else {
-                        currentBlockIndex = nil
-                    }
-                }
-
-                if let delta = event.delta {
-                    switch delta.type {
-                    case "text_delta":
-                        if let text = delta.text {
-                            currentRoundText += text
-                            round.text = currentRoundText
-                        }
-                    case "thinking_delta":
-                        if let thinking = delta.thinking {
-                            currentRoundThinking.content += thinking
-                            round.thinkingContent = currentRoundThinking.content
-                        }
-                    case "signature_delta":
-                        if let sig = delta.signature {
-                            currentRoundThinking.signature = sig
-                            round.thinkingSignature = sig
-                        }
-                    default:
-                        if let text = delta.text {
-                            currentRoundText += text
-                            round.text = currentRoundText
-                        }
-                        if let json = delta.partialJson, let idx = currentBlockIndex {
-                            pendingTools[idx]?.partialJson += json
-                        }
-                    }
-                    if let reason = delta.stopReason { stopReason = reason }
-                }
-            }
-
-            // Accumulate round text
-            if !currentRoundText.isEmpty {
-                if !accumulatedText.isEmpty { accumulatedText += "\n\n" }
-                accumulatedText += currentRoundText
-                round.text = currentRoundText
-            }
-
-            // Persist stop reason on this round
-            round.stopReason = stopReason
-            try? modelContext.save()
-
-            var assistantObjects: [MessageParameter.Message.Content.ContentObject] = []
-            if useThinking && !currentRoundThinking.content.isEmpty,
-               let sig = currentRoundThinking.signature {
-                assistantObjects.append(.thinking(currentRoundThinking.content, sig))
-            }
-
-            if stopReason == "tool_use" && !pendingTools.isEmpty {
-                let sorted = pendingTools.sorted { $0.key < $1.key }.map { $0.value }
-                if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
-                var toolResultObjects: [MessageParameter.Message.Content.ContentObject] = []
-
-                for pending in sorted {
-                    let toolInput = pending.parsedInput
-                    assistantObjects.append(.toolUse(pending.id, pending.name, toolInput))
-
-                    let toolRecord = makeToolCallRecord(
-                        toolUseId: pending.id,
-                        toolName: pending.name,
-                        input: toolInput,
-                        message: nil,
-                        agentRound: round
-                    )
-                    modelContext.insert(toolRecord)
-                    try? modelContext.save()
-
-                    let toolResult = await executeTool(
-                        name: pending.name,
-                        input: toolInput,
-                        settings: settings,
-                        sessionId: sessionId
-                    )
-                    toolRecord.terminalOutput = toolResult.text
-                    toolRecord.status = toolResult.toolCallStatus
-                    toolRecord.endTime = Date()
-                    try? modelContext.save()
-
-                    toolResultObjects.append(.toolResult(pending.id, toolResult.text, isError: toolResult.isError ? true : nil))
-                    toolResultObjects.append(contentsOf: toolResult.mediaContent)
-                }
-
-                loopMessages.append(.init(role: .assistant, content: .list(assistantObjects)))
-                loopMessages.append(.init(role: .user, content: .list(toolResultObjects)))
-
-            } else if stopReason == "end_turn" {
-                continueLoop = false
-
-            } else if stopReason == "max_tokens" {
-                print("Subagent max_tokens at round \(roundIndex - 1), appending continuation turn")
-                if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
-                if !assistantObjects.isEmpty {
-                    loopMessages.append(.init(role: .assistant, content: .list(assistantObjects)))
-                }
-                loopMessages.append(.init(
-                    role: .user,
-                    content: .text("Please continue your previous response exactly where you left off. Do not repeat what you already wrote and do not re-plan — just continue.")
-                ))
-
-            } else if stopReason == "pause_turn" {
-                print("Subagent pause_turn at round \(roundIndex - 1), resuming")
-                if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
-                if !assistantObjects.isEmpty {
-                    loopMessages.append(.init(role: .assistant, content: .list(assistantObjects)))
-                }
-                loopMessages.append(.init(role: .user, content: .text("Continue.")))
-
-            } else {
-                let reason = stopReason ?? "nil"
-                print("Subagent unexpected stop reason '\(reason)' at round \(roundIndex - 1), terminating")
-                if !accumulatedText.isEmpty {
-                    accumulatedText += "\n\n⚠️ Subagent loop ended unexpectedly (stop_reason: \(reason))."
-                }
-                continueLoop = false
-            }
-        }
-
-        // Safety: maxRounds guard
-        if roundIndex >= definition.maxRounds && continueLoop {
-            print("Subagent reached maxRounds (\(definition.maxRounds)), terminating")
-            if !accumulatedText.isEmpty {
-                accumulatedText += "\n\n⚠️ Subagent stopped after reaching the maximum of \(definition.maxRounds) rounds."
-            }
-        }
-
-        return accumulatedText.isEmpty ? "(subagent produced no output)" : accumulatedText
+        let result = try await runCoreAgentLoop(
+            messages: &loopMessages,
+            service: service,
+            modelId: modelId,
+            tools: buildSubagentTools(modelId: modelId, definition: definition, settings: settings),
+            system: system,
+            settings: settings,
+            sessionId: sessionId,
+            modelContext: modelContext,
+            maxRounds: definition.maxRounds,
+            makeRound: { idx in
+                let round = AgentRound(roundIndex: idx)
+                round.subagentToolCall = toolCallRecord
+                return round
+            },
+            parentMessage: nil,
+            onTextAccumulated: { _ in }
+        )
+        return result.isEmpty ? "(subagent produced no output)" : result
     }
 
     /// 为子代理构建工具列表（根据定义配置，不添加 run_subagent / ask_user_question）
