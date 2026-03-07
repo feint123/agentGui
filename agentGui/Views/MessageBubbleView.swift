@@ -19,6 +19,7 @@ struct MessageBubbleView: View {
     @State private var isEditing = false
     @State private var editText = ""
     @State private var viewingMedia: MediaItem? = nil
+    @State private var isArtifactExpanded = false
 
     // 解析消息文本和文件引用，将部件分类: 图片/PDF/其他
     private struct ParsedContent {
@@ -115,37 +116,15 @@ struct MessageBubbleView: View {
         )
     }
 
-    // MARK: - Agent / system message (flat, full-width)
+    // MARK: - Agent / system message
 
     private var agentMessageRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Header: icon + name + timestamp
-            HStack(spacing: 5) {
-                Image(systemName: message.direction == .agent ? "sparkle" : "info.circle.fill")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(message.direction == .agent ? Color.orange : Color.secondary)
-                Text(senderName)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.secondary)
-                Text(message.timestamp.formatted(date: .omitted, time: .shortened))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-
-            // Content
-            agentContent
-                .overlay(alignment: .bottomTrailing) {
-                    if isHovered && !isStreaming {
-                        messageActionsRow
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .offset(y: 2)),
-                                removal: .opacity
-                            ))
-                    }
-                }
-
-            // Retry button (always visible on failure)
+        VStack(alignment: .leading, spacing: 8) {
+            // Compact header with hover actions
+            agentHeaderRow
+            // Three-layer content: answer card → summary bar → artifact drawer
+            agentCardContent
+            // Retry button always visible on failure
             if message.status == .failed, let retry = onRetry {
                 Button(action: retry) {
                     Label("重新发送", systemImage: "arrow.clockwise")
@@ -161,47 +140,85 @@ struct MessageBubbleView: View {
         .contextMenu { contextMenuItems }
     }
 
-    @ViewBuilder
-    private var agentContent: some View {
-        let content = parsedContent
-        let isPending = message.status == .pending && message.direction == .agent
+    /// Compact header row: icon, name, timestamp, hover actions.
+    private var agentHeaderRow: some View {
+        HStack(spacing: 5) {
+            Image(systemName: message.direction == .agent ? "sparkle" : "info.circle.fill")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(message.direction == .agent ? Color.orange : Color.secondary)
+            Text(senderName)
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+            Text(message.timestamp.formatted(date: .omitted, time: .shortened))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
+            if isHovered && !isStreaming {
+                messageActionsRow
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(y: -2)),
+                        removal: .opacity
+                    ))
+            }
+        }
+    }
 
+    /// Consolidated answer text: round texts joined, or plain textContent for simple messages.
+    private var agentAnswerText: String {
+        let rounds = message.agentRounds.sorted { $0.roundIndex < $1.roundIndex }
+        if rounds.isEmpty {
+            return parsedContent.text
+        }
+        return rounds.compactMap { $0.text }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+
+    @ViewBuilder
+    private var agentCardContent: some View {
         if message.status == .failed {
-            Label(content.text, systemImage: "exclamationmark.triangle.fill")
+            let errText = parsedContent.text.isEmpty
+                ? (message.errorMessage ?? "执行失败")
+                : parsedContent.text
+            Label(errText, systemImage: "exclamationmark.triangle.fill")
                 .font(.body)
                 .foregroundStyle(.red)
-        } else if message.agentRounds.isEmpty {
+        } else {
+            let hasExecutionData = !message.agentRounds.isEmpty || !message.toolCalls.isEmpty
+            let content = parsedContent
+
             VStack(alignment: .leading, spacing: 8) {
-                if !content.text.isEmpty {
-                    MarkdownMessageView(text: content.text)
-                }
-                if !content.images.isEmpty || !content.pdfs.isEmpty {
-                    mediaGrid(images: content.images, pdfs: content.pdfs)
-                }
-                if !content.others.isEmpty { fileReferenceBadge(count: content.others.count) }
-                let sortedCalls = message.toolCalls.sorted {
-                    ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast)
-                }
-                if !sortedCalls.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(sortedCalls) { toolCall in
-                            ToolCallBubbleView(toolCall: toolCall)
-                        }
+                // Layer 1 — Answer card
+                AgentAnswerCardView(
+                    text: agentAnswerText,
+                    isStreaming: isStreaming,
+                    isPending: message.status == .pending
+                )
+
+                // Media attachments (only for simple messages without rounds)
+                if message.agentRounds.isEmpty {
+                    if !content.images.isEmpty || !content.pdfs.isEmpty {
+                        mediaGrid(images: content.images, pdfs: content.pdfs)
+                    }
+                    if !content.others.isEmpty {
+                        fileReferenceBadge(count: content.others.count)
                     }
                 }
-                if isPending {
-                    ProgressView().scaleEffect(0.5).frame(height: 12)
-                }
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 8) {
-                AgentStepTimelineView(message: message)
-                if isPending {
-                    HStack(spacing: 6) {
-                        ProgressView().scaleEffect(0.5)
-                        Text("正在思考…")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+
+                // Layer 2 — Execution summary bar (visible when there is tool activity)
+                if hasExecutionData {
+                    ExecutionSummaryBarView(
+                        message: message,
+                        isStreaming: isStreaming,
+                        isExpanded: $isArtifactExpanded
+                    )
+
+                    // Layer 3 — Artifact drawer (expands on demand)
+                    if isArtifactExpanded {
+                        ArtifactDrawerView(message: message)
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .move(edge: .top)),
+                                removal: .opacity
+                            ))
                     }
                 }
             }
