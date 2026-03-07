@@ -34,67 +34,145 @@ struct MessageBubbleView: View {
         return (raw, [])
     }
 
-    private var msgAlignment: HorizontalAlignment {
-        message.direction == .user ? .trailing : .leading
+    var body: some View {
+        if message.direction == .user {
+            userMessageRow
+        } else {
+            agentMessageRow
+        }
     }
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            if message.direction == .user { Spacer(minLength: 50) }
+    // MARK: - User message (compact right-aligned bubble)
 
-            VStack(alignment: msgAlignment, spacing: 4) {
-                // Avatar + sender name
-                HStack(spacing: 6) {
-                    if message.direction != .user { avatarView }
-                    Text(senderName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if message.direction == .user { avatarView }
-                }
-
-                // Bubble content or inline editor
+    private var userMessageRow: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Spacer(minLength: 60)
+            VStack(alignment: .trailing, spacing: 4) {
                 if isEditing {
                     editingView
-                        .frame(maxWidth: 580, alignment: .trailing)
+                        .frame(maxWidth: 560, alignment: .trailing)
                 } else {
-                    bubbleContent
-                        .frame(maxWidth: 580, alignment: msgAlignment == .trailing ? .trailing : .leading)
+                    userBubble
+                        .frame(maxWidth: 560, alignment: .trailing)
                 }
-
-                // Hover action toolbar (shown below the bubble)
-                if isHovered && !isEditing && !isStreaming && message.direction != .system {
+                if isHovered && !isEditing && !isStreaming {
                     messageActionsRow
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .offset(y: 2)),
                             removal: .opacity
                         ))
                 }
+            }
+        }
+        .onHover { hovered in
+            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovered }
+        }
+        .contextMenu { contextMenuItems }
+    }
 
-                // Retry button for failed agent messages (always visible, no hover needed)
-                if message.status == .failed && message.direction == .agent, let retry = onRetry {
-                    Button(action: retry) {
-                        Label("重新发送", systemImage: "arrow.clockwise")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                }
+    private var userBubble: some View {
+        let content = parsedContent
+        return VStack(alignment: .trailing, spacing: 8) {
+            Text(content.text)
+                .font(.body)
+                .textSelection(.enabled)
+            if !content.files.isEmpty { fileReferenceBadge(count: content.files.count) }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.accentColor.opacity(0.15))
+        )
+    }
 
-                // Timestamp
+    // MARK: - Agent / system message (flat, full-width)
+
+    private var agentMessageRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Header: icon + name + timestamp
+            HStack(spacing: 5) {
+                Image(systemName: message.direction == .agent ? "sparkle" : "info.circle.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(message.direction == .agent ? Color.orange : Color.secondary)
+                Text(senderName)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.secondary)
                 Text(message.timestamp.formatted(date: .omitted, time: .shortened))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
 
-            if message.direction != .user { Spacer(minLength: 50) }
-        }
-        .onHover { hovered in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovered = hovered
+            // Content
+            agentContent
+
+            // Hover actions
+            if isHovered && !isStreaming {
+                messageActionsRow
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(y: 2)),
+                        removal: .opacity
+                    ))
+            }
+
+            // Retry button (always visible on failure)
+            if message.status == .failed, let retry = onRetry {
+                Button(action: retry) {
+                    Label("重新发送", systemImage: "arrow.clockwise")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
             }
         }
-        .contextMenu {
-            contextMenuItems
+        .onHover { hovered in
+            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovered }
+        }
+        .contextMenu { contextMenuItems }
+    }
+
+    @ViewBuilder
+    private var agentContent: some View {
+        let content = parsedContent
+        let isPending = message.status == .pending && message.direction == .agent
+
+        if message.status == .failed {
+            Label(content.text, systemImage: "exclamationmark.triangle.fill")
+                .font(.body)
+                .foregroundStyle(.red)
+        } else if message.agentRounds.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                if !content.text.isEmpty {
+                    MarkdownMessageView(text: content.text)
+                }
+                if !content.files.isEmpty { fileReferenceBadge(count: content.files.count) }
+                let sortedCalls = message.toolCalls.sorted {
+                    ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast)
+                }
+                if !sortedCalls.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(sortedCalls) { toolCall in
+                            ToolCallBubbleView(toolCall: toolCall)
+                        }
+                    }
+                }
+                if isPending {
+                    ProgressView().scaleEffect(0.5).frame(height: 12)
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                AgentStepTimelineView(message: message)
+                if isPending {
+                    HStack(spacing: 6) {
+                        ProgressView().scaleEffect(0.5)
+                        Text("正在思考…")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
         }
     }
 
@@ -208,38 +286,6 @@ struct MessageBubbleView: View {
         }
     }
 
-    // MARK: - Avatar
-
-    private var avatarView: some View {
-        ZStack {
-            Circle()
-                .fill(.ultraThinMaterial)
-                .frame(width: 28, height: 28)
-            Image(systemName: avatarIcon)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(avatarColor)
-        }
-        .overlay(
-            Circle().stroke(Color.primary.opacity(0.07), lineWidth: 1)
-        )
-    }
-
-    private var avatarColor: Color {
-        switch message.direction {
-        case .user: return .blue
-        case .agent: return .orange
-        case .system: return .secondary
-        }
-    }
-
-    private var avatarIcon: String {
-        switch message.direction {
-        case .user: return "person.fill"
-        case .agent: return "sparkle"
-        case .system: return "info.circle.fill"
-        }
-    }
-
     private var senderName: String {
         switch message.direction {
         case .user: return "你"
@@ -248,78 +294,7 @@ struct MessageBubbleView: View {
         }
     }
 
-    // MARK: - Bubble Content
 
-    @ViewBuilder
-    private var bubbleContent: some View {
-        let content = parsedContent
-        let isPending = message.status == .pending && message.direction == .agent
-
-        VStack(alignment: .leading, spacing: 0) {
-            if message.status == .failed {
-                Label(content.text, systemImage: "exclamationmark.triangle.fill")
-                    .font(.body)
-                    .foregroundStyle(.red)
-                    .padding(14)
-            } else if message.direction == .agent {
-                if message.agentRounds.isEmpty {
-                    // Legacy / streaming-in-progress: flat view
-                    VStack(alignment: .leading, spacing: 8) {
-                        MarkdownMessageView(text: content.text)
-                        if !content.files.isEmpty { fileReferenceBadge(count: content.files.count) }
-                        if isPending {
-                            ProgressView().scaleEffect(0.5).frame(height: 12)
-                        }
-                    }
-                    .padding(14)
-
-                    let sortedCalls = message.toolCalls.sorted {
-                        ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast)
-                    }
-                    if !sortedCalls.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(sortedCalls) { toolCall in
-                                ToolCallBubbleView(toolCall: toolCall)
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 10)
-                    }
-                } else {
-                    // Timeline view: step-by-step rounds
-                    AgentStepTimelineView(message: message)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-
-                    if isPending {
-                        HStack(spacing: 6) {
-                            ProgressView().scaleEffect(0.5)
-                            Text("正在思考…")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 10)
-                    }
-                }
-            } else {
-                // User / system messages: plain text
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(content.text)
-                        .font(.body)
-                        .textSelection(.enabled)
-                    if !content.files.isEmpty { fileReferenceBadge(count: content.files.count) }
-                }
-                .padding(14)
-            }
-        }
-        .background(bubbleBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
-        )
-    }
 
     private func fileReferenceBadge(count: Int) -> some View {
         HStack(spacing: 4) {
@@ -335,19 +310,4 @@ struct MessageBubbleView: View {
         .clipShape(Capsule())
     }
 
-    @ViewBuilder
-    private var bubbleBackground: some View {
-        switch message.direction {
-        case .user:
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.accentColor.opacity(0.12))
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
-        case .agent:
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
-        case .system:
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.regularMaterial)
-        }
-    }
 }

@@ -50,7 +50,7 @@ extension ChatView {
                     }
                 }
                 .padding(.vertical, 16)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 16)
             }
             .onChange(of: allMessages.last?.textContent) { _, _ in
                 if claudeService.isStreaming {

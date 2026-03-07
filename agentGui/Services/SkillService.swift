@@ -90,6 +90,9 @@ final class SkillService {
     // MARK: - Content
 
     /// Returns the full SKILL.md content for the skill matching `name` (by name or directoryName).
+    /// Absolute-looking paths in the content (e.g. `/references/schemas.md`) that exist within
+    /// the skill's directory are rewritten to their real absolute paths, and a directory context
+    /// header is prepended so the agent always knows where bundled resources live.
     /// Result is cached after the first load.
     func readSkillContent(name: String) -> String? {
         // Match by display name first, then by directoryName
@@ -103,13 +106,69 @@ final class SkillService {
             return cached
         }
 
-        guard let content = try? String(contentsOf: skill.contentURL, encoding: .utf8) else {
+        guard let raw = try? String(contentsOf: skill.contentURL, encoding: .utf8) else {
             print("[SkillService]  read_skill '\(name)' — failed to read \(skill.contentURL.path)")
             return nil
         }
-        contentCache[key] = content
-        print("[SkillService] read_skill '\(name)' — loaded \(content.count) chars from \(skill.contentURL.path)")
-        return content
+
+        let processed = resolveSkillPaths(in: raw, skillDirectory: skill.path)
+        contentCache[key] = processed
+        print("[SkillService] read_skill '\(name)' — loaded \(processed.count) chars from \(skill.contentURL.path)")
+        return processed
+    }
+
+    /// Rewrites absolute-looking paths in `content` that resolve to real files/dirs within
+    /// `skillDirectory`, and prepends a skill-directory context line for Claude to use.
+    ///
+    /// For example, `/references/schemas.md` becomes
+    /// `/Users/feint/.claude/skills/skill-creator/references/schemas.md`
+    /// when that file exists inside the skill directory.
+    private static let skillPathRegex: NSRegularExpression = {
+        // Matches a leading `/` followed by at least one path-safe character.
+        // The negative lookbehind (?<![.\w]) prevents matching inside URLs (e.g. "://…")
+        // or dotted identifiers.
+        try! NSRegularExpression(pattern: #"(?<![.\w])(\/[A-Za-z0-9_.\-][A-Za-z0-9_.\-\/]*)"#)
+    }()
+
+    private func resolveSkillPaths(in content: String, skillDirectory: URL) -> String {
+        let fm = FileManager.default
+        let skillDirPath = skillDirectory.path
+
+        // System-path prefixes that should never be rewritten (already absolute system paths
+        // or paths that already start with the skill directory).
+        let systemPrefixes = [
+            "/Users/", "/home/", "/etc/", "/var/", "/tmp/",
+            "/usr/", "/opt/", "/Library/", "/System/", "/Applications/",
+            skillDirPath
+        ]
+
+        let mutable = NSMutableString(string: content)
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        let matches = Self.skillPathRegex.matches(in: content, range: fullRange)
+
+        // Walk matches in reverse so that earlier-in-string ranges remain valid after
+        // each replacement (NSRange offsets are UTF-16 based and shift only for positions
+        // after the replaced range).
+        for match in matches.reversed() {
+            let nsRange = match.range(at: 1)
+            guard nsRange.location != NSNotFound else { continue }
+            let candidate = mutable.substring(with: nsRange)
+
+            // Skip system/already-absolute paths
+            if systemPrefixes.contains(where: { candidate.hasPrefix($0) }) { continue }
+
+            // Only rewrite if the file/directory actually exists inside the skill directory
+            let resolved = skillDirPath + candidate
+            guard fm.fileExists(atPath: resolved) else { continue }
+
+            mutable.replaceCharacters(in: nsRange, with: resolved)
+            print("[SkillService]   path resolved: \(candidate) → \(resolved)")
+        }
+
+        // Prepend a context note with the skill directory so the agent can resolve any
+        // relative references (e.g. `references/schemas.md`) that weren't caught above.
+        let header = "<!-- skill_directory: \(skillDirPath) -->\n"
+        return header + (mutable as String)
     }
 
     /// Returns only the skills whose directoryName appears in `enabledNames`.
