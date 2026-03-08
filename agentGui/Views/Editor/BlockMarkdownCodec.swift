@@ -375,19 +375,24 @@ enum BlockMarkdownCodec {
     private static func parseQuote(lines: [String], start: Int) -> (block: DocumentBlock, nextIndex: Int) {
         var body: [String] = []
         var index = start
-        var level = 1
         while index < lines.count {
             let raw = lines[index]
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            // Stop at non-quote lines or callout markers (> [!TYPE])
             guard trimmed.hasPrefix(">"), !trimmed.hasPrefix("> [!") else { break }
-            let prefixCount = trimmed.prefix { $0 == ">" }.count
-            level = max(level, prefixCount)
-            let content = trimmed.drop { $0 == ">" }.trimmingCharacters(in: .whitespaces)
-            body.append(content)
+            // Strip exactly ONE leading > and optional single space after it,
+            // preserving any further > markers for nested quotes.
+            var rest = trimmed.dropFirst()
+            if rest.first == " " { rest = rest.dropFirst() }
+            body.append(String(rest))
             index += 1
         }
+        // Trim trailing blank lines from the collected body
+        while body.last?.trimmingCharacters(in: .whitespaces).isEmpty == true {
+            body.removeLast()
+        }
         var block = DocumentBlock(kind: .quote, text: body.joined(separator: "\n"))
-        block.metadata.indentLevel = max(0, level - 1)
+        block.metadata.indentLevel = 0
         return (block, index)
     }
 
@@ -397,14 +402,33 @@ enum BlockMarkdownCodec {
 
         while index < lines.count {
             let line = lines[index]
-            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // Empty line ends continuation
+            if trimmed.isEmpty {
                 break
             }
+
+            // Check if this line starts a new list item (bullet or number with optional checkbox)
+            // This stops continuation when we encounter a nested or sibling list item
+            let isListItem = trimmed.firstMatch(of: /^[-*]\s+/) != nil ||
+                            trimmed.firstMatch(of: /^\d+\.\s+/) != nil ||
+                            trimmed.firstMatch(of: /^[-*]\s+\[[ xX]\]/) != nil
+
+            if isListItem {
+                // This is a list item - end continuation
+                // It will be parsed as a separate block on the next iteration
+                break
+            }
+
+            // Indented non-list content is part of continuation (soft-wrapped text)
             if line.hasPrefix("  ") || line.hasPrefix("\t") {
                 continuation.append(line.trimmingCharacters(in: .whitespaces))
                 index += 1
                 continue
             }
+
+            // Non-indented content that's not a list item ends continuation
             break
         }
 

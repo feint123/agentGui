@@ -16,12 +16,44 @@ struct BlockDocumentEditor: View {
     @State private var activeSlashBlockID: UUID?
     @State private var slashQuery = ""
     @State private var slashSelectionIndex = 0
+    @State private var slashMenuPosition: CGRect = .zero
     @State private var draggedBlockID: UUID?
     @State private var dropTargetBlockID: UUID?
     @State private var focusRequest: BlockEditorFocusRequest?
     @State private var activeBlockID: UUID?
+    @State private var selectionState: InlineSelectionState?
+    @State private var pendingFormats: [UUID: InlineFormatRequest] = [:]
 
     var body: some View {
+        ZStack(alignment: .topLeading) {
+        scrollContent
+        GeometryReader { geo in
+            if let state = selectionState, state.hasSelection {
+                InlineStyleToolbarView(
+                    activeActions: state.activeActions,
+                    onAction: { action in applyFormat(action, blockID: state.blockID) }
+                )
+                .position(toolbarPosition(for: state, geo: geo))
+                .transition(.inlineToolbar)
+                .zIndex(10)
+            }
+            // Floating slash menu
+            if let blockID = activeSlashBlockID, !slashMenuPosition.isEmpty {
+                SlashCommandMenu(
+                    query: slashQuery,
+                    selectedKind: selectedSlashItem?.kind,
+                    onSelect: { kind in convertBlock(id: blockID, to: kind) }
+                )
+                .position(slashMenuPosition(for: geo))
+                .transition(.editorFloatingMenu)
+                .zIndex(10)
+            }
+        }
+        .allowsHitTesting(selectionState?.hasSelection == true || activeSlashBlockID != nil)
+        }
+    }
+
+    private var scrollContent: some View {
         ScrollView {
             VStack(alignment: .center, spacing: 0) {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -52,7 +84,20 @@ struct BlockDocumentEditor: View {
                             },
                             onFileDrop: { urls in
                                 addResources(urls, after: block.id)
-                            }
+                            },
+                            onSelectionChange: { state in
+                                withAnimation(.spring(response: 0.18, dampingFraction: 0.85)) {
+                                    if state.hasSelection {
+                                        selectionState = state
+                                    } else if selectionState?.blockID == block.id {
+                                        selectionState = nil
+                                    }
+                                }
+                            },
+                            onSlashMenuPositionChange: { rect in
+                                slashMenuPosition = rect
+                            },
+                            pendingFormatRequest: pendingFormats[block.id]
                         )
                         .overlay(alignment: .top) {
                             if dropTargetBlockID == block.id {
@@ -99,22 +144,43 @@ struct BlockDocumentEditor: View {
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleExternalFileDrop(providers)
         }
-        .toolbar {
-            ToolbarItemGroup {
-                Button {
-                    document.blocks.append(.empty(.paragraph))
-                    syncText()
-                } label: {
-                    Label("插入正文", systemImage: "plus")
-                }
-                Button {
-                    document.blocks.append(.empty(.divider))
-                    syncText()
-                } label: {
-                    Label("插入分割线", systemImage: "minus")
-                }
-            }
-        }
+    }
+
+    private func applyFormat(_ action: InlineStyleAction, blockID: UUID) {
+        pendingFormats[blockID] = InlineFormatRequest(action: action)
+    }
+
+    private func toolbarPosition(for state: InlineSelectionState, geo: GeometryProxy) -> CGPoint {
+        guard let window = NSApp.keyWindow,
+              let contentView = window.contentView else { return CGPoint(x: 120, y: 40) }
+        let contentHeight = contentView.frame.height
+        // Convert from screen coords to window coords
+        let windowRect = window.convertFromScreen(state.selectionRect)
+        // Flip Y: AppKit is bottom-origin, SwiftUI is top-origin
+        let flippedY = contentHeight - windowRect.maxY
+        let viewFrame = geo.frame(in: .global)
+        let rawX = windowRect.midX - viewFrame.minX
+        let rawY = flippedY - 32 - viewFrame.minY
+        // Clamp so toolbar stays within editor bounds
+        let clampedX = max(120, min(rawX, geo.size.width - 120))
+        let clampedY = max(8, rawY)
+        return CGPoint(x: clampedX, y: clampedY)
+    }
+
+    private func slashMenuPosition(for geo: GeometryProxy) -> CGPoint {
+        let viewFrame = geo.frame(in: .global)
+        // slashMenuPosition is in screen coordinates, convert to view-local
+        guard let window = NSApp.keyWindow,
+              let contentView = window.contentView else { return CGPoint(x: 130, y: 80) }
+        let contentHeight = contentView.frame.height
+        let windowRect = window.convertFromScreen(slashMenuPosition)
+        let flippedY = contentHeight - windowRect.maxY
+        let rawX = windowRect.midX - viewFrame.minX
+        let rawY = flippedY - viewFrame.minY
+        // Center horizontally, position below the cursor point
+        let clampedX = max(130, min(rawX, geo.size.width - 130))
+        let clampedY = max(8, rawY + 8)
+        return CGPoint(x: clampedX, y: clampedY)
     }
 
     private var editorBackground: some View {

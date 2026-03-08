@@ -13,7 +13,7 @@ extension ChatView {
     @ToolbarContentBuilder
     var toolbarContent: some ToolbarContent {
         // 对话选择器（左侧/中央）
-        ToolbarItem(placement: .navigation) {
+        ToolbarItem(placement: .primaryAction) {
             sessionPickerView
         }
 
@@ -50,6 +50,7 @@ extension ChatView {
             )) {
                 ForEach(allSessions) { session in
                     Text(session.title.isEmpty ? "新对话" : session.title)
+                        .frame(maxWidth:150)
                         .tag(Optional(session))
                 }
             }

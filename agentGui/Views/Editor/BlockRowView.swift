@@ -18,22 +18,31 @@ struct BlockRowView: View {
     let onFocusChange: (Bool) -> Void
     let onConvert: (DocumentBlockKind) -> Void
     let onFileDrop: ([URL]) -> Void
+    var onSelectionChange: ((InlineSelectionState) -> Void)? = nil
+    var onSlashMenuPositionChange: ((CGRect) -> Void)? = nil
+    var pendingFormatRequest: InlineFormatRequest? = nil
 
     @State private var isHovered = false
+    @State private var isEditingRawQuote = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 6) {
                 dragHandle
                 content
             }
-            if isSlashPresented {
-                SlashCommandMenu(query: slashQuery, selectedKind: selectedSlashKind, onSelect: onConvert)
-                    .transition(.editorFloatingMenu)
-                    .padding(.leading, BlockEditorTheme.gutterWidth + 12)
-                    .zIndex(2)
-            }
         }
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onChange(of: isSlashPresented) { _, isPresented in
+                        if isPresented {
+                            // Report position in screen coordinates for floating menu
+                            onSlashMenuPositionChange?(geo.frame(in: .global))
+                        }
+                    }
+            }
+        )
         .padding(.horizontal, 8)
         .padding(.vertical, verticalPadding)
         .background(backgroundStyle)
@@ -47,7 +56,6 @@ struct BlockRowView: View {
                 isHovered = hovering
             }
         }
-        .animation(.easeInOut(duration: 0.16), value: isSlashPresented)
     }
 
     @ViewBuilder
@@ -73,6 +81,9 @@ struct BlockRowView: View {
 
         case .toggle:
             toggleBlock
+
+        case .quote:
+            quoteBlock
 
         default:
             editableTextBlock
@@ -107,7 +118,9 @@ struct BlockRowView: View {
                 onTextChange: onTextChange,
                 onCommand: onEditorCommand,
                 onFileDrop: onFileDrop,
-                onFocusChange: onFocusChange
+                onFocusChange: onFocusChange,
+                onSelectionChange: onSelectionChange,
+                pendingFormatRequest: pendingFormatRequest
             )
             .frame(maxWidth: .infinity)
         }
@@ -212,10 +225,6 @@ struct BlockRowView: View {
                     .foregroundStyle(block.metadata.checked ? Color.accentColor : BlockEditorTheme.subtleText)
             }
             .buttonStyle(.plain)
-        case .quote:
-            RoundedRectangle(cornerRadius: 999)
-                .fill(BlockEditorTheme.subtleText.opacity(0.7))
-                .frame(width: 3, height: 20)
         default:
             EmptyView()
         }
@@ -431,7 +440,7 @@ struct BlockRowView: View {
 
     private var showsMetadataHeader: Bool {
         switch block.kind {
-        case .code, .source, .table:
+        case .code, .source:
             return true
         default:
             return false
@@ -442,15 +451,68 @@ struct BlockRowView: View {
         switch block.kind {
         case .bulletedList, .numberedList, .todo:
             return CGFloat(block.metadata.indentLevel) * 20
-        case .quote:
-            return CGFloat(block.metadata.indentLevel) * 16
         default:
             return 0
         }
     }
 
+    // MARK: - Quote block
+
+    private var quoteBlock: some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 999)
+                .fill(quoteBarColor)
+                .frame(width: 3)
+
+            Group {
+                if isEditingRawQuote {
+                    BlockTextEditor(
+                        blockID: block.id,
+                        text: $block.text,
+                        placeholder: block.placeholder,
+                        kind: .quote,
+                        focusRequest: focusRequest,
+                        onTextChange: onTextChange,
+                        onCommand: onEditorCommand,
+                        onFileDrop: onFileDrop,
+                        onFocusChange: { isFocused in
+                            onFocusChange(isFocused)
+                            if !isFocused { isEditingRawQuote = false }
+                        },
+                        onSelectionChange: onSelectionChange,
+                        pendingFormatRequest: pendingFormatRequest
+                    )
+                } else {
+                    QuoteRenderedContent(
+                        text: block.text,
+                        depth: 1,
+                        placeholder: block.placeholder,
+                        onTap: { isEditingRawQuote = true }
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .padding(.leading, CGFloat(block.metadata.indentLevel) * 16)
+        .background(specialBlockBackground(tint: .gray))
+        .overlay(specialBlockStroke(tint: .gray))
+        .onAppear {
+            if block.text.isEmpty { isEditingRawQuote = true }
+        }
+    }
+
+    private var quoteBarColor: Color {
+        switch block.metadata.indentLevel % 3 {
+        case 1: return Color.accentColor.opacity(0.5)
+        case 2: return Color.secondary.opacity(0.35)
+        default: return Color.secondary.opacity(0.55)
+        }
+    }
+
     private var showsInlineMarker: Bool {
-        block.kind == .bulletedList || block.kind == .numberedList || block.kind == .todo || block.kind == .quote
+        block.kind == .bulletedList || block.kind == .numberedList || block.kind == .todo
     }
 
     private var inlineMarkerWidth: CGFloat {
@@ -462,8 +524,6 @@ struct BlockRowView: View {
             return CGFloat(digits * 8)
         case .todo:
             return 22
-        case .quote:
-            return 12
         default:
             return 0
         }
@@ -491,6 +551,188 @@ struct BlockRowView: View {
 
     private var secondarySurface: Color {
         Color.primary.opacity(0.028)
+    }
+}
+
+// MARK: - Quote inline renderers
+
+/// Read-only view that parses `text` as a BlockDocument and renders each block
+/// inside a blockquote container. Tapping switches the parent to edit mode.
+private struct QuoteRenderedContent: View {
+    let text: String
+    let depth: Int
+    let placeholder: String
+    let onTap: () -> Void
+
+    private var innerDoc: BlockDocument {
+        BlockMarkdownCodec.parse(text, fileURL: nil)
+    }
+
+    var body: some View {
+        let doc = innerDoc
+        Group {
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(placeholder)
+                    .font(.system(size: 14))
+                    .foregroundStyle(BlockEditorTheme.subtleText)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(doc.blocks) { block in
+                        QuoteInlineBlockView(block: block, depth: depth)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
+    }
+}
+
+/// Lightweight read-only renderer for a single block inside a blockquote.
+/// Handles paragraphs, headings, lists, code, dividers, and nested quotes recursively.
+private struct QuoteInlineBlockView: View {
+    let block: DocumentBlock
+    let depth: Int
+
+    var body: some View {
+        switch block.kind {
+        case .heading1:
+            inlineHeading(size: 20, weight: .bold)
+        case .heading2:
+            inlineHeading(size: 17, weight: .semibold)
+        case .heading3:
+            inlineHeading(size: 15, weight: .semibold)
+        case .bulletedList:
+            inlineBullet
+        case .numberedList:
+            inlineNumbered
+        case .todo:
+            inlineTodo
+        case .code:
+            inlineCode
+        case .divider:
+            Divider().padding(.vertical, 2)
+        case .quote:
+            inlineNestedQuote
+        default:
+            inlineParagraph
+        }
+    }
+
+    // MARK: Inline renderers
+
+    private var inlineParagraph: some View {
+        Text(block.text)
+            .font(.system(size: 14))
+            .foregroundStyle(Color.primary)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private func inlineHeading(size: CGFloat, weight: Font.Weight) -> some View {
+        Text(block.text)
+            .font(.system(size: size, weight: weight))
+            .foregroundStyle(Color.primary)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var inlineBullet: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Circle()
+                .fill(BlockEditorTheme.subtleText)
+                .frame(width: 5, height: 5)
+                .padding(.top, 6)
+            Text(block.text)
+                .font(.system(size: 14))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.leading, CGFloat(block.metadata.indentLevel) * 16)
+    }
+
+    private var inlineNumbered: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text("\u{2022}")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(BlockEditorTheme.subtleText)
+            Text(block.text)
+                .font(.system(size: 14))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.leading, CGFloat(block.metadata.indentLevel) * 16)
+    }
+
+    private var inlineTodo: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: block.metadata.checked ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(block.metadata.checked ? Color.accentColor : BlockEditorTheme.subtleText)
+                .font(.system(size: 14))
+            Text(block.text)
+                .font(.system(size: 14))
+                .foregroundStyle(block.metadata.checked ? BlockEditorTheme.subtleText : Color.primary)
+                .strikethrough(block.metadata.checked)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.leading, CGFloat(block.metadata.indentLevel) * 16)
+    }
+
+    private var inlineCode: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !block.metadata.language.isEmpty && block.metadata.language != "text" {
+                Text(block.metadata.language)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(BlockEditorTheme.subtleText)
+            }
+            Text(block.text)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(Color.primary.opacity(0.85))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    private var inlineNestedQuote: some View {
+        HStack(alignment: .top, spacing: 0) {
+            RoundedRectangle(cornerRadius: 999)
+                .fill(nestedBarColor)
+                .frame(width: 3)
+                .padding(.trailing, 10)
+            if depth < 10 {
+                let innerDoc = BlockMarkdownCodec.parse(block.text, fileURL: nil)
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(innerDoc.blocks) { innerBlock in
+                        QuoteInlineBlockView(block: innerBlock, depth: depth + 1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var nestedBarColor: Color {
+        switch depth % 3 {
+        case 0: return Color.secondary.opacity(0.35)
+        case 1: return Color.accentColor.opacity(0.45)
+        default: return Color.secondary.opacity(0.5)
+        }
     }
 }
 

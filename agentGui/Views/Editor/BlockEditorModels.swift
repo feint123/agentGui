@@ -202,3 +202,55 @@ extension DocumentBlock {
         }
     }
 }
+
+// MARK: - Inline Style Toolbar Models
+
+enum InlineStyleAction: String, Hashable, CaseIterable {
+    case bold, italic, strikethrough, inlineCode
+
+    var symbolName: String {
+        switch self {
+        case .bold: return "bold"
+        case .italic: return "italic"
+        case .strikethrough: return "strikethrough"
+        case .inlineCode: return "chevron.left.forwardslash.chevron.right"
+        }
+    }
+
+    var markdownWrap: String {
+        switch self {
+        case .bold: return "**"
+        case .italic: return "*"
+        case .strikethrough: return "~~"
+        case .inlineCode: return "`"
+        }
+    }
+
+    var tooltip: String {
+        switch self {
+        case .bold: return "加粗"
+        case .italic: return "斜体"
+        case .strikethrough: return "删除线"
+        case .inlineCode: return "行内代码"
+        }
+    }
+}
+
+struct InlineSelectionState: Equatable {
+    let blockID: UUID
+    /// Rect in NSScreen coordinates reported by NSTextView.firstRect(forCharacterRange:)
+    let selectionRect: CGRect
+    let hasSelection: Bool
+    let activeActions: Set<InlineStyleAction>
+}
+
+/// One-shot format request; token ensures idempotent application inside updateNSView.
+struct InlineFormatRequest: Equatable {
+    let action: InlineStyleAction
+    let token: UUID
+
+    init(action: InlineStyleAction) {
+        self.action = action
+        self.token = UUID()
+    }
+}

@@ -30,6 +30,8 @@ struct BlockTextEditor: NSViewRepresentable {
     var onCommand: (BlockEditorCommand) -> Void = { _ in }
     var onFileDrop: ([URL]) -> Void = { _ in }
     var onFocusChange: (Bool) -> Void = { _ in }
+    var onSelectionChange: ((InlineSelectionState) -> Void)? = nil
+    var pendingFormatRequest: InlineFormatRequest? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -89,6 +91,21 @@ struct BlockTextEditor: NSViewRepresentable {
             }
         }
         context.coordinator.recalculateHeight(textView)
+
+        // Defer format application to the next run-loop turn so it runs *outside* the
+        // current SwiftUI render pass. Applying text changes inside updateNSView causes the
+        // next updateNSView call (triggered by the binding update) to see a stale `text`
+        // value and incorrectly reset textView.string back to the pre-format content.
+        if let request = pendingFormatRequest,
+           request.token != context.coordinator.lastAppliedFormatToken {
+            let coordinator = context.coordinator
+            let action = request.action
+            coordinator.lastAppliedFormatToken = request.token
+            DispatchQueue.main.async {
+                guard let tv = scrollView.documentView as? BlockEditorTextView else { return }
+                coordinator.applyFormat(action, to: tv)
+            }
+        }
     }
 
     private func applyStyle(to textView: BlockEditorTextView) {
@@ -199,11 +216,31 @@ struct BlockTextEditor: NSViewRepresentable {
         let matches = regex.matches(in: textStorage.string, options: [], range: fullRange)
         for match in matches {
             let whole = match.range(at: 0)
-            let primaryInner = match.range(at: 2)
-            let fallbackInner = match.range(at: 1)
-            let inner = primaryInner.location != NSNotFound ? primaryInner : fallbackInner
-            guard inner.location != NSNotFound else { continue }
-            handler(whole, inner)
+
+            // Determine which capture group contains the inner content
+            // Pattern can have 1, 3, or 4 capture groups:
+            // - 1 group: the content itself (e.g., single-star italic)
+            // - 3 groups: opening marker, content, closing marker (e.g., **bold**)
+            // - 4 groups: like [text](url) - has nested group in closer
+            let innerRange: NSRange
+            if match.numberOfRanges >= 3 {
+                // Try range 2 first (content group in 3-group patterns)
+                let candidate = match.range(at: 2)
+                if candidate.location != NSNotFound {
+                    innerRange = candidate
+                } else {
+                    // Fallback to range 1
+                    innerRange = match.range(at: 1)
+                }
+            } else if match.numberOfRanges == 2 {
+                // Only content group exists
+                innerRange = match.range(at: 1)
+            } else {
+                continue
+            }
+
+            guard innerRange.location != NSNotFound else { continue }
+            handler(whole, innerRange)
         }
     }
 
@@ -217,9 +254,71 @@ struct BlockTextEditor: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: BlockTextEditor
+        var lastAppliedFormatToken: UUID?
+        /// The most recent non-empty selection range; persists after focus loss so
+        /// toolbar button taps can still apply formatting to the right range.
+        var savedSelectionRange: NSRange = NSRange(location: 0, length: 0)
 
         init(_ parent: BlockTextEditor) {
             self.parent = parent
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? BlockEditorTextView else { return }
+            let selectedRange = textView.selectedRange()
+            guard selectedRange.length > 0 else {
+                parent.onSelectionChange?(InlineSelectionState(
+                    blockID: parent.blockID,
+                    selectionRect: .zero,
+                    hasSelection: false,
+                    activeActions: []
+                ))
+                return
+            }
+            savedSelectionRange = selectedRange
+            var actualRange = NSRange()
+            let screenRect = textView.firstRect(forCharacterRange: selectedRange, actualRange: &actualRange)
+            let activeActions = detectActiveActions(in: textView, range: selectedRange)
+            parent.onSelectionChange?(InlineSelectionState(
+                blockID: parent.blockID,
+                selectionRect: screenRect,
+                hasSelection: true,
+                activeActions: activeActions
+            ))
+        }
+
+        private func detectActiveActions(in textView: NSTextView, range: NSRange) -> Set<InlineStyleAction> {
+            var actions = Set<InlineStyleAction>()
+            guard let storage = textView.textStorage else { return actions }
+            storage.enumerateAttributes(in: range, options: []) { attrs, _, _ in
+                if let font = attrs[.font] as? NSFont {
+                    let traits = NSFontManager.shared.traits(of: font)
+                    if traits.contains(.boldFontMask) { actions.insert(.bold) }
+                    if traits.contains(.italicFontMask) { actions.insert(.italic) }
+                }
+                if attrs[.strikethroughStyle] != nil { actions.insert(.strikethrough) }
+                if attrs[.backgroundColor] != nil { actions.insert(.inlineCode) }
+            }
+            return actions
+        }
+
+        func applyFormat(_ action: InlineStyleAction, to textView: NSTextView) {
+            // Use the saved range — reliable even after the text view loses first responder.
+            let range = savedSelectionRange
+            guard let storage = textView.textStorage,
+                  range.length > 0,
+                  range.location != NSNotFound,
+                  NSMaxRange(range) <= storage.length
+            else { return }
+            let content = (storage.string as NSString).substring(with: range)
+            let wrap = action.markdownWrap
+            let replacement = "\(wrap)\(content)\(wrap)"
+            // Use the lower-level API so the call is safe when the view is not first responder.
+            guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
+            storage.beginEditing()
+            storage.replaceCharacters(in: range, with: replacement)
+            storage.endEditing()
+            textView.didChangeText()
         }
 
         func textDidChange(_ notification: Notification) {
