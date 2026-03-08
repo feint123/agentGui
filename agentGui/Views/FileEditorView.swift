@@ -6,7 +6,6 @@
 import SwiftUI
 import AppKit
 import PDFKit
-import STTextView
 
 // MARK: - File viewer type
 
@@ -108,7 +107,7 @@ struct FileEditorView: View {
     private func fileContentView(for url: URL) -> some View {
         switch viewerType {
         case .text:
-            STTextViewRepresentable(text: $textContent)
+            BlockDocumentEditor(text: $textContent, fileURL: url)
         case .image:
             Group {
                 if let img = viewerImage {
@@ -208,45 +207,6 @@ struct FileEditorView: View {
                     self.isSaving = false
                 }
             }
-        }
-    }
-}
-
-// MARK: - STTextView NSViewRepresentable
-
-private struct STTextViewRepresentable: NSViewRepresentable {
-    @Binding var text: String
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = STTextView.scrollableTextView()
-        let textView = scrollView.documentView as! STTextView
-        textView.delegate = context.coordinator
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.showsLineNumbers = true
-        textView.highlightSelectedLine = true
-        textView.isHorizontallyResizable = false  // wrap lines
-        textView.text = text
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        let textView = scrollView.documentView as! STTextView
-        if textView.text != text {
-            let sel = textView.textLayoutManager.textSelections
-            textView.text = text
-            textView.textLayoutManager.textSelections = sel
-        }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    final class Coordinator: NSObject, STTextViewDelegate {
-        var parent: STTextViewRepresentable
-        init(_ parent: STTextViewRepresentable) { self.parent = parent }
-
-        func textViewDidChangeText(_ notification: Notification) {
-            guard let tv = notification.object as? STTextView else { return }
-            parent.text = tv.text ?? ""
         }
     }
 }

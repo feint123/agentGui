@@ -1,0 +1,530 @@
+//
+//  BlockRowView.swift
+//  agentGui
+//
+
+import SwiftUI
+
+struct BlockRowView: View {
+    @Binding var block: DocumentBlock
+    let focusRequest: BlockEditorFocusRequest?
+    let isActive: Bool
+    let isSlashPresented: Bool
+    let slashQuery: String
+    let selectedSlashKind: DocumentBlockKind?
+    let listIndex: Int?
+    let onTextChange: (String) -> Void
+    let onEditorCommand: (BlockEditorCommand) -> Void
+    let onFocusChange: (Bool) -> Void
+    let onConvert: (DocumentBlockKind) -> Void
+    let onFileDrop: ([URL]) -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top, spacing: 12) {
+                dragHandle
+                content
+            }
+            if isSlashPresented {
+                SlashCommandMenu(query: slashQuery, selectedKind: selectedSlashKind, onSelect: onConvert)
+                    .transition(.editorFloatingMenu)
+                    .padding(.leading, BlockEditorTheme.gutterWidth + 12)
+                    .zIndex(2)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, verticalPadding)
+        .background(backgroundStyle)
+        .overlay(
+            RoundedRectangle(cornerRadius: BlockEditorTheme.blockCornerRadius)
+            .stroke(isActive ? Color.accentColor.opacity(0.055) : Color.clear, lineWidth: 1)
+        )
+        .clipShape(.rect(cornerRadius: BlockEditorTheme.blockCornerRadius))
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+        }
+        .animation(.easeInOut(duration: 0.16), value: isSlashPresented)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch block.kind {
+        case .divider:
+            dividerBlock
+
+        case .table:
+            tableBlock
+
+        case .image:
+            imageBlock
+
+        case .url:
+            urlBlock
+
+        case .file:
+            fileBlock
+
+        case .callout:
+            calloutBlock
+
+        case .toggle:
+            toggleBlock
+
+        default:
+            editableTextBlock
+        }
+    }
+
+    private var dragHandle: some View {
+        ZStack {
+            handleGlyph
+        }
+        .frame(width: BlockEditorTheme.gutterWidth, height: 24)
+        .contentShape(Rectangle())
+        .opacity(isHovered || isActive ? 0.95 : 0.08)
+        .frame(width: BlockEditorTheme.gutterWidth)
+        .padding(.top, 2)
+    }
+
+    private var editableTextBlock: some View {
+        HStack(alignment: .top, spacing: 8) {
+            if showsInlineMarker {
+                inlineMarker
+                    .frame(width: inlineMarkerWidth, alignment: .trailing)
+                    .padding(.top, block.kind.isHeading ? 7 : 6)
+            }
+
+            BlockTextEditor(
+                blockID: block.id,
+                text: $block.text,
+                placeholder: block.placeholder,
+                kind: block.kind,
+                focusRequest: focusRequest,
+                onTextChange: onTextChange,
+                onCommand: onEditorCommand,
+                onFileDrop: onFileDrop,
+                onFocusChange: onFocusChange
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.leading, contentLeadingInset)
+    }
+
+    private var handleGlyph: some View {
+        HStack(spacing: 2) {
+            VStack(spacing: 2) {
+                handleDot
+                handleDot
+                handleDot
+            }
+            VStack(spacing: 2) {
+                handleDot
+                handleDot
+                handleDot
+            }
+        }
+    }
+
+    private var handleDot: some View {
+        Circle()
+            .fill(isHovered || isActive ? BlockEditorTheme.handleHoverTint : BlockEditorTheme.handleTint)
+            .frame(width: 2, height: 2)
+    }
+
+    private var dividerBlock: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.12))
+            .frame(maxWidth: .infinity)
+            .frame(height: 1)
+            .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var metadataHeader: some View {
+        HStack(spacing: 10) {
+            Label(block.kind.title, systemImage: block.kind.symbolName)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(BlockEditorTheme.subtleText)
+            switch block.kind {
+            case .todo:
+                Button {
+                    block.metadata.checked.toggle()
+                    onTextChange(block.text)
+                } label: {
+                    Image(systemName: block.metadata.checked ? "checkmark.circle.fill" : "circle")
+                }
+                .buttonStyle(.plain)
+            case .code, .source:
+                TextField("语言", text: $block.metadata.language)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.primary.opacity(0.04), in: Capsule())
+                    .frame(width: 120)
+            case .callout:
+                TextField("类型", text: $block.metadata.tone)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.primary.opacity(0.04), in: Capsule())
+                    .frame(width: 100)
+                TextField("标题", text: $block.metadata.secondaryText)
+                    .textFieldStyle(.plain)
+            case .toggle:
+                TextField("标题", text: $block.metadata.secondaryText)
+                    .textFieldStyle(.plain)
+                Button(block.metadata.isCollapsed ? "展开" : "折叠") {
+                    block.metadata.isCollapsed.toggle()
+                    onTextChange(block.text)
+                }
+                .buttonStyle(.borderless)
+            default:
+                EmptyView()
+            }
+            Spacer(minLength: 0)
+        }
+        .opacity(showsMetadataHeader ? 1 : 0)
+        .frame(height: showsMetadataHeader ? nil : 0)
+        .clipped()
+    }
+
+    @ViewBuilder
+    private var inlineMarker: some View {
+        switch block.kind {
+        case .bulletedList:
+            Circle()
+                .fill(BlockEditorTheme.subtleText)
+                .frame(width: 6, height: 6)
+        case .numberedList:
+            Text("\(listIndex ?? 1).")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(BlockEditorTheme.subtleText)
+        case .todo:
+            Button {
+                block.metadata.checked.toggle()
+                onTextChange(block.text)
+            } label: {
+                Image(systemName: block.metadata.checked ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(block.metadata.checked ? Color.accentColor : BlockEditorTheme.subtleText)
+            }
+            .buttonStyle(.plain)
+        case .quote:
+            RoundedRectangle(cornerRadius: 999)
+                .fill(BlockEditorTheme.subtleText.opacity(0.7))
+                .frame(width: 3, height: 20)
+        default:
+            EmptyView()
+        }
+    }
+
+    private var tableBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            metadataHeader
+            BlockTableEditor(markdown: $block.text)
+                .onChange(of: block.text) { _, newValue in
+                    onTextChange(newValue)
+                }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(specialBlockBackground(tint: .gray))
+        .overlay(specialBlockStroke(tint: .gray))
+    }
+
+    private var imageBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("图片", systemImage: "photo")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(BlockEditorTheme.subtleText)
+                Spacer(minLength: 0)
+            }
+            TextField("图片地址或本地路径", text: $block.metadata.resource)
+                .textFieldStyle(.roundedBorder)
+            TextField("图片说明", text: $block.metadata.secondaryText)
+                .textFieldStyle(.roundedBorder)
+            if let resourceURL = resourceURL(from: block.metadata.resource), AttachedFile.pathIsImage(resourceURL.path) || resourceURL.scheme?.hasPrefix("http") == true {
+                BlockImagePreview(resource: resourceURL)
+            } else {
+                Text(block.placeholder)
+                    .font(.caption)
+                    .foregroundStyle(BlockEditorTheme.subtleText)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(secondarySurface, in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(specialBlockBackground(tint: .gray))
+        .overlay(specialBlockStroke(tint: .gray))
+    }
+
+    private var urlBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("链接卡片", systemImage: "link")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(BlockEditorTheme.subtleText)
+            TextField("URL", text: $block.metadata.resource)
+                .textFieldStyle(.roundedBorder)
+            TextField("标题", text: $block.text)
+                .textFieldStyle(.roundedBorder)
+            Link(destination: URL(string: block.metadata.resource) ?? URL(string: "https://example.com")!) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(block.text.isEmpty ? block.metadata.resource : block.text)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(block.metadata.resource)
+                        .font(.caption)
+                        .foregroundStyle(BlockEditorTheme.subtleText)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(secondarySurface, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(specialBlockBackground(tint: .gray))
+        .overlay(specialBlockStroke(tint: .gray))
+    }
+
+    private var fileBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("文件附件", systemImage: "doc")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(BlockEditorTheme.subtleText)
+            TextField("标题", text: $block.text)
+                .textFieldStyle(.roundedBorder)
+            TextField("文件路径", text: $block.metadata.resource)
+                .textFieldStyle(.roundedBorder)
+            HStack(spacing: 10) {
+                Image(systemName: AttachedFile.pathIsPDF(block.metadata.resource) ? "doc.richtext" : "doc")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(block.text.isEmpty ? (block.metadata.resource as NSString).lastPathComponent : block.text)
+                    Text(block.metadata.resource)
+                        .font(.caption)
+                        .foregroundStyle(BlockEditorTheme.subtleText)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .background(secondarySurface, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+            )
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(specialBlockBackground(tint: .gray))
+        .overlay(specialBlockStroke(tint: .gray))
+    }
+
+    private var calloutBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                RoundedRectangle(cornerRadius: 999)
+                    .fill(calloutColor.opacity(0.9))
+                    .frame(width: 3)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Label(block.metadata.secondaryText.isEmpty ? "提示" : block.metadata.secondaryText, systemImage: "exclamationmark.bubble")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(calloutColor)
+
+                    BlockTextEditor(
+                        blockID: block.id,
+                        text: $block.text,
+                        placeholder: block.placeholder,
+                        kind: .paragraph,
+                        focusRequest: focusRequest,
+                        onTextChange: onTextChange,
+                        onCommand: onEditorCommand,
+                        onFileDrop: onFileDrop,
+                        onFocusChange: onFocusChange
+                    )
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(specialBlockBackground(tint: calloutColor))
+        .overlay(specialBlockStroke(tint: calloutColor))
+    }
+
+    private var toggleBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                block.metadata.isCollapsed.toggle()
+                onTextChange(block.text)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: block.metadata.isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(BlockEditorTheme.subtleText)
+                    Text(block.metadata.secondaryText.isEmpty ? "折叠标题" : block.metadata.secondaryText)
+                        .font(.system(size: 14, weight: .semibold))
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if !block.metadata.isCollapsed {
+                BlockTextEditor(
+                    blockID: block.id,
+                    text: $block.text,
+                    placeholder: block.placeholder,
+                    kind: .paragraph,
+                    focusRequest: focusRequest,
+                    onTextChange: onTextChange,
+                    onCommand: onEditorCommand,
+                    onFileDrop: onFileDrop,
+                    onFocusChange: onFocusChange
+                )
+                .padding(.leading, 19)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(specialBlockBackground(tint: .gray))
+        .overlay(specialBlockStroke(tint: .gray))
+    }
+
+    private var backgroundStyle: AnyShapeStyle {
+        if block.kind == .divider {
+            return AnyShapeStyle(Color.clear)
+        }
+        return AnyShapeStyle(BlockEditorTheme.blockBackground(isActive: isActive, isHovered: isHovered, emphasis: false))
+    }
+
+    private var calloutColor: Color {
+        switch block.metadata.tone.lowercased() {
+        case "warning": return .orange
+        case "danger": return .red
+        case "success": return .green
+        default: return .blue
+        }
+    }
+
+    private func resourceURL(from text: String) -> URL? {
+        guard !text.isEmpty else { return nil }
+        if text.hasPrefix("http://") || text.hasPrefix("https://") {
+            return URL(string: text)
+        }
+        return URL(fileURLWithPath: text)
+    }
+
+    private var showsMetadataHeader: Bool {
+        switch block.kind {
+        case .code, .source, .table:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var contentLeadingInset: CGFloat {
+        switch block.kind {
+        case .bulletedList, .numberedList, .todo:
+            return CGFloat(block.metadata.indentLevel) * 20
+        case .quote:
+            return CGFloat(block.metadata.indentLevel) * 16
+        default:
+            return 0
+        }
+    }
+
+    private var showsInlineMarker: Bool {
+        block.kind == .bulletedList || block.kind == .numberedList || block.kind == .todo || block.kind == .quote
+    }
+
+    private var inlineMarkerWidth: CGFloat {
+        switch block.kind {
+        case .bulletedList:
+            return 16
+        case .numberedList:
+            let digits = max(2, String(listIndex ?? 1).count + 1)
+            return CGFloat(digits * 8)
+        case .todo:
+            return 22
+        case .quote:
+            return 12
+        default:
+            return 0
+        }
+    }
+
+    private var verticalPadding: CGFloat {
+        if block.kind == .divider {
+            return 0
+        }
+        if block.kind.isHeading {
+            return 0.5
+        }
+        return 2
+    }
+
+    private func specialBlockBackground(tint: Color) -> some View {
+        RoundedRectangle(cornerRadius: BlockEditorTheme.specialBlockCornerRadius)
+            .fill(BlockEditorTheme.specialBlockFill(tint: tint, isActive: isActive, isHovered: isHovered))
+    }
+
+    private func specialBlockStroke(tint: Color) -> some View {
+        RoundedRectangle(cornerRadius: BlockEditorTheme.specialBlockCornerRadius)
+            .stroke(BlockEditorTheme.specialBlockBorder(tint: tint, isActive: isActive, isHovered: isHovered), lineWidth: 1)
+    }
+
+    private var secondarySurface: Color {
+        Color.primary.opacity(0.028)
+    }
+}
+
+private struct BlockImagePreview: View {
+    let resource: URL
+
+    var body: some View {
+        Group {
+            if resource.isFileURL, let image = NSImage(contentsOf: resource) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                AsyncImage(url: resource) { image in
+                    image
+                        .resizable()
+                        .scaledToFit()
+                } placeholder: {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 120)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 280)
+        .background(Color.primary.opacity(0.028), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.primary.opacity(0.04), lineWidth: 1)
+        )
+    }
+}
+
+private extension DocumentBlockKind {
+    var isHeading: Bool {
+        self == .heading1 || self == .heading2 || self == .heading3
+    }
+}
