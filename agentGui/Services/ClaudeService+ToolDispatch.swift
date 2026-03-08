@@ -513,17 +513,26 @@ extension ClaudeService {
             await session.restart(workingDirectory: workingDirectory)
             return "Bash session restarted."
         }
-        guard let command = input["command"]?.stringValue else {
-            return "Error: missing 'command' parameter"
-        }
+        let hasFollowUpInput = input["input"]?.stringValue != nil
+        let isInteractive = input["interactive"]?.boolValue == true || hasFollowUpInput
         let timeout: TimeInterval
         if let t = input["timeout"]?.intValue {
             timeout = TimeInterval(max(1, t))
         } else {
-            timeout = 300
+            timeout = isInteractive ? 2 : 300
+        }
+        if input["interrupt"]?.boolValue == true {
+            return await session.interrupt(timeout: timeout)
+        }
+        if let followUpInput = input["input"]?.stringValue {
+            return await session.sendInput(followUpInput, timeout: timeout)
+        }
+        guard let command = input["command"]?.stringValue else {
+            return "Error: missing 'command' parameter"
         }
         let background = input["background"]?.boolValue ?? false
-        return await session.execute(command, timeout: timeout, background: background)
+        let interactive = input["interactive"]?.boolValue ?? false
+        return await session.execute(command, timeout: timeout, background: background, interactive: interactive)
     }
 
     // MARK: ToolCall Record Factory

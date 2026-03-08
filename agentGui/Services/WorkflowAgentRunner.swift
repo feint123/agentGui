@@ -484,15 +484,21 @@ private struct WorkflowToolStub {
                 name: "bash",
                 description: """
                 Execute shell commands in a persistent bash session. \
-                The session preserves working directory and environment variables across calls.
+                The session preserves working directory and environment variables across calls. \
+                For interactive commands, set interactive: true and continue them with \
+                input: "..." on subsequent calls. Use interrupt: true to cancel the current \
+                foreground command with Ctrl-C.
                 """,
                 inputSchema: .init(
                     type: .object,
                     properties: [
                         "command":    .init(type: .string,  description: "The bash command to execute"),
+                        "input":      .init(type: .string,  description: "Text to send to the currently running interactive foreground command"),
                         "restart":    .init(type: .boolean, description: "If true, restart the bash session"),
+                        "interrupt":  .init(type: .boolean, description: "If true, send Ctrl-C to the currently running foreground command"),
                         "timeout":    .init(type: .integer, description: "Max seconds to wait (default 300)"),
-                        "background": .init(type: .boolean, description: "Run in background and return immediately")
+                        "background": .init(type: .boolean, description: "Run in background and return immediately"),
+                        "interactive": .init(type: .boolean, description: "If true, return once output becomes idle so the caller can continue the interactive session")
                     ],
                     required: []
                 )
