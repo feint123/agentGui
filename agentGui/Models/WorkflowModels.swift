@@ -136,6 +136,132 @@ enum WorkflowMessageKind: String, Codable, CaseIterable, Sendable {
     }
 }
 
+// MARK: - Evaluator Loop State
+
+enum WorkflowEvaluatorSource: String, Codable, Sendable {
+    case reviewer = "reviewer"
+    case executor = "executor"
+}
+
+enum WorkflowContractViolationKind: String, Codable, Sendable {
+    case unsubscribedMessage = "unsubscribed_message"
+    case unreadableArtifact = "unreadable_artifact"
+    case unwritableArtifact = "unwritable_artifact"
+}
+
+struct WorkflowContractViolation: Sendable {
+    var kind: WorkflowContractViolationKind
+    var roleName: String
+    var message: String
+    var messageKind: WorkflowMessageKind? = nil
+    var artifactKind: WorkflowArtifactKind? = nil
+    var artifactId: String? = nil
+    var sender: String? = nil
+    var createdAt: Date = Date()
+
+    var summary: String {
+        let scope = sender.map { "\($0) → \(roleName)" } ?? roleName
+        return "[\(kind.rawValue)] \(scope): \(message)"
+    }
+}
+
+struct WorkflowEvaluatorOutcome: Sendable {
+    var source: WorkflowEvaluatorSource
+    var approved: Bool
+    var summary: String
+    var reasons: [String]
+    var artifactId: String
+    var artifactVersion: Int
+    var recordedAt: Date = Date()
+}
+
+struct WorkflowEvaluationCycle: Sendable {
+    var iteration: Int
+    var patchArtifactId: String
+    var patchVersion: Int
+    var reviewerOutcome: WorkflowEvaluatorOutcome? = nil
+    var executorOutcome: WorkflowEvaluatorOutcome? = nil
+    var startedAt: Date = Date()
+
+    var isComplete: Bool {
+        reviewerOutcome != nil && executorOutcome != nil
+    }
+
+    var failures: [WorkflowEvaluatorOutcome] {
+        [reviewerOutcome, executorOutcome]
+            .compactMap { $0 }
+            .filter { !$0.approved }
+    }
+}
+
+struct WorkflowEvaluatorFailureRecord: Sendable {
+    var iteration: Int
+    var patchArtifactId: String
+    var patchVersion: Int
+    var triggerKind: WorkflowMessageKind
+    var outcomes: [WorkflowEvaluatorOutcome]
+    var createdAt: Date = Date()
+}
+
+struct WorkflowEvaluatorLoopState: Sendable {
+    var nextIteration: Int = 1
+    var activeCycle: WorkflowEvaluationCycle? = nil
+    var latestFailure: WorkflowEvaluatorFailureRecord? = nil
+    var failureHistory: [WorkflowEvaluatorFailureRecord] = []
+
+    mutating func beginCycle(for patchArtifactId: String, version: Int) {
+        activeCycle = WorkflowEvaluationCycle(
+            iteration: nextIteration,
+            patchArtifactId: patchArtifactId,
+            patchVersion: version
+        )
+        nextIteration += 1
+    }
+
+    mutating func record(_ outcome: WorkflowEvaluatorOutcome) {
+        guard var cycle = activeCycle else { return }
+        switch outcome.source {
+        case .reviewer:
+            cycle.reviewerOutcome = outcome
+        case .executor:
+            cycle.executorOutcome = outcome
+        }
+        activeCycle = cycle
+    }
+
+    mutating func completeFailureIfReady() -> WorkflowEvaluatorFailureRecord? {
+        guard let cycle = activeCycle, cycle.isComplete, !cycle.failures.isEmpty else {
+            return nil
+        }
+
+        let triggerKind: WorkflowMessageKind = cycle.failures.contains(where: { $0.source == .reviewer })
+            ? .reviewFeedback
+            : .rejection
+
+        let failure = WorkflowEvaluatorFailureRecord(
+            iteration: cycle.iteration,
+            patchArtifactId: cycle.patchArtifactId,
+            patchVersion: cycle.patchVersion,
+            triggerKind: triggerKind,
+            outcomes: cycle.failures
+        )
+
+        latestFailure = failure
+        failureHistory.append(failure)
+        activeCycle = nil
+        return failure
+    }
+
+    mutating func completeSuccessIfReady() -> Bool {
+        guard let cycle = activeCycle, cycle.isComplete, cycle.failures.isEmpty else {
+            return false
+        }
+
+        activeCycle = nil
+        return true
+    }
+}
+
 // MARK: - ActivationResultKind
 
 enum ActivationResultKind: String, Codable, Sendable {

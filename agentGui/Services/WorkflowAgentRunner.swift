@@ -32,8 +32,8 @@ struct WorkflowAgentRunner {
         activationRecord: WorkflowActivationRecord,
         onAction: ((String) -> Void)? = nil
     ) async throws -> AgentActivationResult {
-
-        let task = buildTask(role: role, context: context, inbox: inboxMessages)
+        let taskPackage = buildTask(role: role, context: context, inbox: inboxMessages)
+        let task = taskPackage.task
         var loopMessages: [MessageParameter.Message] = [.init(role: .user, content: .text(task))]
         let system: MessageParameter.System? = role.systemPrompt.isEmpty
             ? nil
@@ -47,6 +47,7 @@ struct WorkflowAgentRunner {
         // Artifact capture: roles with a primaryOutputArtifactKind MUST call
         // emit_workflow_artifact. If they don't, the activation is marked failed.
         let collector = WorkflowEmitCollector()
+        let violationCollector = WorkflowContractViolationCollector()
         let workflowId = context.workflowId
         let roleName = role.name
         let existingVersion = role.primaryOutputArtifactKind.flatMap { k in
@@ -65,7 +66,14 @@ struct WorkflowAgentRunner {
                 }
                 // Contract enforcement: reject writes for kinds outside writableArtifacts.
                 guard role.writableArtifacts.contains(kind) else {
-                    print("[Workflow] ⚠ Contract[writableArtifacts]: '\(roleName)' tried to emit '\(kind.rawValue)' — not in writableArtifacts \(role.writableArtifacts.map(\.rawValue).sorted())")
+                    let violation = WorkflowContractViolation(
+                        kind: .unwritableArtifact,
+                        roleName: roleName,
+                        message: "Rejected emit request for '\(kind.rawValue)'. Permitted writable artifacts: [\(role.writableArtifacts.map(\.rawValue).sorted().joined(separator: ", "))]",
+                        artifactKind: kind
+                    )
+                    await violationCollector.capture(violation)
+                    print("[Workflow] ⚠ Contract[writableArtifacts]: \(violation.summary)")
                     return .failure("Contract violation: role '\(roleName)' cannot write '\(kind.rawValue)'. Permitted kinds: [\(role.writableArtifacts.map(\.rawValue).sorted().joined(separator: ", "))]")
                 }
                 guard let data = contentJson.data(using: .utf8),
@@ -122,6 +130,8 @@ struct WorkflowAgentRunner {
         let elapsed = Date().timeIntervalSince(startTime)
         let turnsUsed = max(1, loopMessages.count / 2)
         let capturedArtifact = await collector.capturedArtifact
+        let interceptedViolations = await violationCollector.violations
+        let contractViolations = taskPackage.contractViolations + interceptedViolations
 
         print("[Workflow] ✓ \(role.displayName) loop done | elapsed=\(String(format: "%.1fs", elapsed)) turns=\(turnsUsed) outputLen=\(outputText.count) artifact=\(capturedArtifact.map { $0.kind.displayName } ?? "none")")
 
@@ -151,7 +161,8 @@ struct WorkflowAgentRunner {
             newArtifacts: newArtifacts,
             resultKind: resultKind,
             summary: summary,
-            turnsUsed: turnsUsed
+            turnsUsed: turnsUsed,
+            contractViolations: contractViolations
         )
     }
 
@@ -161,8 +172,9 @@ struct WorkflowAgentRunner {
         role: WorkflowRoleDefinition,
         context: WorkflowContext,
         inbox: [WorkflowMessage]
-    ) -> String {
+    ) -> WorkflowTaskPackage {
         var parts: [String] = []
+        var violations: [WorkflowContractViolation] = []
         parts.append("# Workflow Task")
         parts.append("**Workflow ID**: \(context.workflowId)")
         parts.append("**Your Role**: \(role.displayName) (`\(role.name)`)")
@@ -197,12 +209,6 @@ struct WorkflowAgentRunner {
             role.readableArtifacts.contains($0.kind)
         }
         let readableArtifactsById = Dictionary(uniqueKeysWithValues: readableArtifacts.map { ($0.id, $0) })
-        let droppedArtifacts = context.artifacts.values.filter {
-            !role.readableArtifacts.contains($0.kind)
-        }
-        if !droppedArtifacts.isEmpty {
-            print("[Workflow] ⚠ Contract[readableArtifacts]: '\(role.name)' denied access to [\(droppedArtifacts.map(\.kind.rawValue).sorted().joined(separator: ", "))] — not in readableArtifacts \(role.readableArtifacts.map(\.rawValue).sorted())")
-        }
         // Include inbox messages
         if !inbox.isEmpty {
             parts.append("\n## Inbox Messages")
@@ -212,16 +218,36 @@ struct WorkflowAgentRunner {
                     parts.append(msg.body)
                 }
                 if !msg.artifactRefs.isEmpty {
-                    parts.append("**Referenced Artifacts**: \(msg.artifactRefs.joined(separator: ", "))")
+                    let readableRefs = msg.artifactRefs.filter { readableArtifactsById[$0] != nil }
+                    let unreadableRefs = msg.artifactRefs.filter { readableArtifactsById[$0] == nil }
+                    if !readableRefs.isEmpty {
+                        parts.append("**Referenced Artifacts**: \(readableRefs.joined(separator: ", "))")
+                    }
                     for artifactId in msg.artifactRefs {
                         guard let artifact = readableArtifactsById[artifactId] else {
-                            parts.append("- Artifact \(artifactId) is unavailable to your role.")
+                            let violation = WorkflowContractViolation(
+                                kind: .unreadableArtifact,
+                                roleName: role.name,
+                                message: "Artifact reference was withheld because its kind is outside readableArtifacts.",
+                                messageKind: msg.kind,
+                                artifactId: artifactId,
+                                sender: msg.sender
+                            )
+                            violations.append(violation)
                             continue
                         }
                         parts.append(renderArtifact(artifact, headingPrefix: "####"))
                     }
+                    if !unreadableRefs.isEmpty {
+                        parts.append("- One or more referenced artifacts were withheld by workflow contract.")
+                    }
                 }
             }
+        }
+
+        if role.name == "coder",
+           let evaluatorEntry = renderEvaluatorLoopEntry(in: context, inbox: inbox) {
+            parts.append(evaluatorEntry)
         }
 
         let referencedArtifactIds = Set(inbox.flatMap(\.artifactRefs))
@@ -246,7 +272,10 @@ struct WorkflowAgentRunner {
             """)
         }
 
-        return parts.joined(separator: "\n")
+        return WorkflowTaskPackage(
+            task: parts.joined(separator: "\n"),
+            contractViolations: violations
+        )
     }
 
     private func renderArtifact(_ artifact: WorkflowArtifact, headingPrefix: String) -> String {
@@ -254,6 +283,55 @@ struct WorkflowAgentRunner {
             "\(headingPrefix) \(artifact.kind.displayName) (id: \(artifact.id), v\(artifact.version), \(artifact.status.displayName))",
             artifact.contentJson,
         ].joined(separator: "\n")
+    }
+
+    private func renderEvaluatorLoopEntry(
+        in context: WorkflowContext,
+        inbox: [WorkflowMessage]
+    ) -> String? {
+        guard inbox.contains(where: { $0.kind == .reviewFeedback || $0.kind == .rejection }),
+              let failure = context.evaluatorLoop.latestFailure else {
+            return nil
+        }
+
+        return [
+            "\n## Evaluator Loop Entry",
+            "You are re-entering the coder because the previous candidate failed evaluator checks.",
+            "Carry every item in the structured payload below into the next patch and address them explicitly.",
+            "```json",
+            serializeEvaluatorFailure(failure, historyCount: context.evaluatorLoop.failureHistory.count),
+            "```"
+        ].joined(separator: "\n")
+    }
+
+    private func serializeEvaluatorFailure(
+        _ failure: WorkflowEvaluatorFailureRecord,
+        historyCount: Int
+    ) -> String {
+        let jsonObject: [String: Any] = [
+            "evaluator_iteration": failure.iteration,
+            "failed_patch": [
+                "artifact_id": failure.patchArtifactId,
+                "version": failure.patchVersion
+            ],
+            "trigger_kind": failure.triggerKind.rawValue,
+            "must_address": failure.outcomes.map { outcome in
+                [
+                    "source": outcome.source.rawValue,
+                    "summary": outcome.summary,
+                    "reasons": outcome.reasons,
+                    "artifact_id": outcome.artifactId,
+                    "artifact_version": outcome.artifactVersion
+                ]
+            },
+            "failure_history_count": historyCount
+        ]
+
+        guard let data = try? JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted]),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{ \"evaluator_iteration\": \(failure.iteration) }"
+        }
+        return text
     }
 
     // MARK: - Tool Construction
@@ -346,6 +424,19 @@ private actor WorkflowEmitCollector {
     func capture(_ artifact: WorkflowArtifact) {
         capturedArtifact = artifact
     }
+}
+
+private actor WorkflowContractViolationCollector {
+    private(set) var violations: [WorkflowContractViolation] = []
+
+    func capture(_ violation: WorkflowContractViolation) {
+        violations.append(violation)
+    }
+}
+
+private struct WorkflowTaskPackage {
+    let task: String
+    let contractViolations: [WorkflowContractViolation]
 }
 
 // MARK: - WorkflowToolStub

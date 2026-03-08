@@ -149,6 +149,12 @@ struct WorkflowContext: Sendable {
     /// Accumulated artifacts produced during the workflow.
     var artifacts: [String: WorkflowArtifact] = [:]
 
+    /// Structured evaluator loop state shared across coder / reviewer / executor.
+    var evaluatorLoop = WorkflowEvaluatorLoopState()
+
+    /// Hard runtime contract violations recorded during delivery and activation.
+    var contractViolations: [WorkflowContractViolation] = []
+
     var budget: WorkflowBudget = .default
     var policies: WorkflowPolicies = .default
 
@@ -194,7 +200,15 @@ extension WorkflowContext {
             // Hard subscription check — look up the role definition registered in this context.
             if let role = roles.first(where: { $0.name == recipient }),
                !role.subscribesTo.contains(message.kind) {
-                print("[Workflow] ⚠ Contract[subscribesTo]: '\(message.kind.rawValue)' → '\(recipient)' dropped — not in subscribesTo \(role.subscribesTo.map(\.rawValue).sorted())")
+                let violation = WorkflowContractViolation(
+                    kind: .unsubscribedMessage,
+                    roleName: recipient,
+                    message: "Dropped '\(message.kind.rawValue)' because recipient does not subscribe to it. Allowed: [\(role.subscribesTo.map(\.rawValue).sorted().joined(separator: ", "))]",
+                    messageKind: message.kind,
+                    sender: message.sender
+                )
+                contractViolations.append(violation)
+                print("[Workflow] ⚠ Contract[subscribesTo]: \(violation.summary)")
                 continue
             }
             if mailboxes[recipient] == nil {
@@ -232,6 +246,12 @@ extension WorkflowContext {
 
     mutating func upsertArtifact(_ artifact: WorkflowArtifact) {
         artifacts[artifact.id] = artifact
+        lastProgressAt = Date()
+    }
+
+    mutating func recordContractViolations(_ violations: [WorkflowContractViolation]) {
+        guard !violations.isEmpty else { return }
+        contractViolations.append(contentsOf: violations)
         lastProgressAt = Date()
     }
 }
@@ -346,4 +366,6 @@ struct AgentActivationResult: Sendable {
     let summary: String
     /// Number of inner-loop rounds consumed.
     let turnsUsed: Int
+    /// Contract violations observed during prompt construction or tool interception.
+    let contractViolations: [WorkflowContractViolation]
 }

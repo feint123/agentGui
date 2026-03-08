@@ -3,16 +3,18 @@
 //  agentGui
 //
 //  The first concrete WorkflowDefinition: a multi-agent coding workflow that
-//  orchestrates planner → explorer → coder → reviewer → executor, with
-//  support for review feedback loops and context request loops.
+//  orchestrates planner → explorer → coder → reviewer/executor evaluator loop,
+//  with support for structured revision feedback and context request loops.
 //
 //  Default execution path:
 //
 //    start → planner → explorer (if needed) → coder → reviewer ─┐
-//                          ↑                    ↑   ↓ approved   │
-//                          └── infoRequest ─────┘ rejection     │
-//                                                   ↓            │
-//                                               executor ────────┘ (done)
+//                          ↑                    │                │
+//                          └── infoRequest ─────┘                │
+//                                               executor ────────┤
+//                                                      │         │
+//                                    combined evaluator feedback │
+//                                                      └────→ coder (next iteration)
 //
 
 import Foundation
@@ -22,7 +24,7 @@ import Foundation
 struct CodeChangeWorkflow: WorkflowDefinition {
     let id = "code_change"
     let displayName = "代码变更流程"
-    let description = "多代理协作完成代码修改：规划 → 探索 → 编码 → 审查 → 验证"
+    let description = "多代理协作完成代码修改：规划 → 探索 → 编码 → evaluator loop(审查+验证)"
 
     func makeInitialContext(task: String, sessionId: String) -> WorkflowContext {
         var ctx = WorkflowContext(
@@ -296,14 +298,16 @@ struct CodeChangeReducer: WorkflowReducer {
             return
         }
 
+        context.evaluatorLoop.beginCycle(for: patchArtifact.id, version: patchArtifact.version)
+
         // Deliver patch to both reviewer and executor
         context.deliver(WorkflowMessage(
             workflowId: context.workflowId,
             sender: "coder",
             recipients: ["reviewer"],
             kind: .handoff,
-            subject: "Code changes ready for review",
-            body: "Patch summary available.",
+            subject: "Evaluate patch iteration \(context.evaluatorLoop.activeCycle?.iteration ?? patchArtifact.version)",
+            body: "Review the latest patch candidate and produce structured optimizer feedback.",
             artifactRefs: [patchArtifact.id]
         ))
         context.deliver(WorkflowMessage(
@@ -311,8 +315,8 @@ struct CodeChangeReducer: WorkflowReducer {
             sender: "coder",
             recipients: ["executor"],
             kind: .handoff,
-            subject: "Run verification",
-            body: "Please run the verification command from the patch summary.",
+            subject: "Verify patch iteration \(context.evaluatorLoop.activeCycle?.iteration ?? patchArtifact.version)",
+            body: "Run verification for the latest patch candidate and capture actionable failure details.",
             artifactRefs: [patchArtifact.id]
         ))
     }
@@ -326,25 +330,14 @@ struct CodeChangeReducer: WorkflowReducer {
         }
 
         let verdict = extractString(from: reviewArtifact.contentJson, key: "verdict") ?? "needs_revision"
+        let approved = verdict == "approved"
 
-        if verdict == "approved" {
-            var updatedArtifact = reviewArtifact
-            updatedArtifact.status = .approved
-            context.upsertArtifact(updatedArtifact)
-            // Reviewer approved — check if executor is done
-            checkCompletion(context: &context)
-        } else {
-            // Send review feedback back to coder
-            context.deliver(WorkflowMessage(
-                workflowId: context.workflowId,
-                sender: "reviewer",
-                recipients: ["coder"],
-                kind: .reviewFeedback,
-                subject: "Review: revision required",
-                body: "Review requires revision. Read the attached reviewReport artifact and address its findings before rewriting the code.\n\nReviewer notes:\n\(result.outputText)",
-                artifactRefs: [reviewArtifact.id]
-            ))
-        }
+        var updatedArtifact = reviewArtifact
+        updatedArtifact.status = approved ? .approved : .rejected
+        context.upsertArtifact(updatedArtifact)
+
+        context.evaluatorLoop.record(makeReviewerOutcome(from: updatedArtifact, fallbackText: result.outputText))
+        finalizeEvaluatorLoopIfReady(context: &context)
     }
 
     private func handleExecutorResult(
@@ -356,24 +349,35 @@ struct CodeChangeReducer: WorkflowReducer {
         }
 
         let status = extractString(from: testReport.contentJson, key: "status") ?? "failed"
+        let approved = status == "passed"
 
-        if status == "passed" {
-            var updatedReport = testReport
-            updatedReport.status = .approved
-            context.upsertArtifact(updatedReport)
+        var updatedReport = testReport
+        updatedReport.status = approved ? .approved : .rejected
+        context.upsertArtifact(updatedReport)
+
+        context.evaluatorLoop.record(makeExecutorOutcome(from: updatedReport, fallbackText: result.outputText))
+        finalizeEvaluatorLoopIfReady(context: &context)
+    }
+
+    private func finalizeEvaluatorLoopIfReady(context: inout WorkflowContext) {
+        if context.evaluatorLoop.completeSuccessIfReady() {
             checkCompletion(context: &context)
-        } else {
-            // Send failure back to coder
-            context.deliver(WorkflowMessage(
-                workflowId: context.workflowId,
-                sender: "executor",
-                recipients: ["coder"],
-                kind: .rejection,
-                subject: "Verification failed",
-                body: result.outputText,
-                artifactRefs: [testReport.id]
-            ))
+            return
         }
+
+        guard let failure = context.evaluatorLoop.completeFailureIfReady() else {
+            return
+        }
+
+        context.deliver(WorkflowMessage(
+            workflowId: context.workflowId,
+            sender: "evaluator",
+            recipients: ["coder"],
+            kind: failure.triggerKind,
+            subject: "Evaluator loop iteration \(failure.iteration): revision required",
+            body: buildEvaluatorFeedbackBody(from: failure),
+            artifactRefs: failure.outcomes.map(\.artifactId)
+        ))
     }
 
     // MARK: - Completion Signal
@@ -428,5 +432,109 @@ struct CodeChangeReducer: WorkflowReducer {
               let value = obj[key] as? String
         else { return nil }
         return value
+    }
+
+    private func extractStringArray(from json: String, key: String) -> [String] {
+        guard let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let values = obj[key] as? [Any]
+        else { return [] }
+
+        return values.compactMap(stringifyJSONValue)
+    }
+
+    private func stringifyJSONValue(_ value: Any) -> String? {
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        if let number = value as? NSNumber {
+            return number.stringValue
+        }
+
+        guard JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value, options: []),
+              let string = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+        return string
+    }
+
+    private func makeReviewerOutcome(
+        from artifact: WorkflowArtifact,
+        fallbackText: String
+    ) -> WorkflowEvaluatorOutcome {
+        let summary = extractString(from: artifact.contentJson, key: "summary")
+            ?? condensedSummary(from: fallbackText)
+        let reasons = extractStringArray(from: artifact.contentJson, key: "blocking_findings")
+
+        return WorkflowEvaluatorOutcome(
+            source: .reviewer,
+            approved: artifact.status == .approved,
+            summary: summary,
+            reasons: reasons.isEmpty && artifact.status != .approved ? [summary] : reasons,
+            artifactId: artifact.id,
+            artifactVersion: artifact.version
+        )
+    }
+
+    private func makeExecutorOutcome(
+        from artifact: WorkflowArtifact,
+        fallbackText: String
+    ) -> WorkflowEvaluatorOutcome {
+        let summary = extractString(from: artifact.contentJson, key: "output_summary")
+            ?? condensedSummary(from: fallbackText)
+        let reasons = extractStringArray(from: artifact.contentJson, key: "failures")
+
+        return WorkflowEvaluatorOutcome(
+            source: .executor,
+            approved: artifact.status == .approved,
+            summary: summary,
+            reasons: reasons.isEmpty && artifact.status != .approved ? [summary] : reasons,
+            artifactId: artifact.id,
+            artifactVersion: artifact.version
+        )
+    }
+
+    private func condensedSummary(from text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "No summary provided." }
+        return String(trimmed.prefix(240))
+    }
+
+    private func buildEvaluatorFeedbackBody(from failure: WorkflowEvaluatorFailureRecord) -> String {
+        let payload: [String: Any] = [
+            "evaluator_iteration": failure.iteration,
+            "failed_patch": [
+                "artifact_id": failure.patchArtifactId,
+                "version": failure.patchVersion
+            ],
+            "trigger_kind": failure.triggerKind.rawValue,
+            "must_address": failure.outcomes.map { outcome in
+                [
+                    "source": outcome.source.rawValue,
+                    "summary": outcome.summary,
+                    "reasons": outcome.reasons,
+                    "artifact_id": outcome.artifactId,
+                    "artifact_version": outcome.artifactVersion
+                ]
+            }
+        ]
+
+        let json: String
+        if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted]),
+           let text = String(data: data, encoding: .utf8) {
+            json = text
+        } else {
+            json = "{ \"evaluator_iteration\": \(failure.iteration) }"
+        }
+
+        return """
+        Evaluator loop requires a new coder iteration. Treat the structured payload below as mandatory input for the next patch.
+
+        \(json)
+        """
     }
 }

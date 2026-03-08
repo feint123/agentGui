@@ -127,6 +127,7 @@ final class WorkflowRuntime {
         context.status = .running
         instance.status = .running
         self.activeContext = context
+        persistContractViolationsIfNeeded(in: &context, instance: instance, modelContext: modelContext, startingAt: 0)
         log("  roles      : \(context.roles.map(\.name).joined(separator: " → "))")
         log("  budget     : rounds=\(context.budget.maxTotalRounds) activations/role=\(context.budget.maxActivationsPerRole) turns/activation=\(context.budget.maxTurnsPerActivation)")
 
@@ -204,6 +205,7 @@ final class WorkflowRuntime {
 
             let inboxSummary = inbox.map { "\($0.kind.displayName): \($0.subject)" }.joined(separator: "; ")
             log("  activation #\(activationCount + 1) | inbox=\(inbox.count) msg(s): \(inboxSummary.isEmpty ? "(none)" : inboxSummary)")
+            let contractViolationStartIndex = context.contractViolations.count
 
             // Mark this role as currently running
             activeRoleName = roleName
@@ -240,6 +242,7 @@ final class WorkflowRuntime {
             // Role finished — clear active state
             activeRoleName = nil
             currentActionByRole[roleName] = result.summary.isEmpty ? "完成" : String(result.summary.prefix(80))
+            context.recordContractViolations(result.contractViolations)
 
             // Log activation result
             let artifactKinds = result.newArtifacts.map(\.kind.displayName).joined(separator: ", ")
@@ -309,6 +312,12 @@ final class WorkflowRuntime {
 
             // Apply result to shared context via reducer
             try reducer.apply(activationResult: result, to: &context)
+            persistContractViolationsIfNeeded(
+                in: &context,
+                instance: instance,
+                modelContext: modelContext,
+                startingAt: contractViolationStartIndex
+            )
             self.activeContext = context
 
             // Log post-reducer state
@@ -345,6 +354,32 @@ final class WorkflowRuntime {
             body: reason
         )
         context.deliver(msg)
+    }
+
+    private func persistContractViolationsIfNeeded(
+        in context: inout WorkflowContext,
+        instance: WorkflowInstance,
+        modelContext: ModelContext,
+        startingAt startIndex: Int
+    ) {
+        guard startIndex < context.contractViolations.count else { return }
+
+        let newViolations = context.contractViolations[startIndex...]
+        for violation in newViolations {
+            let record = WorkflowMessageRecord(
+                workflowId: context.workflowId,
+                sender: "runtime",
+                recipients: [],
+                kind: .statusUpdate,
+                subject: "Contract violation: \(violation.kind.rawValue)",
+                body: violation.summary,
+                artifactRefs: violation.artifactId.map { [$0] } ?? []
+            )
+            modelContext.insert(record)
+            instance.messages.append(record)
+            log("⚠ Contract violation recorded: \(violation.summary)")
+        }
+        try? modelContext.save()
     }
 }
 

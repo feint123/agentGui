@@ -100,13 +100,9 @@ struct WorkflowRoleDefinition: Sendable {
     func defaultOutputRecipients(context: WorkflowContext) -> [String] {
         switch defaultOutputMessageKind {
         case .approval, .rejection, .reviewFeedback:
-            // Find the role that produced the primary writable artifact
-            return context.agentStates.keys
-                .filter { $0 != name }
-                .filter { roleName in
-                    context.roles.first { $0.name == roleName }?
-                        .writableArtifacts.contains(.codePatchSummary) == true
-                }
+            // Reducers are responsible for routing evaluator feedback so they can
+            // aggregate reviewer/executor results before waking the coder.
+            return []
         case .infoResponse:
             // Respond to whoever sent us an infoRequest
             return context.mailboxes[name]?.inbox
@@ -211,37 +207,42 @@ extension WorkflowRoleDefinition {
 
     // MARK: Coder
 
-    static let coder = WorkflowRoleDefinition(
-        name: "coder",
-        displayName: "编写者",
-        description: "实现代码变更：编写新文件或修改现有文件，可运行命令验证。",
-        systemPrompt: """
-        You are a focused coding assistant. Your job is to implement the exact changes described \
-        in the task using the text editor and bash tools.
+        static let coder = WorkflowRoleDefinition(
+                name: "coder",
+                displayName: "编写者",
+                description: "实现代码变更：编写新文件或修改现有文件，可运行命令验证。",
+                systemPrompt: """
+                You are a focused coding assistant. Your job is to implement the exact changes described \
+                in the task using the text editor and bash tools.
 
-        Rules:
-        - Read relevant files first before making changes.
-        - Make minimal, targeted edits. Do not refactor code beyond what is asked.
-        - Use bash to run build or test commands only when needed to verify changes.
-        - After completing all changes, return a patch summary as JSON:
-        {
-          "changed_files": ["path/to/file.swift"],
-          "summary": "brief description of what was changed",
-          "verification_command": "swift build",
-          "needs_more_context": false,
-          "context_questions": []
-        }
-        """,
-        enableTextEditor: true,
-        enableBash: true,
-        readableArtifacts: [.plan, .explorationReport, .reviewReport],
-        writableArtifacts: [.codePatchSummary],
-        subscribesTo: [.task, .reviewFeedback, .rejection, .infoResponse],
-        defaultOutputMessageKind: .handoff,
-        primaryOutputArtifactKind: .codePatchSummary,
-        maxTurnsPerActivation: 16,
-        maxActivations: 5
-    )
+                Rules:
+                - Read relevant files first before making changes.
+                - Make minimal, targeted edits. Do not refactor code beyond what is asked.
+                - Use bash to run build or test commands only when needed to verify changes.
+                - When you are re-entered by evaluator feedback, treat the "Evaluator Loop Entry"
+                    section in the task as mandatory structured input. Carry every listed failure reason
+                    into the next patch; do not ignore a failed item just because the free-text summary is short.
+                - After completing all changes, return a patch summary as JSON:
+                {
+                    "changed_files": ["path/to/file.swift"],
+                    "summary": "brief description of what was changed",
+                    "verification_command": "swift build",
+                    "evaluator_iteration": 1,
+                    "addressed_failures": ["failure or review item you addressed"],
+                    "needs_more_context": false,
+                    "context_questions": []
+                }
+                """,
+                enableTextEditor: true,
+                enableBash: true,
+                readableArtifacts: [.plan, .explorationReport, .reviewReport, .testReport],
+                writableArtifacts: [.codePatchSummary],
+                subscribesTo: [.task, .reviewFeedback, .rejection, .infoResponse],
+                defaultOutputMessageKind: .handoff,
+                primaryOutputArtifactKind: .codePatchSummary,
+                maxTurnsPerActivation: 16,
+                maxActivations: 5
+        )
 
     // MARK: Reviewer
 
@@ -250,13 +251,15 @@ extension WorkflowRoleDefinition {
         displayName: "审查者",
         description: "审查代码质量、安全性、规范性，返回结构化审查报告。只读，不修改文件。",
         systemPrompt: """
-        You are a careful code reviewer. Your job is to read the specified code and produce a \
-        structured review covering correctness, security, performance, and code style.
+        You are a careful code reviewer inside an evaluator-optimizer loop. Your job is to read \
+        the latest candidate patch and produce structured feedback that the coder will use in the \
+        very next iteration.
 
         Rules:
         - Use the text editor ONLY with the "view" command — do NOT modify any files.
         - Organize findings by severity: Critical / Warning / Suggestion.
         - Be specific: point to file paths and line numbers where relevant.
+        - Treat blocking findings as actionable optimizer feedback, not just a final gate.
         - Return a structured review report as JSON:
         {
           "blocking_findings": [],
@@ -280,37 +283,40 @@ extension WorkflowRoleDefinition {
 
     // MARK: Executor
 
-    static let executor = WorkflowRoleDefinition(
-        name: "executor",
-        displayName: "执行者",
-        description: "运行 bash 命令（构建、测试、脚本等），返回结果摘要。",
-        systemPrompt: """
-        You are a focused command executor. Your job is to run the bash commands described in \
-        the task and return a concise summary of the results.
+        static let executor = WorkflowRoleDefinition(
+                name: "executor",
+                displayName: "执行者",
+                description: "运行 bash 命令（构建、测试、脚本等），返回结果摘要。",
+                systemPrompt: """
+                You are a focused command executor inside an evaluator-optimizer loop. Your job is to run \
+                the verification commands for the latest candidate patch and return structured failure \
+                details that the coder can use in the next iteration.
 
-        Rules:
-        - Run only the commands described in the task.
-        - If a command fails, diagnose the error and attempt to fix it (max 2 retries).
-        - Return a structured test report as JSON:
-        {
-          "command": "swift build",
-          "status": "passed",
-          "output_summary": "Build succeeded with 0 errors",
-          "failures": [],
-          "reproducible": true
-        }
-        Note: "status" must be "passed" or "failed".
-        """,
-        enableTextEditor: false,
-        enableBash: true,
-        readableArtifacts: [.codePatchSummary],
-        writableArtifacts: [.testReport],
-        subscribesTo: [.task, .handoff],
-        defaultOutputMessageKind: .statusUpdate,
-        primaryOutputArtifactKind: .testReport,
-        maxTurnsPerActivation: 8,
-        maxActivations: 5
-    )
+                Rules:
+                - Run only the commands described in the task.
+                - If a command fails, diagnose the error and attempt to fix it (max 2 retries).
+                - Treat each failure as optimizer feedback: capture the concrete failing command, symptom,
+                    and reproducible failure details.
+                - Return a structured test report as JSON:
+                {
+                    "command": "swift build",
+                    "status": "passed",
+                    "output_summary": "Build succeeded with 0 errors",
+                    "failures": [],
+                    "reproducible": true
+                }
+                Note: "status" must be "passed" or "failed".
+                """,
+                enableTextEditor: false,
+                enableBash: true,
+                readableArtifacts: [.codePatchSummary],
+                writableArtifacts: [.testReport],
+                subscribesTo: [.task, .handoff],
+                defaultOutputMessageKind: .statusUpdate,
+                primaryOutputArtifactKind: .testReport,
+                maxTurnsPerActivation: 8,
+                maxActivations: 5
+        )
 
     // MARK: Summarizer
 
