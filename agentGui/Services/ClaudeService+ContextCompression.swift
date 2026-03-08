@@ -2,9 +2,13 @@
 //  ClaudeService+ContextCompression.swift
 //  agentGui
 //
-//  Compresses old messages into a hierarchical memory structure (分层记忆) instead of a
-//  flat paragraph summary.  Memory layers:
+//  Compresses old messages into two complementary memory structures:
+//
+//  ContextMemory (in-memory) — injected into the live context window:
 //    用户目标 / 已完成动作 / 未完成动作 / 关键文件路径 / 失败与约束 / 语义事实
+//
+//  TaskMemory (persistent) — saved to ~/.agentgui/task-memories/<sessionId>.json:
+//    confirmedFacts / attemptedActions / failedAttempts / pendingQuestions / verificationStatus
 //
 
 import Foundation
@@ -77,7 +81,7 @@ extension ClaudeService {
     // MARK: - Constants
 
     /// Compression fires when input token usage exceeds this fraction of the context window.
-    private static let compressionThreshold: Double = 0.75
+    private static let compressionThreshold: Double = 0.1;
 
     /// Number of most-recent messages to keep verbatim after compression.
     private static let recentMessageCount: Int = 6
@@ -86,12 +90,14 @@ extension ClaudeService {
 
     /// Checks whether context usage is above the threshold and, if so, compresses the
     /// message history in-place using hierarchical memory extraction.
+    /// Also extracts structured TaskMemory and persists it to ~/.agentgui/.
     /// Safe to call even when `currentInputTokens == 0`.
     func compressIfNeeded(
         messages: inout [MessageParameter.Message],
         memory: inout ContextMemory,
         service: any AnthropicService,
-        modelId: String
+        modelId: String,
+        sessionId: String = ""
     ) async {
         guard currentInputTokens > 0,
               contextUsageRatio > Self.compressionThreshold,
@@ -103,35 +109,84 @@ extension ClaudeService {
 
         print("Context compression triggered: \(currentInputTokens) tokens (\(Int(contextUsageRatio * 100))%), compressing \(oldMessages.count) messages → hierarchical memory + \(recentMessages.count) recent")
 
-        guard let extracted = await buildHierarchicalMemory(
+        // Take value copies before entering async-let concurrent scope to satisfy
+        // Swift 6 strict-concurrency rules (inout params may not be captured).
+        let memorySnapshot = memory
+        let existingTaskMemory = sessionId.isEmpty ? nil : TaskMemoryService.shared.load(sessionId: sessionId)
+
+        // Run both extractions concurrently.
+        async let contextExtraction = buildHierarchicalMemory(
             from: oldMessages,
-            existing: memory,
+            existing: memorySnapshot,
             service: service,
             modelId: modelId
-        ) else {
+        )
+        async let taskExtraction = buildTaskMemory(
+            from: oldMessages,
+            existing: existingTaskMemory,
+            service: service,
+            modelId: modelId
+        )
+
+        let (extractedContext, extractedTask) = await (contextExtraction, taskExtraction)
+
+        guard let extracted = extractedContext else {
             print("Context compression: extraction failed, skipping")
             return
         }
 
         memory.merge(with: extracted)
 
-        let memoryText = memory.toPromptText()
+        // Persist task memory (fire-and-forget on success; errors are logged inside).
+        if !sessionId.isEmpty, let taskMem = extractedTask {
+            var tm = taskMem
+            tm.sessionId = sessionId
+            TaskMemoryService.shared.mergeAndSave(extracted: tm, sessionId: sessionId)
+        }
+
+        let memoryText = buildCombinedMemoryText(
+            contextMemory: memory,
+            taskMemory: sessionId.isEmpty ? nil : TaskMemoryService.shared.load(sessionId: sessionId)
+        )
         messages = [
             MessageParameter.Message(
                 role: .user,
-                content: .text("【分层记忆摘要】以下是之前对话的结构化记忆，请在后续回复中保持这些上下文：\n\n\(memoryText)")
+                content: .text("【结构化记忆摘要】以下是之前对话的结构化记忆（含任务级持久记忆），请在后续回复中保持这些上下文：\n\n\(memoryText)")
             ),
             MessageParameter.Message(
                 role: .assistant,
-                content: .text("已了解分层记忆摘要，将基于此上下文继续工作。")
+                content: .text("已了解结构化记忆摘要，将基于此上下文继续工作。")
             )
         ] + recentMessages
 
         currentInputTokens = 0
-        print("Context compression complete: hierarchical memory injected + \(recentMessages.count) recent messages")
+        print("Context compression complete: memory injected + \(recentMessages.count) recent messages")
     }
 
-    // MARK: - Private: Hierarchical Memory Extraction
+    // MARK: - Combined Memory Text
+
+    /// Merges ContextMemory and TaskMemory into a single prompt string.
+    /// TaskMemory fields (confirmedFacts, failedAttempts, etc.) take priority as they are
+    /// more precise; ContextMemory fills in the narrative context.
+    func buildCombinedMemoryText(contextMemory: ContextMemory, taskMemory: TaskMemory?) -> String {
+        var parts: [String] = []
+
+        // --- Task Memory (structured, high signal) ---
+        if let tm = taskMemory, !tm.isEmpty {
+            parts.append("### 任务级持久记忆 (Task Memory)")
+            parts.append(tm.toPromptText())
+        }
+
+        // --- Context Memory (narrative context) ---
+        if !contextMemory.isEmpty {
+            parts.append("### 上下文记忆 (Context Memory)")
+            parts.append(contextMemory.toPromptText())
+        }
+
+        return parts.joined(separator: "\n\n")
+    }
+
+    // MARK: - Private: Hierarchical Memory Extraction (ContextMemory)
 
     /// Codable mirror of the JSON schema requested from Claude.
     private struct MemoryJSON: Codable {
@@ -221,6 +276,113 @@ extension ClaudeService {
         m.keyFilesAndPaths = parsed.key_files
         m.failuresAndConstraints = parsed.failures_and_constraints
         m.semanticFacts = parsed.semantic_facts
+        return m
+    }
+
+    // MARK: - Private: Task Memory Extraction
+
+    private struct TaskMemoryJSON: Codable {
+        var confirmed_facts: [String]
+        var attempted_actions: [String]
+        var failed_attempts: [FailedAttemptJSON]
+        var pending_questions: [String]
+        var verification_status: [VerificationEntryJSON]
+
+        struct FailedAttemptJSON: Codable {
+            var action: String
+            var reason: String
+        }
+        struct VerificationEntryJSON: Codable {
+            var item: String
+            var status: String
+        }
+    }
+
+    /// Extracts structured TaskMemory from message history via a dedicated Claude call.
+    private func buildTaskMemory(
+        from messages: [MessageParameter.Message],
+        existing: TaskMemory?,
+        service: any AnthropicService,
+        modelId: String
+    ) async -> TaskMemory? {
+        let transcript = messages.map { msg in
+            let role = msg.role == "user" ? "用户" : "助手"
+            let text = extractText(from: msg.content)
+            return "[\(role)]: \(text)"
+        }.joined(separator: "\n\n")
+
+        let existingContext: String
+        if let ex = existing, !ex.isEmpty {
+            existingContext = """
+
+            已有任务记忆（请将新信息融合进去，不要重复已有条目）：
+            \(ex.toPromptText())
+            """
+        } else {
+            existingContext = ""
+        }
+
+        let prompt = """
+        分析以下对话历史，提取结构化任务记忆。**只输出 JSON，不要包含任何其他文字、解释或代码块标记**。
+
+        输出格式（严格 JSON，所有字段必须存在）：
+        {
+          "confirmed_facts": ["已验证的稳定事实，每条一项"],
+          "attempted_actions": ["已尝试的操作（无论成功与否），每条一项"],
+          "failed_attempts": [
+            {"action": "失败操作的简短描述", "reason": "失败原因"}
+          ],
+          "pending_questions": ["尚未解答的问题，每条一项"],
+          "verification_status": [
+            {"item": "被验证的功能/断言", "status": "verified|unverified|partial|failed"}
+          ]
+        }
+        \(existingContext)
+
+        对话历史：
+        \(transcript)
+        """
+
+        let params = MessageParameter(
+            model: .other(modelId),
+            messages: [MessageParameter.Message(role: .user, content: .text(prompt))],
+            maxTokens: 1024
+        )
+
+        do {
+            let response = try await service.createMessage(params)
+            let raw = response.content.compactMap { block -> String? in
+                if case .text(let text, _) = block { return text }
+                return nil
+            }.joined()
+            return parseTaskMemoryJSON(raw)
+        } catch {
+            print("Task memory extraction error: \(error)")
+            return nil
+        }
+    }
+
+    private func parseTaskMemoryJSON(_ raw: String) -> TaskMemory? {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```") {
+            let lines = text.components(separatedBy: "\n")
+            text = lines.dropFirst().joined(separator: "\n")
+            if text.hasSuffix("```") { text = String(text.dropLast(3)) }
+        }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let data = text.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(TaskMemoryJSON.self, from: data) else {
+            print("Task memory: JSON parse failed, raw=\(raw.prefix(400))")
+            return nil
+        }
+
+        var m = TaskMemory(sessionId: "")
+        m.confirmedFacts = parsed.confirmed_facts
+        m.attemptedActions = parsed.attempted_actions
+        m.failedAttempts = parsed.failed_attempts.map { FailedAttempt(action: $0.action, reason: $0.reason) }
+        m.pendingQuestions = parsed.pending_questions
+        m.verificationStatus = parsed.verification_status.map { VerificationEntry(item: $0.item, status: $0.status) }
         return m
     }
 

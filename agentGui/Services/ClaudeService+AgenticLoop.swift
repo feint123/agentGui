@@ -98,6 +98,20 @@ extension ClaudeService {
         var loopMemory = ContextMemory()
         var lastRound: AgentRound? = nil
 
+        // Inject persisted task memory as a priming context at loop start.
+        if !sessionId.isEmpty, let taskMem = TaskMemoryService.shared.load(sessionId: sessionId), !taskMem.isEmpty {
+            let tmText = taskMem.toPromptText()
+            print("[TaskMemory] Loaded persisted memory for session \(sessionId), \(taskMem.confirmedFacts.count) facts, \(taskMem.failedAttempts.count) failures")
+            messages.insert(
+                MessageParameter.Message(role: .user, content: .text("【任务级持久记忆】这是本任务的已知状态，请优先保留这些结构化状态：\n\n\(tmText)")),
+                at: 0
+            )
+            messages.insert(
+                MessageParameter.Message(role: .assistant, content: .text("已加载任务级持久记忆，将在后续操作中保持这些状态。")),
+                at: 1
+            )
+        }
+
         while loopCtx.shouldContinue && loopCtx.roundIndex < maxRounds {
             try Task.checkCancellation()
 
@@ -149,7 +163,8 @@ extension ClaudeService {
                 messages: &messages,
                 memory: &loopMemory,
                 service: service,
-                modelId: modelId
+                modelId: modelId,
+                sessionId: sessionId
             )
 
             currentModelId = modelId
