@@ -27,6 +27,11 @@ struct BlockDocumentEditor: View {
     @State private var selectionState: InlineSelectionState?
     @State private var pendingFormats: [UUID: InlineFormatRequest] = [:]
 
+    // Performance optimization: cache the parsed document hash to avoid re-parsing
+    @State private var cachedTextHash: Int = 0
+    // Debounce task for syncText to avoid excessive serialization during rapid edits
+    @State private var syncTask: Task<Void, Never>?
+
     var body: some View {
         ZStack(alignment: .topLeading) {
         scrollContent
@@ -103,6 +108,7 @@ struct BlockDocumentEditor: View {
                             },
                             pendingFormatRequest: pendingFormats[block.id]
                         )
+                        .id(block.id) // Help SwiftUI identify unchanged views
                         .overlay(alignment: .top) {
                             if dropTargetBlockID == block.id {
                                 RoundedRectangle(cornerRadius: BlockEditorTheme.blockCornerRadius)
@@ -134,8 +140,12 @@ struct BlockDocumentEditor: View {
         }
         .onChange(of: text) { _, newValue in
             guard !isApplyingInternalChange else { return }
+            let newHash = newValue.hashValue
+            // Only re-parse if the text has actually changed
+            guard newHash != cachedTextHash else { return }
             let serialized = BlockMarkdownCodec.serialize(document, fileURL: fileURL)
             if serialized != newValue {
+                cachedTextHash = newHash
                 document = BlockMarkdownCodec.parse(newValue, fileURL: fileURL)
                 if activeBlockID == nil {
                     activeBlockID = document.blocks.first?.id
@@ -482,12 +492,26 @@ struct BlockDocumentEditor: View {
     }
 
     private func syncText() {
-        let serialized = BlockMarkdownCodec.serialize(document, fileURL: fileURL)
-        guard serialized != text else { return }
-        isApplyingInternalChange = true
-        text = serialized
-        DispatchQueue.main.async {
-            isApplyingInternalChange = false
+        // Cancel any pending sync task
+        syncTask?.cancel()
+
+        // Create a new debounced sync task
+        syncTask = Task {
+            // Small delay to batch rapid changes
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                let serialized = BlockMarkdownCodec.serialize(document, fileURL: fileURL)
+                guard serialized != text else { return }
+                isApplyingInternalChange = true
+                text = serialized
+                cachedTextHash = text.hashValue
+                DispatchQueue.main.async {
+                    isApplyingInternalChange = false
+                }
+            }
         }
     }
 

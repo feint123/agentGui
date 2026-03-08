@@ -35,6 +35,10 @@ struct BlockTextEditor: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    // Performance optimization: track the last styled text to skip unnecessary re-styling
+    static var lastStyledText: [String: String] = [:]
+    static let maxCacheSize = 100
+
     func makeNSView(context: Context) -> NSScrollView {
         let textView = BlockEditorTextView()
         textView.delegate = context.coordinator
@@ -63,6 +67,18 @@ struct BlockTextEditor: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.documentView = textView
+
+        // Add observer for frame changes to handle window resize
+        NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: scrollView,
+            queue: .main
+        ) { [weak coordinator = context.coordinator] _ in
+            guard let coordinator = coordinator,
+                  let tv = scrollView.documentView as? BlockEditorTextView else { return }
+            coordinator.recalculateHeight(tv)
+        }
+
         return scrollView
     }
 
@@ -90,7 +106,15 @@ struct BlockTextEditor: NSViewRepresentable {
                 textView.scrollRangeToVisible(NSRange(location: location, length: 0))
             }
         }
+
+        // Always recalculate height to ensure proper display
         context.coordinator.recalculateHeight(textView)
+
+        // Schedule a deferred height calculation after layout is complete
+        // This ensures proper height calculation on initial appearance
+        DispatchQueue.main.async {
+            context.coordinator.recalculateHeight(textView)
+        }
 
         // Defer format application to the next run-loop turn so it runs *outside* the
         // current SwiftUI render pass. Applying text changes inside updateNSView causes the
@@ -113,7 +137,19 @@ struct BlockTextEditor: NSViewRepresentable {
         textView.textColor = .labelColor
         textView.insertionPointColor = .controlAccentColor
         textView.typingAttributes = baseAttributes(for: kind)
-        applyInlineMarkdownStyling(to: textView)
+        applyInlineMarkdownStyling(to: textView, cacheKey: "\(blockID)")
+    }
+
+    // Clean up stale cache entries
+    private func cleanupStylingCache(key: String, currentText: String) {
+        if Self.lastStyledText.count > Self.maxCacheSize {
+            // Remove oldest entries (first half)
+            let keysToRemove = Array(Self.lastStyledText.keys.prefix(Self.maxCacheSize / 2))
+            for k in keysToRemove {
+                Self.lastStyledText.removeValue(forKey: k)
+            }
+        }
+        Self.lastStyledText[key] = currentText
     }
 
     private func baseAttributes(for kind: DocumentBlockKind) -> [NSAttributedString.Key: Any] {
@@ -153,9 +189,16 @@ struct BlockTextEditor: NSViewRepresentable {
         }
     }
 
-    private func applyInlineMarkdownStyling(to textView: BlockEditorTextView) {
+    private func applyInlineMarkdownStyling(to textView: BlockEditorTextView, cacheKey: String) {
         guard !kind.prefersMonospace,
               let textStorage = textView.textStorage else { return }
+
+        // Skip styling if text hasn't changed (performance optimization)
+        let currentText = textView.string
+        if Self.lastStyledText[cacheKey] == currentText {
+            return
+        }
+        cleanupStylingCache(key: cacheKey, currentText: currentText)
 
         let fullRange = NSRange(location: 0, length: textStorage.length)
         let baseFont = font(for: kind)
@@ -258,6 +301,8 @@ struct BlockTextEditor: NSViewRepresentable {
         /// The most recent non-empty selection range; persists after focus loss so
         /// toolbar button taps can still apply formatting to the right range.
         var savedSelectionRange: NSRange = NSRange(location: 0, length: 0)
+        /// Track the last known width to detect window resize
+        var lastKnownWidth: CGFloat = 0
 
         init(_ parent: BlockTextEditor) {
             self.parent = parent
@@ -343,12 +388,21 @@ struct BlockTextEditor: NSViewRepresentable {
 
           fileprivate func recalculateHeight(_ textView: BlockEditorTextView) {
             guard let textContainer = textView.textContainer,
-                  let layoutManager = textView.layoutManager else { return }
+                  let layoutManager = textView.layoutManager,
+                  let scrollView = textView.enclosingScrollView else { return }
+
+            let currentWidth = scrollView.frame.width
+            // Force recalculation if width changed significantly (window resize)
+            let widthChanged = abs(currentWidth - lastKnownWidth) > 1
+            lastKnownWidth = currentWidth
+
             layoutManager.ensureLayout(for: textContainer)
             let usedRect = layoutManager.usedRect(for: textContainer)
             let minimumHeight: CGFloat = textView.blockKind.isHeading ? 24 : 28
             let height = max(minimumHeight, ceil(usedRect.height + textView.textContainerInset.height * 2 + 4))
-            if let scrollView = textView.enclosingScrollView, abs(scrollView.frame.height - height) > 1 {
+
+            // Update height if changed or if width changed (reflow affects height)
+            if abs(scrollView.frame.height - height) > 1 || widthChanged {
                 scrollView.constraints.filter { $0.firstAttribute == .height }.forEach { $0.isActive = false }
                 scrollView.heightAnchor.constraint(equalToConstant: height).isActive = true
             }
