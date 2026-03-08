@@ -148,7 +148,7 @@ extension ClaudeService {
 
         // run_subagent: only available to the main agent (not inside subagent loops)
         if !isSubagent {
-            let agentList = SubagentDefinition.all
+            let agentList = WorkflowRoleDefinition.all
                 .map { "- \($0.name) (\($0.displayName)): \($0.description)" }
                 .joined(separator: "\n")
             tools.append(.function(
@@ -176,7 +176,7 @@ extension ClaudeService {
                     properties: [
                         "agent_name": .init(
                             type: .string,
-                            description: "Identifier of the subagent to use. One of: \(SubagentDefinition.all.map(\.name).joined(separator: " | "))"
+                            description: "Identifier of the subagent to use. One of: \(WorkflowRoleDefinition.all.map(\.name).joined(separator: " | "))"
                         ),
                         "task": .init(
                             type: .string,

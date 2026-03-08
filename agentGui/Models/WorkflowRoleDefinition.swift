@@ -2,12 +2,12 @@
 //  WorkflowRoleDefinition.swift
 //  agentGui
 //
-//  Defines the contract for an agent role within a workflow: tools, artifact
-//  permissions, communication subscriptions, and activation limits.
+//  Single source of truth for all agent-role configuration: system prompt,
+//  tool permissions, artifact contracts, and turn budgets.
 //
-//  WorkflowRoleDefinition is the successor to SubagentDefinition. The original
-//  SubagentDefinition structs are kept as-is for backward compatibility with
-//  the existing run_subagent tool path.
+//  Both the workflow orchestration path (WorkflowAgentRunner) and the
+//  ad-hoc delegation path (run_subagent tool / ClaudeService+Subagent)
+//  read from this type. SubagentDefinition.swift has been removed.
 //
 
 import Foundation
@@ -53,6 +53,11 @@ struct WorkflowRoleDefinition: Sendable {
 
     let maxTurnsPerActivation: Int
     let maxActivations: Int
+
+    // MARK: Adapter
+
+    /// Alias used by the run_subagent path (maps to maxTurnsPerActivation).
+    var maxRounds: Int { maxTurnsPerActivation }
 
     // MARK: Init
 
@@ -120,9 +125,10 @@ struct WorkflowRoleDefinition: Sendable {
 
 extension WorkflowRoleDefinition {
 
-    /// All built-in roles (mirrors SubagentDefinition.all).
+    /// All built-in roles — used as the lookup table for run_subagent and workflows.
     static let all: [WorkflowRoleDefinition] = [
-        planner, explorer, coder, reviewer, executor
+        planner, explorer, coder, reviewer, executor,
+        summarizer, writer, outline_planner
     ]
 
     static func find(named name: String) -> WorkflowRoleDefinition? {
@@ -304,5 +310,92 @@ extension WorkflowRoleDefinition {
         primaryOutputArtifactKind: .testReport,
         maxTurnsPerActivation: 8,
         maxActivations: 5
+    )
+
+    // MARK: Summarizer
+
+    static let summarizer = WorkflowRoleDefinition(
+        name: "summarizer",
+        displayName: "总结员",
+        description: "读取文件、文档或代码，生成简洁易读的总结。只读，不修改文件。",
+        systemPrompt: """
+        You are a concise summarization assistant. Your job is to read the specified content \
+        and return a clear, structured summary suitable for someone unfamiliar with the details.
+
+        Rules:
+        - Use the text editor tool ONLY with the \"view\" command. Do NOT modify any files.
+        - Read only the sections necessary to produce a complete summary.
+        - Structure your output with headings when the content warrants it.
+        - Be concise: omit low-value details, focus on what matters most.
+        """,
+        enableTextEditor: true,
+        enableBash: false,
+        readableArtifacts: [],
+        writableArtifacts: [],
+        subscribesTo: [.task],
+        defaultOutputMessageKind: .statusUpdate,
+        primaryOutputArtifactKind: nil,
+        maxTurnsPerActivation: 6,
+        maxActivations: 3
+    )
+
+    // MARK: Writer
+
+    static let writer = WorkflowRoleDefinition(
+        name: "writer",
+        displayName: "写作者",
+        description: "专业写作辅助：生成、润色、改写、翻译各类文本内容。",
+        systemPrompt: """
+        You are a professional writing assistant. Your task is to help with various writing needs.
+
+        Capabilities:
+        - Generate original content based on prompts
+        - Polish and improve existing text
+        - Rewrite in different styles (formal, casual, creative, etc.)
+        - Translate between languages
+        - Expand or summarize content
+
+        Rules:
+        - Maintain the original meaning when polishing/rewriting
+        - Adapt the style to the specified tone
+        - For translation, preserve formatting and structure
+        - Return clean, ready-to-use text
+        """,
+        enableTextEditor: true,
+        enableBash: true,
+        readableArtifacts: [],
+        writableArtifacts: [],
+        subscribesTo: [.task],
+        defaultOutputMessageKind: .statusUpdate,
+        primaryOutputArtifactKind: nil,
+        maxTurnsPerActivation: 8,
+        maxActivations: 5
+    )
+
+    // MARK: OutlinePlanner
+
+    static let outline_planner = WorkflowRoleDefinition(
+        name: "outline_planner",
+        displayName: "大纲规划师",
+        description: "帮助构建文档结构：章节规划、大纲生成、内容组织。",
+        systemPrompt: """
+        You are an expert at structuring content. Your job is to create well-organized outlines.
+
+        Rules:
+        - Analyze the topic and create a logical structure
+        - Use clear hierarchy (chapters, sections, subsections)
+        - Provide brief descriptions for each section
+        - Consider narrative flow and coherence
+        - Output as Markdown with proper heading levels
+        """,
+        enableTextEditor: true,
+        enableBash: false,
+        readableArtifacts: [],
+        writableArtifacts: [],
+        subscribesTo: [.task],
+        defaultOutputMessageKind: .statusUpdate,
+        primaryOutputArtifactKind: nil,
+        maxTurnsPerActivation: 6,
+        maxActivations: 3
     )
 }

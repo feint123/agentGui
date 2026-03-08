@@ -28,8 +28,8 @@ extension ClaudeService {
         guard let task = input["task"]?.stringValue else {
             return .error("missing 'task' parameter", sender: "system")
         }
-        guard let definition = SubagentDefinition.find(named: agentName) else {
-            let available = SubagentDefinition.all.map(\.name).joined(separator: ", ")
+        guard let definition = WorkflowRoleDefinition.find(named: agentName) else {
+            let available = WorkflowRoleDefinition.all.map(\.name).joined(separator: ", ")
             return .error("unknown agent '\(agentName)'. Available: \(available)", sender: "system")
         }
 
@@ -53,7 +53,7 @@ extension ClaudeService {
     /// 返回 AgentMessage：自动检测 JSON 结构化输出，并附带执行轮次等元数据。
     private func runSubagentLoop(
         task: String,
-        definition: SubagentDefinition,
+        definition: WorkflowRoleDefinition,
         toolCallRecord: ToolCall,
         service: any AnthropicService,
         modelId: String,
@@ -95,7 +95,7 @@ extension ClaudeService {
     }
 
     /// 为子代理构建工具列表（根据定义配置，不添加 run_subagent / ask_user_question）
-    private func buildSubagentTools(modelId: String, definition: SubagentDefinition, settings: AppSettings) -> [MessageParameter.Tool] {
+    private func buildSubagentTools(modelId: String, definition: WorkflowRoleDefinition, settings: AppSettings) -> [MessageParameter.Tool] {
         var tools: [MessageParameter.Tool] = []
         if definition.enableTextEditor {
             tools.append(.function(
@@ -150,7 +150,7 @@ extension ClaudeService {
                 )
             ))
         }
-        if settings.enableWebSearchTool {
+        if definition.enableWebSearch && settings.enableWebSearchTool {
             tools.append(.function(
                 name: "web_search",
                 description: """
@@ -167,7 +167,7 @@ extension ClaudeService {
                 )
             ))
         }
-        if settings.enableWebFetchTool {
+        if definition.enableWebFetch && settings.enableWebFetchTool {
             tools.append(.function(
                 name: "web_fetch",
                 description: """
