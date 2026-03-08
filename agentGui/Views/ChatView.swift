@@ -35,6 +35,10 @@ struct ChatView: View {
     /// Prevents ForEach from accessing Message objects that are about to be deleted
     @State var isClearingMessages = false
 
+    // MARK: - Context Chips
+    @State var showFileContext = true
+    @State var showSelectionContext = true
+
     // MARK: - @ Mention
     @State var mentionQuery: String? = nil
     @State var mentionCandidates: [URL] = []
@@ -97,6 +101,12 @@ struct ChatView: View {
                 }
             }
             Button("取消", role: .cancel) {}
+        }
+        .onChange(of: workspaceState.selectedFile) { _, _ in
+            showFileContext = true
+        }
+        .onChange(of: workspaceState.editorSelectedText) { _, _ in
+            showSelectionContext = true
         }
     }
 }

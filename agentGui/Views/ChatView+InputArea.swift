@@ -20,6 +20,10 @@ extension ChatView {
                 .opacity(0.5)
 
             VStack(spacing: 8) {
+                if (showFileContext && workspaceState.selectedFile != nil) ||
+                    (showSelectionContext && workspaceState.editorSelectedText != nil) {
+                    contextChipsRow
+                }
                 if !attachedFiles.isEmpty {
                     fileChipsRow
                 }
@@ -74,7 +78,52 @@ extension ChatView {
     }
     .background(.bar)
 }
+    // MARK: - Context Chips
 
+    var contextChipsRow: some View {
+        HStack(spacing: 6) {
+            if showFileContext, let fileURL = workspaceState.selectedFile {
+                contextChip(
+                    systemImage: "doc.text",
+                    label: fileURL.lastPathComponent,
+                    tint: .accentColor
+                ) { showFileContext = false }
+            }
+            if showSelectionContext, let sel = workspaceState.editorSelectedText, !sel.isEmpty {
+                contextChip(
+                    systemImage: "text.cursor",
+                    label: "已选 \(sel.count) 字符",
+                    tint: .orange
+                ) { showSelectionContext = false }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    func contextChip(systemImage: String, label: String, tint: Color, onRemove: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.caption2)
+                .foregroundStyle(tint)
+            Text(label)
+                .font(.caption)
+                .lineLimit(1)
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+    }
 var fileChipsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 8) {

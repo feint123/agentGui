@@ -242,6 +242,8 @@ struct InlineSelectionState: Equatable {
     let selectionRect: CGRect
     let hasSelection: Bool
     let activeActions: Set<InlineStyleAction>
+    /// The raw text of the current selection, if any.
+    let selectedText: String?
 }
 
 /// One-shot format request; token ensures idempotent application inside updateNSView.

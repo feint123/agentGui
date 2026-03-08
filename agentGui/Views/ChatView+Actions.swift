@@ -23,6 +23,20 @@ extension ChatView {
         var fullText = trimmed
         let settings = AppSettings.getOrCreate(in: modelContext)
         fullText = expandMentions(in: fullText, workingDirectory: settings.workingDirectory)
+
+        // Build context XML prefix from current file path and/or selected text
+        var contextParts: [String] = []
+        if showFileContext, let fileURL = workspaceState.selectedFile {
+            contextParts.append("<file path=\"\(fileURL.path)\"/>")
+        }
+        if showSelectionContext, let sel = workspaceState.editorSelectedText, !sel.isEmpty {
+            let path = workspaceState.selectedFile?.path ?? ""
+            contextParts.append("<selection path=\"\(path)\">\n\(sel)\n</selection>")
+        }
+        if !contextParts.isEmpty {
+            fullText = "<context>\n" + contextParts.joined(separator: "\n") + "\n</context>\n\n" + fullText
+        }
+
         if !attachedFiles.isEmpty {
             let refs = attachedFiles.map { "- \($0.path)" }.joined(separator: "\n")
             fullText += "\n\nReferenced files:\n\(refs)"
@@ -30,6 +44,8 @@ extension ChatView {
 
         inputText = ""
         attachedFiles = []
+        showFileContext = true
+        showSelectionContext = true
 
         let userMessage = Message.userMessage(text: fullText, session: session)
         userMessage.status = .completed

@@ -21,6 +21,9 @@ final class WorkspaceState {
     /// 当前在文件编辑器中打开的文件 URL（nil = 编辑器显示空状态）
     var selectedFile: URL?
 
+    /// 当前编辑器中选中的文字（nil = 无选中）
+    var editorSelectedText: String?
+
     // MARK: - Computed
 
     /// 当前有效工作目录：优先使用 session 级别设置，回退到 AppSettings 全局配置

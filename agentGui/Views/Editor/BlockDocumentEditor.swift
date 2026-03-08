@@ -10,6 +10,8 @@ import UniformTypeIdentifiers
 struct BlockDocumentEditor: View {
     @Binding var text: String
     let fileURL: URL
+    /// Called whenever the editor selection changes; passes the selected text (or nil when cleared).
+    var onSelectionTextChange: ((String?) -> Void)? = nil
 
     @State private var document = BlockDocument.empty
     @State private var isApplyingInternalChange = false
@@ -93,6 +95,7 @@ struct BlockDocumentEditor: View {
                                         selectionState = nil
                                     }
                                 }
+                                onSelectionTextChange?(state.hasSelection ? state.selectedText : nil)
                             },
                             onSlashMenuPositionChange: { rect in
                                 slashMenuPosition = rect

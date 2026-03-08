@@ -271,7 +271,8 @@ struct BlockTextEditor: NSViewRepresentable {
                     blockID: parent.blockID,
                     selectionRect: .zero,
                     hasSelection: false,
-                    activeActions: []
+                    activeActions: [],
+                    selectedText: nil
                 ))
                 return
             }
@@ -279,11 +280,13 @@ struct BlockTextEditor: NSViewRepresentable {
             var actualRange = NSRange()
             let screenRect = textView.firstRect(forCharacterRange: selectedRange, actualRange: &actualRange)
             let activeActions = detectActiveActions(in: textView, range: selectedRange)
+            let selectedText = (textView.string as NSString).substring(with: selectedRange)
             parent.onSelectionChange?(InlineSelectionState(
                 blockID: parent.blockID,
                 selectionRect: screenRect,
                 hasSelection: true,
-                activeActions: activeActions
+                activeActions: activeActions,
+                selectedText: selectedText
             ))
         }
 
