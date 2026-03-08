@@ -11,15 +11,16 @@
 - **子代理协作** - 内置 8 种专业子代理，支持任务委派和协作
 - **工具生态** - 文件编辑、Bash 执行、Web 搜索、图片分析、PDF 读取等
 - **技能系统** - 扩展 AI 能力的自定义技能，兼容 Claude Code 技能格式
-- **长期记忆** - 在 `~/.agentgui/memory.md` 中持久化跨会话的知识
+- **长期记忆** - 在项目记忆目录中持久化跨会话的知识
 - **Extended Thinking** - 支持 Claude 3.7+ 的深度推理模式
 - **流式响应** - 实时显示 AI 回复，支持 Markdown 渲染
 - **Timeline 视图** - 可视化展示 Agent 执行过程和工具调用链
+- **块编辑器** - 类似 Notion 的文档编辑器，支持 16+ 种块类型、斜杠命令、行内样式工具栏
 
 ## 系统要求
 
-- macOS 14.0+
-- Xcode 16.0+
+- macOS 15.0+
+- Xcode 16.3+
 - Swift 6.0+
 
 ## 构建
@@ -131,22 +132,43 @@ agentGui/
 │   ├── Message.swift                  # 聊天消息
 │   ├── ToolCall.swift                 # 工具调用记录
 │   ├── AgentRound.swift               # Agent 执行轮次
+│   ├── AgentMessage.swift             # 子代理消息
+│   ├── AgentLoopPhase.swift           # 循环阶段枚举
 │   ├── AppSettings.swift              # 应用设置
 │   ├── SubagentDefinition.swift       # 子代理定义
 │   ├── TodoItem.swift                 # 待办事项
 │   ├── ExecutionPlan.swift            # 执行计划
+│   ├── AttachedFile.swift             # 文件附件
+│   ├── Skill.swift                    # 技能定义
 │   └── Enums.swift                    # 枚举定义
 │
 ├── Views/                          # SwiftUI 视图
 │   ├── MainSplitView.swift             # 主界面（三栏布局）
 │   ├── ChatView.swift                  # 聊天界面
+│   ├── ChatView+*.swift                # 聊天界面扩展
 │   ├── SessionListView.swift           # 会话列表
-│   ├── SettingsView.swift              # 设置界面
-│   ├── TimelineView.swift              # 执行时间线
-│   └── Components/                     # UI 组件
+│   ├── SettingsView.swift              # 设置界面（隐式）
+│   ├── TimelineView.swift              # 执行时间线（隐式）
+│   ├── Editor/                         # 块编辑器
+│   │   ├── BlockEditorModels.swift     # 块编辑器模型
+│   │   ├── BlockMarkdownCodec.swift    # Markdown 编解码
+│   │   ├── BlockDocumentEditor.swift   # 文档编辑器
+│   │   ├── BlockTextEditor.swift       # 文本块编辑器
+│   │   ├── BlockTableEditor.swift      # 表格块编辑器
+│   │   ├── BlockRowView.swift          # 块行视图
+│   │   ├── SlashCommandMenu.swift      # 斜杠命令菜单
+│   │   ├── InlineStyleToolbarView.swift # 行内样式工具栏
+│   │   └── BlockEditor*.swift          # 其他编辑器组件
+│   ├── MessageBubbleView.swift         # 消息气泡
+│   ├── ThinkingBubbleView.swift        # 思考气泡
+│   ├── ToolCallBubbleView.swift        # 工具调用气泡
+│   ├── AskUserQuestionView.swift       # 用户问题视图
+│   ├── SubagentTimelineView.swift      # 子代理时间线
+│   ├── TodoListView.swift              # 待办列表视图
+│   ├── ArtifactDrawerView.swift        # Artifact 抽屉
+│   └── [其他组件视图...]
 │
 ├── Services/                       # 业务逻辑
-│   ├── ClaudeService.swift             # Claude API 核心服务
 │   ├── ClaudeService+AgenticLoop.swift # Agentic Loop 实现
 │   ├── ClaudeService+Subagent.swift    # 子代理系统
 │   ├── ClaudeService+ToolDispatch.swift # 工具分发
@@ -154,14 +176,18 @@ agentGui/
 │   ├── ClaudeService+WebTools.swift    # Web 工具
 │   ├── ClaudeService+MediaTools.swift  # 媒体工具
 │   ├── ClaudeService+ContextCompression.swift # 上下文压缩
+│   ├── ClaudeService+DynamicContent.swift # 动态内容
+│   ├── ClaudeService+ToolBuilder.swift # 工具构建器
 │   ├── BashSession.swift               # Shell 会话管理
 │   ├── SkillService.swift              # 技能加载器
-│   └── SessionService.swift            # 会话管理
+│   └── ACPClientService.swift          # ACP 客户端服务
 │
 ├── Repositories/                   # 数据访问层
 │   └── ...
 │
 └── Utilities/                      # 工具类和错误类型
+    ├── WorkspaceState.swift            # 工作区状态
+    ├── ConfigDirectoryManager.swift    # 配置目录管理
     └── ...
 ```
 
@@ -171,29 +197,41 @@ agentGui/
 - **SwiftUI** - 声明式 UI 框架
 - **SwiftData** - Apple 原生持久化框架
 - **SwiftAnthropic** - Anthropic Claude API SDK
-- **STTextView** - 高性能文本编辑组件
+- **STTextView / STTextKitPlus** - 高性能文本编辑组件
 - **BeautifulMermaid** - Mermaid 图表渲染
+
+## 核心功能
+
+### 块编辑器 (Block Editor)
+
+类似 Notion 的现代化文档编辑器，支持：
+
+- **16+ 种块类型**：段落、标题、引用、列表、待办、代码、表格、图片、链接、文件附件、提示块、折叠块等
+- **斜杠命令**：输入 `/` 快速插入任意块类型，支持模糊搜索
+- **行内样式**：选中文字后显示工具栏，支持加粗、斜体、删除线、行内代码
+- **Markdown 双向转换**：自动解析和生成标准 Markdown 格式
+- **高性能**：基于 NSTextView 的原生实现，支持大文件编辑
 
 ## 依赖管理
 
-项目使用 Xcode Package Manager 管理依赖：
+项目使用 Swift Package Manager 管理依赖：
 
-```swift
-// Package Dependencies
-- SwiftAnthropic: https://github.com/mtuck/swift-anthropic.git
-- STTextView: https://github.com/krzyzanowskim/STTextView.git
-- BeautifulMermaid: https://github.com/yuheui/BeautifulMermaid.git
-```
+| 依赖 | 版本 | 用途 |
+|------|------|------|
+| SwiftAnthropic | 2.2.1 | Anthropic Claude API SDK |
+| STTextView | 2.3.5 | 高性能文本编辑组件 |
+| BeautifulMermaid | 0.1.1 | Mermaid 图表渲染 |
 
 ## 内存目录
 
-agentGui 在 `~/.agentgui/` 下存储用户数据：
+agentGui 在 `~/.claude/` 下存储用户数据：
 
 ```
-~/.agentgui/
-├── memory.md          # 长期记忆文件
-├── skills/            # 自定义技能目录
-└── ...                # 其他配置
+~/.claude/
+├── projects/
+│   └── [项目名称]/
+│       └── memory/    # 项目记忆文件
+└── skills/            # 自定义技能目录
 ```
 
 ## License
@@ -207,5 +245,13 @@ MIT License
 ## 致谢
 
 - [Anthropic](https://www.anthropic.com) - Claude API
-- [SwiftAnthropic](https://github.com/mtuck/swift-anthropic) - Swift SDK
+- [SwiftAnthropic](https://github.com/jamesrochabrun/SwiftAnthropic) - Swift SDK
+- [STTextView](https://github.com/krzyzanowskim/STTextView) - 高性能文本编辑组件
+- [BeautifulMermaid](https://github.com/lukilabs/beautiful-mermaid-swift) - Mermaid 图表渲染
 - [Claude Code](https://claude.ai/code) - 技能系统设计灵感
+
+## 开发状态
+
+当前分支: `001-ai-agent-client`
+
+项目正在积极开发中，核心功能已基本完成，正在完善块编辑器和子代理系统。

@@ -58,7 +58,8 @@ enum BlockMarkdownCodec {
                     let alt = block.metadata.secondaryText.isEmpty ? "image" : block.metadata.secondaryText
                     chunk = "![\(alt)](\(block.metadata.resource))"
                 case .url:
-                    chunk = block.text.isEmpty ? "::url(\(block.metadata.resource))" : "::url[\(block.text)](\(block.metadata.resource))"
+                    let title = block.text.isEmpty ? "链接" : block.text
+                    chunk = "[\(title)](\(block.metadata.resource))"
                 case .file:
                     let title = block.text.isEmpty ? (block.metadata.secondaryText.isEmpty ? "附件" : block.metadata.secondaryText) : block.text
                     chunk = "::file[\(title)](\(block.metadata.resource))"
@@ -333,17 +334,27 @@ enum BlockMarkdownCodec {
     }
 
     private static func parseURL(_ line: String) -> DocumentBlock? {
+        // Standard markdown link: [title](url)
+        if let match = line.firstMatch(of: /^\[(.+)\]\((.+)\)$/) {
+            var block = DocumentBlock.empty(.url)
+            block.text = String(match.1)
+            block.metadata.resource = String(match.2)
+            return block
+        }
+        // Custom format: ::url[title](url)
         if let match = line.firstMatch(of: /^::url\[(.*)\]\((.+)\)$/) {
             var block = DocumentBlock.empty(.url)
             block.text = String(match.1)
             block.metadata.resource = String(match.2)
             return block
         }
+        // Custom format: ::url(url)
         if let match = line.firstMatch(of: /^::url\((.+)\)$/) {
             var block = DocumentBlock.empty(.url)
             block.metadata.resource = String(match.1)
             return block
         }
+        // Bare URL on its own line
         if let match = line.firstMatch(of: /^(https?:\/\/\S+)$/) {
             var block = DocumentBlock.empty(.url)
             block.metadata.resource = String(match.1)

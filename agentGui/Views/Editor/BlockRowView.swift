@@ -246,16 +246,18 @@ struct BlockRowView: View {
 
     private var imageBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("图片", systemImage: "photo")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(BlockEditorTheme.subtleText)
-                Spacer(minLength: 0)
+            if isActive {
+                HStack {
+                    Label("图片", systemImage: "photo")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(BlockEditorTheme.subtleText)
+                    Spacer(minLength: 0)
+                }
+                TextField("图片地址或本地路径", text: $block.metadata.resource)
+                    .textFieldStyle(.roundedBorder)
+                TextField("图片说明", text: $block.metadata.secondaryText)
+                    .textFieldStyle(.roundedBorder)
             }
-            TextField("图片地址或本地路径", text: $block.metadata.resource)
-                .textFieldStyle(.roundedBorder)
-            TextField("图片说明", text: $block.metadata.secondaryText)
-                .textFieldStyle(.roundedBorder)
             if let resourceURL = resourceURL(from: block.metadata.resource), AttachedFile.pathIsImage(resourceURL.path) || resourceURL.scheme?.hasPrefix("http") == true {
                 BlockImagePreview(resource: resourceURL)
             } else {
@@ -275,13 +277,15 @@ struct BlockRowView: View {
 
     private var urlBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("链接卡片", systemImage: "link")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(BlockEditorTheme.subtleText)
-            TextField("URL", text: $block.metadata.resource)
-                .textFieldStyle(.roundedBorder)
-            TextField("标题", text: $block.text)
-                .textFieldStyle(.roundedBorder)
+            if isActive {
+                Label("链接卡片", systemImage: "link")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(BlockEditorTheme.subtleText)
+                TextField("URL", text: $block.metadata.resource)
+                    .textFieldStyle(.roundedBorder)
+                TextField("标题", text: $block.text)
+                    .textFieldStyle(.roundedBorder)
+            }
             Link(destination: URL(string: block.metadata.resource) ?? URL(string: "https://example.com")!) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(block.text.isEmpty ? block.metadata.resource : block.text)
