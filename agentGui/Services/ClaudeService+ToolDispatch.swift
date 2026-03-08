@@ -431,7 +431,14 @@ extension ClaudeService {
         guard let command = input["command"]?.stringValue else {
             return "Error: missing 'command' parameter"
         }
-        return await session.execute(command)
+        let timeout: TimeInterval
+        if let t = input["timeout"]?.intValue {
+            timeout = TimeInterval(max(1, t))
+        } else {
+            timeout = 300
+        }
+        let background = input["background"]?.boolValue ?? false
+        return await session.execute(command, timeout: timeout, background: background)
     }
 
     // MARK: ToolCall Record Factory

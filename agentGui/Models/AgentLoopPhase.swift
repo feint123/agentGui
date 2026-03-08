@@ -31,6 +31,9 @@ enum AgentLoopPhase: Equatable {
     /// Model returned `end_turn`; loop is completing gracefully.
     case finalizing
 
+    /// Model has completed a turn; evaluating output quality before deciding whether to retry.
+    case reflecting
+
     /// Unrecoverable error; loop must stop.
     case failed
 
@@ -43,7 +46,7 @@ enum AgentLoopPhase: Equatable {
     var shouldContinue: Bool {
         switch self {
         case .idle, .executing, .awaitingToolResults,
-             .continuingTruncatedResponse, .resumingAfterPause:
+             .continuingTruncatedResponse, .resumingAfterPause, .reflecting:
             return true
         case .finalizing, .failed, .cancelled:
             return false
@@ -68,6 +71,9 @@ struct AgentLoopContext {
 
     /// Human-readable reason why the loop ended abnormally (available for UI / logging).
     var terminationReason: String? = nil
+
+    /// Number of reflection cycles completed in this run (capped at 2).
+    var reflectionCount: Int = 0
 
     // MARK: Convenience
 
@@ -97,6 +103,13 @@ struct AgentLoopContext {
     /// Called after all pending tool results have been appended to the message list.
     mutating func toolResultsAppended() {
         phase = .executing
+    }
+
+    /// Called after reflection is complete.
+    /// - Parameter shouldRetry: If true, loop re-enters `.executing`; otherwise moves to `.finalizing`.
+    mutating func reflectionComplete(shouldRetry: Bool) {
+        reflectionCount += 1
+        phase = shouldRetry ? .executing : .finalizing
     }
 
     /// Called after a continuation or resume turn has been injected.

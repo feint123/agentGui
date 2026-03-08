@@ -36,6 +36,20 @@ final class AgentRound {
     /// API 停止原因："end_turn" / "tool_use" / "max_tokens" / "pause_turn" / nil = 异常终止
     var stopReason: String?
 
+    // MARK: - Reflection
+
+    /// 反思阶段模型给出的置信度（0.0–1.0）；nil = 未进行反思
+    var reflectionConfidence: Double?
+
+    /// 反思阶段发现的潜在问题（空数组 = 无问题）
+    var reflectionConcerns: [String] = []
+
+    /// 反思阶段建议的修复方案（空数组 = 无建议）
+    var reflectionSuggestedFixes: [String] = []
+
+    /// 反思阶段是否建议重试
+    var reflectionShouldRetry: Bool = false
+
     /// 本轮的工具调用列表
     @Relationship(deleteRule: .cascade, inverse: \ToolCall.agentRound)
     var toolCalls: [ToolCall] = []

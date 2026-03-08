@@ -55,6 +55,12 @@ final class AppSettings {
     /// 启用 Ollama Web Search（优先于 Bing）
     var enableOllamaWebSearch: Bool = false
 
+    /// 启用反思与自我修正循环（每次 end_turn 后触发，额外消耗一次 API 调用）
+    var enableReflection: Bool = false
+
+    /// 反思置信度阈值（低于此值时触发重试，0.5–1.0）
+    var reflectionConfidenceThreshold: Double = 0.7
+
 
     init() {
         self.apiKey = ""
@@ -72,6 +78,8 @@ final class AppSettings {
         self.enableWebFetchTool = false
         self.ollamaAPIKey = ""
         self.enableOllamaWebSearch = false
+        self.enableReflection = false
+        self.reflectionConfidenceThreshold = 0.7
     }
 }
 

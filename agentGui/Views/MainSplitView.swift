@@ -34,7 +34,7 @@ struct MainSplitView: View {
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
         } content: {
             FileEditorView()
-                .navigationSplitViewColumnWidth(min: 280, ideal: 400, max: 700)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 400)
         } detail: {
             if let session = workspaceState.selectedSession {
                 ChatView(session: session)

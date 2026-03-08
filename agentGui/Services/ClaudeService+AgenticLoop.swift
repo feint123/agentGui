@@ -95,9 +95,53 @@ extension ClaudeService {
         var accumulatedText = ""
         var loopCtx = AgentLoopContext(phase: .executing)
         var loopMemory = ContextMemory()
+        var lastRound: AgentRound? = nil
 
         while loopCtx.shouldContinue && loopCtx.roundIndex < maxRounds {
             try Task.checkCancellation()
+
+            // Reflection phase runs without a new streaming API call.
+            // It must be handled here, before the streaming block, so that
+            // loopCtx.transition(stopReason:) cannot overwrite the phase.
+            if loopCtx.phase == .reflecting {
+                print("[Reflection] Starting reflection pass \(loopCtx.reflectionCount + 1)")
+                let lastRoundIndex = loopCtx.roundIndex - 1
+                let reflection = await reflectOnRound(
+                    messages: messages,
+                    service: service,
+                    modelId: modelId,
+                    settings: settings
+                )
+                // Persist on the most-recent round (already created by the previous iteration)
+                if let ref = reflection {
+                    print("[Reflection] confidence=\(ref.confidence) retry=\(ref.shouldRetry)")
+                    // Stamp the reflection data onto the last completed round
+                    if let round = lastRound {
+                        round.reflectionConfidence = ref.confidence
+                        round.reflectionConcerns = ref.concerns
+                        round.reflectionSuggestedFixes = ref.suggestedFixes
+                        round.reflectionShouldRetry = ref.shouldRetry
+                        try? modelContext.save()
+                    }
+                    if ref.shouldRetry && !ref.suggestedFixes.isEmpty {
+                        let fixList = ref.suggestedFixes
+                            .enumerated()
+                            .map { "\($0.offset + 1). \($0.element)" }
+                            .joined(separator: "\n")
+                        let correctionPrompt = """
+                            Your previous response was reviewed and issues were identified. \
+                            Please address the following and provide a corrected response:\n\(fixList)
+                            """
+                        messages.append(.init(role: .user, content: .text(correctionPrompt)))
+                    }
+                    loopCtx.reflectionComplete(shouldRetry: ref.shouldRetry)
+                } else {
+                    print("[Reflection] Reflection call failed or returned nil — skipping retry")
+                    loopCtx.reflectionComplete(shouldRetry: false)
+                }
+                continue
+            }
+
             print("[\(loopCtx.phase)] Starting round \(loopCtx.roundIndex) with \(messages.count) messages")
 
             await compressIfNeeded(
@@ -142,6 +186,7 @@ extension ClaudeService {
             print("Received stream for round \(roundIdx)")
 
             let round = makeRound(roundIdx)
+            lastRound = round
             modelContext.insert(round)
             try? modelContext.save()
 
@@ -275,12 +320,34 @@ extension ClaudeService {
                             record.subagentMessageMetadata = agentMsg.metadata
                         }
                     } else {
+                        // For bash commands (non-background), start a polling task that
+                        // streams outputBuffer into record.terminalOutput every 100ms so
+                        // the UI can show live output while the command is running.
+                        let isBash = pending.name == "bash"
+                        let isBackground = input["background"]?.boolValue == true
+                        let isRestart = input["restart"]?.boolValue == true
+                        var pollTask: Task<Void, Never>? = nil
+                        if isBash && !isBackground && !isRestart {
+                            let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
+                            let bashSess = getBashSession(for: sessionId, workingDirectory: wd)
+                            pollTask = Task { @MainActor in
+                                while !Task.isCancelled {
+                                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                                    if Task.isCancelled { break }
+                                    let snapshot = await bashSess.currentOutput()
+                                    if !snapshot.isEmpty {
+                                        record.terminalOutput = snapshot
+                                    }
+                                }
+                            }
+                        }
                         result = await executeTool(
                             name: pending.name,
                             input: input,
                             settings: settings,
                             sessionId: sessionId
                         )
+                        pollTask?.cancel()
                     }
                     record.terminalOutput = result.text
                     record.status = result.toolCallStatus
@@ -319,8 +386,11 @@ extension ClaudeService {
                 loopCtx.continuationInjected()
 
             case .finalizing:
-                // Normal end_turn — loop exits on next iteration check
-                break
+                // Normal end_turn — trigger reflection if enabled and retry budget remains
+                if settings.enableReflection && loopCtx.reflectionCount < 2 {
+                    loopCtx.phase = .reflecting
+                }
+                // else: shouldContinue becomes false, loop exits naturally
 
             case .failed:
                 let reason = loopCtx.terminationReason ?? "stop_reason=\(stopReason ?? "nil")"

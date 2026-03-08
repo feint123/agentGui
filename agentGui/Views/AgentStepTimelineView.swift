@@ -76,6 +76,10 @@ private struct RoundTimelineRow: View, Equatable {
     }
 
     private var roundNodeColor: Color {
+        // Reflection result takes priority over thinking / tool colour
+        if let confidence = round.reflectionConfidence {
+            return confidence >= 0.7 ? .green.opacity(0.75) : .orange.opacity(0.75)
+        }
         if round.hasThinking { return .purple.opacity(0.7) }
         if !round.sortedToolCalls.isEmpty { return .blue.opacity(0.7) }
         return Color.primary.opacity(0.3)
@@ -104,8 +108,89 @@ private struct RoundTimelineRow: View, Equatable {
                     }
                 }
             }
+
+            // Reflection summary (shown when reflection has run for this round)
+            if round.reflectionConfidence != nil {
+                ReflectionSummaryRow(round: round)
+            }
         }
         .padding(.leading, 10)
         .padding(.bottom, isLast ? 4 : 16)
+    }
+}
+
+// MARK: - ReflectionSummaryRow
+
+private struct ReflectionSummaryRow: View {
+
+    let round: AgentRound
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            // Header with confidence gauge
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.seal")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(badgeColor)
+                Text("反思")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if let confidence = round.reflectionConfidence {
+                    Text(String(format: "置信度 %.0f%%", confidence * 100))
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    ProgressView(value: confidence)
+                        .tint(badgeColor)
+                        .frame(width: 56)
+                        .scaleEffect(y: 0.8)
+                }
+            }
+
+            // Concerns list
+            if !round.reflectionConcerns.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(round.reflectionConcerns, id: \.self) { concern in
+                        Label(concern, systemImage: "exclamationmark.triangle")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                            .lineLimit(3)
+                    }
+                }
+            }
+
+            // Suggested fixes
+            if !round.reflectionSuggestedFixes.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(round.reflectionSuggestedFixes, id: \.self) { fix in
+                        Label(fix, systemImage: "wrench.and.screwdriver")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.blue)
+                            .lineLimit(3)
+                    }
+                }
+            }
+
+            // Retry badge
+            if round.reflectionShouldRetry {
+                Label("已触发重试", systemImage: "arrow.clockwise")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(badgeColor.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(badgeColor.opacity(0.25), lineWidth: 1)
+                )
+        )
+    }
+
+    private var badgeColor: Color {
+        guard let confidence = round.reflectionConfidence else { return .secondary }
+        return confidence >= 0.7 ? .green : .orange
     }
 }

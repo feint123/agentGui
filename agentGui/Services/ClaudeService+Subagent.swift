@@ -130,12 +130,21 @@ extension ClaudeService {
                 Execute shell commands in a persistent bash session. \
                 The session preserves working directory and environment variables across calls. \
                 Use restart: true to reset the session.
+
+                For commands that run indefinitely (servers, watchers, build monitors), set \
+                background: true. The process is forked to the background immediately and a \
+                log file path is returned — use `cat <logpath>` or `tail -n 50 <logpath>` in \
+                a subsequent bash call to inspect output.
+
+                Use timeout to limit how long to wait for a foreground command (default 300s).
                 """,
                 inputSchema: .init(
                     type: .object,
                     properties: [
                         "command": .init(type: .string, description: "The bash command to execute"),
-                        "restart": .init(type: .boolean, description: "If true, restart the bash session and ignore command")
+                        "restart": .init(type: .boolean, description: "If true, restart the bash session and ignore command"),
+                        "timeout": .init(type: .integer, description: "Max seconds to wait for the command to finish (default 300). Ignored when background is true."),
+                        "background": .init(type: .boolean, description: "If true, run the command in the background immediately and return PID + log file path. Use for servers/watchers that never exit.")
                     ],
                     required: []
                 )

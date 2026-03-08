@@ -73,8 +73,18 @@ actor BashSession {
 
     // MARK: - Execution
 
-    /// 在持久化 session 中执行命令，最多等待 timeout 秒
-    func execute(_ command: String, timeout: TimeInterval = 30) async -> String {
+    /// 返回当前输出缓冲快照，供外部轮询实时展示。
+    func currentOutput() -> String { outputBuffer }
+
+    /// 在持久化 session 中执行命令。
+    ///
+    /// - Parameters:
+    ///   - command: 要执行的 shell 命令。
+    ///   - timeout: 最长等待秒数（默认 300s）。超时后返回已有输出并重启 session。
+    ///   - background: 若为 true，命令以后台模式运行（`&`），输出重定向至临时 log 文件，
+    ///     立即返回 PID 和 log 路径。适用于服务器、watcher 等不会主动退出的进程。
+    ///     使用 `cat <logpath>` 或 `tail -f <logpath>` 读取后续输出。
+    func execute(_ command: String, timeout: TimeInterval = 300, background: Bool = false) async -> String {
         if !(process?.isRunning ?? false) {
             start()
             // Give bash time to fully initialize before writing to stdin
@@ -86,6 +96,30 @@ actor BashSession {
         // Yield to flush any pending readabilityHandler append tasks from the previous command
         await Task.yield()
         outputBuffer = ""
+
+        if background {
+            // Fork command to background; redirect output to a temp log file.
+            let logFile = "/tmp/agentgui_\(UUID().uuidString.prefix(8)).log"
+            let cmd = "{ \(command); } > \(logFile) 2>&1 & echo \"[Background] PID: $! | Log: \(logFile)\"; printf '\\n%s\\n' '\(sentinel)'\n"
+            stdinHandle?.write(Data(cmd.utf8))
+            // Short deadline — the echo + sentinel should arrive within seconds
+            let deadline = Date().addingTimeInterval(10)
+            while true {
+                if outputBuffer.contains(sentinel) {
+                    let parts = outputBuffer.components(separatedBy: sentinel)
+                    let result = (parts.first ?? "").trimmingCharacters(in: .newlines)
+                    currentSentinel = ""
+                    outputBuffer = ""
+                    return result.isEmpty ? "[Background] Process started (no PID echo received)" : result
+                }
+                if Date() > deadline {
+                    currentSentinel = ""
+                    outputBuffer = ""
+                    return "[Background] Process started (launch confirmation timed out). Check \"/tmp/agentgui_*.log\" for output."
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
 
         // 包裹命令捕获 stderr，然后输出哨兵
         let cmd = "{ \(command); } 2>&1; printf '\\n%s\\n' '\(sentinel)'\n"

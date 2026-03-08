@@ -242,14 +242,20 @@ struct ToolCallBubbleView: View {
             Text("Output")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-            ScrollView(.vertical, showsIndicators: true) {
-                Text(output)
-                    .font(.system(.caption2, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(6)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: true) {
+                    Text(output)
+                        .font(.system(.caption2, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(6)
+                        .id("bottom")
+                }
+                .frame(maxHeight: 200)
+                .onChange(of: output) { _, _ in
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
             }
-            .frame(maxHeight: 200)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 5))
         }

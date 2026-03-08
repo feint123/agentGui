@@ -256,6 +256,37 @@ struct SettingsView: View {
             } footer: {
                 Text("开启后，Claude 3.7 及更高版本会在回答前进行深度推理，结果将以折叠气泡展示。")
             }
+
+            Section {
+                Toggle("启用反思与自我修正", isOn: Binding(
+                    get: { settings.enableReflection },
+                    set: { settings.enableReflection = $0; try? modelContext.save() }
+                ))
+
+                if settings.enableReflection {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("置信度阈值")
+                            Spacer()
+                            Text(String(format: "%.0f%%", settings.reflectionConfidenceThreshold * 100))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { settings.reflectionConfidenceThreshold },
+                                set: { settings.reflectionConfidenceThreshold = $0; try? modelContext.save() }
+                            ),
+                            in: 0.5...1.0,
+                            step: 0.05
+                        )
+                    }
+                }
+            } header: {
+                Text("反思循环")
+            } footer: {
+                Text("每次 end_turn 后触发一次额外 API 调用，让模型为自己的输出打分。置信度低于阈值时自动重试并修正问题。")
+            }
         }
     }
 
