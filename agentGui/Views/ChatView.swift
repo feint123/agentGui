@@ -16,7 +16,9 @@ struct ChatView: View {
 
     @Environment(\.modelContext) var modelContext
     @Environment(ClaudeService.self) var claudeService
+    @Environment(SkillService.self) var skillService
     @Environment(WorkspaceState.self) var workspaceState
+    @Environment(WorkflowRuntime.self) var workflowRuntime
 
     // MARK: - Properties
 
@@ -34,6 +36,10 @@ struct ChatView: View {
     @State var activeTask: Task<Void, Never>?
     /// Prevents ForEach from accessing Message objects that are about to be deleted
     @State var isClearingMessages = false
+
+    // MARK: - Workflow
+    @State var showWorkflowPanel = false
+    @Query var allWorkflows: [WorkflowInstance]
 
     // MARK: - Context Chips
     @State var showFileContext = true
@@ -55,14 +61,29 @@ struct ChatView: View {
             filter: #Predicate<Message> { $0.session?.sessionId == sessionId },
             sort: \.sequence
         )
+        _allWorkflows = Query(
+            filter: #Predicate<WorkflowInstance> { $0.sessionId == sessionId },
+            sort: \.startedAt,
+            order: .reverse
+        )
     }
 
     // MARK: - Body
 
     var body: some View {
-        VStack(spacing: 0) {
-            messagesArea
-            inputArea
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                messagesArea
+                inputArea
+            }
+
+            // Workflow sidebar panel
+            if showWorkflowPanel, let instance = allWorkflows.first {
+                Divider()
+                WorkflowSidebar(instance: instance)
+                    .frame(width: 300)
+                    .transition(.move(edge: .trailing))
+            }
         }
         .navigationTitle(session.title)
         .navigationSubtitle(claudeService.isConfigured ? "" : "⚠️ 请先配置 API Key")
@@ -107,6 +128,16 @@ struct ChatView: View {
         }
         .onChange(of: workspaceState.editorSelectedText) { _, _ in
             showSelectionContext = true
+        }
+        .onChange(of: workflowRuntime.isRunning) { _, isRunning in
+            if isRunning {
+                withAnimation(.easeInOut(duration: 0.2)) { showWorkflowPanel = true }
+            }
+        }
+        .onChange(of: allWorkflows.count) { _, _ in
+            if !allWorkflows.isEmpty {
+                withAnimation(.easeInOut(duration: 0.2)) { showWorkflowPanel = true }
+            }
         }
     }
 }

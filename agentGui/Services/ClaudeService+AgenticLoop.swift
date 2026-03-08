@@ -319,6 +319,11 @@ extension ClaudeService {
                         if !agentMsg.metadata.isEmpty {
                             record.subagentMessageMetadata = agentMsg.metadata
                         }
+                    } else if pending.name == "start_workflow" {
+                        result = await executeStartWorkflowTool(
+                            input: input,
+                            modelContext: modelContext
+                        )
                     } else {
                         // For bash commands (non-background), start a polling task that
                         // streams outputBuffer into record.terminalOutput every 100ms so

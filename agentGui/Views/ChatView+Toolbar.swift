@@ -37,6 +37,20 @@ extension ChatView {
             }
             .help("新建对话")
          }
+
+        // Workflow panel toggle — shown when a workflow exists for this session
+        ToolbarItem(placement: .primaryAction) {
+            if !allWorkflows.isEmpty {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showWorkflowPanel.toggle()
+                    }
+                } label: {
+                    Image(systemName: showWorkflowPanel ? "sidebar.right" : "flowchart")
+                }
+                .help(showWorkflowPanel ? "隐藏 Workflow 面板" : "显示 Workflow 面板")
+            }
+        }
     }
 
     // MARK: - Session Picker

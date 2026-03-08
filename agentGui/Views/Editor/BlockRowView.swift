@@ -22,6 +22,7 @@ struct BlockRowView: View {
     var onSlashMenuPositionChange: ((CGRect) -> Void)? = nil
     var pendingFormatRequest: InlineFormatRequest? = nil
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
     @State private var isEditingRawQuote = false
 
@@ -422,7 +423,7 @@ struct BlockRowView: View {
         if block.kind == .divider {
             return AnyShapeStyle(Color.clear)
         }
-        return AnyShapeStyle(BlockEditorTheme.blockBackground(isActive: isActive, isHovered: isHovered, emphasis: false))
+        return AnyShapeStyle(BlockEditorTheme.blockBackground(isActive: isActive, isHovered: isHovered, emphasis: false, scheme: colorScheme))
     }
 
     private var calloutColor: Color {
@@ -436,10 +437,25 @@ struct BlockRowView: View {
 
     private func resourceURL(from text: String) -> URL? {
         guard !text.isEmpty else { return nil }
+
+        // Handle HTTP/HTTPS URLs
         if text.hasPrefix("http://") || text.hasPrefix("https://") {
-            return URL(string: text)
+            // Try direct URL first
+            if let url = URL(string: text) {
+                return url
+            }
+            // If that fails, try encoding the URL
+            if let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+               let url = URL(string: encoded) {
+                return url
+            }
+            return nil
         }
-        return URL(fileURLWithPath: text)
+
+        // Handle file paths (both absolute and relative)
+        // Expand tilde for home directory
+        let expandedPath = NSString(string: text).expandingTildeInPath
+        return URL(fileURLWithPath: expandedPath)
     }
 
     private var showsMetadataHeader: Bool {
@@ -545,16 +561,16 @@ struct BlockRowView: View {
 
     private func specialBlockBackground(tint: Color) -> some View {
         RoundedRectangle(cornerRadius: BlockEditorTheme.specialBlockCornerRadius)
-            .fill(BlockEditorTheme.specialBlockFill(tint: tint, isActive: isActive, isHovered: isHovered))
+            .fill(BlockEditorTheme.specialBlockFill(tint: tint, isActive: isActive, isHovered: isHovered, scheme: colorScheme))
     }
 
     private func specialBlockStroke(tint: Color) -> some View {
         RoundedRectangle(cornerRadius: BlockEditorTheme.specialBlockCornerRadius)
-            .stroke(BlockEditorTheme.specialBlockBorder(tint: tint, isActive: isActive, isHovered: isHovered), lineWidth: 1)
+            .stroke(BlockEditorTheme.specialBlockBorder(tint: tint, isActive: isActive, isHovered: isHovered, scheme: colorScheme), lineWidth: 1)
     }
 
     private var secondarySurface: Color {
-        Color.primary.opacity(0.028)
+        colorScheme == .dark ? Color.white.opacity(0.06) : Color.primary.opacity(0.028)
     }
 }
 
@@ -743,21 +759,37 @@ private struct QuoteInlineBlockView: View {
 private struct BlockImagePreview: View {
     let resource: URL
 
+    @State private var loadImageError: Error?
+    @State private var isLoading = true
+
     var body: some View {
         Group {
-            if resource.isFileURL, let image = NSImage(contentsOf: resource) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-            } else {
-                AsyncImage(url: resource) { image in
-                    image
+            if resource.isFileURL {
+                if let image = NSImage(contentsOf: resource) {
+                    Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
-                } placeholder: {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, minHeight: 120)
+                } else {
+                    errorPlaceholder("无法加载本地图片")
                 }
+            } else if resource.scheme?.hasPrefix("http") == true {
+                AsyncImage(url: resource) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                    case .failure(let error):
+                        errorPlaceholder(networkErrorDescription(error))
+                    case .empty:
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 120)
+                    @unknown default:
+                        ProgressView()
+                    }
+                }
+            } else {
+                errorPlaceholder("不支持的图片地址")
             }
         }
         .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 280)
@@ -766,6 +798,39 @@ private struct BlockImagePreview: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.primary.opacity(0.04), lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private func errorPlaceholder(_ message: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: "photo.badge.exclamationmark")
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if resource.scheme == "http" {
+                Text("macOS 默认禁止 HTTP 连接，请使用 HTTPS")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .padding()
+    }
+
+    private func networkErrorDescription(_ error: Error) -> String {
+        let errorStr = error.localizedDescription.lowercased()
+        if errorStr.contains("unsupported") || errorStr.contains("format") {
+            return "不支持的图片格式"
+        } else if errorStr.contains("network") || errorStr.contains("connection") {
+            return "网络连接失败"
+        } else if errorStr.contains("certificate") || errorStr.contains("ssl") {
+            return "SSL 证书验证失败"
+        } else {
+            return "图片加载失败"
+        }
     }
 }
 

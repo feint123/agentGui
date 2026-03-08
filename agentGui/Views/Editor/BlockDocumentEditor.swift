@@ -13,6 +13,7 @@ struct BlockDocumentEditor: View {
     /// Called whenever the editor selection changes; passes the selected text (or nil when cleared).
     var onSelectionTextChange: ((String?) -> Void)? = nil
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var document = BlockDocument.empty
     @State private var isApplyingInternalChange = false
     @State private var activeSlashBlockID: UUID?
@@ -187,7 +188,7 @@ struct BlockDocumentEditor: View {
     }
 
     private var editorBackground: some View {
-        BlockEditorTheme.pageBackground
+        Rectangle().fill(BlockEditorTheme.pageBackground(for: colorScheme))
     }
 
     private func handleTextChange(for blockID: UUID, text newValue: String) {

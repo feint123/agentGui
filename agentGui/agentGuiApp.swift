@@ -17,6 +17,7 @@ struct agentGuiApp: App {
 
     @State private var claudeService = ClaudeService()
     @State private var skillService = SkillService()
+    @State private var workflowRuntime: WorkflowRuntime?
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -25,6 +26,11 @@ struct agentGuiApp: App {
             Message.self,
             ToolCall.self,
             AgentRound.self,
+            // Workflow orchestration models (Phase 1)
+            WorkflowInstance.self,
+            WorkflowMessageRecord.self,
+            WorkflowArtifactRecord.self,
+            WorkflowActivationRecord.self,
         ])
 
         let storeDirectory = FileManager.default.homeDirectoryForCurrentUser
@@ -48,6 +54,7 @@ struct agentGuiApp: App {
             ContentView()
                 .environment(claudeService)
                 .environment(skillService)
+                .environment(workflowRuntime ?? WorkflowRuntime(claudeService: claudeService))
                 .onAppear {
                     // 从持久化设置加载 API Key
                     let context = sharedModelContainer.mainContext
@@ -55,6 +62,9 @@ struct agentGuiApp: App {
                     claudeService.configure(apiKey: settings.apiKey, baseURL: settings.baseURL)
                     claudeService.skillService = skillService
                     skillService.loadSkills()
+                    let runtime = WorkflowRuntime(claudeService: claudeService)
+                    workflowRuntime = runtime
+                    claudeService.workflowRuntime = runtime
                 }
         }
         .modelContainer(sharedModelContainer)

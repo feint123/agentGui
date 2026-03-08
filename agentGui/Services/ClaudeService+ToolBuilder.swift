@@ -6,6 +6,28 @@
 import Foundation
 import SwiftAnthropic
 
+// MARK: - Workflow Registry
+
+extension ClaudeService {
+
+    /// All registered workflow definitions, used to populate the start_workflow tool.
+    static let availableWorkflows: [(id: String, displayName: String, description: String)] = [
+        (
+            id: "code_change",
+            displayName: "代码变更流程",
+            description: "多代理协作完成代码修改：规划 → 探索 → 编码 → 审查 → 验证。适用于需要跨文件实现、大型重构、或需要多轮计划-探索-编码-审查循环的复杂任务。"
+        ),
+    ]
+
+    /// Returns the `WorkflowDefinition` for the given workflow id, or nil if unknown.
+    static func makeWorkflowDefinition(id: String) -> (any WorkflowDefinition)? {
+        switch id {
+        case "code_change": return CodeChangeWorkflow()
+        default:            return nil
+        }
+    }
+}
+
 // MARK: - Tool List Builder
 
 extension ClaudeService {
@@ -162,6 +184,48 @@ extension ClaudeService {
                         )
                     ],
                     required: ["agent_name", "task"]
+                )
+            ))
+
+            // start_workflow: launches a multi-agent workflow (main agent only)
+            let workflowList = ClaudeService.availableWorkflows
+                .map { "- \($0.id): \($0.description)" }
+                .joined(separator: "\n")
+            tools.append(.function(
+                name: "start_workflow",
+                description: """
+                Launch a multi-agent workflow for tasks that require sustained collaboration \
+                between specialized agents (planner → explorer → coder → reviewer → executor).
+
+                USE start_workflow WHEN the task:
+                - Requires implementing or refactoring code across multiple files
+                - Needs a plan-explore-code-review-verify pipeline
+                - Is complex enough that a single agent loop would be insufficient
+
+                DO NOT use start_workflow for:
+                - Simple Q&A, single-file edits, or quick lookups
+                - Tasks that can be completed in a few tool calls
+                - Anything already handled well by run_subagent
+
+                The workflow runs synchronously and returns a summary when complete. \
+                The task must be self-contained: include file paths, goals, and any constraints.
+
+                Available workflows:
+                \(workflowList)
+                """,
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "workflow_id": .init(
+                            type: .string,
+                            description: "ID of the workflow to launch. One of: \(ClaudeService.availableWorkflows.map(\.id).joined(separator: " | "))"
+                        ),
+                        "task": .init(
+                            type: .string,
+                            description: "Self-contained task description including all context the workflow agents need."
+                        )
+                    ],
+                    required: ["workflow_id", "task"]
                 )
             ))
         }

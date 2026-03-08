@@ -69,3 +69,7 @@ extension Session {
         messages.count
     }
 }
+
+// MARK: - SessionProtocol Conformance
+
+extension Session: SessionProtocol {}

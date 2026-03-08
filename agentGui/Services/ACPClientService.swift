@@ -115,6 +115,15 @@ final class ClaudeService {
     /// Skill service reference for tool dispatch and system prompt
     var skillService: SkillService?
 
+    /// Workflow runtime — injected from the app root after creation.
+    var workflowRuntime: WorkflowRuntime?
+
+    /// Workspace context snapshot captured at the start of each send, used by start_workflow.
+    var currentWorkspaceContext: WorkflowWorkspaceContext = .empty
+
+    /// The Session currently being processed, used by start_workflow.
+    var currentSession: Session?
+
     // MARK: - Configuration
 
     var isConfigured: Bool { service != nil }
@@ -263,6 +272,15 @@ final class ClaudeService {
         let systemPrompt = buildSystemPrompt(skills: enabledSkills, workingDirectory: settings.workingDirectory)
         let tools = buildTools(modelId: modelId, settings: settings, enabledSkills: enabledSkills)
 
+        // Capture workspace context snapshot for start_workflow tool
+        currentSession = session
+        currentWorkspaceContext = WorkflowWorkspaceContext(
+            workingDirectory: settings.workingDirectory,
+            selectedFilePath: nil,
+            selectedText: nil,
+            availableSkills: enabledSkills.map { WorkflowSkillInfo(name: $0.name, description: $0.description) }
+        )
+
         // 创建 assistant 消息占位符
         let assistantMessage = Message.agentMessage(text: "", session: session)
         assistantMessage.status = .pending
@@ -403,6 +421,33 @@ final class ClaudeService {
 
         **Simple tasks** (e.g. single-file edits, direct Q&A, quick lookups) do NOT need a plan. \
         Use your judgment — the goal is clarity and accountability, not ceremony.
+        """)
+
+        let workflowCatalog = ClaudeService.availableWorkflows
+            .map { "- `\($0.id)`: \($0.description)" }
+            .joined(separator: "\n")
+        parts.append("""
+        ## Workflow Orchestration
+
+        Use `start_workflow` when the task requires a sustained multi-agent pipeline that goes \
+        beyond what a single subagent or a few tool calls can achieve.
+
+        **USE `start_workflow` for:**
+        - Implementing or refactoring code across multiple files where you need to plan, \
+          explore the codebase, write code, review it, and verify the result
+        - Large-scale tasks that benefit from the plan → explore → code → review → execute pipeline
+
+        **DO NOT use `start_workflow` for:**
+        - Simple Q&A, quick lookups, or single-file edits
+        - Tasks you can complete directly with bash/editor/subagent tools in a few calls
+        - Anything already handled adequately by `run_subagent`
+
+        When you call `start_workflow`, the workflow runs to completion before you receive the result. \
+        Craft the `task` parameter as a complete, self-contained description of the goal, including \
+        file paths, constraints, and any relevant context.
+
+        Available workflows:
+        \(workflowCatalog)
         """)
 
         return parts.joined(separator: "\n\n")

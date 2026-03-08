@@ -65,6 +65,8 @@ struct MediaViewerView: View {
 struct MediaImageViewer: View {
     let url: URL
     @State private var nsImage: NSImage? = nil
+    @State private var errorMessage: String? = nil
+    @State private var isLoading = true
 
     var body: some View {
         Group {
@@ -76,16 +78,72 @@ struct MediaImageViewer: View {
                         .padding(16)
                         .frame(maxWidth: .infinity)
                 }
-            } else {
+            } else if let error = errorMessage {
+                VStack(spacing: 12) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
+                    Text(error)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                    if url.scheme == "http" {
+                        Text("macOS 默认禁止 HTTP 连接，请使用 HTTPS")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(Color(NSColor.textBackgroundColor))
         .task {
-            nsImage = await Task.detached(priority: .userInitiated) {
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        isLoading = true
+        errorMessage = nil
+
+        // For network URLs, use URLSession to download
+        if url.scheme?.hasPrefix("http") == true {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let image = NSImage(data: data) {
+                    nsImage = image
+                } else {
+                    errorMessage = "无法解析图片数据"
+                }
+            } catch {
+                errorMessage = errorDescription(error)
+            }
+        } else {
+            // For local files, use NSImage directly on background thread
+            let image = await Task.detached(priority: .userInitiated) {
                 NSImage(contentsOf: url)
             }.value
+            nsImage = image
+            if nsImage == nil {
+                errorMessage = "无法加载本地图片"
+            }
+        }
+
+        isLoading = false
+    }
+
+    private func errorDescription(_ error: Error) -> String {
+        let errorStr = error.localizedDescription.lowercased()
+        if errorStr.contains("unsupported") || errorStr.contains("format") {
+            return "不支持的图片格式"
+        } else if errorStr.contains("network") || errorStr.contains("connection") {
+            return "网络连接失败"
+        } else if errorStr.contains("certificate") || errorStr.contains("ssl") {
+            return "SSL 证书验证失败"
+        } else {
+            return "图片加载失败: \(error.localizedDescription)"
         }
     }
 }
@@ -221,11 +279,29 @@ struct MediaThumbnailCell: View {
 // MARK: - Shared thumbnail loading
 
 func mediaThumbImage(url: URL) async -> NSImage? {
-    await Task.detached(priority: .userInitiated) { [url] in
-        let ext = url.pathExtension.lowercased()
+    // For network URLs, download first then create thumbnail
+    if url.scheme?.hasPrefix("http") == true {
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            return await createThumbnail(from: data, originalURL: url)
+        } catch {
+            return nil
+        }
+    } else {
+        // For local files, read directly
+        if let data = try? Data(contentsOf: url) {
+            return await createThumbnail(from: data, originalURL: url)
+        }
+        return nil
+    }
+}
+
+private func createThumbnail(from data: Data, originalURL: URL) async -> NSImage? {
+    await Task.detached(priority: .userInitiated) {
+        let ext = originalURL.pathExtension.lowercased()
         if ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "bmp"].contains(ext) {
-            return NSImage(contentsOf: url)
-        } else if ext == "pdf", let page = PDFDocument(url: url)?.page(at: 0) {
+            return NSImage(data: data)
+        } else if ext == "pdf", let pdfDocument = PDFDocument(data: data), let page = pdfDocument.page(at: 0) {
             let bounds = page.bounds(for: .mediaBox)
             let targetSide: CGFloat = 144
             let scale = targetSide / max(bounds.width, bounds.height, 1)
