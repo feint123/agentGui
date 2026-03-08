@@ -341,7 +341,7 @@ struct CodeChangeReducer: WorkflowReducer {
                 recipients: ["coder"],
                 kind: .reviewFeedback,
                 subject: "Review: revision required",
-                body: result.outputText,
+                body: "Review requires revision. Read the attached reviewReport artifact and address its findings before rewriting the code.\n\nReviewer notes:\n\(result.outputText)",
                 artifactRefs: [reviewArtifact.id]
             ))
         }

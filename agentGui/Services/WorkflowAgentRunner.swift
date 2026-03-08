@@ -63,6 +63,11 @@ struct WorkflowAgentRunner {
                       let contentJson = input["contentJson"]?.stringValue else {
                     return .missingParameter("kind or contentJson")
                 }
+                // Contract enforcement: reject writes for kinds outside writableArtifacts.
+                guard role.writableArtifacts.contains(kind) else {
+                    print("[Workflow] ⚠ Contract[writableArtifacts]: '\(roleName)' tried to emit '\(kind.rawValue)' — not in writableArtifacts \(role.writableArtifacts.map(\.rawValue).sorted())")
+                    return .failure("Contract violation: role '\(roleName)' cannot write '\(kind.rawValue)'. Permitted kinds: [\(role.writableArtifacts.map(\.rawValue).sorted().joined(separator: ", "))]")
+                }
                 guard let data = contentJson.data(using: .utf8),
                       (try? JSONSerialization.jsonObject(with: data)) != nil else {
                     return .failure("Error: contentJson is not valid JSON")
@@ -185,18 +190,19 @@ struct WorkflowAgentRunner {
             }
         }
 
-        // Include artifact context the role can read
+        // Include artifact context the role can read.
+        // Contract enforcement: artifacts whose kind is not in readableArtifacts are silently
+        // withheld from the prompt (hard read-access control).
         let readableArtifacts = context.artifacts.values.filter {
             role.readableArtifacts.contains($0.kind)
         }
-        if !readableArtifacts.isEmpty {
-            parts.append("\n## Available Artifacts")
-            for artifact in readableArtifacts.sorted(by: { $0.kind.rawValue < $1.kind.rawValue }) {
-                parts.append("### \(artifact.kind.displayName) (v\(artifact.version), \(artifact.status.displayName))")
-                parts.append(artifact.contentJson)
-            }
+        let readableArtifactsById = Dictionary(uniqueKeysWithValues: readableArtifacts.map { ($0.id, $0) })
+        let droppedArtifacts = context.artifacts.values.filter {
+            !role.readableArtifacts.contains($0.kind)
         }
-
+        if !droppedArtifacts.isEmpty {
+            print("[Workflow] ⚠ Contract[readableArtifacts]: '\(role.name)' denied access to [\(droppedArtifacts.map(\.kind.rawValue).sorted().joined(separator: ", "))] — not in readableArtifacts \(role.readableArtifacts.map(\.rawValue).sorted())")
+        }
         // Include inbox messages
         if !inbox.isEmpty {
             parts.append("\n## Inbox Messages")
@@ -205,6 +211,27 @@ struct WorkflowAgentRunner {
                 if !msg.body.isEmpty {
                     parts.append(msg.body)
                 }
+                if !msg.artifactRefs.isEmpty {
+                    parts.append("**Referenced Artifacts**: \(msg.artifactRefs.joined(separator: ", "))")
+                    for artifactId in msg.artifactRefs {
+                        guard let artifact = readableArtifactsById[artifactId] else {
+                            parts.append("- Artifact \(artifactId) is unavailable to your role.")
+                            continue
+                        }
+                        parts.append(renderArtifact(artifact, headingPrefix: "####"))
+                    }
+                }
+            }
+        }
+
+        let referencedArtifactIds = Set(inbox.flatMap(\.artifactRefs))
+        let additionalArtifacts = readableArtifacts
+            .filter { !referencedArtifactIds.contains($0.id) }
+            .sorted(by: { $0.kind.rawValue < $1.kind.rawValue })
+        if !additionalArtifacts.isEmpty {
+            parts.append("\n## Additional Available Artifacts")
+            for artifact in additionalArtifacts {
+                parts.append(renderArtifact(artifact, headingPrefix: "###"))
             }
         }
 
@@ -220,6 +247,13 @@ struct WorkflowAgentRunner {
         }
 
         return parts.joined(separator: "\n")
+    }
+
+    private func renderArtifact(_ artifact: WorkflowArtifact, headingPrefix: String) -> String {
+        [
+            "\(headingPrefix) \(artifact.kind.displayName) (id: \(artifact.id), v\(artifact.version), \(artifact.status.displayName))",
+            artifact.contentJson,
+        ].joined(separator: "\n")
     }
 
     // MARK: - Tool Construction

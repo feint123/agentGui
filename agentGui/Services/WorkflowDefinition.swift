@@ -187,8 +187,16 @@ extension WorkflowContext {
     }
 
     /// Delivers a message into the recipient's inbox.
+    /// Contract enforcement: messages whose `kind` is not in the recipient's
+    /// `subscribesTo` set are silently dropped and a warning is logged.
     mutating func deliver(_ message: WorkflowMessage) {
         for recipient in message.recipients {
+            // Hard subscription check — look up the role definition registered in this context.
+            if let role = roles.first(where: { $0.name == recipient }),
+               !role.subscribesTo.contains(message.kind) {
+                print("[Workflow] ⚠ Contract[subscribesTo]: '\(message.kind.rawValue)' → '\(recipient)' dropped — not in subscribesTo \(role.subscribesTo.map(\.rawValue).sorted())")
+                continue
+            }
             if mailboxes[recipient] == nil {
                 mailboxes[recipient] = AgentMailbox(roleName: recipient)
             }
