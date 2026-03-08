@@ -54,6 +54,55 @@ protocol WorkflowDefinition: Sendable {
 
     /// Create the reducer that applies activation results to the context.
     func makeReducer() -> any WorkflowReducer
+
+    /// Evaluate whether the workflow has satisfactorily completed.
+    /// Called by the runtime when no runnable roles remain.
+    /// Returns a `CompletionEvaluation` whose `resolvedStatus` maps to
+    /// `.completed`, `.partial`, or `.failed`.
+    func evaluateCompletion(in context: WorkflowContext) -> CompletionEvaluation
+}
+
+extension WorkflowDefinition {
+    /// Default five-item completion checklist used by all workflows that don't
+    /// provide their own implementation.
+    ///
+    /// Items checked:
+    ///   1. **用户目标** — `userTask` non-empty and a `.plan` artifact exists
+    ///   2. **变更摘要** — a `.codePatchSummary` or `.finalAnswer` artifact exists
+    ///   3. **验证结果** — a `.testReport` with `.approved` status exists; critical if rejected
+    ///   4. **审查结果** — a `.reviewReport` artifact exists
+    ///   5. **无未完成项** — no role is in a blocked state
+    func evaluateCompletion(in context: WorkflowContext) -> CompletionEvaluation {
+        let artifacts = context.artifacts.values
+
+        let hasGoal = !context.userTask.isEmpty
+            && artifacts.contains { $0.kind == .plan }
+
+        let hasChangeSummary = artifacts.contains {
+            $0.kind == .codePatchSummary || $0.kind == .finalAnswer
+        }
+
+        let verificationApproved = artifacts.contains {
+            $0.kind == .testReport && $0.status == .approved
+        }
+        let verificationRejected = artifacts.contains {
+            $0.kind == .testReport && $0.status == .rejected
+        }
+
+        let hasReview = artifacts.contains { $0.kind == .reviewReport }
+
+        let hasNoBlockers = !context.agentStates.values.contains { $0.isBlocked }
+
+        return CompletionEvaluation(items: [
+            CompletionCheckItem(id: "userGoal",            label: "用户目标",   passed: hasGoal),
+            CompletionCheckItem(id: "changeSummary",       label: "变更摘要",   passed: hasChangeSummary),
+            CompletionCheckItem(id: "verificationResults", label: "验证结果",
+                                passed: verificationApproved,
+                                isCritical: verificationRejected),
+            CompletionCheckItem(id: "reviewResults",       label: "审查结果",   passed: hasReview),
+            CompletionCheckItem(id: "noBlockers",          label: "无未完成项", passed: hasNoBlockers),
+        ])
+    }
 }
 
 // MARK: - WorkflowScheduler Protocol

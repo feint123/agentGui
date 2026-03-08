@@ -163,10 +163,11 @@ final class WorkflowRuntime {
             guard let roleName = scheduler.chooseNextRole(in: context),
                   let role = context.roles.first(where: { $0.name == roleName })
             else {
-                // No runnable role — workflow is complete or paused
+                // No runnable role — evaluate completion checklist
                 if scheduler.runnableRoles(in: context).isEmpty {
-                    log("✅ No runnable roles remaining — marking completed")
-                    context.status = .completed
+                    let evaluation = definition.evaluateCompletion(in: context)
+                    context.status = evaluation.resolvedStatus
+                    log("✅ No runnable roles — \(evaluation.logSummary) → \(context.status.displayName)")
                 } else {
                     log("⏸ Scheduler returned nil despite runnable roles — pausing")
                 }

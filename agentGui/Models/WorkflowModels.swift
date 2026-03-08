@@ -16,6 +16,8 @@ enum WorkflowStatus: String, Codable, CaseIterable, Sendable {
     case running    = "running"
     case paused     = "paused"
     case completed  = "completed"
+    /// 产生了有效结果，但未完成验证或有 blocker。
+    case partial    = "partial"
     case failed     = "failed"
     case cancelled  = "cancelled"
 
@@ -25,6 +27,7 @@ enum WorkflowStatus: String, Codable, CaseIterable, Sendable {
         case .running:   return "运行中"
         case .paused:    return "已暂停"
         case .completed: return "已完成"
+        case .partial:   return "部分完成"
         case .failed:    return "失败"
         case .cancelled: return "已取消"
         }
@@ -32,7 +35,7 @@ enum WorkflowStatus: String, Codable, CaseIterable, Sendable {
 
     var isTerminal: Bool {
         switch self {
-        case .completed, .failed, .cancelled: return true
+        case .completed, .partial, .failed, .cancelled: return true
         default: return false
         }
     }
@@ -140,6 +143,53 @@ enum ActivationResultKind: String, Codable, Sendable {
     case partial    = "partial"
     case failed     = "failed"
     case escalated  = "escalated"
+}
+
+// MARK: - CompletionCheckItem
+
+/// One item in the workflow completion checklist.
+struct CompletionCheckItem: Sendable {
+    /// Short machine-readable key, e.g. "userGoal".
+    let id: String
+    /// Human-readable label used in logs, e.g. "用户目标".
+    let label: String
+    /// Whether this item is satisfied.
+    let passed: Bool
+    /// If true and not passed, the workflow resolves to `.failed` instead of `.partial`.
+    let isCritical: Bool
+
+    init(id: String, label: String, passed: Bool, isCritical: Bool = false) {
+        self.id = id
+        self.label = label
+        self.passed = passed
+        self.isCritical = isCritical
+    }
+}
+
+// MARK: - CompletionEvaluation
+
+/// Result of running a workflow's five-item completion checklist.
+/// Items checked: 用户目标 · 变更摘要 · 验证结果 · 审查结果 · 无未完成项
+struct CompletionEvaluation: Sendable {
+    let items: [CompletionCheckItem]
+
+    /// Resolved workflow status:
+    /// - `.completed`  — all checklist items pass
+    /// - `.partial`    — some items pass, no critical failure; valid results but incomplete
+    /// - `.failed`     — a critical item failed, or nothing passed at all
+    var resolvedStatus: WorkflowStatus {
+        let failing = items.filter { !$0.passed }
+        guard !failing.isEmpty else { return .completed }
+        if failing.contains(where: { $0.isCritical }) { return .failed }
+        if items.contains(where: { $0.passed }) { return .partial }
+        return .failed
+    }
+
+    var logSummary: String {
+        let pass = items.filter {  $0.passed }.map(\.label).joined(separator: ", ")
+        let fail = items.filter { !$0.passed }.map(\.label).joined(separator: ", ")
+        return "通过[\(pass.isEmpty ? "-" : pass)] 未通过[\(fail.isEmpty ? "-" : fail)]"
+    }
 }
 
 // MARK: - WorkflowBudget

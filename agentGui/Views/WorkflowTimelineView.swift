@@ -149,6 +149,7 @@ struct WorkflowStatusBadge: View {
         switch status {
         case .running:   return .blue
         case .completed: return .green
+        case .partial:   return .yellow
         case .failed:    return .red
         case .cancelled: return .secondary
         case .paused:    return .orange

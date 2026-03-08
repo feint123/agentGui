@@ -77,6 +77,45 @@ struct CodeChangeWorkflow: WorkflowDefinition {
     func makeReducer() -> any WorkflowReducer {
         CodeChangeReducer()
     }
+
+    // MARK: - Completion Checklist
+
+    func evaluateCompletion(in context: WorkflowContext) -> CompletionEvaluation {
+        let artifacts = context.artifacts.values
+
+        // 1. 用户目标：登记了任务且生成了执行计划
+        let hasGoal = !context.userTask.isEmpty
+            && artifacts.contains { $0.kind == .plan }
+
+        // 2. 变更摘要：存在代码变更摘要 artifact
+        let hasPatchSummary = artifacts.contains { $0.kind == .codePatchSummary }
+
+        // 3. 验证结果：测试报告已通过；明确被拓绝为关键失败
+        let testApproved = artifacts.contains {
+            $0.kind == .testReport && $0.status == .approved
+        }
+        let testRejected = artifacts.contains {
+            $0.kind == .testReport && $0.status == .rejected
+        }
+
+        // 4. 审查结果：审查报告已通过
+        let reviewApproved = artifacts.contains {
+            $0.kind == .reviewReport && $0.status == .approved
+        }
+
+        // 5. 无未完成项：无被锁定角色
+        let hasNoBlockers = !context.agentStates.values.contains { $0.isBlocked }
+
+        return CompletionEvaluation(items: [
+            CompletionCheckItem(id: "userGoal",            label: "用户目标",   passed: hasGoal),
+            CompletionCheckItem(id: "changeSummary",       label: "变更摘要",   passed: hasPatchSummary),
+            CompletionCheckItem(id: "verificationResults", label: "验证结果",
+                                passed: testApproved,
+                                isCritical: testRejected),
+            CompletionCheckItem(id: "reviewResults",       label: "审查结果",   passed: reviewApproved),
+            CompletionCheckItem(id: "noBlockers",          label: "无未完成项", passed: hasNoBlockers),
+        ])
+    }
 }
 
 // MARK: - CodeChangeScheduler
@@ -337,8 +376,10 @@ struct CodeChangeReducer: WorkflowReducer {
         }
     }
 
-    // MARK: - Completion Check
+    // MARK: - Completion Signal
 
+    /// Produces the final-answer artifact when both review and tests pass.
+    /// Status resolution is deferred to the runtime via `evaluateCompletion(in:)`.
     private func checkCompletion(context: inout WorkflowContext) {
         let reviewApproved = context.artifacts.values
             .filter { $0.kind == .reviewReport }
@@ -349,7 +390,6 @@ struct CodeChangeReducer: WorkflowReducer {
             .contains { $0.status == .approved }
 
         if reviewApproved && testPassed {
-            // Produce final answer artifact
             let finalArtifact = WorkflowArtifact(
                 id: "finalAnswer-\(context.workflowId.uuidString.prefix(8))",
                 workflowId: context.workflowId,
@@ -367,7 +407,8 @@ struct CodeChangeReducer: WorkflowReducer {
                 status: .approved
             )
             context.upsertArtifact(finalArtifact)
-            context.status = .completed
+            // Status is resolved by the runtime's completion checklist;
+            // no direct assignment here.
         }
     }
 
