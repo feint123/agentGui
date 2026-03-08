@@ -68,14 +68,26 @@ struct PlanStep: Codable, Identifiable {
 
 // MARK: - ExecutionPlan
 
-/// A structured execution plan recorded at the start of a complex task.
-/// Stored per-session in `ClaudeService.sessionExecutionPlans`.
+/// Canonical plan record shared by both regular tasks and workflow agents.
+/// Regular tasks write it via the `create_execution_plan` tool.
+/// Workflow agents produce compatible JSON (planner role) which the runtime
+/// mirrors onto `Session.planJson` so both paths share a single persisted copy.
 struct ExecutionPlan: Codable {
     var goal: String
     var steps: [PlanStep]
     var assumptions: [String]
     var successCriteria: [String]
     var createdAt: Date
+
+    // Snake_case keys to stay compatible with both the tool input schema
+    // ("success_criteria") and the workflow planner's JSON output format.
+    enum CodingKeys: String, CodingKey {
+        case goal
+        case steps
+        case assumptions
+        case successCriteria = "success_criteria"
+        case createdAt       = "created_at"
+    }
 
     init(
         goal: String,
@@ -88,6 +100,17 @@ struct ExecutionPlan: Codable {
         self.assumptions = assumptions
         self.successCriteria = successCriteria
         self.createdAt = Date()
+    }
+
+    // Custom decoder: workflow plan JSON omits `created_at`; other fields are
+    // also treated as optional so partial output from the agent still parses.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        goal            = try c.decode(String.self, forKey: .goal)
+        steps           = try c.decodeIfPresent([PlanStep].self, forKey: .steps) ?? []
+        assumptions     = try c.decodeIfPresent([String].self, forKey: .assumptions) ?? []
+        successCriteria = try c.decodeIfPresent([String].self, forKey: .successCriteria) ?? []
+        createdAt       = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
     }
 }
 

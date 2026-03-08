@@ -106,9 +106,6 @@ final class ClaudeService {
     /// 每个 Session 的 TodoList（key = sessionId）
     var sessionTodoLists: [String: [TodoItem]] = [:]
 
-    /// 每个 Session 的执行计划（key = sessionId）
-    var sessionExecutionPlans: [String: ExecutionPlan] = [:]
-
     /// 每个 Session 的完成验证记录（key = sessionId）
     var sessionVerifications: [String: CompletionVerification] = [:]
 

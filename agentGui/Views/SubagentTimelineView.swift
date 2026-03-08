@@ -19,12 +19,12 @@ struct SubagentTimelineView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(sortedRounds.indices, id: \.self) { index in
-                let round = sortedRounds[index]
+            ForEach(Array(sortedRounds.enumerated()), id: \.element.id) { index, round in
                 SubagentRoundRow(
                     round: round,
                     isLast: index == sortedRounds.count - 1
                 )
+                .equatable()
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .move(edge: .top)),
                     removal: .opacity
@@ -41,9 +41,11 @@ private struct SubagentRoundRow: View, Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.round.id == rhs.round.id &&
+        lhs.isLast == rhs.isLast &&
         lhs.round.hasThinking == rhs.round.hasThinking &&
-        lhs.round.sortedToolCalls.count == rhs.round.sortedToolCalls.count &&
-        lhs.isLast == rhs.isLast
+        lhs.round.text == rhs.round.text &&
+        lhs.round.thinkingContent == rhs.round.thinkingContent &&
+        lhs.round.sortedToolCalls.count == rhs.round.sortedToolCalls.count
     }
 
     let round: AgentRound

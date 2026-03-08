@@ -123,7 +123,8 @@ extension ClaudeService {
         name: String,
         input: MessageResponse.Content.Input,
         settings: AppSettings,
-        session: Session
+        session: Session,
+        modelContext: ModelContext
     ) async -> ToolExecutionResult {
         let sessionId = session.sessionId
         switch name {
@@ -159,7 +160,7 @@ extension ClaudeService {
         case "memory_write":
             return .detect(executeMemoryWrite(input: input), toolName: name)
         case "create_execution_plan":
-            return .detect(executeCreateExecutionPlan(input: input, sessionId: sessionId), toolName: name)
+            return .detect(executeCreateExecutionPlan(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "verify_completion":
             return .detect(executeVerifyCompletion(input: input, sessionId: sessionId), toolName: name)
         default:
@@ -188,8 +189,14 @@ extension ClaudeService {
 
     // MARK: Create Execution Plan
 
+    /// Parses the `create_execution_plan` tool call, persists the plan to `Session.planJson`,
+    /// and returns a human-readable confirmation string.
     @discardableResult
-    func executeCreateExecutionPlan(input: MessageResponse.Content.Input, sessionId: String) -> String {
+    func executeCreateExecutionPlan(
+        input: MessageResponse.Content.Input,
+        sessionId: String,
+        modelContext: ModelContext
+    ) -> String {
         guard let goal = input["goal"]?.stringValue else {
             return "Error: missing required parameter 'goal'"
         }
@@ -231,7 +238,10 @@ extension ClaudeService {
             assumptions: assumptions,
             successCriteria: successCriteria
         )
-        sessionExecutionPlans[sessionId] = plan
+
+        // Persist as part of the Session so it survives app restarts and is the
+        // single source of truth shared with the workflow plan path.
+        persistPlan(plan, sessionId: sessionId, modelContext: modelContext)
 
         let stepList = parsedSteps.enumerated()
             .map { "\($0.offset + 1). \($0.element.title)" }
@@ -244,6 +254,20 @@ extension ClaudeService {
         Assumptions: \(assumptions.isEmpty ? "none" : assumptions.joined(separator: "; "))
         Success criteria: \(successCriteria.isEmpty ? "none" : successCriteria.joined(separator: "; "))
         """
+    }
+
+    /// Encodes `plan` as JSON and writes it to the matching `Session.planJson`.
+    func persistPlan(_ plan: ExecutionPlan, sessionId: String, modelContext: ModelContext) {
+        guard let data = try? JSONEncoder().encode(plan),
+              let json = String(data: data, encoding: .utf8)
+        else { return }
+        let descriptor = FetchDescriptor<Session>(
+            predicate: #Predicate { $0.sessionId == sessionId }
+        )
+        if let session = (try? modelContext.fetch(descriptor))?.first {
+            session.planJson = json
+            try? modelContext.save()
+        }
     }
 
     // MARK: Verify Completion
@@ -343,13 +367,14 @@ extension ClaudeService {
         return nil
     }
 
-    /// Convenience overload used by subagent loops that only have a sessionId string.
-    /// Falls back to global settings working directory.
+    /// Convenience overload used by the core agentic loop (and subagents), which carries
+    /// a `sessionId` string and `ModelContext` but not a full `Session` object.
     func executeTool(
         name: String,
         input: MessageResponse.Content.Input,
         settings: AppSettings,
-        sessionId: String
+        sessionId: String,
+        modelContext: ModelContext
     ) async -> ToolExecutionResult {
         let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
         switch name {
@@ -384,7 +409,7 @@ extension ClaudeService {
         case "memory_write":
             return .detect(executeMemoryWrite(input: input), toolName: name)
         case "create_execution_plan":
-            return .detect(executeCreateExecutionPlan(input: input, sessionId: sessionId), toolName: name)
+            return .detect(executeCreateExecutionPlan(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "verify_completion":
             return .detect(executeVerifyCompletion(input: input, sessionId: sessionId), toolName: name)
         default:

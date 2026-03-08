@@ -281,6 +281,27 @@ final class WorkflowRuntime {
                 )
                 modelContext.insert(record)
                 instance.artifacts.append(record)
+
+                // Mirror plan artifacts to Session.planJson so regular-task and
+                // workflow plans share a single canonical persisted record.
+                if artifact.kind == .plan {
+                    let sessionId = context.sessionId
+                    let descriptor = FetchDescriptor<Session>(
+                        predicate: #Predicate { $0.sessionId == sessionId }
+                    )
+                    if let session = (try? modelContext.fetch(descriptor))?.first {
+                        // Prefer parsing to ExecutionPlan and re-encoding for key normalisation;
+                        // fall back to storing the raw contentJson if decoding fails.
+                        if let data = artifact.contentJson.data(using: .utf8),
+                           let parsed = try? JSONDecoder().decode(ExecutionPlan.self, from: data),
+                           let normalised = try? JSONEncoder().encode(parsed),
+                           let normJson = String(data: normalised, encoding: .utf8) {
+                            session.planJson = normJson
+                        } else {
+                            session.planJson = artifact.contentJson
+                        }
+                    }
+                }
             }
 
             try? modelContext.save()

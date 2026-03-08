@@ -350,7 +350,8 @@ extension ClaudeService {
                             name: pending.name,
                             input: input,
                             settings: settings,
-                            sessionId: sessionId
+                            sessionId: sessionId,
+                            modelContext: modelContext
                         )
                         pollTask?.cancel()
                     }
