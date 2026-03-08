@@ -51,6 +51,12 @@ struct FileEditorView: View {
                 clearEditor()
             }
         }
+        .onChange(of: workspaceState.externallyModifiedFile) { _, url in
+            guard let url, url == loadedFileURL else { return }
+            workspaceState.externallyModifiedFile = nil
+            guard !hasUnsavedChanges else { return }
+            loadFile(url)
+        }
         .alert("错误", isPresented: .constant(errorMessage != nil)) {
             Button("确定") { errorMessage = nil }
         } message: {
