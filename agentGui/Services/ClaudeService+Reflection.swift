@@ -27,12 +27,26 @@ struct Reflection {
 // MARK: - Reflection Prompt
 
 private let reflectionSystemPrompt = """
-You are a self-review assistant. Your only job is to evaluate the quality of an AI assistant's most recent response and output a JSON object. Do not add commentary outside the JSON.
+You are a failure-analysis assistant. A specific failure has just occurred in an AI agent loop. \
+Your job is to analyse the failure, identify root causes, and propose concrete fixes. \
+Output only a JSON object — no commentary outside it.
 """
 
-private func reflectionUserPrompt(threshold: Double) -> String {
-    """
-    Review the assistant's most recent response in the conversation above.
+private func reflectionUserPrompt(threshold: Double, failureTrigger: FailureTrigger?) -> String {
+    let triggerSection: String
+    if let trigger = failureTrigger {
+        triggerSection = """
+        ## Failure Event
+        \(trigger.description)
+
+        Analyse the cause of this specific failure and suggest concrete corrective actions.
+        """
+    } else {
+        triggerSection = "Review the assistant's most recent response in the conversation above."
+    }
+
+    return """
+    \(triggerSection)
 
     Respond ONLY with a valid JSON object in this exact schema:
     {
@@ -43,10 +57,10 @@ private func reflectionUserPrompt(threshold: Double) -> String {
     }
 
     Rules:
-    - confidence: 1.0 = goal fully achieved with no issues; 0.0 = completely wrong or incomplete.
-    - concerns: list any factual errors, missing steps, or unreliable tool results. Empty array if none.
-    - suggestedFixes: for each concern, one concrete corrective action. Empty array if none.
-    - shouldRetry: set to true ONLY when confidence < \(String(format: "%.2f", threshold)) AND there are actionable fixes.
+    - confidence: 1.0 = failure fully understood with clear fix; 0.0 = cause unknown.
+    - concerns: root causes of the failure. Required when a failure trigger is provided.
+    - suggestedFixes: for each concern, one concrete, actionable corrective step.
+    - shouldRetry: true ONLY when confidence < \(String(format: "%.2f", threshold)) AND there are actionable fixes.
 
     Return only the JSON object, no markdown fences or extra text.
     """
@@ -56,24 +70,26 @@ private func reflectionUserPrompt(threshold: Double) -> String {
 
 extension ClaudeService {
 
-    /// Performs one reflection pass on the current conversation.
+    /// Performs one failure-driven reflection pass on the current conversation.
     ///
     /// - Parameters:
     ///   - messages: The full conversation so far (including tool results from the last turn).
     ///   - service: The Anthropic service to use (same as main loop).
     ///   - modelId: Model ID (same as main loop).
     ///   - settings: AppSettings providing the confidence threshold.
+    ///   - failureTrigger: The failure event that triggered this reflection pass (non-nil in normal use).
     /// - Returns: A `Reflection`, or `nil` if the call fails or JSON cannot be parsed.
     func reflectOnRound(
         messages: [MessageParameter.Message],
         service: any AnthropicService,
         modelId: String,
-        settings: AppSettings
+        settings: AppSettings,
+        failureTrigger: FailureTrigger? = nil
     ) async -> Reflection? {
         let threshold = settings.reflectionConfidenceThreshold
         let userMsg = MessageParameter.Message(
             role: .user,
-            content: .text(reflectionUserPrompt(threshold: threshold))
+            content: .text(reflectionUserPrompt(threshold: threshold, failureTrigger: failureTrigger))
         )
         let params = MessageParameter(
             model: .other(modelId),

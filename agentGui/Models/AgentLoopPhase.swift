@@ -72,8 +72,12 @@ struct AgentLoopContext {
     /// Human-readable reason why the loop ended abnormally (available for UI / logging).
     var terminationReason: String? = nil
 
-    /// Number of reflection cycles completed in this run (capped at 2).
+    /// Number of reflection cycles completed in this run (capped at 3).
     var reflectionCount: Int = 0
+
+    /// The most recently detected failure event; consumed by the reflection phase and then cleared.
+    /// Reflection is only triggered when this is non-nil.
+    var pendingFailureTrigger: FailureTrigger? = nil
 
     // MARK: Convenience
 
@@ -121,5 +125,45 @@ struct AgentLoopContext {
     mutating func nextRound() -> Int {
         defer { roundIndex += 1 }
         return roundIndex
+    }
+}
+
+// MARK: - FailureTrigger
+
+/// Describes the class of failure event that should trigger failure-driven reflection.
+/// Reflection is only initiated when one of these three events is detected — not on every
+/// successful end_turn.
+enum FailureTrigger {
+
+    /// A tool execution returned an error (isError == true).
+    case toolFailure(toolName: String, errorText: String)
+
+    /// A reviewer sub-agent returned a "needs_revision" verdict.
+    case reviewerRejection(feedback: String)
+
+    /// An executor sub-agent returned a "failed" status for its verification run.
+    case executorValidationFailure(detail: String)
+
+    // MARK: Derived
+
+    /// Human-readable description for prompt injection and logging.
+    var description: String {
+        switch self {
+        case .toolFailure(let name, let err):
+            return "Tool '\(name)' failed: \(String(err.prefix(300)))"
+        case .reviewerRejection(let fb):
+            return "Reviewer rejected: \(String(fb.prefix(300)))"
+        case .executorValidationFailure(let d):
+            return "Executor validation failed: \(String(d.prefix(300)))"
+        }
+    }
+
+    /// Short label used as `FailedAttempt.action` in TaskMemory.
+    var actionLabel: String {
+        switch self {
+        case .toolFailure(let name, _):    return "tool:\(name)"
+        case .reviewerRejection:           return "reviewer_rejection"
+        case .executorValidationFailure:   return "executor_validation_failure"
+        }
     }
 }

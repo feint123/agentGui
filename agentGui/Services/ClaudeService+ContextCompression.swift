@@ -81,7 +81,7 @@ extension ClaudeService {
     // MARK: - Constants
 
     /// Compression fires when input token usage exceeds this fraction of the context window.
-    private static let compressionThreshold: Double = 0.1;
+    private static let compressionThreshold: Double = 0.05;
 
     /// Number of most-recent messages to keep verbatim after compression.
     private static let recentMessageCount: Int = 6

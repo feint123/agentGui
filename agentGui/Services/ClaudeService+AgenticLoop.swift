@@ -119,14 +119,18 @@ extension ClaudeService {
             // It must be handled here, before the streaming block, so that
             // loopCtx.transition(stopReason:) cannot overwrite the phase.
             if loopCtx.phase == .reflecting {
-                print("[Reflection] Starting reflection pass \(loopCtx.reflectionCount + 1)")
-                let lastRoundIndex = loopCtx.roundIndex - 1
+                let trigger = loopCtx.pendingFailureTrigger
+                print("[Reflection] Starting failure-driven reflection pass \(loopCtx.reflectionCount + 1), trigger: \(trigger?.description ?? "none")")
                 let reflection = await reflectOnRound(
                     messages: messages,
                     service: service,
                     modelId: modelId,
-                    settings: settings
+                    settings: settings,
+                    failureTrigger: trigger
                 )
+                // Consume the failure trigger regardless of reflection outcome
+                loopCtx.pendingFailureTrigger = nil
+
                 // Persist on the most-recent round (already created by the previous iteration)
                 if let ref = reflection {
                     print("[Reflection] confidence=\(ref.confidence) retry=\(ref.shouldRetry)")
@@ -138,14 +142,41 @@ extension ClaudeService {
                         round.reflectionShouldRetry = ref.shouldRetry
                         try? modelContext.save()
                     }
+
+                    // Write failure + diagnosis to durable TaskMemory so subsequent rounds (and
+                    // future sessions) can avoid repeating the same mistake.
+                    if (!ref.concerns.isEmpty || !ref.suggestedFixes.isEmpty), !sessionId.isEmpty {
+                        var taskMem = TaskMemoryService.shared.load(sessionId: sessionId)
+                            ?? TaskMemory(sessionId: sessionId)
+                        let actionLabel = trigger?.actionLabel ?? "unknown_failure"
+                        let reasonSummary = ref.concerns.prefix(3).joined(separator: "; ")
+                        // Avoid duplicate entries for the same failure action
+                        if !taskMem.failedAttempts.contains(where: { $0.action == actionLabel }) {
+                            taskMem.failedAttempts.append(
+                                FailedAttempt(action: actionLabel, reason: reasonSummary)
+                            )
+                        }
+                        for fix in ref.suggestedFixes.prefix(3) {
+                            let entry = "Reflection fix: \(fix)"
+                            if !taskMem.attemptedActions.contains(entry) {
+                                taskMem.attemptedActions.append(entry)
+                            }
+                        }
+                        taskMem.lastUpdated = Date()
+                        TaskMemoryService.shared.save(taskMem)
+                        print("[Reflection] Wrote failure record to TaskMemory (session \(sessionId))")
+                    }
+
+                    // Inject a targeted correction turn only when a retry is warranted
                     if ref.shouldRetry && !ref.suggestedFixes.isEmpty {
+                        let triggerContext = trigger.map { "Triggered by: \($0.description)\n\n" } ?? ""
                         let fixList = ref.suggestedFixes
                             .enumerated()
                             .map { "\($0.offset + 1). \($0.element)" }
                             .joined(separator: "\n")
                         let correctionPrompt = """
-                            Your previous response was reviewed and issues were identified. \
-                            Please address the following and provide a corrected response:\n\(fixList)
+                            \(triggerContext)A failure was detected and analysed. \
+                            Please address the following corrections before retrying:\n\(fixList)
                             """
                         messages.append(.init(role: .user, content: .text(correctionPrompt)))
                     }
@@ -379,6 +410,25 @@ extension ClaudeService {
                     record.endTime = Date()
                     try? modelContext.save()
 
+                    // Detect failure events that warrant failure-driven reflection.
+                    // Tool error takes priority; for subagents, inspect the result text for
+                    // reviewer rejection or executor validation failure signals.
+                    if result.isError {
+                        loopCtx.pendingFailureTrigger = .toolFailure(
+                            toolName: pending.name,
+                            errorText: result.text
+                        )
+                    } else if pending.name == "run_subagent" {
+                        let agentName = input["agent_name"]?.stringValue ?? ""
+                        if agentName == "reviewer" && result.text.contains("needs_revision") {
+                            loopCtx.pendingFailureTrigger = .reviewerRejection(feedback: result.text)
+                        } else if agentName == "executor" &&
+                                  (result.text.contains("\"status\": \"failed\"") ||
+                                   result.text.contains("\"status\":\"failed\"")) {
+                            loopCtx.pendingFailureTrigger = .executorValidationFailure(detail: result.text)
+                        }
+                    }
+
                     toolResultObjects.append(.toolResult(pending.id, result.text, isError: result.isError ? true : nil))
                     toolResultObjects.append(contentsOf: result.mediaContent)
                 }
@@ -411,8 +461,12 @@ extension ClaudeService {
                 loopCtx.continuationInjected()
 
             case .finalizing:
-                // Normal end_turn — trigger reflection if enabled and retry budget remains
-                if settings.enableReflection && loopCtx.reflectionCount < 2 {
+                // Failure-driven reflection: only trigger when a specific failure event was detected
+                // (tool error, reviewer rejection, or executor validation failure). Generic
+                // end_turns without failures skip reflection entirely.
+                if settings.enableReflection,
+                   loopCtx.pendingFailureTrigger != nil,
+                   loopCtx.reflectionCount < 3 {
                     loopCtx.phase = .reflecting
                 }
                 // else: shouldContinue becomes false, loop exits naturally
