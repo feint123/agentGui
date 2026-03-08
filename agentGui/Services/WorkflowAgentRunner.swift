@@ -44,6 +44,50 @@ struct WorkflowAgentRunner {
         print("[Workflow] ▶ \(role.displayName) activation | tools=\(tools.count) inbox=\(inboxMessages.count) maxTurns=\(role.maxTurnsPerActivation)")
         print("[Workflow]   task preview: \(task.prefix(200).replacingOccurrences(of: "\n", with: " "))")
 
+        // Artifact capture: roles with a primaryOutputArtifactKind MUST call
+        // emit_workflow_artifact. If they don't, the activation is marked failed.
+        let collector = WorkflowEmitCollector()
+        let workflowId = context.workflowId
+        let roleName = role.name
+        let existingVersion = role.primaryOutputArtifactKind.flatMap { k in
+            context.artifacts["\(k.rawValue)-\(workflowId.uuidString.prefix(8))"]?.version
+        } ?? 0
+
+        // Build the interceptor only when an artifact output is required for this role
+        let artifactInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)?
+        if role.primaryOutputArtifactKind != nil {
+            artifactInterceptor = { [collector] toolName, input in
+                guard toolName == "emit_workflow_artifact" else { return nil }
+                guard let kindRaw = input["kind"]?.stringValue,
+                      let kind = WorkflowArtifactKind(rawValue: kindRaw),
+                      let contentJson = input["contentJson"]?.stringValue else {
+                    return .missingParameter("kind or contentJson")
+                }
+                guard let data = contentJson.data(using: .utf8),
+                      (try? JSONSerialization.jsonObject(with: data)) != nil else {
+                    return .failure("Error: contentJson is not valid JSON")
+                }
+                let statusRaw = input["status"]?.stringValue ?? ArtifactStatus.draft.rawValue
+                let artifactStatus = ArtifactStatus(rawValue: statusRaw) ?? .draft
+                let artifactId = "\(kind.rawValue)-\(workflowId.uuidString.prefix(8))"
+                let version = existingVersion + 1
+                let artifact = WorkflowArtifact(
+                    id: artifactId,
+                    workflowId: workflowId,
+                    kind: kind,
+                    title: "\(kind.displayName) v\(version)",
+                    producer: roleName,
+                    version: version,
+                    contentJson: contentJson,
+                    status: artifactStatus
+                )
+                await collector.capture(artifact)
+                return .success("Artifact '\(kind.displayName)' v\(version) registered.")
+            }
+        } else {
+            artifactInterceptor = nil
+        }
+
         let startTime = Date()
         let outputText = try await claudeService.runCoreAgentLoop(
             messages: &loopMessages,
@@ -62,27 +106,35 @@ struct WorkflowAgentRunner {
             },
             parentMessage: nil,
             onTextAccumulated: { text in
-                // Surface the last chunk of text as the "current action" for the UI
                 let snippet = text.split(separator: "\n", omittingEmptySubsequences: true).last.map(String.init) ?? ""
                 if !snippet.isEmpty {
                     onAction?(String(snippet.prefix(80)))
                 }
-            }
+            },
+            toolInterceptor: artifactInterceptor
         )
 
         let elapsed = Date().timeIntervalSince(startTime)
         let turnsUsed = max(1, loopMessages.count / 2)
+        let capturedArtifact = await collector.capturedArtifact
 
-        print("[Workflow] ✓ \(role.displayName) loop done | elapsed=\(String(format: "%.1fs", elapsed)) turns=\(turnsUsed) outputLen=\(outputText.count)")
+        print("[Workflow] ✓ \(role.displayName) loop done | elapsed=\(String(format: "%.1fs", elapsed)) turns=\(turnsUsed) outputLen=\(outputText.count) artifact=\(capturedArtifact.map { $0.kind.displayName } ?? "none")")
 
-        // Parse the agent output into workflow messages and artifacts
-        let (newMessages, newArtifacts) = parseOutput(
-            text: outputText,
+        let resultKind: ActivationResultKind
+        if outputText.isEmpty {
+            resultKind = .failed
+        } else if role.primaryOutputArtifactKind != nil, capturedArtifact == nil {
+            print("[Workflow] ✗ \(role.displayName) rejected — emit_workflow_artifact was not called")
+            resultKind = .failed
+        } else {
+            resultKind = .success
+        }
+
+        let (newMessages, newArtifacts) = buildOutputFromCapture(
+            capturedArtifact: capturedArtifact,
             role: role,
             context: context
         )
-
-        let resultKind: ActivationResultKind = outputText.isEmpty ? .failed : .success
         let summary = buildSummary(outputText: outputText, role: role, elapsed: elapsed)
 
         print("[Workflow]   artifacts=\(newArtifacts.map(\.kind.displayName).joined(separator: ",")) msgs=\(newMessages.map(\.kind.displayName).joined(separator: ","))")
@@ -156,110 +208,89 @@ struct WorkflowAgentRunner {
             }
         }
 
+        // Mandatory output requirement: remind the agent it must call emit_workflow_artifact
+        if let kind = role.primaryOutputArtifactKind {
+            parts.append("\n## ⚠ Required: Emit Artifact")
+            parts.append("""
+            You **must** call the `emit_workflow_artifact` tool exactly once before finishing. \
+            Use `kind = "\(kind.rawValue)"`, `schemaVersion = 1`, and put your complete structured \
+            output in `contentJson` as a valid JSON string. \
+            **Failing to call this tool will mark your activation as failed.**
+            """)
+        }
+
         return parts.joined(separator: "\n")
     }
 
     // MARK: - Tool Construction
 
     private func buildTools(role: WorkflowRoleDefinition) -> [MessageParameter.Tool] {
-        // Delegate to a stub-compatible helper on ClaudeService
-        // using the role's tool configuration flags.
         let stub = WorkflowToolStub(
             enableTextEditor: role.enableTextEditor,
             enableBash: role.enableBash,
             enableWebSearch: role.enableWebSearch && settings.enableWebSearchTool,
             enableWebFetch: role.enableWebFetch && settings.enableWebFetchTool
         )
-        return stub.buildTools()
+        var tools = stub.buildTools()
+        if role.primaryOutputArtifactKind != nil {
+            tools.append(makeEmitArtifactTool())
+        }
+        return tools
     }
 
-    // MARK: - Output Parsing
+    private func makeEmitArtifactTool() -> MessageParameter.Tool {
+        .function(
+            name: "emit_workflow_artifact",
+            description: """
+            Submit the structured artifact that is the primary output of this activation. \
+            You MUST call this tool exactly once before finishing. \
+            Not calling it means your activation is rejected.
+            """,
+            inputSchema: .init(
+                type: .object,
+                properties: [
+                    "kind": .init(type: .string,
+                        description: "Artifact kind: plan | explorationReport | codePatchSummary | reviewReport | testReport | decisionLog | finalAnswer"),
+                    "schemaVersion": .init(type: .integer,
+                        description: "Schema version. Use 1."),
+                    "contentJson": .init(type: .string,
+                        description: "Full artifact payload serialised as a valid JSON string."),
+                    "status": .init(type: .string,
+                        description: "Artifact status: draft | approved | rejected | superseded (default: draft)")
+                ],
+                required: ["kind", "schemaVersion", "contentJson"]
+            )
+        )
+    }
 
-    /// Attempts to extract structured messages and artifacts from agent output.
-    /// Falls back to a generic statusUpdate message if no structured output is found.
-    private func parseOutput(
-        text: String,
+    // MARK: - Output Assembly
+
+    /// Builds output messages and artifacts from the artifact explicitly emitted
+    /// via the `emit_workflow_artifact` tool call. If no artifact was captured,
+    /// returns empty arrays (caller is responsible for failing the activation).
+    private func buildOutputFromCapture(
+        capturedArtifact: WorkflowArtifact?,
         role: WorkflowRoleDefinition,
         context: WorkflowContext
     ) -> ([WorkflowMessage], [WorkflowArtifact]) {
+        guard let artifact = capturedArtifact else {
+            return ([], [])
+        }
+
         var messages: [WorkflowMessage] = []
-        var artifacts: [WorkflowArtifact] = []
-
-        // Try to extract a JSON artifact if the role produces one
-        if let artifact = tryExtractArtifact(from: text, role: role, context: context) {
-            artifacts.append(artifact)
-            // Emit a handoff/statusUpdate pointing at the artifact
-            let recipients = role.defaultOutputRecipients(context: context)
-            if !recipients.isEmpty {
-                messages.append(WorkflowMessage(
-                    workflowId: context.workflowId,
-                    sender: role.name,
-                    recipients: recipients,
-                    kind: role.defaultOutputMessageKind,
-                    subject: "\(role.displayName) produced \(artifact.kind.displayName)",
-                    body: "See artifact: \(artifact.id)",
-                    artifactRefs: [artifact.id]
-                ))
-            }
-        } else {
-            // No structured artifact — emit a plain statusUpdate
-            let recipients = role.defaultOutputRecipients(context: context)
-            if !recipients.isEmpty {
-                messages.append(WorkflowMessage(
-                    workflowId: context.workflowId,
-                    sender: role.name,
-                    recipients: recipients,
-                    kind: .statusUpdate,
-                    subject: "\(role.displayName) completed activation",
-                    body: text.count > 500 ? String(text.prefix(500)) + "…" : text
-                ))
-            }
+        let recipients = role.defaultOutputRecipients(context: context)
+        if !recipients.isEmpty {
+            messages.append(WorkflowMessage(
+                workflowId: context.workflowId,
+                sender: role.name,
+                recipients: recipients,
+                kind: role.defaultOutputMessageKind,
+                subject: "\(role.displayName) produced \(artifact.kind.displayName)",
+                body: "See artifact: \(artifact.id)",
+                artifactRefs: [artifact.id]
+            ))
         }
-
-        return (messages, artifacts)
-    }
-
-    private func tryExtractArtifact(
-        from text: String,
-        role: WorkflowRoleDefinition,
-        context: WorkflowContext
-    ) -> WorkflowArtifact? {
-        guard let kind = role.primaryOutputArtifactKind else { return nil }
-
-        // Look for a JSON block in the output
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        var jsonCandidate: String? = nil
-
-        // Try fenced ```json block first
-        if let range = trimmed.range(of: "```json\n"),
-           let endRange = trimmed.range(of: "\n```", range: range.upperBound..<trimmed.endIndex) {
-            jsonCandidate = String(trimmed[range.upperBound..<endRange.lowerBound])
-        }
-
-        // Fall back to bare JSON object
-        if jsonCandidate == nil && (trimmed.hasPrefix("{") || trimmed.hasPrefix("[")) {
-            jsonCandidate = trimmed
-        }
-
-        guard let json = jsonCandidate,
-              let data = json.data(using: .utf8),
-              (try? JSONSerialization.jsonObject(with: data)) != nil
-        else { return nil }
-
-        let artifactId = "\(kind.rawValue)-\(context.workflowId.uuidString.prefix(8))"
-        let existing = context.artifacts[artifactId]
-        let version = (existing?.version ?? 0) + 1
-
-        return WorkflowArtifact(
-            id: artifactId,
-            workflowId: context.workflowId,
-            kind: kind,
-            title: "\(kind.displayName) v\(version)",
-            producer: role.name,
-            version: version,
-            contentJson: json,
-            status: .draft
-        )
+        return (messages, [artifact])
     }
 
     private func buildSummary(outputText: String, role: WorkflowRoleDefinition, elapsed: TimeInterval) -> String {
@@ -268,6 +299,18 @@ struct WorkflowAgentRunner {
             .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
         let preview = first.count > 120 ? String(first.prefix(120)) + "…" : first
         return "[\(role.displayName)] \(String(format: "%.1fs", elapsed)) — \(preview)"
+    }
+}
+
+// MARK: - WorkflowEmitCollector
+
+/// Captures the artifact emitted by the `emit_workflow_artifact` tool call
+/// during a single agent activation. Thread-safe via actor isolation.
+private actor WorkflowEmitCollector {
+    private(set) var capturedArtifact: WorkflowArtifact? = nil
+
+    func capture(_ artifact: WorkflowArtifact) {
+        capturedArtifact = artifact
     }
 }
 

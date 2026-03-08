@@ -9,25 +9,211 @@ import SwiftUI
 import AppKit
 import BeautifulMermaid
 
+// MARK: - Markdown Block Cache
+
+/// Markdown 解析缓存管理器
+@Observable
+final class MarkdownBlockCache {
+    private var storage: [String: CachedBlockList] = [:]
+
+    func getBlocks(for text: String, baseText: String? = nil, parser: @escaping (String) -> [CachedBlock]) -> [CachedBlock] {
+        let textKey = text.isEmpty ? "" : text
+
+        // 如果缓存完全匹配，直接返回
+        if let cached = storage[textKey] {
+            return cached.blocks
+        }
+
+        // 检查是否是增量更新（append-only）
+        if let base = baseText, !base.isEmpty, text.hasPrefix(base) {
+            if let baseCached = storage[base] {
+                return appendBlocks(to: baseCached.blocks, baseText: base, newText: text, parser: parser)
+            }
+        }
+
+        // 完全重新解析
+        let blocks = parser(text)
+        storage[textKey] = CachedBlockList(blocks: blocks, textLength: text.count)
+        return blocks
+    }
+
+    /// 增量解析：只解析新增的部分
+    private func appendBlocks(to baseBlocks: [CachedBlock], baseText: String, newText: String, parser: @escaping (String) -> [CachedBlock]) -> [CachedBlock] {
+        guard newText.count > baseText.count else { return baseBlocks }
+
+        // 找出新增的文本
+        let appendedText = String(newText.dropFirst(baseText.count))
+
+        var result = baseBlocks
+
+        // 检测新文本是否包含复杂的 markdown 结构
+        let hasComplexStructure = containsComplexMarkdown(appendedText)
+
+        // 如果最后一个 block 是 text 类型，且新文本不包含复杂结构
+        if let lastBlock = result.last,
+           lastBlock.kind == .text,
+           !hasComplexStructure {
+            // 简单地将新文本追加到最后的 text block
+            let updatedBlock = CachedBlock(kind: .text, content: lastBlock.content + appendedText)
+            result[result.count - 1] = updatedBlock
+        } else {
+            // 直接解析新增文本并追加
+            let newBlocks = parser(appendedText)
+            result.append(contentsOf: newBlocks)
+        }
+
+        // 更新缓存
+        storage[newText] = CachedBlockList(blocks: result, textLength: newText.count)
+        return result
+    }
+
+    /// 检测文本是否包含复杂的 markdown 结构
+    private func containsComplexMarkdown(_ text: String) -> Bool {
+        // 检测是否包含以下结构：
+        // - ATX heading (#)
+        // - 代码块 (```)
+        // - 分割线 (---, ***, ___)
+        // - 表格行 (|)
+        // - Setext heading 下划线 (====, ----)
+
+        let lines = text.components(separatedBy: "\n")
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // ATX heading
+            if trimmed.hasPrefix("#") { return true }
+
+            // 代码块标记
+            if trimmed.hasPrefix("```") { return true }
+
+            // 表格行
+            if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") && trimmed.count > 2 {
+                return true
+            }
+
+            // 分割线
+            if isThematicBreak(trimmed) { return true }
+        }
+
+        // 检测 Setext heading（以下一行的 ==== 或 ---- 为准）
+        for i in 0..<(lines.count - 1) {
+            let nextLine = lines[i + 1].trimmingCharacters(in: .whitespaces)
+            if nextLine.allSatisfy({ $0 == "=" }) || nextLine.allSatisfy({ $0 == "-" }) {
+                if nextLine.count >= 2 {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    /// 检测是否是分割线
+    private func isThematicBreak(_ s: String) -> Bool {
+        guard s.count >= 3 else { return false }
+        let chars = Set(s.filter { !$0.isWhitespace })
+        return chars.count == 1 && (chars.contains("-") || chars.contains("*") || chars.contains("_"))
+    }
+
+    func clear() {
+        storage.removeAll()
+    }
+}
+
+/// 缓存的 block 列表
+private struct CachedBlockList {
+    let blocks: [CachedBlock]
+    let textLength: Int
+}
+
+/// 缓存的 block（可序列化的 block 数据）
+struct CachedBlock: Identifiable, Equatable {
+    let id = UUID()
+    enum Kind: Equatable {
+        case text
+        case heading(level: Int)
+        case divider
+        case code(language: String?)
+        case table(headers: [String], alignments: TableAlignmentArray, rows: [[String]])
+
+        static func == (lhs: Kind, rhs: Kind) -> Bool {
+            switch (lhs, rhs) {
+            case (.text, .text), (.divider, .divider):
+                return true
+            case (.heading(let l), .heading(let r)):
+                return l == r
+            case (.code(let l), .code(let r)):
+                return l == r
+            case (.table(let lh, let la, let lr), .table(let rh, let ra, let rr)):
+                return lh == rh && la.alignments == ra.alignments && lr == rr
+            default:
+                return false
+            }
+        }
+    }
+    let kind: Kind
+    let content: String
+
+    static func == (lhs: CachedBlock, rhs: CachedBlock) -> Bool {
+        lhs.kind == rhs.kind && lhs.content == rhs.content
+    }
+}
+
+/// 表格对齐数组（可序列化）
+struct TableAlignmentArray: Equatable {
+    let alignments: [HorizontalAlignment]
+    init(_ alignments: [HorizontalAlignment]) {
+        self.alignments = alignments
+    }
+}
+
 // MARK: - Markdown Message View
 
 /// 块级 Markdown 渲染视图
 /// 按行扫描，识别标题 / 分割线 / 表格 / 代码块 / 普通文本段，各类型专属渲染
+/// 支持 stream 输出的增量渲染和缓存
 struct MarkdownMessageView: View {
     let text: String
 
+    @SwiftUI.State private var cache = MarkdownBlockCache()
+    @SwiftUI.State private var blocks: [CachedBlock] = []
+    @SwiftUI.State private var lastTextLength: Int = 0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(parseBlocks(text)) { block in
+            ForEach(blocks) { block in
                 blockView(block)
+                    .id(block.id) // 稳定 ID 帮助 SwiftUI 复用视图
             }
         }
+        .onChange(of: text) { oldValue, newValue in
+            updateBlocks(oldText: oldValue, newText: newValue)
+        }
+        .onAppear {
+            blocks = cache.getBlocks(for: text, parser: parseCachedBlocks)
+            lastTextLength = text.count
+        }
+    }
+
+    private func updateBlocks(oldText: String, newText: String) {
+        // 检测是否是增量更新（stream 模式下通常是追加）
+        let isAppendOnly = newText.hasPrefix(oldText) && newText.count >= oldText.count
+
+        if isAppendOnly {
+            // 使用增量解析
+            blocks = cache.getBlocks(for: newText, baseText: oldText, parser: parseCachedBlocks)
+        } else {
+            // 完全重新解析
+            blocks = cache.getBlocks(for: newText, parser: parseCachedBlocks)
+        }
+
+        lastTextLength = newText.count
     }
 
     // MARK: - Block Rendering
 
     @ViewBuilder
-    private func blockView(_ block: MarkdownBlock) -> some View {
+    private func blockView(_ block: CachedBlock) -> some View {
         switch block.kind {
         case .text:
             inlineText(block.content)
@@ -54,7 +240,25 @@ struct MarkdownMessageView: View {
             }
 
         case .table(let headers, let alignments, let rows):
-            MarkdownTableView(headers: headers, alignments: alignments, rows: rows)
+            MarkdownTableView(headers: headers, alignments: alignments.alignments, rows: rows)
+        }
+    }
+
+    /// 解析并缓存 blocks
+    private func parseCachedBlocks(_ text: String) -> [CachedBlock] {
+        return parseBlocksImpl(text).map { block in
+            switch block.kind {
+            case .text:
+                return CachedBlock(kind: .text, content: block.content)
+            case .heading(let level):
+                return CachedBlock(kind: .heading(level: level), content: block.content)
+            case .divider:
+                return CachedBlock(kind: .divider, content: block.content)
+            case .code(let language):
+                return CachedBlock(kind: .code(language: language), content: block.content)
+            case .table(let headers, let alignments, let rows):
+                return CachedBlock(kind: .table(headers: headers, alignments: TableAlignmentArray(alignments), rows: rows), content: block.content)
+            }
         }
     }
 
@@ -85,7 +289,14 @@ struct MarkdownMessageView: View {
 
     // MARK: - Block Parser
 
+    /// 解析 Markdown 文本为 blocks
+    /// 这个实现是独立的，不依赖实例状态，可以从缓存类中调用
     private func parseBlocks(_ input: String) -> [MarkdownBlock] {
+        return parseBlocksImpl(input)
+    }
+
+    /// 实际的解析实现，被缓存类使用
+    fileprivate func parseBlocksImpl(_ input: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
         let lines = input.components(separatedBy: "\n")
         var i = 0
@@ -222,17 +433,36 @@ struct MarkdownMessageView: View {
 
 // MARK: - Markdown Block Model
 
-private struct MarkdownBlock: Identifiable {
+private struct MarkdownBlock: Identifiable, Equatable {
     let id = UUID()
-    enum Kind {
+    enum Kind: Equatable {
         case text
         case heading(level: Int)
         case divider
         case code(language: String?)
         case table(headers: [String], alignments: [HorizontalAlignment], rows: [[String]])
+
+        static func == (lhs: Kind, rhs: Kind) -> Bool {
+            switch (lhs, rhs) {
+            case (.text, .text), (.divider, .divider):
+                return true
+            case (.heading(let l), .heading(let r)):
+                return l == r
+            case (.code(let l), .code(let r)):
+                return l == r
+            case (.table(let lh, let la, let lr), .table(let rh, let ra, let rr)):
+                return lh == rh && la == ra && lr == rr
+            default:
+                return false
+            }
+        }
     }
     let kind: Kind
     let content: String
+
+    static func == (lhs: MarkdownBlock, rhs: MarkdownBlock) -> Bool {
+        lhs.kind == rhs.kind && lhs.content == rhs.content
+    }
 }
 
 // MARK: - Table View

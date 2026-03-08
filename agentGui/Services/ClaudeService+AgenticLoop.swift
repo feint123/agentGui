@@ -90,7 +90,8 @@ extension ClaudeService {
         maxRounds: Int,
         makeRound: (Int) -> AgentRound,
         parentMessage: Message?,
-        onTextAccumulated: (String) -> Void
+        onTextAccumulated: (String) -> Void,
+        toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)? = nil
     ) async throws -> String {
         var accumulatedText = ""
         var loopCtx = AgentLoopContext(phase: .executing)
@@ -304,7 +305,10 @@ extension ClaudeService {
                     try? modelContext.save()
 
                     let result: ToolExecutionResult
-                    if pending.name == "run_subagent" {
+                    if let interceptor = toolInterceptor,
+                       let intercepted = await interceptor(pending.name, input) {
+                        result = intercepted
+                    } else if pending.name == "run_subagent" {
                         let agentMsg = await executeRunSubagentTool(
                             input: input,
                             toolCallRecord: record,
