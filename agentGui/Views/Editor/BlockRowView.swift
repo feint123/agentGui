@@ -584,17 +584,8 @@ private struct QuoteRenderedContent: View {
     let placeholder: String
     let onTap: () -> Void
 
-    // Cache the parsed document to avoid re-parsing on every render
-    @State private var cachedDoc: BlockDocument?
-    @State private var cachedTextHash: Int = 0
-
     private var innerDoc: BlockDocument {
-        let currentHash = text.hashValue
-        if cachedTextHash != currentHash {
-            cachedDoc = BlockMarkdownCodec.parse(text, fileURL: nil)
-            cachedTextHash = currentHash
-        }
-        return cachedDoc ?? BlockDocument.empty
+        BlockMarkdownCodec.parse(text, fileURL: nil)
     }
 
     var body: some View {
@@ -744,7 +735,13 @@ private struct QuoteInlineBlockView: View {
                 .frame(width: 3)
                 .padding(.trailing, 10)
             if depth < 10 {
-                CachedNestedQuoteContent(text: block.text, depth: depth + 1)
+                let innerDoc = BlockMarkdownCodec.parse(block.text, fileURL: nil)
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(innerDoc.blocks) { innerBlock in
+                        QuoteInlineBlockView(block: innerBlock, depth: depth + 1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.vertical, 2)
@@ -834,33 +831,6 @@ private struct BlockImagePreview: View {
         } else {
             return "图片加载失败"
         }
-    }
-}
-
-/// Cached view for nested quote content to avoid re-parsing during scrolling
-private struct CachedNestedQuoteContent: View {
-    let text: String
-    let depth: Int
-
-    @State private var cachedDoc: BlockDocument?
-    @State private var cachedTextHash: Int = 0
-
-    private var parsedDoc: BlockDocument {
-        let currentHash = text.hashValue
-        if cachedTextHash != currentHash {
-            cachedDoc = BlockMarkdownCodec.parse(text, fileURL: nil)
-            cachedTextHash = currentHash
-        }
-        return cachedDoc ?? BlockDocument.empty
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(parsedDoc.blocks) { innerBlock in
-                QuoteInlineBlockView(block: innerBlock, depth: depth)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
