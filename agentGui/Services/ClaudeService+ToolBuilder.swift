@@ -358,6 +358,135 @@ extension ClaudeService {
             ))
 
             tools.append(.function(
+                name: "story_memory_upsert_chapter",
+                description: "Create or update a chapter record in the active writing project.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "chapter_number": .init(type: .integer, description: "Chapter number"),
+                        "title": .init(type: .string, description: "Chapter title"),
+                        "outline": .init(type: .string, description: "Optional chapter outline"),
+                        "summary": .init(type: .string, description: "Optional chapter summary"),
+                        "tone_directive": .init(type: .string, description: "Optional tone directive"),
+                        "is_locked": .init(type: .boolean, description: "Whether the chapter should be treated as locked canon")
+                    ],
+                    required: ["chapter_number", "title"]
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_upsert_scene",
+                description: "Create or update a scene record under an existing chapter in the active writing project.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "chapter_number": .init(type: .integer, description: "Chapter number containing the scene"),
+                        "scene_index": .init(type: .integer, description: "Scene index within the chapter"),
+                        "title": .init(type: .string, description: "Scene title"),
+                        "content": .init(type: .string, description: "Optional scene content"),
+                        "pov_character_name": .init(type: .string, description: "Optional POV character name"),
+                        "location_name": .init(type: .string, description: "Optional scene location"),
+                        "character_names": .init(type: .array, description: "Optional list of character names present in the scene"),
+                        "summary": .init(type: .string, description: "Optional scene summary"),
+                        "previous_scene_id": .init(type: .string, description: "Optional UUID string of the previous scene"),
+                        "timeline_event_id": .init(type: .string, description: "Optional UUID string of a linked timeline event")
+                    ],
+                    required: ["chapter_number", "scene_index", "title"]
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_upsert_world_rule",
+                description: "Create or update a world rule in the active writing project.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "title": .init(type: .string, description: "Rule title"),
+                        "category": .init(type: .string, description: "Optional rule category"),
+                        "detail": .init(type: .string, description: "Optional rule detail"),
+                        "scope": .init(type: .string, description: "Optional rule scope"),
+                        "exceptions": .init(type: .array, description: "Optional list of exception strings"),
+                        "established_in_chapter": .init(type: .integer, description: "Optional chapter where the rule was established"),
+                        "related_entities": .init(type: .array, description: "Optional list of related entities"),
+                        "mutable_policy": .init(type: .string, description: "Optional mutability policy")
+                    ],
+                    required: ["title"]
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_upsert_location",
+                description: "Create or update a location profile in the active writing project.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "name": .init(type: .string, description: "Location name"),
+                        "summary": .init(type: .string, description: "Optional location summary"),
+                        "traits": .init(type: .array, description: "Optional list of location traits"),
+                        "related_rules": .init(type: .array, description: "Optional list of related rule titles"),
+                        "occupant_names": .init(type: .array, description: "Optional list of occupant names")
+                    ],
+                    required: ["name"]
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_upsert_foreshadow",
+                description: "Create or update a foreshadow item in the active writing project.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "tag": .init(type: .string, description: "Foreshadow tag"),
+                        "introduced_in_chapter": .init(type: .integer, description: "Optional chapter the foreshadow was introduced"),
+                        "detail": .init(type: .string, description: "Optional foreshadow detail"),
+                        "related_event_ids": .init(type: .array, description: "Optional list of related event UUID strings"),
+                        "status": .init(type: .string, description: "Optional foreshadow status"),
+                        "resolved_in_chapter": .init(type: .integer, description: "Optional chapter where the foreshadow was resolved")
+                    ],
+                    required: ["tag"]
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_upsert_style_profile",
+                description: "Create or update the singleton style profile for the active writing project.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "author_preferences": .init(type: .string, description: "Optional author preference summary"),
+                        "narrative_voice": .init(type: .string, description: "Optional narrative voice directive"),
+                        "sentence_length_mean": .init(type: .number, description: "Optional average sentence length target"),
+                        "dialogue_ratio": .init(type: .number, description: "Optional dialogue ratio target"),
+                        "imagery_density": .init(type: .number, description: "Optional imagery density target"),
+                        "sample_passages": .init(type: .array, description: "Optional list of sample passages"),
+                        "anti_patterns": .init(type: .array, description: "Optional list of style anti-patterns")
+                    ],
+                    required: []
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_update_continuity_issue",
+                description: "Update the status of an existing continuity issue in the active writing project.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "issue_id": .init(type: .string, description: "UUID string of the continuity issue"),
+                        "resolution_status": .init(type: .string, description: "One of: open | accepted | resolved | wont_fix"),
+                        "resolution_note": .init(type: .string, description: "Optional note explaining the resolution")
+                    ],
+                    required: ["issue_id", "resolution_status"]
+                )
+            ))
+
+            tools.append(.function(
                 name: "story_memory_append_event",
                 description: "Append a timeline event to the active writing project.",
                 inputSchema: .init(
@@ -380,16 +509,18 @@ extension ClaudeService {
 
             tools.append(.function(
                 name: "story_memory_query",
-                description: "Query the active writing project for characters, recent events, or unresolved foreshadows.",
+                description: "Query the active writing project for structured story memory entities.",
                 inputSchema: .init(
                     type: .object,
                     properties: [
                         "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
-                        "query_kind": .init(type: .string, description: "One of: characters | events | foreshadows"),
+                        "query_kind": .init(type: .string, description: "One of: characters | events | foreshadows | chapters | scenes | world_rules | locations | style | continuity_issues"),
                         "names": .init(type: .array, description: "For characters: list of character names (strings)"),
                         "involving": .init(type: .array, description: "For events: list of character names used to filter participants (strings)"),
                         "up_to_chapter": .init(type: .integer, description: "For foreshadows: include items introduced up to this chapter"),
-                        "limit": .init(type: .integer, description: "For events: maximum number of results to return" )
+                        "limit": .init(type: .integer, description: "For events: maximum number of results to return"),
+                        "chapter_number": .init(type: .integer, description: "For scenes: optional chapter number filter"),
+                        "resolution_status": .init(type: .string, description: "For continuity issues: optional status filter")
                     ],
                     required: ["query_kind"]
                 )

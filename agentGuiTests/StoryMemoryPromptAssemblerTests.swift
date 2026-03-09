@@ -179,6 +179,13 @@ struct StoryMemoryPromptAssemblerTests {
         #expect(names.contains("story_memory_append_event"))
         #expect(names.contains("story_memory_query"))
         #expect(names.contains("story_memory_verify_continuity"))
+        #expect(names.contains("story_memory_upsert_chapter"))
+        #expect(names.contains("story_memory_upsert_scene"))
+        #expect(names.contains("story_memory_upsert_world_rule"))
+        #expect(names.contains("story_memory_upsert_location"))
+        #expect(names.contains("story_memory_upsert_foreshadow"))
+        #expect(names.contains("story_memory_upsert_style_profile"))
+        #expect(names.contains("story_memory_update_continuity_issue"))
     }
 
     @Test func storyMemoryToolsQueryAndVerifyContinuity() async throws {
@@ -285,5 +292,153 @@ struct StoryMemoryPromptAssemblerTests {
         #expect(continuityResult.text.contains("chapterRegression"))
         #expect(continuityResult.text.contains("resolvedForeshadowReuse"))
         #expect(continuityResult.text.contains("worldRuleConflict"))
+    }
+
+    @Test func storyMemoryToolsUpsertAndQueryExtendedKinds() async throws {
+        let container = try makeStoryContainer()
+        let context = ModelContext(container)
+        let settings = AppSettings()
+        settings.enableStoryMemory = true
+
+        let service = StoryMemoryService(modelContext: context)
+        let project = try service.createProject(title: "北塔之冬", synopsis: "")
+        let session = Session(title: "写作会话")
+        context.insert(session)
+        try service.attachProject(to: session, projectId: project.id)
+
+        let claudeService = ClaudeService()
+
+        let chapterResult = await claudeService.executeTool(
+            name: "story_memory_upsert_chapter",
+            input: [
+                "chapter_number": .integer(3),
+                "title": .string("北塔夜访"),
+                "summary": .string("林澈夜探北塔")
+            ],
+            settings: settings,
+            session: session,
+            modelContext: context
+        )
+
+        #expect(chapterResult.status == .success)
+        #expect(chapterResult.text.contains("created") || chapterResult.text.contains("updated"))
+        #expect(chapterResult.text.contains("北塔之冬"))
+
+        let sceneResult = await claudeService.executeTool(
+            name: "story_memory_upsert_scene",
+            input: [
+                "chapter_number": .integer(3),
+                "scene_index": .integer(1),
+                "title": .string("入塔"),
+                "summary": .string("林澈进入北塔"),
+                "character_names": makeStringArray(["林澈"])
+            ],
+            settings: settings,
+            session: session,
+            modelContext: context
+        )
+
+        #expect(sceneResult.status == .success)
+
+        let worldRuleResult = await claudeService.executeTool(
+            name: "story_memory_upsert_world_rule",
+            input: [
+                "title": .string("夜禁期间北塔封锁"),
+                "category": .string("politics"),
+                "detail": .string("夜禁后北塔不得公开通行")
+            ],
+            settings: settings,
+            session: session,
+            modelContext: context
+        )
+
+        #expect(worldRuleResult.status == .success)
+
+        let styleResult = await claudeService.executeTool(
+            name: "story_memory_upsert_style_profile",
+            input: [
+                "author_preferences": .string("克制，冷硬"),
+                "narrative_voice": .string("近距离第三人称")
+            ],
+            settings: settings,
+            session: session,
+            modelContext: context
+        )
+
+        #expect(styleResult.status == .success)
+
+        let chaptersQuery = await claudeService.executeTool(
+            name: "story_memory_query",
+            input: ["query_kind": .string("chapters")],
+            settings: settings,
+            session: session,
+            modelContext: context
+        )
+
+        #expect(chaptersQuery.status == .success)
+        #expect(chaptersQuery.text.contains("北塔夜访"))
+
+        let rulesQuery = await claudeService.executeTool(
+            name: "story_memory_query",
+            input: ["query_kind": .string("world_rules")],
+            settings: settings,
+            session: session,
+            modelContext: context
+        )
+
+        #expect(rulesQuery.status == .success)
+        #expect(rulesQuery.text.contains("夜禁期间北塔封锁"))
+
+        let styleQuery = await claudeService.executeTool(
+            name: "story_memory_query",
+            input: ["query_kind": .string("style")],
+            settings: settings,
+            session: session,
+            modelContext: context
+        )
+
+        #expect(styleQuery.status == .success)
+        #expect(styleQuery.text.contains("近距离第三人称"))
+    }
+
+    @Test func storyMemoryToolUpdatesContinuityIssueStatus() async throws {
+        let container = try makeStoryContainer()
+        let context = ModelContext(container)
+        let settings = AppSettings()
+        settings.enableStoryMemory = true
+
+        let service = StoryMemoryService(modelContext: context)
+        let project = try service.createProject(title: "北塔之冬", synopsis: "")
+        let session = Session(title: "写作会话")
+        context.insert(session)
+        try service.attachProject(to: session, projectId: project.id)
+
+        let issue = StoryContinuityIssue(
+            issueKind: "locationConflict",
+            severity: "high",
+            chapterNumber: 3,
+            sceneIndex: 1,
+            detail: "地点冲突",
+            resolutionStatus: "open"
+        )
+        issue.project = project
+        project.continuityIssues.append(issue)
+        try context.save()
+
+        let result = await ClaudeService().executeTool(
+            name: "story_memory_update_continuity_issue",
+            input: [
+                "issue_id": .string(issue.id.uuidString),
+                "resolution_status": .string("resolved"),
+                "resolution_note": .string("确认发生在次日，关闭问题")
+            ],
+            settings: settings,
+            session: session,
+            modelContext: context
+        )
+
+        #expect(result.status == .success)
+        #expect(result.text.contains("resolved"))
+        #expect(project.continuityIssues.first?.resolutionStatus == "resolved")
     }
 }

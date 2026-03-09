@@ -65,4 +65,21 @@ struct StoryProjectPresentationTests {
         #expect(snapshot.openContinuityIssues == ["worldRuleConflict · 夜禁规则可能被违反"])
         #expect(snapshot.styleSummary == "近距离第三人称 · 保持压抑悬疑感")
     }
+
+    @Test func summariesExcludeOnlyResolvedContinuityIssues() async throws {
+        let project = WritingProject(title: "北塔之冬", synopsis: "王都迷雾中的权力阴影")
+        project.continuityIssues.append(
+            StoryContinuityIssue(issueKind: "locationConflict", detail: "未处理", resolutionStatus: "open")
+        )
+        project.continuityIssues.append(
+            StoryContinuityIssue(issueKind: "characterDrift", detail: "接受偏差", resolutionStatus: "accepted")
+        )
+        project.continuityIssues.append(
+            StoryContinuityIssue(issueKind: "worldRuleConflict", detail: "已关闭", resolutionStatus: "resolved")
+        )
+
+        let summaries = StoryProjectPresentation.summaries(projects: [project], activeProjectId: nil)
+
+        #expect(summaries.first?.openContinuityIssueCount == 2)
+    }
 }

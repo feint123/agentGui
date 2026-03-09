@@ -12,6 +12,7 @@
 - **工具生态** - 文件编辑、Bash 执行、Web 搜索、图片分析、PDF 读取等
 - **技能系统** - 扩展 AI 能力的自定义技能，兼容 Claude Code 技能格式
 - **长期记忆** - 在项目记忆目录中持久化跨会话的知识
+- **创作记忆** - 面向小说写作的项目级结构化记忆，维护角色、世界规则、时间线和连续性
 - **Extended Thinking** - 支持 Claude 3.7+ 的深度推理模式
 - **流式响应** - 实时显示 AI 回复，支持 Markdown 渲染
 - **Timeline 视图** - 可视化展示 Agent 执行过程和工具调用链
@@ -45,6 +46,7 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui build
 2. （可选）设置自定义 Base URL 用于兼容代理服务
 3. 选择要使用的 Claude 模型
 4. 根据需要启用工具和技能
+5. 如需小说写作支持，在「创作记忆」中启用项目级记忆并绑定当前会话
 
 ## 架构
 
@@ -122,6 +124,24 @@ agentGui 通过工具扩展 Claude 的能力：
 | `memory_write` | 长期记忆写入 |
 | `read_skill` | 技能内容加载 |
 | `run_subagent` | 子代理委派 |
+
+### 创作记忆
+
+创作记忆是独立于 `memory.md` 的项目级结构化记忆层，适合长篇小说、世界观设定和连续性敏感的写作任务。
+
+- **作用范围**：围绕 `WritingProject` 保存角色卡、世界规则、章节、场景、时间线、伏笔和连续性问题
+- **启用方式**：在设置页打开「启用创作记忆」，然后创建创作项目并把当前会话绑定到该项目
+- **Prompt 注入**：运行时会根据当前请求自动拼装活跃角色、相关规则、最近事件和未解决伏笔，而不是把整个项目全文塞进上下文
+- **与长期记忆的区别**：`memory_write` 面向全局偏好和跨任务经验；创作记忆只保存故事 canon，不写入 `~/.agentgui/memory.md`
+
+当前内置的创作记忆工具包括：
+
+- `story_memory_create_project`
+- `story_memory_attach_project`
+- `story_memory_upsert_character`
+- `story_memory_append_event`
+- `story_memory_query`
+- `story_memory_verify_continuity`
 
 ## 项目结构
 
@@ -233,6 +253,8 @@ agentGui 在 `~/.claude/` 下存储用户数据：
 │       └── memory/    # 项目记忆文件
 └── skills/            # 自定义技能目录
 ```
+
+说明：上述目录用于长期记忆与技能。创作记忆的小说项目数据保存在应用的 SwiftData 存储中，不复用项目 `memory/` 目录。
 
 ## License
 

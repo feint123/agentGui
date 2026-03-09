@@ -121,6 +121,90 @@ final class StoryMemoryRetrievalService {
             }
     }
 
+    func chapters(projectId: UUID) throws -> [StoryChapterRecord] {
+        let project = try fetchProject(id: projectId)
+
+        return project.chapters.sorted { lhs, rhs in
+            if lhs.number != rhs.number {
+                return lhs.number < rhs.number
+            }
+            return lhs.title < rhs.title
+        }
+    }
+
+    func scenes(projectId: UUID, chapterNumber: Int? = nil) throws -> [StorySceneRecord] {
+        let project = try fetchProject(id: projectId)
+
+        let chapterList = project.chapters.filter { chapter in
+            guard let chapterNumber else { return true }
+            return chapter.number == chapterNumber
+        }
+
+        return chapterList
+            .sorted { lhs, rhs in
+                if lhs.number != rhs.number {
+                    return lhs.number < rhs.number
+                }
+                return lhs.title < rhs.title
+            }
+            .flatMap { chapter in
+                chapter.scenes.sorted { lhs, rhs in
+                    if lhs.sceneIndex != rhs.sceneIndex {
+                        return lhs.sceneIndex < rhs.sceneIndex
+                    }
+                    return lhs.title < rhs.title
+                }
+            }
+    }
+
+    func worldRules(projectId: UUID) throws -> [StoryWorldRule] {
+        let project = try fetchProject(id: projectId)
+
+        return project.worldRules.sorted { lhs, rhs in
+            if lhs.title != rhs.title {
+                return lhs.title < rhs.title
+            }
+            return lhs.category < rhs.category
+        }
+    }
+
+    func locations(projectId: UUID) throws -> [StoryLocationProfile] {
+        let project = try fetchProject(id: projectId)
+
+        return project.locations.sorted { lhs, rhs in
+            lhs.name < rhs.name
+        }
+    }
+
+    func styleProfile(projectId: UUID) throws -> StoryStyleProfile? {
+        let project = try fetchProject(id: projectId)
+        return project.styleProfile
+    }
+
+    func continuityIssues(projectId: UUID, resolutionStatus: String? = nil) throws -> [StoryContinuityIssue] {
+        let project = try fetchProject(id: projectId)
+
+        return project.continuityIssues
+            .filter { issue in
+                guard let resolutionStatus else { return true }
+                return issue.resolutionStatus == resolutionStatus
+            }
+            .sorted { lhs, rhs in
+                let lhsRank = lhs.resolutionStatus == "resolved" ? 1 : 0
+                let rhsRank = rhs.resolutionStatus == "resolved" ? 1 : 0
+                if lhsRank != rhsRank {
+                    return lhsRank < rhsRank
+                }
+                if lhs.chapterNumber != rhs.chapterNumber {
+                    return lhs.chapterNumber < rhs.chapterNumber
+                }
+                if lhs.sceneIndex != rhs.sceneIndex {
+                    return lhs.sceneIndex < rhs.sceneIndex
+                }
+                return lhs.issueKind < rhs.issueKind
+            }
+    }
+
     private func fetchProject(id: UUID) throws -> WritingProject {
         let descriptor = FetchDescriptor<WritingProject>(predicate: #Predicate { $0.id == id })
         guard let project = try modelContext.fetch(descriptor).first else {

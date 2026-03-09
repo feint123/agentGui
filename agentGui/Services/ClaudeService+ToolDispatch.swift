@@ -67,6 +67,20 @@ extension ClaudeService {
             return .detect(executeStoryMemoryAttachProject(input: input, session: session, modelContext: modelContext), toolName: name)
         case "story_memory_upsert_character":
             return .detect(executeStoryMemoryUpsertCharacter(input: input, session: session, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_chapter":
+            return .detect(executeStoryMemoryUpsertChapter(input: input, session: session, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_scene":
+            return .detect(executeStoryMemoryUpsertScene(input: input, session: session, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_world_rule":
+            return .detect(executeStoryMemoryUpsertWorldRule(input: input, session: session, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_location":
+            return .detect(executeStoryMemoryUpsertLocation(input: input, session: session, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_foreshadow":
+            return .detect(executeStoryMemoryUpsertForeshadow(input: input, session: session, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_style_profile":
+            return .detect(executeStoryMemoryUpsertStyleProfile(input: input, session: session, modelContext: modelContext), toolName: name)
+        case "story_memory_update_continuity_issue":
+            return .detect(executeStoryMemoryUpdateContinuityIssue(input: input, session: session, modelContext: modelContext), toolName: name)
         case "story_memory_append_event":
             return .detect(executeStoryMemoryAppendEvent(input: input, session: session, modelContext: modelContext), toolName: name)
         case "story_memory_query":
@@ -140,6 +154,20 @@ extension ClaudeService {
             return .detect(executeStoryMemoryAttachProject(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "story_memory_upsert_character":
             return .detect(executeStoryMemoryUpsertCharacter(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_chapter":
+            return .detect(executeStoryMemoryUpsertChapter(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_scene":
+            return .detect(executeStoryMemoryUpsertScene(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_world_rule":
+            return .detect(executeStoryMemoryUpsertWorldRule(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_location":
+            return .detect(executeStoryMemoryUpsertLocation(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_foreshadow":
+            return .detect(executeStoryMemoryUpsertForeshadow(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
+        case "story_memory_upsert_style_profile":
+            return .detect(executeStoryMemoryUpsertStyleProfile(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
+        case "story_memory_update_continuity_issue":
+            return .detect(executeStoryMemoryUpdateContinuityIssue(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "story_memory_append_event":
             return .detect(executeStoryMemoryAppendEvent(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "story_memory_query":
