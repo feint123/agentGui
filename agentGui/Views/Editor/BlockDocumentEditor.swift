@@ -6,6 +6,11 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import OSLog
+
+// MARK: - Performance Monitor
+
+private let perfEditor = PerformanceMonitor.self
 
 struct BlockDocumentEditor: View {
     @Binding var text: String
@@ -134,13 +139,16 @@ struct BlockDocumentEditor: View {
         }
         .onChange(of: text) { _, newValue in
             guard !isApplyingInternalChange else { return }
+            let span = perfEditor.startSpan("BlockDocumentEditor.textChange", category: "Editor", level: .verbose)
             let serialized = BlockMarkdownCodec.serialize(document, fileURL: fileURL)
             if serialized != newValue {
+                span.addMetadata("parseNeeded", value: true)
                 document = BlockMarkdownCodec.parse(newValue, fileURL: fileURL)
                 if activeBlockID == nil {
                     activeBlockID = document.blocks.first?.id
                 }
             }
+            span.end()
         }
         .onChange(of: document.blocks) { _, _ in
             syncText()
@@ -266,6 +274,9 @@ struct BlockDocumentEditor: View {
     }
 
     private func splitBlock(id: UUID, selectedRange: NSRange) {
+        let span = perfEditor.startSpan("BlockEditor.splitBlock", category: "Editor", level: .normal)
+        defer { span.end() }
+
         guard let index = document.blocks.firstIndex(where: { $0.id == id }) else { return }
         let currentBlock = document.blocks[index]
 
@@ -301,6 +312,9 @@ struct BlockDocumentEditor: View {
     }
 
     private func mergeBlockBackward(id: UUID) {
+        let span = perfEditor.startSpan("BlockEditor.mergeBlockBackward", category: "Editor", level: .normal)
+        defer { span.end() }
+
         guard let index = document.blocks.firstIndex(where: { $0.id == id }), index > 0 else { return }
         let current = document.blocks[index]
         let previous = document.blocks[index - 1]
@@ -331,6 +345,9 @@ struct BlockDocumentEditor: View {
     }
 
     private func insertBlock(after blockID: UUID) {
+        let span = perfEditor.startSpan("BlockEditor.insertBlock", category: "Editor", level: .normal)
+        defer { span.end() }
+
         guard let index = document.blocks.firstIndex(where: { $0.id == blockID }) else { return }
         let insertAfter = document.blocks[index]
         var next = DocumentBlock.empty(.paragraph)
@@ -347,6 +364,9 @@ struct BlockDocumentEditor: View {
     }
 
     private func deleteBlock(id: UUID) {
+        let span = perfEditor.startSpan("BlockEditor.deleteBlock", category: "Editor", level: .normal)
+        defer { span.end() }
+
         guard let index = document.blocks.firstIndex(where: { $0.id == id }) else { return }
         let fallbackID = document.blocks.indices.contains(max(0, index - 1)) ? document.blocks[max(0, index - 1)].id : nil
         withAnimation(.easeInOut(duration: 0.2)) {
@@ -482,8 +502,12 @@ struct BlockDocumentEditor: View {
     }
 
     private func syncText() {
+        let span = perfEditor.startSpan("BlockDocumentEditor.syncText", category: "Editor", level: .verbose)
+        defer { span.end() }
+
         let serialized = BlockMarkdownCodec.serialize(document, fileURL: fileURL)
         guard serialized != text else { return }
+        span.addMetadata("length", value: serialized.count)
         isApplyingInternalChange = true
         text = serialized
         DispatchQueue.main.async {

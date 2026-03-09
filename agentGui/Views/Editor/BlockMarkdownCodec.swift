@@ -12,7 +12,7 @@ enum BlockMarkdownCodec {
         if let cached = BlockEditorPerformance.cachedDocument(for: cacheKey) {
             return cached
         }
-        let document = BlockEditorPerformance.measureValue("parse") {
+        let document = BlockEditorPerformance.measureParse(fileURL?.pathExtension) {
             parseUncached(text, fileURL: fileURL)
         }
         BlockEditorPerformance.storeDocument(document, for: cacheKey)
@@ -25,7 +25,7 @@ enum BlockMarkdownCodec {
             return body.trimmingCharacters(in: .newlines)
         }
 
-        return BlockEditorPerformance.measureValue("serialize") {
+        return BlockEditorPerformance.measureSerialize(document.blocks.count) {
             var output = ""
 
             for (index, block) in document.blocks.enumerated() {
