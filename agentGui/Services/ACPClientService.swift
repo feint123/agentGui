@@ -281,7 +281,7 @@ final class ClaudeService {
     ) async throws {
         let settings = AppSettings.getOrCreate(in: modelContext)
         let enabledSkills = skillService?.enabledSkills(enabledNames: settings.enabledSkillNames) ?? []
-        let systemPrompt = buildSystemPrompt(skills: enabledSkills, workingDirectory: settings.workingDirectory)
+        let systemPrompt = buildSystemPrompt(skills: enabledSkills, workingDirectory: settings.workingDirectory, settings: settings)
         let tools = buildTools(modelId: modelId, settings: settings, enabledSkills: enabledSkills)
 
         // Capture workspace context snapshot for start_workflow tool
@@ -354,7 +354,7 @@ final class ClaudeService {
 
     // MARK: - System Prompt Builder
 
-    private func buildSystemPrompt(skills: [Skill], workingDirectory: String) -> String {
+    private func buildSystemPrompt(skills: [Skill], workingDirectory: String, settings: AppSettings) -> String {
         var parts: [String] = []
 
         // Long-term memory — read from ~/.agentgui/memory.md on every call so it's always fresh
@@ -365,6 +365,12 @@ final class ClaudeService {
 
         if !workingDirectory.isEmpty {
             parts.append("## Working Directory\nThe current working directory for all file and bash tool operations is: \(workingDirectory)")
+        }
+
+        if settings.enableStoryMemory,
+           let session = currentSession,
+           !session.activeWritingProjectId.isEmpty {
+            parts.append("## Story Memory\nProject-scoped story memory is enabled for this session. Keep continuity consistent with active characters, world rules, unresolved foreshadowing, and style directives. Use structured story memory tools when available instead of collapsing these facts into generic notes.")
         }
 
         if !skills.isEmpty {

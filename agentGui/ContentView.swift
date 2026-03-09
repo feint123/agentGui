@@ -324,6 +324,8 @@ struct SettingsView: View {
             } footer: {
                 Text("每次 end_turn 后触发一次额外 API 调用，让模型为自己的输出打分。置信度低于阈值时自动重试并修正问题。")
             }
+
+            StoryMemorySettingsSection(settings: settings)
         }
     }
 

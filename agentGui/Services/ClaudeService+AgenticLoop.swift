@@ -127,6 +127,25 @@ extension ClaudeService {
             )
         }
 
+        if let storySlice = try? buildStoryMemoryBootstrap(
+            settings: settings,
+            sessionId: sessionId,
+            messages: messages,
+            modelContext: modelContext
+        ),
+              !storySlice.isEmpty {
+            print("[StoryMemory] Loaded project-scoped writing slice for session \(sessionId)")
+            let insertionIndex = min(messages.count, 2)
+            messages.insert(
+                MessageParameter.Message(role: .user, content: .text("【创作记忆切片】以下是当前写作任务的项目级故事记忆，请优先保持人物、事件、伏笔和风格的一致性：\n\n\(storySlice)")),
+                at: insertionIndex
+            )
+            messages.insert(
+                MessageParameter.Message(role: .assistant, content: .text("已加载创作记忆切片，将据此保持情节连续性与风格一致。")),
+                at: insertionIndex + 1
+            )
+        }
+
         while loopCtx.shouldContinue && loopCtx.roundIndex < maxRounds {
             try Task.checkCancellation()
 
@@ -578,6 +597,31 @@ extension ClaudeService {
         }
 
         return accumulatedText
+    }
+
+    private func buildStoryMemoryBootstrap(
+        settings: AppSettings,
+        sessionId: String,
+        messages: [MessageParameter.Message],
+        modelContext: ModelContext
+    ) throws -> String? {
+        guard settings.enableStoryMemory, !sessionId.isEmpty else { return nil }
+
+        let descriptor = FetchDescriptor<Session>(predicate: #Predicate { $0.sessionId == sessionId })
+        guard let session = try modelContext.fetch(descriptor).first,
+              !session.activeWritingProjectId.isEmpty else {
+            return nil
+        }
+
+        let currentRequest = messages.reversed()
+            .first(where: { $0.role == "user" })
+            .map { extractText(from: $0.content) } ?? ""
+
+        let assembler = StoryMemoryPromptAssembler(
+            modelContext: modelContext,
+            retrievalService: StoryMemoryRetrievalService(modelContext: modelContext)
+        )
+        return try assembler.buildWritingSlice(settings: settings, session: session, currentRequest: currentRequest)
     }
 
     // MARK: - Helpers

@@ -309,6 +309,114 @@ extension ClaudeService {
             )
         ))
 
+        if settings.enableStoryMemory {
+            tools.append(.function(
+                name: "story_memory_create_project",
+                description: "Create a writing project for story memory, optionally attaching it to the current session.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "title": .init(type: .string, description: "Project title"),
+                        "synopsis": .init(type: .string, description: "Optional short project synopsis"),
+                        "attach_to_session": .init(type: .boolean, description: "If true, bind the created project to the current session. Defaults to true.")
+                    ],
+                    required: ["title"]
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_attach_project",
+                description: "Attach an existing writing project to the current session.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "UUID string of the writing project")
+                    ],
+                    required: ["project_id"]
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_upsert_character",
+                description: "Create or update a character profile in the active writing project.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "name": .init(type: .string, description: "Character name"),
+                        "summary": .init(type: .string, description: "Short character summary"),
+                        "traits": .init(type: .array, description: "Optional list of character traits (strings)"),
+                        "goals": .init(type: .array, description: "Optional list of current goals (strings)"),
+                        "speech_style": .init(type: .string, description: "Dialogue and voice notes"),
+                        "relationships": .init(type: .object, description: "Optional map of character name to relationship note"),
+                        "arc_stage": .init(type: .string, description: "Current arc stage"),
+                        "last_seen_chapter": .init(type: .integer, description: "Most recent chapter the character appeared in"),
+                        "last_known_location": .init(type: .string, description: "Most recent known location")
+                    ],
+                    required: ["name"]
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_append_event",
+                description: "Append a timeline event to the active writing project.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "chapter_number": .init(type: .integer, description: "Chapter number"),
+                        "scene_index": .init(type: .integer, description: "Scene index within the chapter"),
+                        "title": .init(type: .string, description: "Event title"),
+                        "summary": .init(type: .string, description: "Short event summary"),
+                        "participants": .init(type: .array, description: "Optional list of participant names (strings)"),
+                        "location_name": .init(type: .string, description: "Event location"),
+                        "time_marker": .init(type: .string, description: "Optional time marker"),
+                        "event_type": .init(type: .string, description: "Optional event type"),
+                        "foreshadow_tags": .init(type: .array, description: "Optional list of referenced foreshadow tags (strings)")
+                    ],
+                    required: ["chapter_number", "scene_index", "title"]
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_query",
+                description: "Query the active writing project for characters, recent events, or unresolved foreshadows.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "query_kind": .init(type: .string, description: "One of: characters | events | foreshadows"),
+                        "names": .init(type: .array, description: "For characters: list of character names (strings)"),
+                        "involving": .init(type: .array, description: "For events: list of character names used to filter participants (strings)"),
+                        "up_to_chapter": .init(type: .integer, description: "For foreshadows: include items introduced up to this chapter"),
+                        "limit": .init(type: .integer, description: "For events: maximum number of results to return" )
+                    ],
+                    required: ["query_kind"]
+                )
+            ))
+
+            tools.append(.function(
+                name: "story_memory_verify_continuity",
+                description: "Check a draft scene against recent story memory for continuity risks.",
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
+                        "chapter_number": .init(type: .integer, description: "Draft chapter number"),
+                        "scene_index": .init(type: .integer, description: "Draft scene index"),
+                        "title": .init(type: .string, description: "Draft scene title"),
+                        "summary": .init(type: .string, description: "Draft scene summary"),
+                        "location_name": .init(type: .string, description: "Draft scene location"),
+                        "pov_character_name": .init(type: .string, description: "POV character name"),
+                        "character_names": .init(type: .array, description: "Characters present in the scene (strings)"),
+                        "referenced_foreshadow_tags": .init(type: .array, description: "Foreshadow tags referenced in the draft (strings)"),
+                        "text": .init(type: .string, description: "Draft scene text or excerpt")
+                    ],
+                    required: ["chapter_number", "scene_index", "title"]
+                )
+            ))
+        }
+
         // ask_user_question is always available to the main agent only
         tools.append(.function(
             name: "ask_user_question",

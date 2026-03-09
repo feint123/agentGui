@@ -17,6 +17,17 @@ extension ChatView {
             sessionPickerView
         }
 
+        ToolbarItem(placement: .primaryAction) {
+            if storyMemoryEnabled {
+                Button {
+                    showStoryProjectBrowser = true
+                } label: {
+                    Label(activeStoryProject?.title ?? "创作记忆", systemImage: activeStoryProject == nil ? "books.vertical" : "book.fill")
+                }
+                .help(activeStoryProject == nil ? "打开创作项目浏览器" : "当前项目：\(activeStoryProject?.title ?? "")")
+            }
+        }
+
         // 更多操作菜单（右侧）
         ToolbarItem(placement: .primaryAction) {
             Menu {
