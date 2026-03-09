@@ -8,6 +8,11 @@
 import SwiftUI
 import AppKit
 import BeautifulMermaid
+import OSLog
+
+// MARK: - Performance Monitor
+
+private let perfUI = PerformanceMonitor.self
 
 // MARK: - Markdown Block Cache
 
@@ -18,6 +23,11 @@ final class MarkdownBlockCache {
 
     func getBlocks(for text: String, baseText: String? = nil, parser: @escaping (String) -> [CachedBlock]) -> [CachedBlock] {
         let textKey = text.isEmpty ? "" : text
+        let parseSpan = PerformanceMonitor.startSpan("MarkdownCache.getBlocks", category: "Markdown", level: .verbose)
+        defer {
+            parseSpan.addMetadata("textLength", value: text.count)
+            parseSpan.end()
+        }
 
         // 如果缓存完全匹配，直接返回
         if let cached = storage[textKey] {
@@ -196,6 +206,13 @@ struct MarkdownMessageView: View {
     }
 
     private func updateBlocks(oldText: String, newText: String) {
+        let updateSpan = PerformanceMonitor.startSpan("updateBlocks", category: "UI", level: .verbose)
+        defer {
+            updateSpan.addMetadata("oldLength", value: oldText.count)
+            updateSpan.addMetadata("newLength", value: newText.count)
+            updateSpan.end()
+        }
+
         // 检测是否是增量更新（stream 模式下通常是追加）
         let isAppendOnly = newText.hasPrefix(oldText) && newText.count >= oldText.count
 
@@ -297,6 +314,11 @@ struct MarkdownMessageView: View {
 
     /// 实际的解析实现，被缓存类使用
     fileprivate func parseBlocksImpl(_ input: String) -> [MarkdownBlock] {
+        let span = PerformanceMonitor.startSpan("parseBlocksImpl", category: "Markdown", level: .verbose)
+        defer {
+            span.addMetadata("inputLength", value: input.count)
+            span.end()
+        }
         var blocks: [MarkdownBlock] = []
         let lines = input.components(separatedBy: "\n")
         var i = 0

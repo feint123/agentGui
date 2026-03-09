@@ -29,6 +29,10 @@ struct PendingThinking {
 
 // MARK: - Agentic Loop
 
+// MARK: - Performance Monitor Extensions
+
+private let perfLog = PerformanceMonitor.self
+
 extension ClaudeService {
 
     // MARK: Public Entry Point
@@ -45,6 +49,9 @@ extension ClaudeService {
         modelContext: ModelContext,
         maxRounds: Int = 50
     ) async throws {
+        let loopSpan = perfLog.startSpan("AgenticLoop", category: "Loop", level: .verbose)
+        defer { loopSpan.end() }
+
         var loopMessages = apiMessages
         let system: MessageParameter.System? = systemPrompt.isEmpty ? nil : .text(systemPrompt)
         try await runCoreAgentLoop(
@@ -59,9 +66,17 @@ extension ClaudeService {
             maxRounds: maxRounds,
             makeRound: { AgentRound(roundIndex: $0, message: assistantMessage) },
             parentMessage: assistantMessage,
-            onTextAccumulated: { assistantMessage.textContent = $0 }
+            onTextAccumulated: { text in
+                // 测量 UI 更新延迟
+                let uiSpan = perfLog.startSpan("onTextAccumulated", category: "UI", level: .verbose)
+                assistantMessage.textContent = text
+                uiSpan.addMetadata("length", value: text.count)
+                uiSpan.end()
+            }
         )
+        let saveSpan = perfLog.startSpan("FinalSave", category: "Database")
         try? modelContext.save()
+        saveSpan.end()
     }
 
     // MARK: - Core Loop
@@ -190,6 +205,8 @@ extension ClaudeService {
 
             print("[\(loopCtx.phase)] Starting round \(loopCtx.roundIndex) with \(messages.count) messages")
 
+            let roundSpan = perfLog.startSpan("Round_\(loopCtx.roundIndex)", category: "Loop", level: .normal)
+
             await compressIfNeeded(
                 messages: &messages,
                 memory: &loopMemory,
@@ -232,6 +249,8 @@ extension ClaudeService {
             let roundIdx = loopCtx.nextRound()
             print("Received stream for round \(roundIdx)")
 
+            let streamSpan = perfLog.startSpan("StreamRound_\(roundIdx)", category: "API", level: .normal)
+
             let round = makeRound(roundIdx)
             lastRound = round
             modelContext.insert(round)
@@ -242,6 +261,17 @@ extension ClaudeService {
             var pendingTools: [Int: PendingToolUse] = [:]
             var currentBlockIndex: Int? = nil
             var stopReason: String? = nil
+            var deltaCount = 0
+            var lastDeltaLogTime = ContinuousClock.now
+            var deltaLogInterval: TimeInterval = 0.5 // 每0.5秒输出一次统计
+
+            // UI 更新节流：每累积约 500 个字符才更新一次
+            var lastUpdateLength = 0
+            let uiUpdateThreshold = 50 // 字符阈值
+
+            // Thinking 更新节流：每累积约 500 个字符才更新一次
+            var lastThinkingUpdateLength = 0
+            let thinkingUpdateThreshold = 200 // thinking 字符阈值
 
             for try await event in stream {
                 // content_block_start — register new block
@@ -259,17 +289,38 @@ extension ClaudeService {
                     switch delta.type {
                     case "text_delta":
                         if let text = delta.text {
+                            let deltaSpan = perfLog.startSpan("text_delta", category: "Stream", level: .verbose)
                             currentRoundText += text
-                            round.text = currentRoundText
-                            let joined = accumulatedText.isEmpty
-                                ? currentRoundText
-                                : accumulatedText + "\n\n" + currentRoundText
-                            onTextAccumulated(joined)
+                            deltaSpan.addMetadata("bytes", value: text.count)
+                            deltaSpan.end()
+
+                            // 节流 round.text 更新：只在文本增长达到阈值时才更新 SwiftData
+                            // 这会触发 SwiftUI 重新计算 agentAnswerText
+                            let currentLength = currentRoundText.count
+                            if currentLength - lastUpdateLength >= uiUpdateThreshold {
+                                round.text = currentRoundText
+                                lastUpdateLength = currentLength
+                                // 同时更新 UI（保持一致性）
+                                let joined = accumulatedText.isEmpty
+                                    ? currentRoundText
+                                    : accumulatedText + "\n\n" + currentRoundText
+                                onTextAccumulated(joined)
+                            }
+
+                            // 统计
+                            deltaCount += 1
+                            perfLog.streamStats.recordDelta(text.count, round: roundIdx)
                         }
                     case "thinking_delta":
                         if let thinking = delta.thinking {
                             currentRoundThinking.content += thinking
-                            round.thinkingContent = currentRoundThinking.content
+
+                            // 节流 round.thinkingContent 更新
+                            let currentThinkingLength = currentRoundThinking.content.count
+                            if currentThinkingLength - lastThinkingUpdateLength >= thinkingUpdateThreshold {
+                                round.thinkingContent = currentRoundThinking.content
+                                lastThinkingUpdateLength = currentThinkingLength
+                            }
                         }
                     case "signature_delta":
                         if let sig = delta.signature {
@@ -280,11 +331,17 @@ extension ClaudeService {
                         // legacy text delta (non-streaming thinking models)
                         if let text = delta.text {
                             currentRoundText += text
-                            round.text = currentRoundText
-                            let joined = accumulatedText.isEmpty
-                                ? currentRoundText
-                                : accumulatedText + "\n\n" + currentRoundText
-                            onTextAccumulated(joined)
+
+                            // 节流 round.text 更新
+                            let currentLength = currentRoundText.count
+                            if currentLength - lastUpdateLength >= uiUpdateThreshold {
+                                round.text = currentRoundText
+                                lastUpdateLength = currentLength
+                                let joined = accumulatedText.isEmpty
+                                    ? currentRoundText
+                                    : accumulatedText + "\n\n" + currentRoundText
+                                onTextAccumulated(joined)
+                            }
                         }
                         if let json = delta.partialJson, let idx = currentBlockIndex {
                             pendingTools[idx]?.partialJson += json
@@ -297,12 +354,27 @@ extension ClaudeService {
                 }
             }
 
+            // 结束流式处理监控
+            streamSpan.addMetadata("deltas", value: deltaCount)
+            streamSpan.addMetadata("textBytes", value: currentRoundText.count)
+            streamSpan.end()
+
             // Persist this round's text
             if !currentRoundText.isEmpty {
                 if !accumulatedText.isEmpty { accumulatedText += "\n\n" }
                 accumulatedText += currentRoundText
-                onTextAccumulated(accumulatedText)
+
+                // 确保最后一次更新 round.text（无论是否达到阈值）
+                // 这是必须的，否则最后不足阈值的内容不会显示
                 round.text = currentRoundText
+
+                // 确保 UI 也更新到最终状态
+                onTextAccumulated(accumulatedText)
+            }
+
+            // 确保最后一次更新 thinkingContent（无论是否达到阈值）
+            if !currentRoundThinking.content.isEmpty {
+                round.thinkingContent = currentRoundThinking.content
             }
 
             // Build assistant content objects for this round (for next API call)
@@ -337,6 +409,8 @@ extension ClaudeService {
 
                 for pending in sorted {
                     print("Executing tool \(pending.name) with input: \(pending.partialJson)")
+                    let toolSpan = perfLog.startSpan("tool_\(pending.name)", category: "Tool", level: .normal)
+
                     let input = pending.parsedInput
                     assistantObjects.append(.toolUse(pending.id, pending.name, input))
 
@@ -435,6 +509,11 @@ extension ClaudeService {
 
                     toolResultObjects.append(.toolResult(pending.id, result.text, isError: result.isError ? true : nil))
                     toolResultObjects.append(contentsOf: result.mediaContent)
+
+                    // 结束工具执行监控
+                    toolSpan.addMetadata("isError", value: result.isError)
+                    toolSpan.addMetadata("outputLength", value: result.text.count)
+                    toolSpan.end()
                 }
 
                 messages.append(.init(role: .assistant, content: .list(assistantObjects)))
@@ -485,6 +564,9 @@ extension ClaudeService {
             default:
                 break
             }
+
+            // 结束这一轮的性能监控
+            roundSpan.end()
         }
 
         // Safety: loop exited because maxRounds was reached (not a natural stop)

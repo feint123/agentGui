@@ -8,6 +8,11 @@
 //
 
 import SwiftUI
+import OSLog
+
+// MARK: - Performance Monitor
+
+private let perfCard = PerformanceMonitor.self
 
 /// The main reading container for an agent reply.
 /// Receives pre-computed display text and renders it inside a subtle card.
@@ -26,6 +31,11 @@ struct AgentAnswerCardView: View {
                 .background(cardBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay(cardBorder)
+                .onAppear {
+                    let renderSpan = PerformanceMonitor.startSpan("AgentAnswerCardView.onAppear", category: "UI", level: .verbose)
+                    renderSpan.addMetadata("textLength", value: text.count)
+                    renderSpan.end()
+                }
         } else if isStreaming && isPending {
             HStack(spacing: 7) {
                 ProgressView().scaleEffect(0.6)

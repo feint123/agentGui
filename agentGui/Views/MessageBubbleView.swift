@@ -4,6 +4,11 @@
 //
 
 import SwiftUI
+import OSLog
+
+// MARK: - Performance Monitor
+
+private let perfBubble = PerformanceMonitor.self
 
 struct MessageBubbleView: View {
     let message: Message
@@ -180,6 +185,12 @@ struct MessageBubbleView: View {
 
     /// Consolidated answer text: round texts joined, or plain textContent for simple messages.
     private var agentAnswerText: String {
+        let span = PerformanceMonitor.startSpan("agentAnswerText", category: "UI", level: .verbose)
+        defer {
+            span.addMetadata("rounds", value: message.agentRounds.count)
+            span.end()
+        }
+
         let rounds = message.agentRounds.sorted { $0.roundIndex < $1.roundIndex }
         if rounds.isEmpty {
             return parsedContent.text
