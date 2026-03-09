@@ -4,6 +4,66 @@ import Testing
 
 struct StoryProjectPresentationTests {
 
+    @Test func inspectorSnapshotExposesTabbedCountsInExpectedOrder() async throws {
+        let project = makeRichProject()
+
+        let snapshot = StoryProjectPresentation.inspectorSnapshot(for: project)
+
+        #expect(snapshot.tabs.map(\.id) == [.overview, .structure, .characters, .locations, .rules, .timeline, .foreshadows, .continuity, .style])
+        #expect(snapshot.tabs.map(\.count) == [nil, 2, 2, 2, 2, 2, 3, 3, 1])
+    }
+
+    @Test func inspectorSnapshotBuildsOverviewHighlights() async throws {
+        let project = makeRichProject()
+
+        let snapshot = StoryProjectPresentation.inspectorSnapshot(for: project)
+
+        #expect(snapshot.overviewTab.recentChapters.map(\.number) == [2, 1])
+        #expect(snapshot.overviewTab.recentEvents.map(\.title) == ["塔顶对峙", "进入王都"])
+        #expect(snapshot.overviewTab.unresolvedForeshadowTags == ["失踪档案", "北塔钥匙"])
+        #expect(snapshot.overviewTab.openContinuityIssueKinds == ["worldRuleConflict", "locationConflict"])
+        #expect(snapshot.overviewTab.styleSummary == "近距离第三人称 · 保持压抑悬疑感")
+    }
+
+    @Test func inspectorSnapshotBuildsStructureNavigationItems() async throws {
+        let project = makeRichProject()
+
+        let snapshot = StoryProjectPresentation.inspectorSnapshot(for: project)
+
+        #expect(snapshot.structureTab.chapterNavigation.map(\.number) == [1, 2])
+        #expect(snapshot.structureTab.chapterNavigation.map(\.sceneCount) == [1, 2])
+        #expect(snapshot.structureTab.chapterNavigation.map(\.isLocked) == [false, true])
+        #expect(snapshot.structureTab.defaultChapterNumber == 1)
+    }
+
+    @Test func inspectorSnapshotBuildsTimelineForeshadowAndContinuityHighlights() async throws {
+        let project = makeRichProject()
+
+        let snapshot = StoryProjectPresentation.inspectorSnapshot(for: project)
+
+        #expect(snapshot.timelineTab.events.map(\.title) == ["进入王都", "塔顶对峙"])
+        #expect(snapshot.foreshadowsTab.groups.map(\.status) == ["open", "planned", "resolved"])
+        #expect(snapshot.continuityTab.groups.map(\.status) == ["open", "accepted"])
+        #expect(snapshot.continuityTab.groups.first?.items.map(\.issueKind) == ["worldRuleConflict", "locationConflict"])
+    }
+
+    @Test func inspectorSnapshotUsesEmptySnapshotsWhenDomainHasNoData() async throws {
+        let project = makeEmptyProject()
+
+        let snapshot = StoryProjectPresentation.inspectorSnapshot(for: project)
+
+        #expect(snapshot.tabs.map(\.count) == [nil, 0, 0, 0, 0, 0, 0, 0, nil])
+        #expect(snapshot.overviewTab.recentChapters.isEmpty)
+        #expect(snapshot.structureTab.chapterNavigation.isEmpty)
+        #expect(snapshot.charactersTab.cards.isEmpty)
+        #expect(snapshot.locationsTab.cards.isEmpty)
+        #expect(snapshot.rulesTab.sections.isEmpty)
+        #expect(snapshot.timelineTab.events.isEmpty)
+        #expect(snapshot.foreshadowsTab.groups.isEmpty)
+        #expect(snapshot.continuityTab.groups.isEmpty)
+        #expect(snapshot.styleTab.card == nil)
+    }
+
     @Test func projectSummariesPreferRecentlyUpdatedAndMarkActiveBinding() async throws {
         let older = WritingProject(
             title: "旧都回声",
@@ -152,6 +212,30 @@ struct StoryProjectPresentationTests {
         let summaries = StoryProjectPresentation.summaries(projects: [project], activeProjectId: nil)
 
         #expect(summaries.first?.openContinuityIssueCount == 2)
+    }
+
+    @Test func inspectorTabOrderMatchesSpec() async throws {
+        #expect(StoryProjectInspectorTab.allCases == [.overview, .structure, .characters, .locations, .rules, .timeline, .foreshadows, .continuity, .style])
+    }
+
+    @Test func navigationStateDefaultsToOverview() async throws {
+        let state = StoryProjectInspectorNavigationState()
+        let projectID = UUID()
+
+        #expect(state.selectedTab(for: projectID) == .overview)
+    }
+
+    @Test func navigationStateRemembersLastTabPerProject() async throws {
+        let state = StoryProjectInspectorNavigationState()
+        let firstProjectID = UUID()
+        let secondProjectID = UUID()
+
+        state.select(.timeline, for: firstProjectID)
+        state.select(.rules, for: secondProjectID)
+
+        #expect(state.selectedTab(for: firstProjectID) == .timeline)
+        #expect(state.selectedTab(for: secondProjectID) == .rules)
+        #expect(state.selectedTab(for: UUID()) == .overview)
     }
 }
 
@@ -410,5 +494,9 @@ private extension StoryProjectPresentationTests {
         project.styleProfile = StoryStyleProfile()
 
         return project
+    }
+
+    func makeEmptyProject() -> WritingProject {
+        WritingProject(title: "新项目", synopsis: "")
     }
 }

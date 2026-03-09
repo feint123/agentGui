@@ -150,9 +150,76 @@ struct StoryProjectStyleCard: Equatable {
     let antiPatterns: [String]
 }
 
+struct StoryProjectInspectorTabItem: Identifiable, Equatable {
+    let id: StoryProjectInspectorTab
+    let title: String
+    let systemImage: String
+    let count: Int?
+}
+
+struct StoryProjectOverviewTabSnapshot: Equatable {
+    let recentChapters: [StoryProjectChapterSection]
+    let recentEvents: [StoryProjectTimelineCard]
+    let unresolvedForeshadowTags: [String]
+    let openContinuityIssueKinds: [String]
+    let styleSummary: String
+}
+
+struct StoryProjectStructureChapterNavigationItem: Identifiable, Equatable {
+    var id: Int { number }
+    let number: Int
+    let title: String
+    let sceneCount: Int
+    let isLocked: Bool
+}
+
+struct StoryProjectStructureTabSnapshot: Equatable {
+    let chapterNavigation: [StoryProjectStructureChapterNavigationItem]
+    let chapters: [StoryProjectChapterSection]
+    let defaultChapterNumber: Int?
+}
+
+struct StoryProjectCharacterTabSnapshot: Equatable {
+    let cards: [StoryProjectCharacterCard]
+}
+
+struct StoryProjectLocationTabSnapshot: Equatable {
+    let cards: [StoryProjectLocationCard]
+}
+
+struct StoryProjectRuleTabSnapshot: Equatable {
+    let sections: [StoryProjectWorldRuleSection]
+}
+
+struct StoryProjectTimelineTabSnapshot: Equatable {
+    let events: [StoryProjectTimelineCard]
+}
+
+struct StoryProjectForeshadowTabSnapshot: Equatable {
+    let groups: [StoryProjectForeshadowGroup]
+}
+
+struct StoryProjectContinuityTabSnapshot: Equatable {
+    let groups: [StoryProjectContinuityGroup]
+}
+
+struct StoryProjectStyleTabSnapshot: Equatable {
+    let card: StoryProjectStyleCard?
+}
+
 struct StoryProjectInspectorSnapshot: Equatable {
     let overview: StoryProjectOverviewSection
     let stats: StoryProjectStatsSection
+    let tabs: [StoryProjectInspectorTabItem]
+    let overviewTab: StoryProjectOverviewTabSnapshot
+    let structureTab: StoryProjectStructureTabSnapshot
+    let charactersTab: StoryProjectCharacterTabSnapshot
+    let locationsTab: StoryProjectLocationTabSnapshot
+    let rulesTab: StoryProjectRuleTabSnapshot
+    let timelineTab: StoryProjectTimelineTabSnapshot
+    let foreshadowsTab: StoryProjectForeshadowTabSnapshot
+    let continuityTab: StoryProjectContinuityTabSnapshot
+    let styleTab: StoryProjectStyleTabSnapshot
     let chapterSections: [StoryProjectChapterSection]
     let characterCards: [StoryProjectCharacterCard]
     let locationCards: [StoryProjectLocationCard]
@@ -408,6 +475,52 @@ enum StoryProjectPresentation {
             )
         }
 
+        let overviewTab = StoryProjectOverviewTabSnapshot(
+            recentChapters: chapterSections
+                .sorted { $0.number > $1.number }
+                .prefix(3)
+                .map { $0 },
+            recentEvents: timelineEvents
+                .sorted { lhs, rhs in
+                    if lhs.chapterNumber != rhs.chapterNumber {
+                        return lhs.chapterNumber > rhs.chapterNumber
+                    }
+                    return lhs.sceneIndex > rhs.sceneIndex
+                }
+                .prefix(3)
+                .map { $0 },
+            unresolvedForeshadowTags: foreshadowGroups
+                .filter { normalizedStatus($0.status, fallback: "open") != "resolved" }
+                .flatMap { $0.items.map(\.tag) },
+            openContinuityIssueKinds: continuityGroups
+                .first(where: { normalizedStatus($0.status, fallback: "open") == "open" })?
+                .items
+                .map(\.issueKind) ?? [],
+            styleSummary: styleSummary
+        )
+
+        let structureTab = StoryProjectStructureTabSnapshot(
+            chapterNavigation: chapterSections.map {
+                StoryProjectStructureChapterNavigationItem(
+                    number: $0.number,
+                    title: $0.title,
+                    sceneCount: $0.sceneCount,
+                    isLocked: $0.isLocked
+                )
+            },
+            chapters: chapterSections,
+            defaultChapterNumber: chapterSections.first?.number
+        )
+
+        let tabs = StoryProjectInspectorTab.allCases.map { tab in
+            StoryProjectInspectorTabItem(
+                id: tab,
+                title: tab.title,
+                systemImage: tab.systemImage,
+                count: tabCount(for: tab, chapterSections: chapterSections, characterCards: characterCards, locationCards: locationCards, worldRuleSections: worldRuleSections, timelineEvents: timelineEvents, foreshadowGroups: foreshadowGroups, continuityGroups: continuityGroups, styleCard: styleCard)
+            )
+        }
+
         return StoryProjectInspectorSnapshot(
             overview: StoryProjectOverviewSection(
                 title: project.title,
@@ -427,6 +540,16 @@ enum StoryProjectPresentation {
                 unresolvedForeshadowCount: project.foreshadowItems.filter { normalizedStatus($0.status, fallback: "open") != "resolved" }.count,
                 openContinuityIssueCount: project.continuityIssues.filter { normalizedStatus($0.resolutionStatus, fallback: "open") == "open" }.count
             ),
+            tabs: tabs,
+            overviewTab: overviewTab,
+            structureTab: structureTab,
+            charactersTab: StoryProjectCharacterTabSnapshot(cards: characterCards),
+            locationsTab: StoryProjectLocationTabSnapshot(cards: locationCards),
+            rulesTab: StoryProjectRuleTabSnapshot(sections: worldRuleSections),
+            timelineTab: StoryProjectTimelineTabSnapshot(events: timelineEvents),
+            foreshadowsTab: StoryProjectForeshadowTabSnapshot(groups: foreshadowGroups),
+            continuityTab: StoryProjectContinuityTabSnapshot(groups: continuityGroups),
+            styleTab: StoryProjectStyleTabSnapshot(card: styleCard),
             chapterSections: chapterSections,
             characterCards: characterCards,
             locationCards: locationCards,
@@ -436,6 +559,39 @@ enum StoryProjectPresentation {
             continuityGroups: continuityGroups,
             styleCard: styleCard
         )
+    }
+
+    private static func tabCount(
+        for tab: StoryProjectInspectorTab,
+        chapterSections: [StoryProjectChapterSection],
+        characterCards: [StoryProjectCharacterCard],
+        locationCards: [StoryProjectLocationCard],
+        worldRuleSections: [StoryProjectWorldRuleSection],
+        timelineEvents: [StoryProjectTimelineCard],
+        foreshadowGroups: [StoryProjectForeshadowGroup],
+        continuityGroups: [StoryProjectContinuityGroup],
+        styleCard: StoryProjectStyleCard?
+    ) -> Int? {
+        switch tab {
+        case .overview:
+            return nil
+        case .structure:
+            return chapterSections.count
+        case .characters:
+            return characterCards.count
+        case .locations:
+            return locationCards.count
+        case .rules:
+            return worldRuleSections.reduce(0) { $0 + $1.rules.count }
+        case .timeline:
+            return timelineEvents.count
+        case .foreshadows:
+            return foreshadowGroups.reduce(0) { $0 + $1.items.count }
+        case .continuity:
+            return continuityGroups.reduce(0) { $0 + $1.items.count }
+        case .style:
+            return styleCard == nil ? nil : 1
+        }
     }
 
     private static func decodedStringArray(from json: String) -> [String] {
