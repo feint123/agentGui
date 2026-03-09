@@ -117,6 +117,44 @@ struct ToolExecutionResult {
 
 extension ClaudeService {
 
+    private static let interactiveCommandRegexes: [NSRegularExpression] = {
+        let patterns = [
+            #"(^|\s)read\s+"#,
+            #"(^|\s)select\s+"#,
+            #"(^|\s)(sudo|su|passwd)(\s|$)"#,
+            #"(^|\s)(ssh|sftp|ftp)\s"#,
+            #"(^|\s)(mysql|psql|sqlite3)(\s|$)"#,
+            #"(^|\s)git\s+add\s+-p(\s|$)"#,
+            #"(^|\s)git\s+rebase\s+-i(\s|$)"#,
+            #"(^|\s)git\s+commit(\s|$)"#,
+            #"(^|\s)(npm|pnpm|yarn)\s+(init|login)(\s|$)"#,
+            #"(^|\s)(pnpm|yarn|npm|bunx|npx)\s+(create|dlx)\s"#,
+            #"(^|\s)(rails\s+console|python(3)?|node|irb)(\s|$)"#
+        ]
+
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
+    }()
+
+    private static let nonInteractiveGitCommitRegex = try? NSRegularExpression(
+        pattern: #"(^|\s)git\s+commit\s+.*(--message|-m|--amend\s+--no-edit|--no-edit)(\s|$)"#,
+        options: [.caseInsensitive]
+    )
+
+    private func shouldAutoEnableInteractiveMode(for command: String) -> Bool {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let range = NSRange(location: 0, length: trimmed.utf16.count)
+        if let regex = Self.nonInteractiveGitCommitRegex,
+           regex.firstMatch(in: trimmed, options: [], range: range) != nil {
+            return false
+        }
+
+        return Self.interactiveCommandRegexes.contains { regex in
+            regex.firstMatch(in: trimmed, options: [], range: range) != nil
+        }
+    }
+
     // MARK: Dispatch
 
     func executeTool(
@@ -132,8 +170,12 @@ extension ClaudeService {
             return .detect(await executeTextEditorTool(input: input), toolName: name)
         case "bash":
             let wd = effectiveWorkingDirectory(session: session, settings: settings)
-            let bashSess = getBashSession(for: sessionId, workingDirectory: wd)
-            return .detect(await executeBashTool(input: input, session: bashSess, workingDirectory: wd), toolName: name)
+            let bashSess = getBashSession(
+                for: sessionId,
+                workingDirectory: wd,
+                environmentOverrides: settings.proxyConfiguration.bashEnvironmentOverrides
+            )
+            return .detect(await executeBashTool(input: input, session: bashSess, workingDirectory: wd, settings: settings), toolName: name)
         case "read_skill":
             guard let skillName = input["name"]?.stringValue else {
                 return .missingParameter("name")
@@ -146,11 +188,11 @@ extension ClaudeService {
             return .detect(executeUpdateTodoList(input: input, sessionId: sessionId), toolName: name)
         case "web_search":
             if settings.enableOllamaWebSearch && !settings.ollamaAPIKey.isEmpty {
-                return .detect(await executeOllamaWebSearchTool(input: input, apiKey: settings.ollamaAPIKey), toolName: name)
+                return .detect(await executeOllamaWebSearchTool(input: input, apiKey: settings.ollamaAPIKey, settings: settings), toolName: name)
             }
-            return .detect(await executeWebSearchTool(input: input), toolName: name)
+            return .detect(await executeWebSearchTool(input: input, settings: settings), toolName: name)
         case "web_fetch":
-            return .detect(await executeWebFetchTool(input: input), toolName: name)
+            return .detect(await executeWebFetchTool(input: input, settings: settings), toolName: name)
         case "ask_user_question":
             return .detect(await executeAskUserQuestion(input: input), toolName: name)
         case "analyze_image":
@@ -239,7 +281,6 @@ extension ClaudeService {
             successCriteria: successCriteria
         )
 
-        // Persist as part of the Session so it survives app restarts and is the
         // single source of truth shared with the workflow plan path.
         persistPlan(plan, sessionId: sessionId, modelContext: modelContext)
 
@@ -381,8 +422,12 @@ extension ClaudeService {
         case "str_replace_based_edit_tool", "str_replace_editor":
             return .detect(await executeTextEditorTool(input: input), toolName: name)
         case "bash":
-            let bashSess = getBashSession(for: sessionId, workingDirectory: wd)
-            return .detect(await executeBashTool(input: input, session: bashSess, workingDirectory: wd), toolName: name)
+            let bashSess = getBashSession(
+                for: sessionId,
+                workingDirectory: wd,
+                environmentOverrides: settings.proxyConfiguration.bashEnvironmentOverrides
+            )
+            return .detect(await executeBashTool(input: input, session: bashSess, workingDirectory: wd, settings: settings), toolName: name)
         case "read_skill":
             guard let skillName = input["name"]?.stringValue else {
                 return .missingParameter("name")
@@ -395,11 +440,11 @@ extension ClaudeService {
             return .detect(executeUpdateTodoList(input: input, sessionId: sessionId), toolName: name)
         case "web_search":
             if settings.enableOllamaWebSearch && !settings.ollamaAPIKey.isEmpty {
-                return .detect(await executeOllamaWebSearchTool(input: input, apiKey: settings.ollamaAPIKey), toolName: name)
+                return .detect(await executeOllamaWebSearchTool(input: input, apiKey: settings.ollamaAPIKey, settings: settings), toolName: name)
             }
-            return .detect(await executeWebSearchTool(input: input), toolName: name)
+            return .detect(await executeWebSearchTool(input: input, settings: settings), toolName: name)
         case "web_fetch":
-            return .detect(await executeWebFetchTool(input: input), toolName: name)
+            return .detect(await executeWebFetchTool(input: input, settings: settings), toolName: name)
         case "ask_user_question":
             return .detect(await executeAskUserQuestion(input: input), toolName: name)
         case "analyze_image":
@@ -419,10 +464,19 @@ extension ClaudeService {
 
     // MARK: Bash Session Management
 
-    func getBashSession(for sessionId: String, workingDirectory: String?) -> BashSession {
+    func getBashSession(
+        for sessionId: String,
+        workingDirectory: String?,
+        environmentOverrides: [String: String]
+    ) -> BashSession {
         if let existing = bashSessions[sessionId] { return existing }
         let newSession = BashSession()
-        Task { await newSession.start(workingDirectory: workingDirectory) }
+        Task {
+            await newSession.start(
+                workingDirectory: workingDirectory,
+                environmentOverrides: environmentOverrides
+            )
+        }
         bashSessions[sessionId] = newSession
         return newSession
     }
@@ -507,10 +561,15 @@ extension ClaudeService {
     func executeBashTool(
         input: MessageResponse.Content.Input,
         session: BashSession,
-        workingDirectory: String?
+        workingDirectory: String?,
+        settings: AppSettings
     ) async -> String {
+        let environmentOverrides = settings.proxyConfiguration.bashEnvironmentOverrides
         if input["restart"]?.boolValue == true {
-            await session.restart(workingDirectory: workingDirectory)
+            await session.restart(
+                workingDirectory: workingDirectory,
+                environmentOverrides: environmentOverrides
+            )
             return "Bash session restarted."
         }
         let hasFollowUpInput = input["input"]?.stringValue != nil
@@ -531,7 +590,9 @@ extension ClaudeService {
             return "Error: missing 'command' parameter"
         }
         let background = input["background"]?.boolValue ?? false
-        let interactive = input["interactive"]?.boolValue ?? false
+        let interactive = background
+            ? false
+            : (input["interactive"]?.boolValue ?? shouldAutoEnableInteractiveMode(for: command))
         return await session.execute(command, timeout: timeout, background: background, interactive: interactive)
     }
 

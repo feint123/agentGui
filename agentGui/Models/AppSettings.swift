@@ -55,6 +55,15 @@ final class AppSettings {
     /// 启用 Ollama Web Search（优先于 Bing）
     var enableOllamaWebSearch: Bool = false
 
+    /// 启用代理设置（用于内置网络请求与 Bash 环境变量）
+    var enableNetworkProxy: Bool = false
+
+    /// 代理 URL，例如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
+    var networkProxyURL: String = ""
+
+    /// 直连域名列表，逗号 / 空格 / 换行分隔
+    var networkProxyBypassList: String = ""
+
     /// 启用反思与自我修正循环（每次 end_turn 后触发，额外消耗一次 API 调用）
     var enableReflection: Bool = false
 
@@ -78,6 +87,9 @@ final class AppSettings {
         self.enableWebFetchTool = false
         self.ollamaAPIKey = ""
         self.enableOllamaWebSearch = false
+        self.enableNetworkProxy = false
+        self.networkProxyURL = ""
+        self.networkProxyBypassList = ""
         self.enableReflection = false
         self.reflectionConfidenceThreshold = 0.7
     }

@@ -27,11 +27,14 @@ actor BashSession {
     private let maxOutputBytes = 50_000
     /// 启动时使用的工作目录（用于自动重启）
     private var lastWorkingDirectory: String? = nil
+    /// 启动时注入的环境变量覆盖（用于自动重启）
+    private var lastEnvironmentOverrides: [String: String] = [:]
 
     // MARK: - Lifecycle
 
-    func start(workingDirectory: String? = nil) {
+    func start(workingDirectory: String? = nil, environmentOverrides: [String: String] = [:]) {
         lastWorkingDirectory = workingDirectory
+        lastEnvironmentOverrides = environmentOverrides
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
         proc.arguments = []
@@ -42,6 +45,9 @@ actor BashSession {
         var env = ProcessInfo.processInfo.environment
         if let loginPath = BashSession.resolveLoginShellPath(), !loginPath.isEmpty {
             env["PATH"] = loginPath
+        }
+        for (key, value) in environmentOverrides {
+            env[key] = value
         }
         proc.environment = env
 
@@ -110,7 +116,7 @@ actor BashSession {
         interactive: Bool = false
     ) async -> String {
         if !(process?.isRunning ?? false) {
-            start()
+            start(workingDirectory: lastWorkingDirectory, environmentOverrides: lastEnvironmentOverrides)
             // Give bash time to fully initialize before writing to stdin
             try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
         }
@@ -262,19 +268,22 @@ actor BashSession {
         """
     }
 
-    func restart(workingDirectory: String? = nil) {
+    func restart(workingDirectory: String? = nil, environmentOverrides: [String: String]? = nil) {
+        let resolvedWorkingDirectory = workingDirectory ?? lastWorkingDirectory
+        let resolvedEnvironmentOverrides = environmentOverrides ?? lastEnvironmentOverrides
         process?.terminate()
         process = nil
         stdinHandle = nil
         outputBuffer = ""
         currentSentinel = ""
         activeCommand = nil
-        start(workingDirectory: workingDirectory)
+        start(workingDirectory: resolvedWorkingDirectory, environmentOverrides: resolvedEnvironmentOverrides)
     }
 
     func terminate() {
         process?.terminate()
         process = nil
+        stdinHandle = nil
         activeCommand = nil
     }
 

@@ -55,9 +55,13 @@ struct SettingsView: View {
     @State private var apiKeyInput: String = ""
     @State private var baseURLInput: String = ""
     @State private var ollamaAPIKeyInput: String = ""
+    @State private var proxyEnabled: Bool = false
+    @State private var proxyURLInput: String = ""
+    @State private var proxyBypassInput: String = ""
     @State private var showAPIKey: Bool = false
     @State private var showOllamaAPIKey: Bool = false
     @State private var isSaved: Bool = false
+    @State private var isProxySaved: Bool = false
     @State private var memoryContent: String = ""
     @State private var isMemorySaved: Bool = false
 
@@ -65,6 +69,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 apiKeySection
+                proxySection
                 modelSection
                 appearanceSection
                 toolsSection
@@ -118,6 +123,38 @@ struct SettingsView: View {
     }
 
     // MARK: - Model Section
+
+    private var isProxyConfigurationValid: Bool {
+        let trimmed = proxyURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !proxyEnabled || (!trimmed.isEmpty && URL(string: trimmed) != nil)
+    }
+
+    @ViewBuilder
+    private var proxySection: some View {
+        if let settings {
+            Section {
+                Toggle("启用代理（网络请求 + Bash）", isOn: $proxyEnabled)
+
+                if proxyEnabled {
+                    TextField("http://127.0.0.1:7890 或 socks5://127.0.0.1:1080", text: $proxyURLInput)
+                        .textFieldStyle(.roundedBorder)
+
+                    TextField("NO_PROXY / 直连列表，例如 localhost,127.0.0.1,.corp.local", text: $proxyBypassInput)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                Button(isProxySaved ? "已应用 ✓" : "应用代理设置") {
+                    saveProxySettings(for: settings)
+                }
+                .disabled(!isProxyConfigurationValid)
+                .foregroundStyle(isProxySaved ? .green : .accentColor)
+            } header: {
+                Text("代理")
+            } footer: {
+                Text("代理 URL 需包含协议头，例如 http:// 或 socks5://。影响内置 Web Search / Web Fetch / Ollama 请求，以及 Bash 会话中的 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY、NO_PROXY。Anthropic 主 API 如需代理，继续使用上方 Base URL。")
+            }
+        }
+    }
 
     @ViewBuilder
     private var modelSection: some View {
@@ -350,6 +387,9 @@ struct SettingsView: View {
         apiKeyInput = s.apiKey
         baseURLInput = s.baseURL
         ollamaAPIKeyInput = s.ollamaAPIKey
+        proxyEnabled = s.enableNetworkProxy
+        proxyURLInput = s.networkProxyURL
+        proxyBypassInput = s.networkProxyBypassList
         memoryContent = ConfigDirectoryManager.shared.readMemory()
     }
 
@@ -360,11 +400,25 @@ struct SettingsView: View {
         settings.apiKey = trimmedKey
         settings.baseURL = trimmedURL
         try? modelContext.save()
-        claudeService.configure(apiKey: trimmedKey, baseURL: trimmedURL)
+        claudeService.applyConnectionSettings(settings)
 
         withAnimation { isSaved = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation { isSaved = false }
+        }
+    }
+
+    private func saveProxySettings(for settings: AppSettings) {
+        guard isProxyConfigurationValid else { return }
+        settings.enableNetworkProxy = proxyEnabled
+        settings.networkProxyURL = proxyURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.networkProxyBypassList = proxyBypassInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        try? modelContext.save()
+        claudeService.applyConnectionSettings(settings)
+
+        withAnimation { isProxySaved = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { isProxySaved = false }
         }
     }
 

@@ -136,6 +136,21 @@ final class ClaudeService {
         }
     }
 
+    func applyConnectionSettings(_ settings: AppSettings) {
+        configure(apiKey: settings.apiKey, baseURL: settings.baseURL)
+        resetBashSessions()
+    }
+
+    func resetBashSessions() {
+        let existingSessions = Array(bashSessions.values)
+        bashSessions.removeAll()
+        for session in existingSessions {
+            Task {
+                await session.terminate()
+            }
+        }
+    }
+
     // MARK: - Messaging
 
     func sendMessage(

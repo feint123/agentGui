@@ -485,6 +485,10 @@ private struct WorkflowToolStub {
                 description: """
                 Execute shell commands in a persistent bash session. \
                 The session preserves working directory and environment variables across calls. \
+                Common prompt-driven commands are auto-detected as interactive, including \
+                `read`, `sudo`, `ssh`, `git add -p`, `git rebase -i`, `git commit` without \
+                `-m`, `npm init`, `npm login`, `pnpm create`, `npx create`, and bare REPL \
+                commands like `python` or `node`. \
                 For interactive commands, set interactive: true and continue them with \
                 input: "..." on subsequent calls. Use interrupt: true to cancel the current \
                 foreground command with Ctrl-C.

@@ -59,7 +59,7 @@ struct agentGuiApp: App {
                     // 从持久化设置加载 API Key
                     let context = sharedModelContainer.mainContext
                     let settings = AppSettings.getOrCreate(in: context)
-                    claudeService.configure(apiKey: settings.apiKey, baseURL: settings.baseURL)
+                    claudeService.applyConnectionSettings(settings)
                     claudeService.skillService = skillService
                     skillService.loadSkills()
                     let runtime = WorkflowRuntime(claudeService: claudeService)

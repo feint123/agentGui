@@ -10,9 +10,17 @@ import SwiftAnthropic
 
 extension ClaudeService {
 
+    private func makeURLSession(for url: URL, settings: AppSettings) -> URLSession {
+        ProxyURLSessionFactory.makeSession(for: url, proxyConfiguration: settings.proxyConfiguration)
+    }
+
     // MARK: - Ollama web_search
 
-    func executeOllamaWebSearchTool(input: MessageResponse.Content.Input, apiKey: String) async -> String {
+    func executeOllamaWebSearchTool(
+        input: MessageResponse.Content.Input,
+        apiKey: String,
+        settings: AppSettings
+    ) async -> String {
         guard let query = input["query"]?.stringValue else {
             return "Error: missing 'query' parameter"
         }
@@ -35,7 +43,7 @@ extension ClaudeService {
 
         do {
             print("[ollama_web_search] Query: \(query)")
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await makeURLSession(for: url, settings: settings).data(for: request)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             print("[ollama_web_search] HTTP status: \(statusCode), data size: \(data.count) bytes")
             if !(200...299).contains(statusCode) {
@@ -72,7 +80,7 @@ extension ClaudeService {
 
     // MARK: - web_search
 
-    func executeWebSearchTool(input: MessageResponse.Content.Input) async -> String {
+    func executeWebSearchTool(input: MessageResponse.Content.Input, settings: AppSettings) async -> String {
         guard let query = input["query"]?.stringValue else {
             return "Error: missing 'query' parameter"
         }
@@ -99,7 +107,7 @@ extension ClaudeService {
 
         do {
             print("[web_search] Fetching URL: \(url.absoluteString)")
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await makeURLSession(for: url, settings: settings).data(for: request)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             print("[web_search] HTTP status: \(statusCode), data size: \(data.count) bytes")
             if !(200...299).contains(statusCode) {
@@ -203,7 +211,7 @@ extension ClaudeService {
 
     // MARK: - web_fetch
 
-    func executeWebFetchTool(input: MessageResponse.Content.Input) async -> String {
+    func executeWebFetchTool(input: MessageResponse.Content.Input, settings: AppSettings) async -> String {
         guard let urlString = input["url"]?.stringValue else {
             return "Error: missing 'url' parameter"
         }
@@ -224,7 +232,7 @@ extension ClaudeService {
         request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await makeURLSession(for: url, settings: settings).data(for: request)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 return "Error: HTTP \(http.statusCode) fetching '\(urlString)'"
             }

@@ -384,7 +384,11 @@ extension ClaudeService {
                         var pollTask: Task<Void, Never>? = nil
                         if isBash && !isBackground && !isRestart {
                             let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
-                            let bashSess = getBashSession(for: sessionId, workingDirectory: wd)
+                            let bashSess = getBashSession(
+                                for: sessionId,
+                                workingDirectory: wd,
+                                environmentOverrides: settings.proxyConfiguration.bashEnvironmentOverrides
+                            )
                             pollTask = Task { @MainActor in
                                 while !Task.isCancelled {
                                     try? await Task.sleep(nanoseconds: 100_000_000) // 100ms

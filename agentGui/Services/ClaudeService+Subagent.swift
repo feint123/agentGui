@@ -131,6 +131,13 @@ extension ClaudeService {
                 The session preserves working directory and environment variables across calls. \
                 Use restart: true to reset the session.
 
+                Common prompt-driven commands are auto-detected as interactive, including \
+                `read`, `sudo`, `ssh`, `git add -p`, `git rebase -i`, `git commit` without \
+                `-m`, `npm init`, `npm login`, `pnpm create`, `npx create`, and bare REPL \
+                commands like `python` or `node`. For interactive commands, set \
+                interactive: true and continue them with input: "..." on subsequent calls. \
+                Use interrupt: true to cancel the current foreground command with Ctrl-C.
+
                 For commands that run indefinitely (servers, watchers, build monitors), set \
                 background: true. The process is forked to the background immediately and a \
                 log file path is returned — use `cat <logpath>` or `tail -n 50 <logpath>` in \
@@ -142,9 +149,12 @@ extension ClaudeService {
                     type: .object,
                     properties: [
                         "command": .init(type: .string, description: "The bash command to execute"),
+                        "input": .init(type: .string, description: "Text to send to the currently running interactive foreground command"),
                         "restart": .init(type: .boolean, description: "If true, restart the bash session and ignore command"),
+                        "interrupt": .init(type: .boolean, description: "If true, send Ctrl-C to the currently running foreground command"),
                         "timeout": .init(type: .integer, description: "Max seconds to wait for the command to finish (default 300). Ignored when background is true."),
-                        "background": .init(type: .boolean, description: "If true, run the command in the background immediately and return PID + log file path. Use for servers/watchers that never exit.")
+                        "background": .init(type: .boolean, description: "If true, run the command in the background immediately and return PID + log file path. Use for servers/watchers that never exit."),
+                        "interactive": .init(type: .boolean, description: "If true, return once output becomes idle so the caller can continue the interactive session")
                     ],
                     required: []
                 )
