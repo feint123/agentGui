@@ -12,7 +12,17 @@ import SwiftUI
 /// Shows a subagent invocation as a self-contained task card.
 struct SubagentTaskCardView: View {
     let toolCall: ToolCall
-    @State private var isExpanded = false
+    let defaultExpanded: Bool
+
+    @State private var isExpanded: Bool
+    @State private var isShowingTimeline = false
+    @State private var hasManualOverride = false
+
+    init(toolCall: ToolCall, defaultExpanded: Bool = false) {
+        self.toolCall = toolCall
+        self.defaultExpanded = defaultExpanded
+        _isExpanded = State(initialValue: defaultExpanded)
+    }
 
     private var sortedRounds: [AgentRound] {
         toolCall.subagentRounds.sorted { $0.roundIndex < $1.roundIndex }
@@ -33,25 +43,38 @@ struct SubagentTaskCardView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerRow
             if isExpanded {
-                Divider().opacity(0.25).padding(.horizontal, 10)
+                Divider().opacity(0.15).padding(.horizontal, 10)
                 expandedBody
                     .padding(.horizontal, 10)
                     .padding(.bottom, 8)
             }
         }
-        .background(.ultraThinMaterial)
+        .background(Color.primary.opacity(0.025))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
         )
+        .onChange(of: toolCall.status) { _, newStatus in
+            if !hasManualOverride {
+                isExpanded = newStatus == .inProgress
+            }
+        }
+        .onChange(of: defaultExpanded) { _, newValue in
+            if !hasManualOverride {
+                isExpanded = newValue
+            }
+        }
     }
 
     // MARK: - Header Row
 
     private var headerRow: some View {
         Button {
-            withAnimation(.spring(duration: 0.2)) { isExpanded.toggle() }
+            withAnimation(.spring(duration: 0.2)) {
+                hasManualOverride = true
+                isExpanded.toggle()
+            }
         } label: {
             HStack(spacing: 8) {
                 statusIcon
@@ -163,11 +186,27 @@ struct SubagentTaskCardView: View {
             // Full timeline
             if !sortedRounds.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("执行过程")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    Divider().opacity(0.3)
-                    SubagentTimelineView(rounds: sortedRounds)
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isShowingTimeline.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("查看完整执行过程")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Image(systemName: isShowingTimeline ? "chevron.up" : "chevron.down")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    if isShowingTimeline {
+                        Divider().opacity(0.15)
+                        SubagentTimelineView(rounds: sortedRounds)
+                    }
                 }
             }
         }

@@ -4,11 +4,6 @@
 //
 
 import SwiftUI
-import OSLog
-
-// MARK: - Performance Monitor
-
-private let perfBubble = PerformanceMonitor.self
 
 struct MessageBubbleView: View {
     let message: Message
@@ -24,7 +19,6 @@ struct MessageBubbleView: View {
     @State private var isEditing = false
     @State private var editText = ""
     @State private var viewingMedia: MediaItem? = nil
-    @State private var isArtifactExpanded = false
 
     // 解析消息文本和文件引用，将部件分类: 图片/PDF/其他
     private struct ParsedContent {
@@ -183,68 +177,19 @@ struct MessageBubbleView: View {
         }
     }
 
-    /// Consolidated answer text: round texts joined, or plain textContent for simple messages.
-    private var agentAnswerText: String {
-        let span = PerformanceMonitor.startSpan("agentAnswerText", category: "UI", level: .verbose)
-        defer {
-            span.addMetadata("rounds", value: message.agentRounds.count)
-            span.end()
-        }
-
-        let rounds = message.agentRounds.sorted { $0.roundIndex < $1.roundIndex }
-        if rounds.isEmpty {
-            return parsedContent.text
-        }
-        return rounds.compactMap { $0.text }.filter { !$0.isEmpty }.joined(separator: "\n\n")
-    }
-
     @ViewBuilder
     private var agentCardContent: some View {
-        if message.status == .failed {
-            let errText = parsedContent.text.isEmpty
-                ? (message.errorMessage ?? "执行失败")
-                : parsedContent.text
-            Label(errText, systemImage: "exclamationmark.triangle.fill")
-                .font(.body)
-                .foregroundStyle(.red)
-        } else {
-            let hasExecutionData = !message.agentRounds.isEmpty || !message.toolCalls.isEmpty
-            let content = parsedContent
+        let content = parsedContent
 
-            VStack(alignment: .leading, spacing: 8) {
-                // Layer 1 — Answer card
-                AgentAnswerCardView(
-                    text: agentAnswerText,
-                    isStreaming: isStreaming,
-                    isPending: message.status == .pending
-                )
+        VStack(alignment: .leading, spacing: 8) {
+            AgentMessageStepFlowView(message: message)
 
-                // Media attachments (only for simple messages without rounds)
-                if message.agentRounds.isEmpty {
-                    if !content.images.isEmpty || !content.pdfs.isEmpty {
-                        mediaGrid(images: content.images, pdfs: content.pdfs)
-                    }
-                    if !content.others.isEmpty {
-                        fileReferenceBadge(count: content.others.count)
-                    }
+            if message.agentRounds.isEmpty {
+                if !content.images.isEmpty || !content.pdfs.isEmpty {
+                    mediaGrid(images: content.images, pdfs: content.pdfs)
                 }
-
-                // Layer 2 — Execution summary bar (visible when there is tool activity)
-                if hasExecutionData {
-                    ExecutionSummaryBarView(
-                        message: message,
-                        isStreaming: isStreaming,
-                        isExpanded: $isArtifactExpanded
-                    )
-
-                    // Layer 3 — Artifact drawer (expands on demand)
-                    if isArtifactExpanded {
-                        ArtifactDrawerView(message: message)
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .top)),
-                                removal: .opacity
-                            ))
-                    }
+                if !content.others.isEmpty {
+                    fileReferenceBadge(count: content.others.count)
                 }
             }
         }
@@ -267,15 +212,7 @@ struct MessageBubbleView: View {
             actionButton("arrow.uturn.backward", tooltip: "从此处删除", action: onDeleteFrom)
             actionButton("trash", tooltip: "删除消息", action: onDelete)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+        .frame(height: 12)
     }
 
     private func actionButton(_ icon: String, tooltip: String, action: @escaping () -> Void) -> some View {
