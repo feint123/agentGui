@@ -25,4 +25,11 @@ extension ClaudeService {
         bashSessions[sessionId] = newSession
         return newSession
     }
+
+    func getBashTaskRegistry(for sessionId: String) -> BashTaskRegistry {
+        if let existing = bashTaskRegistries[sessionId] { return existing }
+        let registry = BashTaskRegistry()
+        bashTaskRegistries[sessionId] = registry
+        return registry
+    }
 }

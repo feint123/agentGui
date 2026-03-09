@@ -49,12 +49,13 @@ struct ToolCallRowPresentation: Equatable {
                 isExpanded: isExpanded
             )
         case .execute:
+            let managedStatus = terminalTaskStatus(from: toolCall)
             return ToolCallRowPresentation(
                 style: .execute,
                 primaryText: toolCall.title ?? toolCall.kind.displayName,
-                secondaryText: executionSummary(for: toolCall),
-                tertiaryText: nil,
-                statusText: toolCall.statusDisplay,
+                secondaryText: managedExecutionSummary(for: toolCall, status: managedStatus),
+                tertiaryText: managedTertiaryText(for: toolCall, status: managedStatus),
+                statusText: managedStatus.map(terminalStatusText(for:)) ?? toolCall.statusDisplay,
                 detailText: toolCall.terminalOutput,
                 durationText: durationText,
                 isExpanded: isExpanded
@@ -129,6 +130,73 @@ struct ToolCallRowPresentation: Equatable {
             return summaryLine(from: toolCall.terminalOutput) ?? "执行失败"
         }
         return summaryLine(from: toolCall.terminalOutput)
+    }
+
+    nonisolated private static func managedExecutionSummary(
+        for toolCall: ToolCall,
+        status: TerminalTaskStatus?
+    ) -> String? {
+        if let mode = toolCall.terminalExecutionMode.flatMap(TerminalExecutionMode.init(rawValue:)) {
+            switch mode {
+            case .background:
+                return "后台任务"
+            case .interactive:
+                return status == .waitingForPrompt || status == .needsUserDecision ? "等待交互" : "交互任务"
+            case .foreground:
+                return executionSummary(for: toolCall)
+            case .auto:
+                return executionSummary(for: toolCall)
+            }
+        }
+
+        return executionSummary(for: toolCall)
+    }
+
+    nonisolated private static func managedTertiaryText(
+        for toolCall: ToolCall,
+        status: TerminalTaskStatus?
+    ) -> String? {
+        if let promptSummary = toolCall.terminalPromptSummary, !promptSummary.isEmpty {
+            return promptSummary
+        }
+
+        if status == .runningBackground {
+            return summaryLine(from: toolCall.terminalOutput)
+        }
+
+        return nil
+    }
+
+    nonisolated private static func terminalTaskStatus(from toolCall: ToolCall) -> TerminalTaskStatus? {
+        guard let raw = toolCall.terminalTaskStatus else { return nil }
+        return TerminalTaskStatus(rawValue: raw)
+    }
+
+    nonisolated private static func terminalStatusText(for status: TerminalTaskStatus) -> String {
+        switch status {
+        case .queued:
+            return "已排队"
+        case .classifying:
+            return "分析中"
+        case .launching:
+            return "启动中"
+        case .runningForeground:
+            return "执行中"
+        case .waitingForPrompt:
+            return "等待输入"
+        case .runningBackground:
+            return "后台运行中"
+        case .completed:
+            return "已完成"
+        case .failed:
+            return "失败"
+        case .interrupted:
+            return "已中断"
+        case .timedOut:
+            return "已超时"
+        case .needsUserDecision:
+            return "等待用户决策"
+        }
     }
 
     nonisolated private static func askUserSummary(for toolCall: ToolCall) -> String? {

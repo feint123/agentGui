@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import agentGui
 
+@MainActor
 struct AgentMessageFlowPresentationTests {
 
     @Test func flowSnapshotOrdersMessageRoundAndToolStepsChronologically() async throws {
@@ -63,6 +64,45 @@ struct AgentMessageFlowPresentationTests {
         #expect(row.secondaryText == "duplicate symbol '_main'")
         #expect(row.detailText?.contains("ld: 1 duplicate symbol") == true)
     }
+
+    @Test func runningExecuteToolPreservesTaskStatusMetadata() async throws {
+        let tool = ToolCall(toolCallId: "exec-1", kind: .execute)
+        tool.title = "npm run dev"
+        tool.status = .inProgress
+        tool.terminalTaskId = "task-1"
+        tool.terminalTaskStatus = "runningBackground"
+        tool.terminalExecutionMode = "background"
+        tool.terminalPromptSummary = "Listening on http://localhost:3000"
+
+        let row = ToolCallRowPresentation.make(for: tool)
+
+        #expect(row.statusText == "后台运行中")
+        #expect(row.secondaryText == "后台任务")
+        #expect(row.tertiaryText == "Listening on http://localhost:3000")
+    }
+
+    @Test func managedExecuteDetailSectionsExposeTaskMetadataAndAgentActions() async throws {
+        let tool = ToolCall(toolCallId: "exec-2", kind: .execute)
+        tool.title = "npm run dev"
+        tool.status = .inProgress
+        tool.terminalTaskId = "task-2"
+        tool.terminalTaskStatus = "waitingForPrompt"
+        tool.terminalExecutionMode = "interactive"
+        tool.terminalPromptSummary = "Need confirmation to continue"
+        tool.terminalOutput = "Project scaffold ready"
+        tool.terminalAgentActionsJSON = try AgentMessageFlowFixture.encodedAgentActions([
+            TerminalTaskEvent(taskId: "task-2", kind: .promptDetected, summary: "检测到确认提示"),
+            TerminalTaskEvent(taskId: "task-2", kind: .userDecisionRequested, summary: "已升级为用户决策")
+        ])
+
+        let row = ToolCallRowPresentation.make(for: tool)
+        let sections = ToolCallDetailPresentation.sections(for: tool, row: row)
+
+        #expect(sections.map(\.label) == ["命令", "任务状态", "交互摘要", "Agent操作", "输出"])
+        #expect(sections[1].text == "交互任务 · 等待输入 · task-2")
+        #expect(sections[2].text == "Need confirmation to continue")
+        #expect(sections[3].text == "检测到确认提示\n已升级为用户决策")
+    }
 }
 
 private enum AgentMessageFlowFixture {
@@ -72,8 +112,25 @@ private enum AgentMessageFlowFixture {
             return "result"
         case .thinking:
             return "thinking"
-        case .tool:
-            return "tool"
+        case .tool(let value):
+            switch value.row.style {
+            case .read:
+                return "read"
+            case .edit:
+                return "edit"
+            case .execute:
+                return "execute"
+            case .search:
+                return "search"
+            case .fetch:
+                return "fetch"
+            case .askUser:
+                return "askUser"
+            case .subagent:
+                return "subagent"
+            case .other:
+                return "other"
+            }
         case .subagent:
             return "subagent"
         }
@@ -176,5 +233,10 @@ private enum AgentMessageFlowFixture {
 
     private static func date(_ second: TimeInterval) -> Date {
         Date(timeIntervalSince1970: 1_700_000_000 + second)
+    }
+
+    fileprivate static func encodedAgentActions(_ events: [TerminalTaskEvent]) throws -> String {
+        let data = try JSONEncoder().encode(events)
+        return String(decoding: data, as: UTF8.self)
     }
 }

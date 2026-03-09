@@ -714,7 +714,7 @@ extension ClaudeService {
                 let resolutionStatus = input["resolution_status"]?.stringValue
                 let issues = try retrieval.continuityIssues(projectId: projectId, resolutionStatus: resolutionStatus)
                 let lines = issues.map {
-                    "- \($0.issueKind) | status: \($0.resolutionStatus) | severity: \($0.severity) | Ch\($0.chapterNumber) Sc\($0.sceneIndex)"
+                    "- issue_id: \($0.id.uuidString) | \($0.issueKind) | status: \($0.resolutionStatus) | severity: \($0.severity) | Ch\($0.chapterNumber) Sc\($0.sceneIndex)"
                 }
                 return queryResponse(
                     title: "连续性问题",

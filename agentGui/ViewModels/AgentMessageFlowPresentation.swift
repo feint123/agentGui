@@ -116,13 +116,16 @@ enum AgentMessageFlowPresentation {
             }
 
             if let text = round.text, !text.isEmpty {
+                let resultDate = roundCalls
+                    .compactMap { $0.endTime ?? $0.startTime }
+                    .max() ?? baseTime
                 let presentation = ResultStepPresentation(
                     id: "result-round-\(round.id.uuidString)",
                     text: text,
                     isError: false
                 )
                 let textSubIndex = roundCalls.isEmpty ? 5 : 50
-                entries.append(FlowEntry(order: makeOrder(baseTime, round.roundIndex, textSubIndex, 0), step: .result(presentation)))
+                entries.append(FlowEntry(order: makeOrder(resultDate, round.roundIndex, textSubIndex, 0), step: .result(presentation)))
             }
         }
 

@@ -135,11 +135,41 @@ extension ClaudeService {
         record.diffContent = diffContent
         record.startTime = Date()
 
+        if toolName == "bash", let metadata = bashTaskRecordMetadata(from: input, defaultTaskId: toolUseId) {
+            record.terminalTaskId = metadata.taskId
+            record.terminalTaskStatus = metadata.initialStatus.rawValue
+            record.terminalExecutionMode = metadata.executionMode.rawValue
+        }
+
         if kind == .subagent {
             record.subagentAgentName = input["agent_name"]?.stringValue
             record.subagentTask = input["task"]?.stringValue
         }
 
         return record
+    }
+
+    private func bashTaskRecordMetadata(
+        from input: MessageResponse.Content.Input,
+        defaultTaskId: String
+    ) -> (taskId: String, executionMode: TerminalExecutionMode, initialStatus: TerminalTaskStatus)? {
+        guard let request = try? normalizeBashToolRequest(input: input), !request.restart else {
+            return nil
+        }
+
+        let taskId = request.taskId ?? defaultTaskId
+        let status: TerminalTaskStatus
+        if request.signal != nil {
+            status = .runningForeground
+        } else {
+            switch request.executionMode {
+            case .background:
+                status = .launching
+            case .interactive, .foreground, .auto:
+                status = .launching
+            }
+        }
+
+        return (taskId: taskId, executionMode: request.executionMode, initialStatus: status)
     }
 }

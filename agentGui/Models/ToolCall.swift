@@ -34,6 +34,21 @@ final class ToolCall {
     /// 终端输出
     var terminalOutput: String?
 
+    /// Managed bash task ID
+    var terminalTaskId: String?
+
+    /// Managed bash task status raw value
+    var terminalTaskStatus: String?
+
+    /// Latest prompt or task summary shown in the UI
+    var terminalPromptSummary: String?
+
+    /// JSON payload describing agent actions taken on the terminal task
+    var terminalAgentActionsJSON: String?
+
+    /// Managed terminal execution mode raw value
+    var terminalExecutionMode: String?
+
     /// 开始时间
     var startTime: Date?
 
@@ -76,6 +91,11 @@ final class ToolCall {
         self.filePath = nil
         self.diffContent = nil
         self.terminalOutput = nil
+        self.terminalTaskId = nil
+        self.terminalTaskStatus = nil
+        self.terminalPromptSummary = nil
+        self.terminalAgentActionsJSON = nil
+        self.terminalExecutionMode = nil
         self.startTime = Date()
         self.endTime = nil
         self.message = message

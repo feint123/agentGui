@@ -99,6 +99,16 @@ actor BashSession {
     /// 返回当前输出缓冲快照，供外部轮询实时展示。
     func currentOutput() -> String { outputBuffer }
 
+    /// 返回底层 shell process 当前是否仍然存活。
+    func isProcessAlive() -> Bool {
+        process?.isRunning ?? false
+    }
+
+    /// 返回当前前台命令自上次读取后的输出增量。
+    func currentOutputDelta() -> String {
+        reportedDelta(from: activeCommand?.transcript ?? "")
+    }
+
     /// 在持久化 session 中执行命令。
     ///
     /// - Parameters:
@@ -184,6 +194,22 @@ actor BashSession {
 
         stdinHandle?.write(Data([0x03]))
         return await awaitForegroundCommand(timeout: timeout, interactive: true)
+    }
+
+    /// 向当前前台命令发送 SIGTERM；若无前台任务则终止整个 shell。
+    func terminateCurrentCommand() {
+        if activeCommand != nil {
+            process?.terminate()
+            process = nil
+            stdinHandle = nil
+            activeCommand = nil
+            currentSentinel = ""
+            outputBuffer = ""
+            start(workingDirectory: lastWorkingDirectory, environmentOverrides: lastEnvironmentOverrides)
+            return
+        }
+
+        terminate()
     }
 
     private func awaitForegroundCommand(timeout: TimeInterval, interactive: Bool) async -> String {

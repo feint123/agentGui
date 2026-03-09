@@ -89,7 +89,13 @@ extension ClaudeService {
                     type: .object,
                     properties: [
                         "command": .init(type: .string, description: "The bash command to execute"),
+                        "task_id": .init(type: .string, description: "Optional managed terminal task ID to continue or annotate an existing task."),
+                        "execution_mode": .init(type: .string, description: "Execution mode for the managed terminal task. One of: auto, foreground, background, interactive."),
                         "input": .init(type: .string, description: "Text to send to the currently running interactive foreground command"),
+                        "signal": .init(type: .string, description: "Signal to send to the currently running foreground command. One of: interrupt, terminate."),
+                        "goal_hint": .init(type: .string, description: "Optional goal or intent hint used to classify how the command should run."),
+                        "scan_policy": .init(type: .string, description: "How aggressively the runtime should scan task state. One of: adaptive, manual."),
+                        "auto_reply_policy": .init(type: .string, description: "Prompt handling policy. One of: safeOnly, disabled."),
                         "restart": .init(type: .boolean, description: "If true, restart the bash session and ignore command"),
                         "interrupt": .init(type: .boolean, description: "If true, send Ctrl-C to the currently running foreground command"),
                         "timeout": .init(type: .integer, description: "Max seconds to wait for the command to finish (default 300). Ignored when background is true."),

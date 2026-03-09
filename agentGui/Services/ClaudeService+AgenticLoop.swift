@@ -472,23 +472,64 @@ extension ClaudeService {
                         // streams outputBuffer into record.terminalOutput every 100ms so
                         // the UI can show live output while the command is running.
                         let isBash = pending.name == "bash"
-                        let isBackground = input["background"]?.boolValue == true
-                        let isRestart = input["restart"]?.boolValue == true
+                        let bashRequest = isBash ? (try? normalizeBashToolRequest(input: input)) : nil
+                        let isBackground = bashRequest?.executionMode == .background
+                        let isRestart = bashRequest?.restart == true
                         var pollTask: Task<Void, Never>? = nil
-                        if isBash && !isBackground && !isRestart {
+                        if let bashRequest, isBash, !isBackground && !isRestart {
                             let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
                             let bashSess = getBashSession(
                                 for: sessionId,
                                 workingDirectory: wd,
                                 environmentOverrides: settings.proxyConfiguration.bashEnvironmentOverrides
                             )
+                            let registry = getBashTaskRegistry(for: sessionId)
+                            let taskId = record.terminalTaskId ?? bashRequest.taskId ?? pending.id
+                            var snapshot = TerminalTaskSnapshot(
+                                id: taskId,
+                                sessionId: sessionId,
+                                command: bashRequest.command ?? record.title ?? "bash",
+                                executionMode: bashRequest.executionMode,
+                                status: .runningForeground,
+                                startedAt: record.startTime
+                            )
+                            await registry.upsert(snapshot)
                             pollTask = Task { @MainActor in
+                                var idleDuration: TimeInterval = 0
                                 while !Task.isCancelled {
                                     try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
                                     if Task.isCancelled { break }
-                                    let snapshot = await bashSess.currentOutput()
-                                    if !snapshot.isEmpty {
-                                        record.terminalOutput = snapshot
+                                    let liveOutput = await bashSess.currentOutput()
+                                    let delta = await bashSess.currentOutputDelta()
+                                    if !liveOutput.isEmpty {
+                                        record.terminalOutput = liveOutput
+                                    }
+
+                                    idleDuration = delta.isEmpty ? (idleDuration + 0.1) : 0
+                                    let promptDecision = BashPromptAnalyzer().analyze(output: liveOutput)
+                                    let observation = TerminalTaskObservation(
+                                        appendedOutput: delta,
+                                        processIsAlive: await bashSess.isProcessAlive(),
+                                        idleDuration: idleDuration,
+                                        promptDecision: promptDecision,
+                                        didBackgroundLaunch: false,
+                                        didTimeout: false,
+                                        exitCode: nil
+                                    )
+                                    let update = BashTaskEventReducer().reduce(previous: snapshot, observation: observation)
+                                    snapshot = update.snapshot
+                                    await registry.upsert(update.snapshot)
+                                    for event in update.events {
+                                        await registry.appendEvent(event)
+                                    }
+                                    record.terminalTaskId = snapshot.id
+                                    record.terminalTaskStatus = snapshot.status.rawValue
+                                    record.terminalExecutionMode = snapshot.executionMode.rawValue
+                                    record.terminalPromptSummary = snapshot.prompt?.promptText ?? snapshot.latestOutputSnippet
+                                    if let data = try? JSONEncoder().encode(update.events),
+                                       let json = String(data: data, encoding: .utf8),
+                                       !json.isEmpty {
+                                        record.terminalAgentActionsJSON = json
                                     }
                                 }
                             }
@@ -501,6 +542,27 @@ extension ClaudeService {
                             modelContext: modelContext
                         )
                         pollTask?.cancel()
+                        if let bashRequest, isBash, !isRestart {
+                            let registry = getBashTaskRegistry(for: sessionId)
+                            let taskId = record.terminalTaskId ?? bashRequest.taskId ?? pending.id
+                            if var finalSnapshot = await registry.snapshot(taskId: taskId) {
+                                if bashRequest.executionMode == .background && result.status == .success {
+                                    finalSnapshot.status = .runningBackground
+                                } else if result.toolCallStatus == .failed {
+                                    finalSnapshot.status = .failed
+                                    finalSnapshot.endedAt = Date()
+                                } else if !(finalSnapshot.status == .waitingForPrompt || finalSnapshot.status == .needsUserDecision) {
+                                    finalSnapshot.status = .completed
+                                    finalSnapshot.endedAt = Date()
+                                }
+                                finalSnapshot.latestOutputSnippet = result.text
+                                await registry.upsert(finalSnapshot)
+                                record.terminalTaskId = finalSnapshot.id
+                                record.terminalTaskStatus = finalSnapshot.status.rawValue
+                                record.terminalExecutionMode = finalSnapshot.executionMode.rawValue
+                                record.terminalPromptSummary = finalSnapshot.prompt?.promptText ?? firstTerminalSummaryLine(from: result.text)
+                            }
+                        }
                     }
                     record.terminalOutput = result.text
                     record.status = result.toolCallStatus
@@ -625,6 +687,14 @@ extension ClaudeService {
     }
 
     // MARK: - Helpers
+
+    private func firstTerminalSummaryLine(from text: String?) -> String? {
+        guard let text else { return nil }
+        return text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    }
 
     /// Returns true if the model supports Extended Thinking (3.7 Sonnet and all later models)
     func isThinkingCapable(modelId: String) -> Bool {

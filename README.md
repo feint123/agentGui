@@ -9,7 +9,7 @@
 - **多会话管理** - 创建和管理多个对话会话，历史记录本地持久化
 - **Agentic Loop** - 完整的多轮工具调用循环，支持复杂任务分解与执行
 - **子代理协作** - 内置 8 种专业子代理，支持任务委派和协作
-- **工具生态** - 文件编辑、Bash 执行、Web 搜索、图片分析、PDF 读取等
+- **工具生态** - 文件编辑、受管 Bash 终端、Web 搜索、图片分析、PDF 读取等
 - **技能系统** - 扩展 AI 能力的自定义技能，兼容 Claude Code 技能格式
 - **长期记忆** - 在项目记忆目录中持久化跨会话的知识
 - **创作记忆** - 面向小说写作的项目级结构化记忆，维护角色、世界规则、时间线和连续性
@@ -114,7 +114,7 @@ agentGui 通过工具扩展 Claude 的能力：
 | 工具 | 功能 |
 |------|------|
 | `str_replace_based_edit_tool` | 文件查看、创建、编辑、插入 |
-| `bash` | 持久化 Shell 会话，支持工作目录 |
+| `bash` | 受管终端任务运行时，支持命令分类、交互 prompt 接管与后台任务状态跟踪 |
 | `web_search` | Web 搜索（Bing / inference.sh） |
 | `web_fetch` | 网页内容抓取与清理 |
 | `analyze_image` | 本地图片文件分析（Vision API） |
@@ -124,6 +124,33 @@ agentGui 通过工具扩展 Claude 的能力：
 | `memory_write` | 长期记忆写入 |
 | `read_skill` | 技能内容加载 |
 | `run_subagent` | 子代理委派 |
+
+### Bash 受管终端
+
+`bash` 工具当前基于持久 `zsh` session 提供受管终端任务运行时。运行前会先做命令分类，运行中会持续轮询输出和进程状态，并将结果归纳为结构化任务状态，再同步到时间线和工具调用 UI。
+
+当前已落地的输入字段包括：
+
+- `command`
+- `task_id`
+- `execution_mode`: `auto | foreground | background | interactive`
+- `input`
+- `signal`: `interrupt | terminate`
+- `goal_hint`
+- `scan_policy`: `adaptive | manual`
+- `auto_reply_policy`: `safeOnly | disabled`
+- 兼容旧字段：`background`、`interactive`、`interrupt`
+
+当前自动处理的 prompt 类型包括：
+
+- yes/no 确认：按安全默认值自动回复
+- `Press Enter to continue`：自动发送回车
+- 密码等敏感输入：不会自动回复，会升级为结构化用户决策
+- 覆盖/删除等破坏性确认：不会自动确认，会升级为结构化用户决策
+
+当前 UI 会为 bash 工具调用展示执行模式、任务状态、最近一次 agent 自动动作，并在详情中展示命令、状态摘要、prompt 摘要、agent 输入记录与输出片段。
+
+当前限制：该实现仍基于 `Process + Pipe + sentinel`，不是 PTY 终端，因此不保证 `vim`、`less`、`top`、`fzf` 等全屏或强终端依赖程序可稳定工作；`ask_user_question` 目前也只支持结构化选项，不支持将敏感自由文本直接回填到终端 prompt。
 
 ### 创作记忆
 
