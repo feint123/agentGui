@@ -52,35 +52,7 @@ private struct SubagentRoundRow: View, Equatable {
     let isLast: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            timelineTrack
-            roundContent
-        }
-    }
-
-    // MARK: Timeline Track
-
-    private var timelineTrack: some View {
-        VStack(spacing: 0) {
-            Circle()
-                .fill(roundNodeColor)
-                .frame(width: 6, height: 6)
-                .padding(.top, 6)
-            if !isLast {
-                Rectangle()
-                    .fill(Color.primary.opacity(0.10))
-                    .frame(width: 1)
-                    .frame(maxHeight: .infinity)
-            }
-        }
-        .frame(width: 14)
-        .padding(.leading, 4)
-    }
-
-    private var roundNodeColor: Color {
-        if round.hasThinking { return .purple.opacity(0.6) }
-        if !round.sortedToolCalls.isEmpty { return .blue.opacity(0.6) }
-        return Color.primary.opacity(0.25)
+        roundContent
     }
 
     // MARK: Round Content
@@ -107,7 +79,6 @@ private struct SubagentRoundRow: View, Equatable {
                 }
             }
         }
-        .padding(.leading, 8)
         .padding(.bottom, isLast ? 2 : 12)
     }
 }
