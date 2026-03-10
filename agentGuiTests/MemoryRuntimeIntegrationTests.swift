@@ -6,7 +6,7 @@ import Testing
 struct MemoryRuntimeIntegrationTests {
     @Test func codingRequestProducesSingleUnifiedMemorySlice() async throws {
         let coordinator = MemoryRuntimeCoordinator.makeForTests(
-            taskRecords: [MemoryRecord.fixture(layer: .task, kind: .working, title: "Known task fact")],
+            unifiedRecords: [MemoryRecord.fixture(layer: .task, kind: .working, title: "Known task fact")],
             storyRecords: []
         )
 

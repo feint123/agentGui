@@ -2,7 +2,7 @@
 //  TaskMemory.swift
 //  agentGui
 //
-//  Structured task-level memory persisted to ~/.agentgui/task-memories/<sessionId>.json.
+//  Structured task-level extraction model used during prompt compression and reflection.
 //  Complements ContextMemory (in-context compression) with a durable, structured record
 //  that survives across context resets and long agentic sessions.
 //
@@ -12,7 +12,8 @@ import Foundation
 // MARK: - TaskMemory
 
 /// Persistent task-level memory for a single session.
-/// Saved to ~/.agentgui/task-memories/<sessionId>.json.
+/// Intermediate task-memory shape used to extract and merge task state before
+/// persisting it as unified session-scoped MemoryRecord values.
 struct TaskMemory: Codable {
 
     // MARK: - Metadata

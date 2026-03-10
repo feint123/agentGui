@@ -5,7 +5,6 @@ import SwiftData
 final class MemoryRuntimeCoordinator {
     private let profileRegistry: MemoryDomainProfileRegistry
     private let retrievalPlanner: MemoryRetrievalPlanner
-    private let taskRecordsProvider: (String) -> [MemoryRecord]
     private let storyRecordsProvider: (String) -> [MemoryRecord]
     private let unifiedRecordsProvider: (MemoryRuntimeRequest) -> [MemoryRecord]
     private let unifiedStoreBaseDirectory: URL
@@ -18,7 +17,6 @@ final class MemoryRuntimeCoordinator {
     init(
         profileRegistry: MemoryDomainProfileRegistry = MemoryDomainProfileRegistry(),
         retrievalPlanner: MemoryRetrievalPlanner = MemoryRetrievalPlanner(),
-        taskRecordsProvider: @escaping (String) -> [MemoryRecord],
         storyRecordsProvider: @escaping (String) -> [MemoryRecord],
         unifiedRecordsProvider: @escaping (MemoryRuntimeRequest) -> [MemoryRecord] = { _ in [] },
         unifiedStoreBaseDirectory: URL = ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory),
@@ -30,7 +28,6 @@ final class MemoryRuntimeCoordinator {
     ) {
         self.profileRegistry = profileRegistry
         self.retrievalPlanner = retrievalPlanner
-        self.taskRecordsProvider = taskRecordsProvider
         self.storyRecordsProvider = storyRecordsProvider
         self.unifiedRecordsProvider = unifiedRecordsProvider
         self.unifiedStoreBaseDirectory = unifiedStoreBaseDirectory
@@ -45,11 +42,6 @@ final class MemoryRuntimeCoordinator {
         let unifiedStoreDirectory = ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory)
         let unifiedStore = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreDirectory)
         self.init(
-            taskRecordsProvider: { sessionId in
-                let adapter = TaskMemoryStoreAdapter()
-                guard let memory = adapter.load(sessionId: sessionId) else { return [] }
-                return adapter.project(memory: memory)
-            },
             storyRecordsProvider: { projectId in
                 guard let uuid = UUID(uuidString: projectId) else { return [] }
                 let adapter = StoryMemoryStoreAdapter(modelContext: modelContext)
@@ -68,17 +60,15 @@ final class MemoryRuntimeCoordinator {
         let profiles = profileRegistry.profiles(for: request)
         let plan = retrievalPlanner.makePlan(request: request, profiles: profiles)
 
-        var records = taskRecordsProvider(request.sessionId)
+        var records = unifiedRecordsProvider(request)
         if let projectId = request.projectId {
             records.append(contentsOf: storyRecordsProvider(projectId))
         }
-        let unifiedRecords = unifiedRecordsProvider(request)
-        records.append(contentsOf: unifiedRecords)
 
         let filteredRecords = filterAndBudget(records: records, with: plan)
         let touchedAt = Date()
         let unifiedStore = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreBaseDirectory)
-        for record in filteredRecords where unifiedRecords.contains(where: { $0.id == record.id }) {
+        for record in filteredRecords where records.contains(where: { $0.id == record.id }) {
             try? unifiedStore.touch(recordID: record.id, accessedAt: touchedAt)
         }
         let baseContext = MemoryRuntimeContext(
@@ -158,10 +148,10 @@ final class MemoryRuntimeCoordinator {
 }
 
 extension MemoryRuntimeCoordinator {
-    static func makeForTests(taskRecords: [MemoryRecord], storyRecords: [MemoryRecord]) -> MemoryRuntimeCoordinator {
+    static func makeForTests(unifiedRecords: [MemoryRecord], storyRecords: [MemoryRecord]) -> MemoryRuntimeCoordinator {
         MemoryRuntimeCoordinator(
-            taskRecordsProvider: { _ in taskRecords },
-            storyRecordsProvider: { _ in storyRecords }
+            storyRecordsProvider: { _ in storyRecords },
+            unifiedRecordsProvider: { _ in unifiedRecords }
         )
     }
 }

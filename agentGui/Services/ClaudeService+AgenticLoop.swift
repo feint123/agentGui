@@ -153,10 +153,14 @@ extension ClaudeService {
                 at: 1
             )
         } else {
-            // Fallback: keep the legacy startup path functional during migration.
-            if !sessionId.isEmpty, let taskMem = TaskMemoryService.shared.load(sessionId: sessionId), !taskMem.isEmpty {
-                let tmText = taskMem.toPromptText()
-                print("[TaskMemory] Loaded persisted memory for session \(sessionId), \(taskMem.confirmedFacts.count) facts, \(taskMem.failedAttempts.count) failures")
+            let unifiedStore = UnifiedMemoryFileStoreAdapter()
+
+            if !sessionId.isEmpty,
+               let taskMem = try? loadTaskMemory(sessionId: sessionId, store: unifiedStore),
+               !taskMem.isEmpty,
+               let tmText = try? taskMemoryPromptText(sessionId: sessionId, store: unifiedStore),
+               !tmText.isEmpty {
+                print("[TaskMemory] Loaded unified task memory for session \(sessionId), \(taskMem.confirmedFacts.count) facts, \(taskMem.failedAttempts.count) failures")
                 messages.insert(
                     MessageParameter.Message(role: .user, content: .text("【任务级持久记忆】这是本任务的已知状态，请优先保留这些结构化状态：\n\n\(tmText)")),
                     at: 0
@@ -218,28 +222,20 @@ extension ClaudeService {
                         try? modelContext.save()
                     }
 
-                    // Write failure + diagnosis to durable TaskMemory so subsequent rounds (and
+                    // Write failure + diagnosis to unified task memory so subsequent rounds (and
                     // future sessions) can avoid repeating the same mistake.
                     if (!ref.concerns.isEmpty || !ref.suggestedFixes.isEmpty), !sessionId.isEmpty {
-                        var taskMem = TaskMemoryService.shared.load(sessionId: sessionId)
-                            ?? TaskMemory(sessionId: sessionId)
-                        let actionLabel = trigger?.actionLabel ?? "unknown_failure"
-                        let reasonSummary = ref.concerns.prefix(3).joined(separator: "; ")
-                        // Avoid duplicate entries for the same failure action
-                        if !taskMem.failedAttempts.contains(where: { $0.action == actionLabel }) {
-                            taskMem.failedAttempts.append(
-                                FailedAttempt(action: actionLabel, reason: reasonSummary)
+                        do {
+                            try recordReflectionFailure(
+                                sessionId: sessionId,
+                                trigger: trigger,
+                                concerns: ref.concerns,
+                                suggestedFixes: ref.suggestedFixes
                             )
+                            print("[Reflection] Wrote failure record to unified task memory (session \(sessionId))")
+                        } catch {
+                            print("[Reflection] Failed to write unified task memory: \(error)")
                         }
-                        for fix in ref.suggestedFixes.prefix(3) {
-                            let entry = "Reflection fix: \(fix)"
-                            if !taskMem.attemptedActions.contains(entry) {
-                                taskMem.attemptedActions.append(entry)
-                            }
-                        }
-                        taskMem.lastUpdated = Date()
-                        TaskMemoryService.shared.save(taskMem)
-                        print("[Reflection] Wrote failure record to TaskMemory (session \(sessionId))")
                     }
 
                     // Inject a targeted correction turn only when a retry is warranted
@@ -828,6 +824,36 @@ extension ClaudeService {
         // Claude 3.7+ and all Claude 4 series support Extended Thinking
         let thinkingModels = ["claude-3-7", "claude-3.7", "claude-opus-4", "claude-sonnet-4", "claude-haiku-4"]
         return thinkingModels.contains { modelId.contains($0) }
+    }
+
+    func recordReflectionFailure(
+        sessionId: String,
+        trigger: FailureTrigger?,
+        concerns: [String],
+        suggestedFixes: [String],
+        store: UnifiedMemoryFileStoreAdapter? = nil,
+        timestamp: Date = Date()
+    ) throws {
+        guard !sessionId.isEmpty, !concerns.isEmpty || !suggestedFixes.isEmpty else {
+            return
+        }
+
+        let resolvedStore = store ?? UnifiedMemoryFileStoreAdapter()
+
+        var extracted = TaskMemory(sessionId: sessionId)
+        let actionLabel = trigger?.actionLabel ?? "unknown_failure"
+        let reasonSummary = concerns.prefix(3).joined(separator: "; ")
+        if !reasonSummary.isEmpty {
+            extracted.failedAttempts = [FailedAttempt(action: actionLabel, reason: reasonSummary)]
+        }
+        extracted.attemptedActions = suggestedFixes.prefix(3).map { "Reflection fix: \($0)" }
+
+        try persistTaskMemoryExtraction(
+            sessionId: sessionId,
+            extracted: extracted,
+            store: resolvedStore,
+            timestamp: timestamp
+        )
     }
 
 }

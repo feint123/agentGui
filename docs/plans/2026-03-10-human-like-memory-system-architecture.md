@@ -4,6 +4,8 @@
 
 对应需求：`docs/spec/2026-03-10-human-like-memory-system-requirements.md`
 
+补充需求：`docs/spec/2026-03-10-memory-governance-operations-and-taskmemory-migration-requirements.md`
+
 关联对象：`ContextMemory`、`TaskMemory`、`StoryMemory`、主 Agent Loop、Subagent / Workflow Runtime、SwiftData、文件型持久化记忆、Prompt 组装链路
 
 ## 1. 设计目标

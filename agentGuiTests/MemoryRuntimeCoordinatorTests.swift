@@ -5,9 +5,24 @@ import Testing
 @MainActor
 struct MemoryRuntimeCoordinatorTests {
     @Test func coordinatorBuildsUnifiedSliceForCodingRequest() async throws {
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(
-            taskRecords: [MemoryRecord.fixture(layer: .task, kind: .working, title: "Known failure")],
-            storyRecords: []
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+        _ = try store.persist(record: MemoryRecord.fixture(
+            id: "task-1",
+            layer: .task,
+            kind: .working,
+            scope: .session(id: "s1"),
+            title: "Known failure",
+            source: .taskMemory,
+            tags: ["failed-attempt"]
+        ))
+
+        let coordinator = MemoryRuntimeCoordinator(
+            storyRecordsProvider: { _ in [] },
+            unifiedRecordsProvider: { request in
+                (try? store.records(for: request)) ?? []
+            },
+            unifiedStoreBaseDirectory: baseDirectory
         )
 
         let request = MemoryRuntimeRequest(
@@ -30,7 +45,6 @@ struct MemoryRuntimeCoordinatorTests {
     @Test func coordinatorPersistsRecordedOutcomeIntoUnifiedStore() async throws {
         let baseDirectory = try makeTemporaryDirectory()
         let coordinator = MemoryRuntimeCoordinator(
-            taskRecordsProvider: { _ in [] },
             storyRecordsProvider: { _ in [] },
             unifiedRecordsProvider: { _ in [] },
             unifiedStoreBaseDirectory: baseDirectory
@@ -68,7 +82,6 @@ struct MemoryRuntimeCoordinatorTests {
     @Test func coordinatorSchedulesConsolidationAndPersistsCandidates() async throws {
         let baseDirectory = try makeTemporaryDirectory()
         let coordinator = MemoryRuntimeCoordinator(
-            taskRecordsProvider: { _ in [] },
             storyRecordsProvider: { _ in [] },
             unifiedRecordsProvider: { _ in [] },
             unifiedStoreBaseDirectory: baseDirectory

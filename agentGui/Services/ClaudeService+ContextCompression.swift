@@ -7,7 +7,7 @@
 //  ContextMemory (in-memory) — injected into the live context window:
 //    用户目标 / 已完成动作 / 未完成动作 / 关键文件路径 / 失败与约束 / 语义事实
 //
-//  TaskMemory (persistent) — saved to ~/.agentgui/task-memories/<sessionId>.json:
+//  TaskMemory (persistent) — stored as unified session-scoped memory records:
 //    confirmedFacts / attemptedActions / failedAttempts / pendingQuestions / verificationStatus
 //
 
@@ -90,7 +90,7 @@ extension ClaudeService {
 
     /// Checks whether context usage is above the threshold and, if so, compresses the
     /// message history in-place using hierarchical memory extraction.
-    /// Also extracts structured TaskMemory and persists it to ~/.agentgui/.
+    /// Also extracts structured TaskMemory and persists it into unified memory.
     /// Safe to call even when `currentInputTokens == 0`.
     func compressIfNeeded(
         messages: inout [MessageParameter.Message],
@@ -112,7 +112,8 @@ extension ClaudeService {
         // Take value copies before entering async-let concurrent scope to satisfy
         // Swift 6 strict-concurrency rules (inout params may not be captured).
         let memorySnapshot = memory
-        let existingTaskMemory = sessionId.isEmpty ? nil : TaskMemoryService.shared.load(sessionId: sessionId)
+        let unifiedStore = UnifiedMemoryFileStoreAdapter()
+        let existingTaskMemoryText = sessionId.isEmpty ? nil : (try? taskMemoryPromptText(sessionId: sessionId, store: unifiedStore))
 
         // Run both extractions concurrently.
         async let contextExtraction = buildHierarchicalMemory(
@@ -123,7 +124,7 @@ extension ClaudeService {
         )
         async let taskExtraction = buildTaskMemory(
             from: oldMessages,
-            existing: existingTaskMemory,
+            existingPromptText: existingTaskMemoryText,
             service: service,
             modelId: modelId
         )
@@ -137,16 +138,23 @@ extension ClaudeService {
 
         memory.merge(with: extracted)
 
-        // Persist task memory (fire-and-forget on success; errors are logged inside).
+        // Persist task memory into the unified store (fire-and-forget on success; errors are logged inside).
         if !sessionId.isEmpty, let taskMem = extractedTask {
-            var tm = taskMem
-            tm.sessionId = sessionId
-            TaskMemoryService.shared.mergeAndSave(extracted: tm, sessionId: sessionId)
+            do {
+                try persistTaskMemoryExtraction(
+                    sessionId: sessionId,
+                    extracted: taskMem,
+                    store: unifiedStore
+                )
+            } catch {
+                print("Task memory persist error: \(error)")
+            }
         }
 
         let memoryText = buildCombinedMemoryText(
             contextMemory: memory,
-            taskMemory: sessionId.isEmpty ? nil : TaskMemoryService.shared.load(sessionId: sessionId)
+            sessionId: sessionId,
+            store: unifiedStore
         )
         messages = [
             MessageParameter.Message(
@@ -165,16 +173,21 @@ extension ClaudeService {
 
     // MARK: - Combined Memory Text
 
-    /// Merges ContextMemory and TaskMemory into a single prompt string.
-    /// TaskMemory fields (confirmedFacts, failedAttempts, etc.) take priority as they are
-    /// more precise; ContextMemory fills in the narrative context.
-    func buildCombinedMemoryText(contextMemory: ContextMemory, taskMemory: TaskMemory?) -> String {
+    /// Merges ContextMemory and session-scoped unified task memory into a single prompt string.
+    /// Task-memory fields take priority as they are more precise; ContextMemory fills in the narrative context.
+    func buildCombinedMemoryText(
+        contextMemory: ContextMemory,
+        sessionId: String,
+        store: UnifiedMemoryFileStoreAdapter = UnifiedMemoryFileStoreAdapter()
+    ) -> String {
         var parts: [String] = []
 
         // --- Task Memory (structured, high signal) ---
-        if let tm = taskMemory, !tm.isEmpty {
+        if !sessionId.isEmpty,
+           let taskMemoryText = try? taskMemoryPromptText(sessionId: sessionId, store: store),
+           !taskMemoryText.isEmpty {
             parts.append("### 任务级持久记忆 (Task Memory)")
-            parts.append(tm.toPromptText())
+            parts.append(taskMemoryText)
         }
 
         // --- Context Memory (narrative context) ---
@@ -301,7 +314,7 @@ extension ClaudeService {
     /// Extracts structured TaskMemory from message history via a dedicated Claude call.
     private func buildTaskMemory(
         from messages: [MessageParameter.Message],
-        existing: TaskMemory?,
+        existingPromptText: String?,
         service: any AnthropicService,
         modelId: String
     ) async -> TaskMemory? {
@@ -312,11 +325,11 @@ extension ClaudeService {
         }.joined(separator: "\n\n")
 
         let existingContext: String
-        if let ex = existing, !ex.isEmpty {
+        if let existingPromptText, !existingPromptText.isEmpty {
             existingContext = """
 
             已有任务记忆（请将新信息融合进去，不要重复已有条目）：
-            \(ex.toPromptText())
+            \(existingPromptText)
             """
         } else {
             existingContext = ""
@@ -384,6 +397,94 @@ extension ClaudeService {
         m.pendingQuestions = parsed.pending_questions
         m.verificationStatus = parsed.verification_status.map { VerificationEntry(item: $0.item, status: $0.status) }
         return m
+    }
+
+    func persistTaskMemoryExtraction(
+        sessionId: String,
+        extracted: TaskMemory,
+        store: UnifiedMemoryFileStoreAdapter = UnifiedMemoryFileStoreAdapter(),
+        timestamp: Date = Date()
+    ) throws {
+        let existing = try loadTaskMemory(sessionId: sessionId, store: store) ?? TaskMemory(sessionId: sessionId)
+        var merged = existing
+        var snapshot = extracted
+        snapshot.sessionId = sessionId
+        merged.merge(with: snapshot)
+
+        let records = TaskMemoryRecordFactory().makeRecords(
+            sessionId: sessionId,
+            confirmedFacts: merged.confirmedFacts,
+            attemptedActions: merged.attemptedActions,
+            failedAttempts: merged.failedAttempts,
+            pendingQuestions: merged.pendingQuestions,
+            verificationEntries: merged.verificationStatus,
+            timestamp: timestamp
+        )
+
+        for record in records {
+            _ = try store.persist(record: record)
+        }
+    }
+
+    func taskMemoryPromptText(
+        sessionId: String,
+        store: UnifiedMemoryFileStoreAdapter = UnifiedMemoryFileStoreAdapter()
+    ) throws -> String {
+        let records = try taskMemoryRecords(sessionId: sessionId, store: store)
+        return TaskMemoryPromptRenderer().render(records: records)
+    }
+
+    func loadTaskMemory(
+        sessionId: String,
+        store: UnifiedMemoryFileStoreAdapter = UnifiedMemoryFileStoreAdapter()
+    ) throws -> TaskMemory? {
+        let records = try taskMemoryRecords(sessionId: sessionId, store: store)
+        guard !records.isEmpty else {
+            return nil
+        }
+
+        var memory = TaskMemory(sessionId: sessionId)
+        memory.confirmedFacts = records.filter { $0.tags.contains("confirmed-fact") }.map(\.title)
+        memory.attemptedActions = records.filter { $0.tags.contains("attempt") }.map(\.title)
+        memory.failedAttempts = records.filter { $0.tags.contains("failed-attempt") }.map { record in
+            switch record.payload {
+            case let .structured(fields):
+                return FailedAttempt(
+                    action: fields["action"] ?? record.title,
+                    reason: fields["reason"] ?? record.summary
+                )
+            case let .text(text):
+                return FailedAttempt(action: record.title, reason: text)
+            }
+        }
+        memory.pendingQuestions = records.filter { $0.tags.contains("pending") }.map(\.title)
+        memory.verificationStatus = records.filter { $0.tags.contains("verification-entry") }.map { record in
+            switch record.payload {
+            case let .structured(fields):
+                return VerificationEntry(
+                    item: fields["item"] ?? record.title,
+                    status: fields["status"] ?? record.summary
+                )
+            case .text:
+                return VerificationEntry(item: record.title, status: record.summary)
+            }
+        }
+        memory.lastUpdated = records.map(\.updatedAt).max() ?? records.map(\.createdAt).max() ?? memory.lastUpdated
+        return memory
+    }
+
+    func taskMemoryRecords(
+        sessionId: String,
+        store: UnifiedMemoryFileStoreAdapter = UnifiedMemoryFileStoreAdapter()
+    ) throws -> [MemoryRecord] {
+        try store.records(for: .session(id: sessionId), includeArchived: false)
+            .filter { $0.source == .taskMemory }
+            .sorted { lhs, rhs in
+                if lhs.updatedAt == rhs.updatedAt {
+                    return lhs.id < rhs.id
+                }
+                return lhs.updatedAt < rhs.updatedAt
+            }
     }
 
     // MARK: - Helpers
