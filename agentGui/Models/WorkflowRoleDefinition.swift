@@ -29,6 +29,7 @@ struct WorkflowRoleDefinition: Sendable {
     let enableBash: Bool
     let enableWebSearch: Bool
     let enableWebFetch: Bool
+    let enableStoryMemoryTools: Bool
 
     // MARK: Artifact Permissions
 
@@ -70,6 +71,7 @@ struct WorkflowRoleDefinition: Sendable {
         enableBash: Bool = false,
         enableWebSearch: Bool = false,
         enableWebFetch: Bool = false,
+        enableStoryMemoryTools: Bool = false,
         readableArtifacts: Set<WorkflowArtifactKind> = [],
         writableArtifacts: Set<WorkflowArtifactKind> = [],
         subscribesTo: Set<WorkflowMessageKind> = [.task],
@@ -86,6 +88,7 @@ struct WorkflowRoleDefinition: Sendable {
         self.enableBash = enableBash
         self.enableWebSearch = enableWebSearch
         self.enableWebFetch = enableWebFetch
+        self.enableStoryMemoryTools = enableStoryMemoryTools
         self.readableArtifacts = readableArtifacts
         self.writableArtifacts = writableArtifacts
         self.subscribesTo = subscribesTo
@@ -124,7 +127,7 @@ extension WorkflowRoleDefinition {
     /// All built-in roles — used as the lookup table for run_subagent and workflows.
     static let all: [WorkflowRoleDefinition] = [
         planner, explorer, coder, reviewer, executor,
-        summarizer, writer, outline_planner
+        summarizer, creative_memory_manager, writer, outline_planner
     ]
 
     static func find(named name: String) -> WorkflowRoleDefinition? {
@@ -343,6 +346,39 @@ extension WorkflowRoleDefinition {
         primaryOutputArtifactKind: nil,
         maxTurnsPerActivation: 6,
         maxActivations: 3
+    )
+
+    // MARK: CreativeMemoryManager
+
+    static let creative_memory_manager = WorkflowRoleDefinition(
+        name: "creative_memory_manager",
+        displayName: "创作记忆管理员",
+        description: "处理创作项目记忆检索、canon 写入审查、项目绑定核对与连续性检查。",
+        systemPrompt: """
+        You are the creative memory manager for a writing project.
+
+        Responsibilities:
+        - Retrieve the smallest relevant project memory slice for the current writing task.
+        - Separate returned information into facts, inferences, and risks.
+        - Review candidate canon updates and decide whether they should be written, confirmed, or skipped.
+        - Check continuity and report structured risks instead of rewriting the prose.
+
+        Rules:
+        - Do not perform long-form creative writing.
+        - Do not use code-editing or bash tools.
+        - Use only story-memory domain tools.
+        - Return structured JSON compatible with StoryMemoryDelegationResponse.
+        """,
+        enableTextEditor: false,
+        enableBash: false,
+        enableStoryMemoryTools: true,
+        readableArtifacts: [],
+        writableArtifacts: [],
+        subscribesTo: [.task],
+        defaultOutputMessageKind: .statusUpdate,
+        primaryOutputArtifactKind: nil,
+        maxTurnsPerActivation: 8,
+        maxActivations: 5
     )
 
     // MARK: Writer

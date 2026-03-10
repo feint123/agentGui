@@ -9,6 +9,7 @@ import Foundation
 import Testing
 @testable import agentGui
 
+@Suite(.serialized)
 struct agentGuiTests {
 
     private func signature(_ document: BlockDocument) -> [BlockSignature] {

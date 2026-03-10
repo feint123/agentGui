@@ -94,11 +94,13 @@ struct ToolCallRowPresentation: Equatable {
                 isExpanded: isExpanded
             )
         case .subagent:
+            let auditSummary = storyMemoryAuditSummary(for: toolCall)
+            let auditTertiary = storyMemoryAuditTertiary(for: toolCall)
             return ToolCallRowPresentation(
                 style: .subagent,
                 primaryText: toolCall.subagentAgentName ?? toolCall.title ?? toolCall.kind.displayName,
-                secondaryText: toolCall.subagentTask,
-                tertiaryText: toolCall.subagentResultKind,
+                secondaryText: auditSummary ?? toolCall.subagentTask,
+                tertiaryText: auditTertiary ?? toolCall.subagentResultKind,
                 statusText: toolCall.statusDisplay,
                 detailText: nil,
                 durationText: durationText,
@@ -209,6 +211,18 @@ struct ToolCallRowPresentation: Equatable {
         }
         let selected = first["selected"] as? [String] ?? []
         return selected.isEmpty ? "等待或已取消" : selected.joined(separator: "、")
+    }
+
+    nonisolated private static func storyMemoryAuditSummary(for toolCall: ToolCall) -> String? {
+        toolCall.storyMemoryRiskSummary ?? toolCall.storyMemoryFallbackNote
+    }
+
+    nonisolated private static func storyMemoryAuditTertiary(for toolCall: ToolCall) -> String? {
+        guard let taskType = toolCall.storyMemoryTaskType,
+              let status = toolCall.storyMemoryStatus else {
+            return nil
+        }
+        return "\(taskType) · \(status)"
     }
 
     nonisolated private static func summaryLine(from text: String?) -> String? {

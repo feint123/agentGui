@@ -315,7 +315,7 @@ extension ClaudeService {
             )
         ))
 
-        if settings.enableStoryMemory {
+        if settings.enableStoryMemory && isSubagent {
             tools.append(.function(
                 name: "story_memory_create_project",
                 description: "Create a writing project for story memory, optionally attaching it to the current session.",

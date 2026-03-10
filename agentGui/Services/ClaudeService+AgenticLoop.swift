@@ -35,6 +35,20 @@ private let perfLog = PerformanceMonitor.self
 
 extension ClaudeService {
 
+    func makeStoryMemoryBootstrapForTests(
+        settings: AppSettings,
+        sessionId: String,
+        messages: [MessageParameter.Message],
+        modelContext: ModelContext
+    ) throws -> String? {
+        try buildStoryMemoryBootstrap(
+            settings: settings,
+            sessionId: sessionId,
+            messages: messages,
+            modelContext: modelContext
+        )
+    }
+
     // MARK: Public Entry Point
 
     func runAgenticLoop(
@@ -462,6 +476,9 @@ extension ClaudeService {
                         if !agentMsg.metadata.isEmpty {
                             record.subagentMessageMetadata = agentMsg.metadata
                         }
+                        if record.subagentAgentName == "creative_memory_manager" {
+                            populateStoryMemoryAuditFields(record: record, from: agentMsg)
+                        }
                     } else if pending.name == "start_workflow" {
                         result = await executeStartWorkflowTool(
                             input: input,
@@ -679,11 +696,30 @@ extension ClaudeService {
             .first(where: { $0.role == "user" })
             .map { extractText(from: $0.content) } ?? ""
 
+        let delegationService = StoryMemoryDelegationService(modelContext: modelContext)
+        let taskType = delegationService.classifyTask(userRequest: currentRequest)
+        guard taskType != .resolveProjectBinding else {
+            return nil
+        }
+
         let assembler = StoryMemoryPromptAssembler(
             modelContext: modelContext,
             retrievalService: StoryMemoryRetrievalService(modelContext: modelContext)
         )
         return try assembler.buildWritingSlice(settings: settings, session: session, currentRequest: currentRequest)
+    }
+
+    private func populateStoryMemoryAuditFields(record: ToolCall, from agentMessage: AgentMessage) {
+        guard case .structured(let json) = agentMessage.content,
+              let data = json.data(using: .utf8),
+              let response = try? JSONDecoder().decode(StoryMemoryDelegationResponse.self, from: data) else {
+            return
+        }
+
+        record.storyMemoryTaskType = response.taskType.rawValue
+        record.storyMemoryStatus = response.status.rawValue
+        record.storyMemoryRiskSummary = response.risks.first?.message
+        record.storyMemoryFallbackNote = response.fallbackNote
     }
 
     // MARK: - Helpers

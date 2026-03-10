@@ -45,6 +45,21 @@ struct AgentMessageFlowPresentationTests {
         })
     }
 
+    @Test func creativeMemorySubagentRowSurfacesAuditSummary() async throws {
+        let tool = ToolCall(toolCallId: "subagent-memory", kind: .subagent)
+        tool.subagentAgentName = "creative_memory_manager"
+        tool.storyMemoryTaskType = "verifyContinuity"
+        tool.storyMemoryStatus = "ready"
+        tool.storyMemoryRiskSummary = "顾沉突然离开王都将与上一章冲突"
+        tool.status = .success
+
+        let row = ToolCallRowPresentation.make(for: tool)
+
+        #expect(row.style == .subagent)
+        #expect(row.secondaryText == "顾沉突然离开王都将与上一章冲突")
+        #expect(row.tertiaryText == "verifyContinuity · ready")
+    }
+
     @Test func editToolUsesChangeSummaryRowPresentation() async throws {
         let tool = AgentMessageFlowFixture.makeEditToolCall()
 

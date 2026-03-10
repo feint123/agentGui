@@ -84,6 +84,36 @@ final class StoryMemoryPromptAssembler {
         )
     }
 
+    func buildDelegatedSlice(
+        request: StoryMemoryDelegationRequest,
+        response: StoryMemoryDelegationResponse
+    ) -> String {
+        let sections = [
+            renderSection(.goal, body: "- \(request.userRequest)"),
+            renderSection(.activeCharacters, body: renderDelegatedFacts(response.facts)),
+            renderSection(.recentEvents, body: renderDelegatedInferences(response.inferences)),
+            renderSection(.unresolvedForeshadow, body: renderDelegatedRisks(response.risks))
+        ]
+
+        return sections
+            .enumerated()
+            .map { index, section in
+                switch index {
+                case 0:
+                    return section.replacingOccurrences(of: StoryPromptSection.goal.rawValue, with: "当前任务")
+                case 1:
+                    return section.replacingOccurrences(of: StoryPromptSection.activeCharacters.rawValue, with: "已确认事实")
+                case 2:
+                    return section.replacingOccurrences(of: StoryPromptSection.recentEvents.rawValue, with: "推断")
+                case 3:
+                    return section.replacingOccurrences(of: StoryPromptSection.unresolvedForeshadow.rawValue, with: "风险")
+                default:
+                    return section
+                }
+            }
+            .joined(separator: "\n\n")
+    }
+
     private func fetchProject(id: UUID) throws -> WritingProject {
         let descriptor = FetchDescriptor<WritingProject>(predicate: #Predicate { $0.id == id })
         guard let project = try modelContext.fetch(descriptor).first else {
@@ -206,5 +236,20 @@ final class StoryMemoryPromptAssembler {
         }
 
         return parts.isEmpty ? "- 沿用现有叙事风格" : "- " + parts.joined(separator: "；")
+    }
+
+    private func renderDelegatedFacts(_ facts: [StoryMemoryFactSlice]) -> String {
+        guard !facts.isEmpty else { return "- 当前无已确认事实" }
+        return facts.map { "- \($0.title)：\($0.detail)" }.joined(separator: "\n")
+    }
+
+    private func renderDelegatedInferences(_ inferences: [String]) -> String {
+        guard !inferences.isEmpty else { return "- 当前无额外推断" }
+        return inferences.map { "- \($0)" }.joined(separator: "\n")
+    }
+
+    private func renderDelegatedRisks(_ risks: [StoryMemoryRiskItem]) -> String {
+        guard !risks.isEmpty else { return "- 当前无明显风险" }
+        return risks.map { "- [\($0.level.rawValue)] \($0.message)" }.joined(separator: "\n")
     }
 }

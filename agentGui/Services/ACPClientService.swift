@@ -358,7 +358,26 @@ final class ClaudeService {
 
     // MARK: - System Prompt Builder
 
-    private func buildSystemPrompt(skills: [Skill], workingDirectory: String, settings: AppSettings) -> String {
+    func makeSystemPromptForTests(
+        skills: [Skill],
+        workingDirectory: String,
+        settings: AppSettings,
+        session: Session?
+    ) -> String {
+        buildSystemPrompt(
+            skills: skills,
+            workingDirectory: workingDirectory,
+            settings: settings,
+            sessionOverride: session
+        )
+    }
+
+    private func buildSystemPrompt(
+        skills: [Skill],
+        workingDirectory: String,
+        settings: AppSettings,
+        sessionOverride: Session? = nil
+    ) -> String {
         var parts: [String] = []
 
         // Long-term memory — read from ~/.agentgui/memory.md on every call so it's always fresh
@@ -372,9 +391,19 @@ final class ClaudeService {
         }
 
         if settings.enableStoryMemory,
-           let session = currentSession,
+           let session = sessionOverride ?? currentSession,
            !session.activeWritingProjectId.isEmpty {
-            parts.append("## Story Memory\nProject-scoped story memory is enabled for this session. Keep continuity consistent with active characters, world rules, unresolved foreshadowing, and style directives. Use structured story memory tools when available instead of collapsing these facts into generic notes.")
+            parts.append("""
+            ## Creative Memory Delegation
+
+            This session is bound to a writing project. Treat project memory as an on-demand collaborator, not as a permanent toolbox in your main context.
+
+            Use `run_subagent` with `agent_name: \"creative_memory_manager\"` only when the current task depends on project canon, such as character state, world rules, timeline, foreshadowing, continuity, or project-bound writeback decisions.
+
+            始终按需委托，只请求当前任务所需的最小相关记忆切片。
+            The delegated result must be interpreted in three buckets: facts, inferences, and risks.
+            If memory delegation fails, continue the writing task only if it is still possible, and explicitly note that project memory was not updated.
+            """)
         }
 
         if !skills.isEmpty {
@@ -413,6 +442,7 @@ final class ClaudeService {
         - Use `executor` for running shell commands, builds, or tests.
         - Use `summarizer` for distilling long documents into concise summaries.
         - Use `planner` for very large or ambiguous tasks where you need a structured plan before starting.
+        - Use `creative_memory_manager` when the request needs project-bound creative memory retrieval, canon write review, or continuity checking.
         """)
 
         parts.append("""

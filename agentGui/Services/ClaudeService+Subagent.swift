@@ -11,6 +11,14 @@ import SwiftData
 
 extension ClaudeService {
 
+    func makeSubagentToolsForTests(
+        modelId: String,
+        definition: WorkflowRoleDefinition,
+        settings: AppSettings
+    ) -> [MessageParameter.Tool] {
+        buildSubagentTools(modelId: modelId, definition: definition, settings: settings)
+    }
+
     /// 执行 run_subagent 工具调用：解析参数、查找定义、运行嵌套 loop
     /// 返回 AgentMessage（带发送方、接收方、内容类型和元数据）而非纯字符串。
     func executeRunSubagentTool(
@@ -195,6 +203,33 @@ extension ClaudeService {
                 )
             ))
         }
+        if definition.enableStoryMemoryTools && settings.enableStoryMemory {
+            tools.append(contentsOf: storyMemoryTools(modelId: modelId, settings: settings))
+        }
         return tools
+    }
+
+    private func storyMemoryTools(modelId: String, settings: AppSettings) -> [MessageParameter.Tool] {
+        buildTools(modelId: modelId, settings: settings, isSubagent: true)
+            .filter { toolName(from: $0)?.hasPrefix("story_memory_") == true }
+    }
+
+    private func toolName(from tool: MessageParameter.Tool) -> String? {
+        extractString(labeled: "name", from: Mirror(reflecting: tool))
+    }
+
+    private func extractString(labeled target: String, from mirror: Mirror) -> String? {
+        for child in mirror.children {
+            if child.label == target, let value = child.value as? String {
+                return value
+            }
+
+            let childMirror = Mirror(reflecting: child.value)
+            if let value = extractString(labeled: target, from: childMirror) {
+                return value
+            }
+        }
+
+        return nil
     }
 }

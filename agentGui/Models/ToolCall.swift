@@ -73,6 +73,18 @@ final class ToolCall {
     /// AgentMessage 携带的元数据键值对（轮次数、耗时等）（kind == .subagent 时使用）
     var subagentMessageMetadata: [String: String]?
 
+    /// 创作记忆委托的任务类型（kind == .subagent 且 agent == creative_memory_manager 时使用）
+    var storyMemoryTaskType: String?
+
+    /// 创作记忆委托结果状态（ready / projectNotBound / failed ...）
+    var storyMemoryStatus: String?
+
+    /// 创作记忆委托的风险摘要
+    var storyMemoryRiskSummary: String?
+
+    /// 创作记忆委托的 fallback 说明
+    var storyMemoryFallbackNote: String?
+
     /// 子代理的 agentic loop 轮次（kind == .subagent 时使用）
     @Relationship(deleteRule: .cascade, inverse: \AgentRound.subagentToolCall)
     var subagentRounds: [AgentRound] = []
@@ -100,6 +112,10 @@ final class ToolCall {
         self.endTime = nil
         self.message = message
         self.agentRound = agentRound
+        self.storyMemoryTaskType = nil
+        self.storyMemoryStatus = nil
+        self.storyMemoryRiskSummary = nil
+        self.storyMemoryFallbackNote = nil
     }
 }
 

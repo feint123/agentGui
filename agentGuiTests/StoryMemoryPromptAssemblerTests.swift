@@ -166,26 +166,132 @@ struct StoryMemoryPromptAssemblerTests {
         #expect(foreshadowRange.lowerBound < styleRange.lowerBound)
     }
 
-    @Test func toolBuilderIncludesStoryMemoryTools() async throws {
+    @Test func toolBuilderOmitsRawStoryMemoryToolsFromMainAgentByDefault() async throws {
         let settings = AppSettings()
         settings.enableStoryMemory = true
 
         let tools = ClaudeService().buildTools(modelId: "claude-sonnet-4-6", settings: settings)
         let names = toolNames(from: tools)
 
-        #expect(names.contains("story_memory_create_project"))
-        #expect(names.contains("story_memory_attach_project"))
-        #expect(names.contains("story_memory_upsert_character"))
-        #expect(names.contains("story_memory_append_event"))
+        #expect(names.contains("run_subagent"))
+        #expect(!names.contains("story_memory_query"))
+        #expect(!names.contains("story_memory_upsert_character"))
+        #expect(!names.contains("story_memory_verify_continuity"))
+    }
+
+    @Test func toolBuilderKeepsRunSubagentAvailableForMemoryDelegation() async throws {
+        let settings = AppSettings()
+        settings.enableStoryMemory = true
+
+        let tools = ClaudeService().buildTools(modelId: "claude-sonnet-4-6", settings: settings)
+        let names = toolNames(from: tools)
+
+        #expect(names.contains("run_subagent"))
+    }
+
+    @Test func systemPromptUsesDelegationProtocolInsteadOfPermanentStoryMemoryRules() async throws {
+        let settings = AppSettings()
+        settings.enableStoryMemory = true
+        let session = Session(title: "写作会话")
+        session.activeWritingProjectId = UUID().uuidString
+
+        let prompt = ClaudeService().makeSystemPromptForTests(
+            skills: [],
+            workingDirectory: "/tmp/project",
+            settings: settings,
+            session: session
+        )
+
+        #expect(prompt.contains("run_subagent"))
+        #expect(prompt.contains("creative_memory_manager"))
+        #expect(prompt.contains("按需委托"))
+        #expect(!prompt.contains("Use structured story memory tools when available instead of collapsing these facts into generic notes."))
+    }
+
+    @Test func workflowRoleRegistryIncludesCreativeMemoryManager() async throws {
+        let role = try #require(WorkflowRoleDefinition.find(named: "creative_memory_manager"))
+
+        #expect(role.enableTextEditor == false)
+        #expect(role.enableBash == false)
+        #expect(role.enableStoryMemoryTools == true)
+    }
+
+    @Test func memoryRoleBuildsSubagentToolsWithStoryMemoryCapabilities() async throws {
+        let settings = AppSettings()
+        settings.enableStoryMemory = true
+        let role = try #require(WorkflowRoleDefinition.find(named: "creative_memory_manager"))
+
+        let tools = ClaudeService().makeSubagentToolsForTests(modelId: "claude-sonnet-4-6", definition: role, settings: settings)
+        let names = toolNames(from: tools)
+
         #expect(names.contains("story_memory_query"))
         #expect(names.contains("story_memory_verify_continuity"))
-        #expect(names.contains("story_memory_upsert_chapter"))
-        #expect(names.contains("story_memory_upsert_scene"))
-        #expect(names.contains("story_memory_upsert_world_rule"))
-        #expect(names.contains("story_memory_upsert_location"))
-        #expect(names.contains("story_memory_upsert_foreshadow"))
-        #expect(names.contains("story_memory_upsert_style_profile"))
-        #expect(names.contains("story_memory_update_continuity_issue"))
+        #expect(names.contains("story_memory_upsert_character"))
+    }
+
+    @Test func memoryRoleDoesNotExposeGeneralWriteCodeToolsByDefault() async throws {
+        let settings = AppSettings()
+        settings.enableStoryMemory = true
+        let role = try #require(WorkflowRoleDefinition.find(named: "creative_memory_manager"))
+
+        let tools = ClaudeService().makeSubagentToolsForTests(modelId: "claude-sonnet-4-6", definition: role, settings: settings)
+        let names = toolNames(from: tools)
+
+        #expect(!names.contains("bash"))
+        #expect(!names.contains("str_replace_based_edit_tool"))
+    }
+
+    @Test func agentLoopDoesNotInjectStoryMemoryBootstrapForNonMemoryTasks() async throws {
+        let container = try makeStoryContainer()
+        let context = ModelContext(container)
+        let settings = AppSettings()
+        settings.enableStoryMemory = true
+
+        let storyService = StoryMemoryService(modelContext: context)
+        let project = try storyService.createProject(title: "北塔之冬", synopsis: "王都迷雾")
+        let session = Session(title: "普通会话")
+        context.insert(session)
+        try storyService.attachProject(to: session, projectId: project.id)
+
+        let bootstrap = try ClaudeService().makeStoryMemoryBootstrapForTests(
+            settings: settings,
+            sessionId: session.sessionId,
+            messages: [MessageParameter.Message(role: .user, content: .text("把下面这段话压缩成两句"))],
+            modelContext: context
+        )
+
+        #expect(bootstrap == nil)
+    }
+
+    @Test func promptAssemblerCanFormatMinimalTaskScopedSliceFromDelegationResponse() async throws {
+        let container = try makeStoryContainer()
+        let context = ModelContext(container)
+        let retrieval = StoryMemoryRetrievalService(modelContext: context)
+        let assembler = StoryMemoryPromptAssembler(modelContext: context, retrievalService: retrieval)
+        let request = StoryMemoryDelegationRequest(
+            projectId: UUID().uuidString,
+            projectTitle: "北塔之冬",
+            taskType: .verifyContinuity,
+            userRequest: "检查顾沉和林澈在北塔这场戏是否与之前设定冲突",
+            candidateText: nil
+        )
+        let response = StoryMemoryDelegationResponse(
+            status: .ready,
+            taskType: .verifyContinuity,
+            facts: [StoryMemoryFactSlice(title: "角色位置", detail: "林澈和顾沉上次都在北塔", source: "timeline")],
+            inferences: ["这场戏应延续紧张对峙气氛"],
+            risks: [StoryMemoryRiskItem(level: .warning, message: "若顾沉突然离开王都，会与上一章冲突", needsUserConfirmation: false)],
+            writeDecision: nil,
+            fallbackNote: nil
+        )
+
+        let slice = assembler.buildDelegatedSlice(request: request, response: response)
+
+        #expect(slice.contains("当前任务"))
+        #expect(slice.contains("已确认事实"))
+        #expect(slice.contains("推断"))
+        #expect(slice.contains("风险"))
+        #expect(slice.contains("若顾沉突然离开王都，会与上一章冲突"))
     }
 
     @Test func storyMemoryToolsQueryAndVerifyContinuity() async throws {

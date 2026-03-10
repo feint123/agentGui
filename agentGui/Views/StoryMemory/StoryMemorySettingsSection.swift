@@ -38,7 +38,7 @@ struct StoryMemorySettingsSection: View {
         } header: {
             Text("创作记忆")
         } footer: {
-            Text("项目级创作记忆用于维护角色、世界规则、时间线和连续性。它与长期记忆分离，不会写入 ~/.agentgui/memory.md。")
+            Text("项目级创作记忆用于维护角色、世界规则、时间线和连续性。默认模式下，主 Agent 只会按需委托给独立的创作记忆子代理；失败或未写入时会在时间线中显式显示，不会静默伪装成成功。它与长期记忆分离，不会写入 ~/.agentgui/memory.md。")
         }
     }
 
