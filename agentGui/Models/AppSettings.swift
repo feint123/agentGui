@@ -103,6 +103,12 @@ final class AppSettings {
     /// 是否启用 TTL sweep
     var enableMemoryTTLSweep: Bool = true
 
+    /// 后台记忆调度轮询周期（秒）
+    var memoryBackgroundSchedulerIntervalSeconds: Int = 30
+
+    /// TTL sweep 调度周期（秒）
+    var memoryTTLSweepIntervalSeconds: Int = 300
+
 
     init() {
         self.apiKey = ""
@@ -136,6 +142,8 @@ final class AppSettings {
         self.enableBackgroundMemoryConsolidation = true
         self.memoryConfirmationThreshold = 0.6
         self.enableMemoryTTLSweep = true
+        self.memoryBackgroundSchedulerIntervalSeconds = 30
+        self.memoryTTLSweepIntervalSeconds = 300
     }
 }
 

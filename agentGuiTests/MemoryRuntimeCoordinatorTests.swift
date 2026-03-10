@@ -101,6 +101,12 @@ struct MemoryRuntimeCoordinatorTests {
 
         await coordinator.scheduleConsolidation(for: outcome)
 
+        let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
+        #expect(try jobStore.allJobs().contains { $0.type == .consolidation && $0.status == .queued })
+
+        let scheduler = MemoryBackgroundScheduler(baseDirectory: baseDirectory)
+        await scheduler.runOnce()
+
         let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
         let records = try store.records(for: .session(id: "s1"), includeArchived: true)
         #expect(records.contains { $0.title == "Build uses xcodebuild" && $0.layer == .task })

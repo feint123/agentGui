@@ -1,6 +1,21 @@
 import Foundation
 
 struct MemoryRetentionService {
+    func sweep(
+        store: UnifiedMemoryFileStoreAdapter,
+        asOf: Date,
+        ttl: TimeInterval
+    ) throws -> MemorySweepReport {
+        let expiredResults = try sweepExpiredSessionRecords(store: store, asOf: asOf, ttl: ttl)
+        let revalidation = try revalidationQueue(store: store)
+        return MemorySweepReport(
+            runAt: asOf,
+            archivedCount: expiredResults.count,
+            revalidationCount: revalidation.count,
+            skippedCount: 0
+        )
+    }
+
     func sweepExpiredSessionRecords(
         store: UnifiedMemoryFileStoreAdapter,
         asOf: Date,

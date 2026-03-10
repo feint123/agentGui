@@ -107,34 +107,27 @@ extension MemoryCandidate {
 
 actor MemoryBackgroundWriteQueue {
     private let storeBaseDirectory: URL
-    private var pendingRecordIDs: Set<String> = []
+    private let jobStore: MemoryBackgroundJobStore
 
     init(storeBaseDirectory: URL = ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory)) {
         self.storeBaseDirectory = storeBaseDirectory
+        self.jobStore = MemoryBackgroundJobStore(baseDirectory: storeBaseDirectory)
     }
 
     func enqueue(_ record: MemoryRecord) {
-        pendingRecordIDs.insert(record.id)
-        let baseDirectory = storeBaseDirectory
-        Task {
-            let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
-            _ = try? store.persist(record: record)
-            await self.markFinished(record.id)
-        }
+        try? jobStore.enqueue(.backgroundWrite(record: record))
     }
 
     func waitUntilIdle(timeoutNanoseconds: UInt64 = 1_000_000_000) async {
         let start = DispatchTime.now().uptimeNanoseconds
-        while !pendingRecordIDs.isEmpty {
+        let scheduler = await MainActor.run { MemoryBackgroundScheduler(baseDirectory: storeBaseDirectory) }
+        while (try? jobStore.hasPendingJobs(types: [.backgroundWrite])) == true {
             if DispatchTime.now().uptimeNanoseconds - start > timeoutNanoseconds {
                 return
             }
+            await scheduler.runOnce()
             await Task.yield()
         }
-    }
-
-    private func markFinished(_ recordID: String) {
-        pendingRecordIDs.remove(recordID)
     }
 }
 
@@ -168,13 +161,17 @@ struct MemoryConfirmationStore {
     }
 
     func append(_ candidate: MemoryConfirmationCandidate) throws {
+        var candidates = try load()
+        candidates.append(candidate)
+        try save(candidates)
+    }
+
+    func save(_ candidates: [MemoryConfirmationCandidate]) throws {
         let directory = fileURL.deletingLastPathComponent()
         if !fileManager.fileExists(atPath: directory.path) {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
 
-        var candidates = try load()
-        candidates.append(candidate)
         let data = try encoder.encode(candidates)
         try data.write(to: fileURL, options: .atomic)
     }

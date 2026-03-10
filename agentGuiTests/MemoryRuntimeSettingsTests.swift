@@ -12,5 +12,7 @@ struct MemoryRuntimeSettingsTests {
         #expect(settings.enableBackgroundMemoryConsolidation == true)
         #expect(settings.memoryConfirmationThreshold == 0.6)
         #expect(settings.enableMemoryTTLSweep == true)
+        #expect(settings.memoryBackgroundSchedulerIntervalSeconds == 30)
+        #expect(settings.memoryTTLSweepIntervalSeconds == 300)
     }
 }

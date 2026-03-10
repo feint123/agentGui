@@ -368,10 +368,36 @@ struct SettingsView: View {
                         set: { settings.enableBackgroundMemoryConsolidation = $0; try? modelContext.save() }
                     ))
 
+                    Stepper(value: Binding(
+                        get: { settings.memoryBackgroundSchedulerIntervalSeconds },
+                        set: { settings.memoryBackgroundSchedulerIntervalSeconds = $0; try? modelContext.save() }
+                    ), in: 5...600, step: 5) {
+                        HStack {
+                            Text("后台调度周期")
+                            Spacer()
+                            Text("\(settings.memoryBackgroundSchedulerIntervalSeconds)s")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+
                     Toggle("启用 TTL Sweep", isOn: Binding(
                         get: { settings.enableMemoryTTLSweep },
                         set: { settings.enableMemoryTTLSweep = $0; try? modelContext.save() }
                     ))
+
+                    Stepper(value: Binding(
+                        get: { settings.memoryTTLSweepIntervalSeconds },
+                        set: { settings.memoryTTLSweepIntervalSeconds = $0; try? modelContext.save() }
+                    ), in: 60...3600, step: 60) {
+                        HStack {
+                            Text("TTL Sweep 周期")
+                            Spacer()
+                            Text("\(settings.memoryTTLSweepIntervalSeconds)s")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {

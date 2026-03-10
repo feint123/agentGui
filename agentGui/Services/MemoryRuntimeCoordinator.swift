@@ -13,6 +13,7 @@ final class MemoryRuntimeCoordinator {
     private let confirmationStore: MemoryConfirmationStore
     private let consolidationEngine: MemoryConsolidationEngine
     private let promptAssembler: MemoryPromptAssembler
+    private let backgroundJobStore: MemoryBackgroundJobStore
 
     init(
         profileRegistry: MemoryDomainProfileRegistry = MemoryDomainProfileRegistry(),
@@ -24,7 +25,8 @@ final class MemoryRuntimeCoordinator {
         backgroundWriteQueue: MemoryBackgroundWriteQueue? = nil,
         confirmationStore: MemoryConfirmationStore? = nil,
         consolidationEngine: MemoryConsolidationEngine = MemoryConsolidationEngine(),
-        promptAssembler: MemoryPromptAssembler = MemoryPromptAssembler()
+        promptAssembler: MemoryPromptAssembler = MemoryPromptAssembler(),
+        backgroundJobStore: MemoryBackgroundJobStore? = nil
     ) {
         self.profileRegistry = profileRegistry
         self.retrievalPlanner = retrievalPlanner
@@ -36,6 +38,7 @@ final class MemoryRuntimeCoordinator {
         self.confirmationStore = confirmationStore ?? MemoryConfirmationStore(baseDirectory: unifiedStoreBaseDirectory)
         self.consolidationEngine = consolidationEngine
         self.promptAssembler = promptAssembler
+        self.backgroundJobStore = backgroundJobStore ?? MemoryBackgroundJobStore(baseDirectory: unifiedStoreBaseDirectory)
     }
 
     convenience init(modelContext: ModelContext) {
@@ -150,13 +153,7 @@ final class MemoryRuntimeCoordinator {
     }
 
     func scheduleConsolidation(for outcome: MemoryRuntimeOutcome) async {
-        guard let candidates = try? await consolidationEngine.consolidate(outcome) else {
-            return
-        }
-
-        for candidate in candidates {
-            _ = try? await applyGovernedWrite(candidate: candidate)
-        }
+        try? backgroundJobStore.enqueue(.consolidation(outcome: outcome))
     }
 }
 

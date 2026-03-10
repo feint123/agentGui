@@ -171,7 +171,11 @@ struct UnifiedMemoryFileStoreAdapter: MemoryStoreAdapter {
         guard fileManager.fileExists(atPath: baseDirectory.path) else { return [] }
         return try fileManager.contentsOfDirectory(at: baseDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
             .filter { fileURL in
-                fileURL.pathExtension == "json" && fileURL.lastPathComponent != "pending-confirmations.json"
+                fileURL.pathExtension == "json" &&
+                fileURL.lastPathComponent != "pending-confirmations.json" &&
+                fileURL.lastPathComponent != "memory-governance-audit.json" &&
+                fileURL.lastPathComponent != "memory-background-jobs.json" &&
+                fileURL.lastPathComponent != "memory-latest-sweep-report.json"
             }
     }
 

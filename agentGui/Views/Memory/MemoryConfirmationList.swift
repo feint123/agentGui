@@ -2,6 +2,8 @@ import SwiftUI
 
 struct MemoryConfirmationList: View {
     let candidates: [MemoryConfirmationCandidate]
+    let onApprove: (MemoryConfirmationCandidate) async -> Void
+    let onReject: (MemoryConfirmationCandidate) -> Void
 
     var body: some View {
         if candidates.isEmpty {
@@ -18,6 +20,20 @@ struct MemoryConfirmationList: View {
                         Text(candidate.reason)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        HStack {
+                            Button("批准") {
+                                Task {
+                                    await onApprove(candidate)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button("拒绝") {
+                                onReject(candidate)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        .padding(.top, 4)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)

@@ -63,6 +63,51 @@ struct MemoryManagementViewModelTests {
         #expect(viewModel.layerSummaries.contains { $0.label == "semantic" && $0.count == 3 })
     }
 
+    @Test func viewModelApproveAndRejectRefreshCounts() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+        let confirmationStore = MemoryConfirmationStore(baseDirectory: baseDirectory)
+        let workflowService = MemoryConfirmationWorkflowService(baseDirectory: baseDirectory)
+
+        try confirmationStore.append(
+            MemoryConfirmationCandidate(
+                candidateID: "approve-1",
+                domainProfile: "coding-task",
+                scope: .session(id: "s1"),
+                title: "Build uses xcodebuild",
+                summary: "Build uses xcodebuild",
+                proposedRecord: UnifiedMemoryStoredRecord(record: MemoryRecord.fixture(id: "approved-record", scope: .session(id: "s1"), title: "Build uses xcodebuild")),
+                reason: "Needs confirmation"
+            )
+        )
+        try confirmationStore.append(
+            MemoryConfirmationCandidate(
+                candidateID: "reject-1",
+                domainProfile: "creative-writing",
+                scope: .project(id: "p1"),
+                title: "Possible canon",
+                summary: "Speculative summary",
+                proposedRecord: UnifiedMemoryStoredRecord(record: MemoryRecord.fixture(id: "rejected-record", scope: .project(id: "p1"))),
+                reason: "Needs confirmation"
+            )
+        )
+
+        let viewModel = MemoryManagementViewModel(
+            store: store,
+            confirmationStore: confirmationStore,
+            confirmationWorkflowService: workflowService
+        )
+        try viewModel.reload()
+
+        let approveID = try #require(viewModel.pendingConfirmations.first(where: { $0.candidateID == "approve-1" })?.id)
+        try await viewModel.approve(candidateID: approveID)
+        #expect(viewModel.pendingConfirmationCount == 1)
+
+        let rejectID = try #require(viewModel.pendingConfirmations.first(where: { $0.candidateID == "reject-1" })?.id)
+        try viewModel.reject(candidateID: rejectID, reason: "User rejected")
+        #expect(viewModel.pendingConfirmationCount == 0)
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

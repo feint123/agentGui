@@ -22,6 +22,7 @@ struct agentGuiApp: App {
     @State private var claudeService = ClaudeService()
     @State private var skillService = SkillService()
     @State private var workflowRuntime: WorkflowRuntime?
+    @State private var memoryBackgroundScheduler: MemoryBackgroundScheduler?
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -84,6 +85,19 @@ struct agentGuiApp: App {
                     let runtime = WorkflowRuntime(claudeService: claudeService)
                     workflowRuntime = runtime
                     claudeService.workflowRuntime = runtime
+
+                    if settings.enableUnifiedMemoryRuntime && settings.enableBackgroundMemoryConsolidation {
+                        let scheduler = MemoryBackgroundScheduler()
+                        scheduler.start(intervalSeconds: settings.memoryBackgroundSchedulerIntervalSeconds)
+                        memoryBackgroundScheduler = scheduler
+
+                        if settings.enableMemoryTTLSweep {
+                            Task {
+                                let jobStore = MemoryBackgroundJobStore()
+                                try? jobStore.enqueue(.ttlSweep(ttl: TimeInterval(settings.memoryTTLSweepIntervalSeconds)))
+                            }
+                        }
+                    }
                 }
         }
         .modelContainer(sharedModelContainer)

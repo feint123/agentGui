@@ -29,6 +29,38 @@ struct MemoryRetentionServiceTests {
         #expect(try store.records(for: .session(id: "s1"), includeArchived: true).first?.retentionPolicy == .archiveOnly)
     }
 
+    @Test func retentionServiceProducesSweepReport() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+        _ = try store.persist(record: MemoryRecord.fixture(
+            id: "expired",
+            layer: .task,
+            kind: .working,
+            scope: .session(id: "s1"),
+            retentionPolicy: .sessionBound,
+            createdAt: Date(timeIntervalSince1970: 0),
+            updatedAt: Date(timeIntervalSince1970: 0)
+        ))
+        _ = try store.persist(record: MemoryRecord.fixture(
+            id: "partial",
+            layer: .semantic,
+            kind: .semantic,
+            scope: .user,
+            verificationStatus: .partial,
+            retentionPolicy: .persistent
+        ))
+
+        let report = try MemoryRetentionService().sweep(
+            store: store,
+            asOf: Date(timeIntervalSince1970: 10_000),
+            ttl: 60
+        )
+
+        #expect(report.archivedCount == 1)
+        #expect(report.revalidationCount == 1)
+        #expect(report.totalProcessed == 2)
+    }
+
     @Test func retentionServiceBuildsRevalidationQueueFromUnverifiedRecords() async throws {
         let baseDirectory = try makeTemporaryDirectory()
         let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
