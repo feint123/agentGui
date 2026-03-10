@@ -1,0 +1,24 @@
+import Foundation
+import Testing
+@testable import agentGui
+
+@MainActor
+struct MemoryRuntimeSnapshotViewModelTests {
+    @Test func viewModelBuildsCountAndLoadBreakdownsForSelectedRecords() throws {
+        let snapshot = MemoryRuntimeSnapshot.fixture(
+            selectedRecords: [
+                .fixture(recordID: "r1", title: "Known failure", layer: .task, kind: .working, verificationStatus: .verified, estimatedPromptChars: 40),
+                .fixture(recordID: "r2", title: "User pref", layer: .semantic, kind: .semantic, verificationStatus: .verified, estimatedPromptChars: 10),
+                .fixture(recordID: "r3", title: "Speculative cause", layer: .task, kind: .working, verificationStatus: .unverified, estimatedPromptChars: 20)
+            ]
+        )
+
+        let viewModel = MemoryRuntimeSnapshotViewModel(snapshot: snapshot)
+        viewModel.dimension = .layer
+        viewModel.metric = .estimatedChars
+
+        #expect(viewModel.chartItems.contains { $0.label == "task" && $0.value == 60 })
+        #expect(viewModel.chartItems.contains { $0.label == "semantic" && $0.value == 10 })
+        #expect(viewModel.selectedSummary.selectedCount == 3)
+    }
+}

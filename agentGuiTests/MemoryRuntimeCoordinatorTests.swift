@@ -125,6 +125,78 @@ struct MemoryRuntimeCoordinatorTests {
         #expect(records.contains { $0.title == "Build uses xcodebuild" && $0.layer == .task })
     }
 
+    @Test func coordinatorBuildsSnapshotTraceWithBudgetAndExclusionReasons() async throws {
+        let records = [
+            MemoryRecord.fixture(
+                id: "task-1",
+                layer: .task,
+                kind: .working,
+                scope: .session(id: "s1"),
+                title: "Hot fact",
+                verificationStatus: .verified
+            ),
+            MemoryRecord.fixture(
+                id: "task-2",
+                layer: .task,
+                kind: .working,
+                scope: .session(id: "s1"),
+                title: "Cold fact",
+                verificationStatus: .unverified,
+                updatedAt: Date(timeIntervalSince1970: 1)
+            ),
+            MemoryRecord.fixture(
+                id: "semantic-archive",
+                layer: .semantic,
+                kind: .semantic,
+                scope: .user,
+                title: "Old pref",
+                retentionPolicy: .archiveOnly
+            )
+        ]
+
+        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: records, storyRecords: [])
+        let request = MemoryRuntimeRequest(
+            sessionId: "s1",
+            threadId: "t1",
+            workflowRunId: nil,
+            userRequest: "Fix build",
+            taskKind: .coding,
+            projectId: nil,
+            workspaceRoot: "/tmp/repo",
+            contextBudget: 1000
+        )
+
+        let context = try await coordinator.prepareContext(for: request)
+
+        let snapshot = try #require(context.runtimeSnapshot)
+        #expect(snapshot.selectedRecords.contains { $0.layer == .task && $0.recordID == "task-1" })
+        #expect(snapshot.selectedRecords.contains { $0.layer == .working && $0.tags.contains("runtime-working") })
+        #expect(snapshot.excludedRecords.contains { $0.recordID == "task-2" && $0.exclusionReason == .budgetTrimmed })
+        #expect(snapshot.excludedRecords.contains { $0.recordID == "semantic-archive" && $0.exclusionReason == .archived })
+        #expect(snapshot.plan.itemBudgetByLayer[.task] == 1)
+    }
+
+    @Test func emptyUnifiedMemorySliceStillProducesInspectableSnapshot() async throws {
+        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [], storyRecords: [])
+        let request = MemoryRuntimeRequest(
+            sessionId: "s1",
+            threadId: "t1",
+            workflowRunId: nil,
+            userRequest: "Fix build",
+            taskKind: .coding,
+            projectId: nil,
+            workspaceRoot: "/tmp/repo",
+            contextBudget: 4000
+        )
+
+        let context = try await coordinator.prepareContext(for: request)
+        let snapshot = try #require(context.runtimeSnapshot)
+
+        #expect(snapshot.metrics.selectedCount == 1)
+        #expect(snapshot.selectedRecords.contains { $0.layer == .working && $0.tags.contains("runtime-working") })
+        #expect(snapshot.request.contextBudget == 4000)
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

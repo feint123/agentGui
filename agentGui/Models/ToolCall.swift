@@ -94,6 +94,9 @@ final class ToolCall {
     /// Unified memory runtime warnings active when this tool call was created
     var memoryRuntimeWarnings: [String]?
 
+    /// Structured runtime snapshot ID captured for this tool call
+    var memoryRuntimeSnapshotID: String?
+
     /// Whether this tool call queued memory work for background consolidation
     var memoryBackgroundConsolidationQueued: Bool?
 
@@ -137,6 +140,7 @@ final class ToolCall {
         self.memoryRuntimeProfiles = nil
         self.memoryRuntimeLayers = nil
         self.memoryRuntimeWarnings = nil
+        self.memoryRuntimeSnapshotID = nil
         self.memoryBackgroundConsolidationQueued = nil
         self.memoryConflictRecordIDs = nil
         self.memoryConfirmationCandidateIDs = nil

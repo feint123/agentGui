@@ -131,6 +131,7 @@ extension ClaudeService {
         var memoryRuntimeProfiles: [String] = []
         var memoryRuntimeLayers: [String] = []
         var memoryRuntimeWarnings: [String] = []
+        var memoryRuntimeSnapshotID: String?
 
         if let unifiedContext = try? await buildUnifiedMemoryBootstrap(
             settings: settings,
@@ -138,20 +139,28 @@ extension ClaudeService {
             sessionId: sessionId,
             messages: messages,
             modelContext: modelContext
-        ),
-           !unifiedContext.renderedPrompt.isEmpty {
-            print("[MemoryRuntime] Loaded unified memory slice for session \(sessionId)")
+        ) {
             memoryRuntimeProfiles = unifiedContext.profiles
             memoryRuntimeLayers = Array(Set(unifiedContext.records.map { $0.layer.rawValue })).sorted()
             memoryRuntimeWarnings = unifiedContext.warnings
-            messages.insert(
-                MessageParameter.Message(role: .user, content: .text("【统一记忆切片】以下是当前任务的统一记忆视图，请优先遵守其中的当前状态、事实、事件与风险：\n\n\(unifiedContext.renderedPrompt)")),
-                at: 0
-            )
-            messages.insert(
-                MessageParameter.Message(role: .assistant, content: .text("已加载统一记忆切片，将据此继续执行当前任务。")),
-                at: 1
-            )
+
+            if let snapshot = unifiedContext.runtimeSnapshot {
+                let snapshotStore = MemoryRuntimeSnapshotStore()
+                try? snapshotStore.save(snapshot)
+                memoryRuntimeSnapshotID = snapshot.id
+            }
+
+            if !unifiedContext.renderedPrompt.isEmpty {
+                print("[MemoryRuntime] Loaded unified memory slice for session \(sessionId)")
+                messages.insert(
+                    MessageParameter.Message(role: .user, content: .text("【统一记忆切片】以下是当前任务的统一记忆视图，请优先遵守其中的当前状态、事实、事件与风险：\n\n\(unifiedContext.renderedPrompt)")),
+                    at: 0
+                )
+                messages.insert(
+                    MessageParameter.Message(role: .assistant, content: .text("已加载统一记忆切片，将据此继续执行当前任务。")),
+                    at: 1
+                )
+            }
         } else {
             let unifiedStore = UnifiedMemoryFileStoreAdapter()
 
@@ -190,7 +199,7 @@ extension ClaudeService {
                 )
             }
         }
-
+        print("Initial messages count: \(messages.count)，messages: \(messages.map { String(describing: $0) })")
         while loopCtx.shouldContinue && loopCtx.roundIndex < maxRounds {
             try Task.checkCancellation()
 
@@ -485,6 +494,9 @@ extension ClaudeService {
                     }
                     if !memoryRuntimeWarnings.isEmpty {
                         record.memoryRuntimeWarnings = memoryRuntimeWarnings
+                    }
+                    if let memoryRuntimeSnapshotID, !memoryRuntimeSnapshotID.isEmpty {
+                        record.memoryRuntimeSnapshotID = memoryRuntimeSnapshotID
                     }
                     modelContext.insert(record)
                     try? modelContext.save()
@@ -793,7 +805,7 @@ extension ClaudeService {
 
         let coordinator = MemoryRuntimeCoordinator(modelContext: modelContext)
         let context = try await coordinator.prepareContext(for: request)
-        return context.records.isEmpty ? nil : context
+        return context
     }
 
     private func populateStoryMemoryAuditFields(record: ToolCall, from agentMessage: AgentMessage) {

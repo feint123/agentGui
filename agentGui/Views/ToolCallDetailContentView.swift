@@ -122,6 +122,10 @@ enum ToolCallDetailPresentation {
     private static func runtimeMetadataSections(for toolCall: ToolCall) -> [ToolCallDetailSection] {
         var sections: [ToolCallDetailSection] = []
 
+        if let snapshotID = toolCall.memoryRuntimeSnapshotID, !snapshotID.isEmpty {
+            sections.append(.init(label: "记忆上下文快照", text: snapshotID, monospaced: true, maxHeight: 80))
+        }
+
         if let profiles = toolCall.memoryRuntimeProfiles, !profiles.isEmpty {
             sections.append(.init(label: "记忆 Profiles", text: profiles.joined(separator: "\n"), monospaced: false, maxHeight: 120))
         }
@@ -219,8 +223,19 @@ struct ToolCallDetailContentView: View {
     let toolCall: ToolCall
     let row: ToolCallRowPresentation
 
+    @State private var snapshot: MemoryRuntimeSnapshot?
+    @State private var snapshotLoadError: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let snapshotID = toolCall.memoryRuntimeSnapshotID, !snapshotID.isEmpty {
+                Button("查看记忆上下文快照") {
+                    openSnapshot(snapshotID: snapshotID)
+                }
+                .buttonStyle(.bordered)
+                .font(.caption)
+            }
+
             ForEach(ToolCallDetailPresentation.sections(for: toolCall, row: row)) { section in
                 detailTextBlock(
                     label: section.label,
@@ -230,6 +245,16 @@ struct ToolCallDetailContentView: View {
                     maxHeight: section.maxHeight
                 )
             }
+        }
+        .sheet(item: $snapshot) { snapshot in
+            NavigationStack {
+                MemoryRuntimeSnapshotPanel(viewModel: MemoryRuntimeSnapshotViewModel(snapshot: snapshot))
+            }
+        }
+        .alert("加载快照失败", isPresented: Binding(get: { snapshotLoadError != nil }, set: { if !$0 { snapshotLoadError = nil } })) {
+            Button("确定") { snapshotLoadError = nil }
+        } message: {
+            Text(snapshotLoadError ?? "")
         }
     }
 
@@ -256,6 +281,19 @@ struct ToolCallDetailContentView: View {
             .frame(maxHeight: maxHeight)
             .background(Color.primary.opacity(0.03))
             .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func openSnapshot(snapshotID: String) {
+        do {
+            let store = MemoryRuntimeSnapshotStore()
+            guard let loaded = try store.snapshot(id: snapshotID) else {
+                snapshotLoadError = "未找到快照：\(snapshotID)"
+                return
+            }
+            snapshot = loaded
+        } catch {
+            snapshotLoadError = error.localizedDescription
         }
     }
 }

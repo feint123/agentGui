@@ -36,6 +36,8 @@ extension MessageResponse.Content.DynamicContent {
 enum ClaudeError: LocalizedError {
     case notConfigured
     case streamFailed(Error)
+    case missingSkill(String)
+    case unreadableSkill(String)
 
     var errorDescription: String? {
         switch self {
@@ -43,6 +45,10 @@ enum ClaudeError: LocalizedError {
             return "请先在设置中配置 Anthropic API 密钥"
         case .streamFailed(let error):
             return "请求失败: \(error.localizedDescription)"
+        case .missingSkill(let name):
+            return "未找到技能：\(name)"
+        case .unreadableSkill(let name):
+            return "无法读取技能内容：\(name)"
         }
     }
 }

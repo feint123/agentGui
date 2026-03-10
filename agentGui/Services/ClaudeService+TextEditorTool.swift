@@ -51,23 +51,43 @@ extension ClaudeService {
     nonisolated private static func textEditorView(path: String, viewRange: [Int]?) -> String {
         do {
             let content = try String(contentsOfFile: path, encoding: .utf8)
-            let lines = content.components(separatedBy: "\n")
-            let start: Int
-            let end: Int
-            if let r = viewRange, r.count >= 2 {
-                start = max(1, r[0])
-                end = min(lines.count, r[1])
-            } else {
-                start = 1
-                end = lines.count
-            }
-            return lines[(start - 1)..<end]
-                .enumerated()
-                .map { "\(start + $0.offset)\t\($0.element)" }
-                .joined(separator: "\n")
+            return renderTextEditorView(content: content, viewRange: viewRange)
         } catch {
             return "Error reading '\(path)': \(error.localizedDescription)"
         }
+    }
+
+    nonisolated static func renderTextEditorViewForTests(content: String, viewRange: [Int]?) -> String {
+        renderTextEditorView(content: content, viewRange: viewRange)
+    }
+
+    nonisolated private static func renderTextEditorView(content: String, viewRange: [Int]?) -> String {
+        let lines = content.components(separatedBy: "\n")
+        guard !lines.isEmpty else { return "" }
+
+        let bounds = normalizedViewBounds(totalLines: lines.count, viewRange: viewRange)
+        return lines[(bounds.start - 1)..<bounds.end]
+            .enumerated()
+            .map { "\(bounds.start + $0.offset)\t\($0.element)" }
+            .joined(separator: "\n")
+    }
+
+    nonisolated private static func normalizedViewBounds(totalLines: Int, viewRange: [Int]?) -> (start: Int, end: Int) {
+        let safeTotal = max(1, totalLines)
+        guard let viewRange, viewRange.count >= 2 else {
+            return (1, safeTotal)
+        }
+
+        let requestedStart = max(1, viewRange[0])
+        let requestedEnd = max(1, viewRange[1])
+        let clampedStart = min(requestedStart, safeTotal)
+        let clampedEnd = min(requestedEnd, safeTotal)
+
+        if clampedStart > clampedEnd {
+            return (clampedStart, clampedStart)
+        }
+
+        return (clampedStart, clampedEnd)
     }
 
     nonisolated private static func textEditorStrReplace(path: String, oldStr: String, newStr: String) -> String {

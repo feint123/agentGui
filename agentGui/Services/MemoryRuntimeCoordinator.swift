@@ -61,11 +61,16 @@ final class MemoryRuntimeCoordinator {
         let plan = retrievalPlanner.makePlan(request: request, profiles: profiles)
 
         var records = unifiedRecordsProvider(request)
+        if records.contains(where: { $0.layer == .working }) == false,
+           let workingRecord = synthesizedWorkingRecord(for: request) {
+            records.append(workingRecord)
+        }
         if let projectId = request.projectId {
             records.append(contentsOf: storyRecordsProvider(projectId))
         }
 
-        let filteredRecords = filterAndBudget(records: records, with: plan)
+        let filtered = filterAndBudget(records: records, with: plan)
+        let filteredRecords = filtered.selectedRecords
         let touchedAt = Date()
         let unifiedStore = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreBaseDirectory)
         for record in filteredRecords where records.contains(where: { $0.id == record.id }) {
@@ -77,29 +82,73 @@ final class MemoryRuntimeCoordinator {
             writePolicy: mergedWritePolicy(for: profiles, request: request),
             warnings: []
         )
+        let renderedPrompt = promptAssembler.render(context: baseContext)
+        let runtimeSnapshot = makeSnapshot(
+            request: request,
+            plan: plan,
+            profiles: profiles.map(\.id),
+            candidateRecords: records,
+            selectedRecords: filtered.selectedRecords,
+            excludedRecords: filtered.excludedRecords,
+            candidateCountByLayer: filtered.candidateCountByLayer,
+            selectedCountByLayer: filtered.selectedCountByLayer,
+            renderedPrompt: renderedPrompt
+        )
 
         return MemoryRuntimeContext(
             profiles: baseContext.profiles,
             records: baseContext.records,
             writePolicy: baseContext.writePolicy,
             warnings: baseContext.warnings,
-            renderedPrompt: promptAssembler.render(context: baseContext)
+            renderedPrompt: renderedPrompt,
+            runtimeSnapshot: runtimeSnapshot
         )
     }
 
-    private func filterAndBudget(records: [MemoryRecord], with plan: MemoryRetrievalPlan) -> [MemoryRecord] {
+    private func filterAndBudget(records: [MemoryRecord], with plan: MemoryRetrievalPlan) -> SelectionTrace {
         let allowedLayers = Set(plan.orderedLayers)
-        let scoped = records.filter {
-            allowedLayers.contains($0.layer) && (plan.includeArchived || $0.retentionPolicy != .archiveOnly)
+        var eligible: [MemoryRecord] = []
+        var excluded: [(MemoryRecord, MemoryRuntimeExclusionReason)] = []
+
+        for record in records {
+            guard allowedLayers.contains(record.layer) else {
+                excluded.append((record, .layerNotPlanned))
+                continue
+            }
+            guard plan.includeArchived || record.retentionPolicy != .archiveOnly else {
+                excluded.append((record, .archived))
+                continue
+            }
+            if record.supersededBy != nil {
+                excluded.append((record, .duplicateOrSuperseded))
+                continue
+            }
+            eligible.append(record)
         }
 
         var result: [MemoryRecord] = []
+        var candidateCountByLayer: [MemoryLayer: Int] = [:]
+        var selectedCountByLayer: [MemoryLayer: Int] = [:]
         for layer in plan.orderedLayers {
-            let layerRecords = scoped.filter { $0.layer == layer }.sorted(by: score(lhs:rhs:))
+            let layerRecords = eligible.filter { $0.layer == layer }.sorted(by: score(lhs:rhs:))
+            candidateCountByLayer[layer] = layerRecords.count
             let budget = plan.itemBudgetByLayer[layer] ?? layerRecords.count
-            result.append(contentsOf: layerRecords.prefix(budget))
+            let selected = Array(layerRecords.prefix(budget))
+            result.append(contentsOf: selected)
+            selectedCountByLayer[layer] = selected.count
+
+            if layerRecords.count > budget {
+                for record in layerRecords.dropFirst(budget) {
+                    excluded.append((record, .budgetTrimmed))
+                }
+            }
         }
-        return result
+        return SelectionTrace(
+            selectedRecords: result,
+            excludedRecords: excluded,
+            candidateCountByLayer: candidateCountByLayer,
+            selectedCountByLayer: selectedCountByLayer
+        )
     }
 
     private func score(lhs: MemoryRecord, rhs: MemoryRecord) -> Bool {
@@ -145,6 +194,116 @@ final class MemoryRuntimeCoordinator {
     func scheduleConsolidation(for outcome: MemoryRuntimeOutcome) async {
         try? backgroundJobStore.enqueue(.consolidation(outcome: outcome))
     }
+
+    private func makeSnapshot(
+        request: MemoryRuntimeRequest,
+        plan: MemoryRetrievalPlan,
+        profiles: [String],
+        candidateRecords: [MemoryRecord],
+        selectedRecords: [MemoryRecord],
+        excludedRecords: [(MemoryRecord, MemoryRuntimeExclusionReason)],
+        candidateCountByLayer: [MemoryLayer: Int],
+        selectedCountByLayer: [MemoryLayer: Int],
+        renderedPrompt: String
+    ) -> MemoryRuntimeSnapshot {
+        let selectedSnapshotRecords = selectedRecords.enumerated().map { index, record in
+            MemoryRuntimeSnapshotRecord(record: record, promptOrder: index)
+        }
+        let excludedSnapshotRecords = excludedRecords.map { record, reason in
+            MemoryRuntimeSnapshotRecord(record: record, exclusionReason: reason)
+        }
+
+        return MemoryRuntimeSnapshot(
+            id: UUID().uuidString,
+            sessionId: request.sessionId,
+            threadId: request.threadId,
+            workflowRunId: request.workflowRunId,
+            toolCallId: nil,
+            agentRoundId: nil,
+            createdAt: Date(),
+            request: MemoryRuntimeSnapshotRequestSummary(
+                sessionId: request.sessionId,
+                threadId: request.threadId,
+                workflowRunId: request.workflowRunId,
+                taskKind: request.taskKind,
+                projectId: request.projectId,
+                workspaceRoot: request.workspaceRoot,
+                contextBudget: request.contextBudget,
+                userRequest: request.userRequest
+            ),
+            plan: MemoryRuntimeSnapshotPlanSummary(
+                profileIDs: profiles,
+                orderedLayers: plan.orderedLayers,
+                itemBudgetByLayer: plan.itemBudgetByLayer,
+                candidateScopes: candidateScopes(for: request).map(\.namespace),
+                candidateCountByLayer: candidateCountByLayer,
+                selectedCountByLayer: selectedCountByLayer
+            ),
+            selectedRecords: selectedSnapshotRecords,
+            excludedRecords: excludedSnapshotRecords,
+            renderedPrompt: renderedPrompt,
+            metrics: MemoryRuntimeSnapshot.makeMetrics(
+                candidateCount: candidateRecords.count,
+                selectedRecords: selectedSnapshotRecords,
+                excludedRecords: excludedSnapshotRecords
+            )
+        )
+    }
+
+    private func candidateScopes(for request: MemoryRuntimeRequest) -> [MemoryScope] {
+        var scopes: [MemoryScope] = [.user]
+
+        if let workspaceRoot = request.workspaceRoot, !workspaceRoot.isEmpty {
+            scopes.append(.workspace(id: workspaceRoot))
+        }
+
+        if let projectId = request.projectId, !projectId.isEmpty {
+            scopes.append(.project(id: projectId))
+        }
+
+        scopes.append(.session(id: request.sessionId))
+        scopes.append(.thread(id: request.threadId))
+
+        if let workflowRunId = request.workflowRunId, !workflowRunId.isEmpty {
+            scopes.append(.workflowRun(id: workflowRunId))
+        }
+
+        return scopes
+    }
+
+    private func synthesizedWorkingRecord(for request: MemoryRuntimeRequest) -> MemoryRecord? {
+        let summary = request.userRequest.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !summary.isEmpty else { return nil }
+
+        let timestamp = Date()
+        return MemoryRecord(
+            id: "runtime-working-\(request.sessionId)-\(request.threadId)",
+            layer: .working,
+            kind: .working,
+            domainProfile: primaryDomainProfileID(for: request),
+            scope: .session(id: request.sessionId),
+            title: "Current task focus",
+            summary: summary,
+            payload: .structured([
+                "userRequest": summary,
+                "taskKind": request.taskKind.rawValue
+            ]),
+            source: .system(name: "runtime-working-memory"),
+            sourceRefs: [],
+            confidence: 1.0,
+            verificationStatus: .partial,
+            retentionPolicy: .sessionBound,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            lastAccessedAt: nil,
+            supersededBy: nil,
+            tags: ["runtime-working", "current-goal"]
+        )
+    }
+
+    private func primaryDomainProfileID(for request: MemoryRuntimeRequest) -> String {
+        profileRegistry.profiles(for: request).first?.id ?? "user-preferences"
+    }
 }
 
 extension MemoryRuntimeCoordinator {
@@ -154,4 +313,11 @@ extension MemoryRuntimeCoordinator {
             unifiedRecordsProvider: { _ in unifiedRecords }
         )
     }
+}
+
+private struct SelectionTrace {
+    var selectedRecords: [MemoryRecord]
+    var excludedRecords: [(MemoryRecord, MemoryRuntimeExclusionReason)]
+    var candidateCountByLayer: [MemoryLayer: Int]
+    var selectedCountByLayer: [MemoryLayer: Int]
 }

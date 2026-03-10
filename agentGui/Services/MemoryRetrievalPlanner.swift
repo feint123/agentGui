@@ -7,8 +7,8 @@ struct MemoryRetrievalPlanner {
 
         switch request.taskKind {
         case .creativeWriting:
-            orderedLayers = [.working, .semantic, .episodic, .proceduralArchive]
-            itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 3, .semantic: 4, .episodic: 2, .proceduralArchive: 1], contextBudget: request.contextBudget)
+            orderedLayers = [.working, .task, .semantic, .episodic, .proceduralArchive]
+            itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 3, .task: 3, .semantic: 4, .episodic: 2, .proceduralArchive: 1], contextBudget: request.contextBudget)
         case .coding:
             orderedLayers = [.working, .task, .semantic, .episodic, .proceduralArchive]
             itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 3, .task: 4, .semantic: 3, .episodic: 1, .proceduralArchive: 1], contextBudget: request.contextBudget)

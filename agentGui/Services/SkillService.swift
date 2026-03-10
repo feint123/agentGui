@@ -177,6 +177,11 @@ final class SkillService {
         return availableSkills.filter { enabledNames.contains($0.directoryName) }
     }
 
+    /// Returns the first skill matching either the display name or directory name.
+    func skill(namedOrDirectoryName name: String) -> Skill? {
+        availableSkills.first { $0.name == name || $0.directoryName == name }
+    }
+
     /// Clears the content cache (used when skills are refreshed).
     func clearCache() {
         contentCache.removeAll()

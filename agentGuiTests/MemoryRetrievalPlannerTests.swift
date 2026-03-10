@@ -4,7 +4,7 @@ import Testing
 
 @MainActor
 struct MemoryRetrievalPlannerTests {
-    @Test func creativePlanPrefersWorkingThenSemanticThenEpisodic() async throws {
+    @Test func creativePlanIncludesTaskBetweenWorkingAndLongerTermLayers() async throws {
         let planner = MemoryRetrievalPlanner()
         let request = MemoryRuntimeRequest(
             sessionId: "s1",
@@ -18,7 +18,7 @@ struct MemoryRetrievalPlannerTests {
         )
 
         let plan = planner.makePlan(request: request, profiles: [.creativeWriting(), .userPreferences()])
-        #expect(Array(plan.orderedLayers.prefix(3)) == [.working, .semantic, .episodic])
+        #expect(Array(plan.orderedLayers.prefix(4)) == [.working, .task, .semantic, .episodic])
     }
 
     @Test func generalPlanExcludesArchivedRecordsByDefault() async throws {

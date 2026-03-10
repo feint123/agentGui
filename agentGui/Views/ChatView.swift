@@ -52,6 +52,12 @@ struct ChatView: View {
     @State var mentionWorkingDir: String = ""
     @State var showStoryProjectBrowser = false
 
+    // MARK: - Slash Command
+    @State var slashQuery: String? = nil
+    @State var slashCandidates: [ChatSlashCommandItem] = []
+    @State var highlightedSlashItemID: String? = nil
+    @State var activeInputDirectives: [ChatInputDirective] = []
+
     @FocusState var isInputFocused: Bool
 
     // MARK: - Initializer

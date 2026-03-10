@@ -161,6 +161,7 @@ final class ClaudeService {
         text: String,
         session: Session,
         modelId: String,
+        directives: [ChatInputDirective] = [],
         modelContext: ModelContext
     ) async throws {
         guard let service else { throw ClaudeError.notConfigured }
@@ -186,6 +187,7 @@ final class ClaudeService {
             service: service,
             session: session,
             modelId: modelId,
+            directives: directives,
             modelContext: modelContext
         )
 
@@ -281,12 +283,21 @@ final class ClaudeService {
         service: any AnthropicService,
         session: Session,
         modelId: String,
+        directives: [ChatInputDirective] = [],
         modelContext: ModelContext
     ) async throws {
         let settings = AppSettings.getOrCreate(in: modelContext)
-        let enabledSkills = skillService?.enabledSkills(enabledNames: settings.enabledSkillNames) ?? []
-        let systemPrompt = buildSystemPrompt(skills: enabledSkills, workingDirectory: settings.workingDirectory, settings: settings)
-        let tools = buildTools(modelId: modelId, settings: settings, enabledSkills: enabledSkills)
+        let turnSkillContext = try resolveTurnSkillContext(
+            enabledSkillNames: settings.enabledSkillNames,
+            directives: directives
+        )
+        let systemPrompt = buildSystemPrompt(
+            skills: turnSkillContext.effectiveSkills,
+            explicitlyActivatedSkills: turnSkillContext.explicitlyActivatedSkills,
+            workingDirectory: settings.workingDirectory,
+            settings: settings
+        )
+        let tools = buildTools(modelId: modelId, settings: settings, enabledSkills: turnSkillContext.effectiveSkills)
 
         // Capture workspace context snapshot for start_workflow tool
         currentSession = session
@@ -294,7 +305,7 @@ final class ClaudeService {
             workingDirectory: settings.workingDirectory,
             selectedFilePath: nil,
             selectedText: nil,
-            availableSkills: enabledSkills.map { WorkflowSkillInfo(name: $0.name, description: $0.description) }
+            availableSkills: turnSkillContext.effectiveSkills.map { WorkflowSkillInfo(name: $0.name, description: $0.description) }
         )
 
         // 创建 assistant 消息占位符
@@ -360,20 +371,30 @@ final class ClaudeService {
 
     func makeSystemPromptForTests(
         skills: [Skill],
+        explicitlyActivatedSkills: [ExplicitlyActivatedSkill] = [],
         workingDirectory: String,
         settings: AppSettings,
         session: Session?
     ) -> String {
         buildSystemPrompt(
             skills: skills,
+            explicitlyActivatedSkills: explicitlyActivatedSkills,
             workingDirectory: workingDirectory,
             settings: settings,
             sessionOverride: session
         )
     }
 
+    func resolveTurnSkillContextForTests(
+        enabledSkillNames: [String],
+        directives: [ChatInputDirective]
+    ) throws -> TurnSkillContext {
+        try resolveTurnSkillContext(enabledSkillNames: enabledSkillNames, directives: directives)
+    }
+
     private func buildSystemPrompt(
         skills: [Skill],
+        explicitlyActivatedSkills: [ExplicitlyActivatedSkill] = [],
         workingDirectory: String,
         settings: AppSettings,
         sessionOverride: Session? = nil
@@ -415,6 +436,21 @@ final class ClaudeService {
             for skill in skills {
                 let desc = skill.description.isEmpty ? "(no description)" : skill.description
                 lines.append("- **\(skill.name)**: \(desc)")
+            }
+            parts.append(lines.joined(separator: "\n"))
+        }
+
+        if !explicitlyActivatedSkills.isEmpty {
+            var lines = [
+                "## Explicitly Activated Skills For This Turn",
+                "The user explicitly activated these skills for this request. Treat them as active even if they are not globally enabled.",
+                ""
+            ]
+            for activation in explicitlyActivatedSkills {
+                lines.append("### \(activation.skill.name)")
+                lines.append("Source: slash command")
+                lines.append(activation.content)
+                lines.append("")
             }
             parts.append(lines.joined(separator: "\n"))
         }
@@ -504,4 +540,49 @@ final class ClaudeService {
 
         return parts.joined(separator: "\n\n")
     }
+
+    func resolveTurnSkillContext(
+        enabledSkillNames: [String],
+        directives: [ChatInputDirective]
+    ) throws -> TurnSkillContext {
+        let enabledSkills = skillService?.enabledSkills(enabledNames: enabledSkillNames) ?? []
+        var effectiveSkillsByDirectory = Dictionary(uniqueKeysWithValues: enabledSkills.map { ($0.directoryName, $0) })
+        var explicitlyActivatedSkills: [ExplicitlyActivatedSkill] = []
+
+        for directive in directives {
+            switch directive {
+            case .skill(let directiveSkill):
+                guard let skill = skillService?.skill(namedOrDirectoryName: directiveSkill.directoryName)
+                    ?? skillService?.skill(namedOrDirectoryName: directiveSkill.displayName) else {
+                    throw ClaudeError.missingSkill(directiveSkill.displayName)
+                }
+                guard let content = skillService?.readSkillContent(name: skill.directoryName), !content.isEmpty else {
+                    throw ClaudeError.unreadableSkill(skill.name)
+                }
+
+                effectiveSkillsByDirectory[skill.directoryName] = skill
+                if explicitlyActivatedSkills.contains(where: { $0.skill.directoryName == skill.directoryName }) == false {
+                    explicitlyActivatedSkills.append(ExplicitlyActivatedSkill(skill: skill, content: content))
+                }
+            }
+        }
+
+        let effectiveSkills = effectiveSkillsByDirectory.values.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        return TurnSkillContext(
+            effectiveSkills: effectiveSkills,
+            explicitlyActivatedSkills: explicitlyActivatedSkills
+        )
+    }
+}
+
+struct ExplicitlyActivatedSkill: Hashable {
+    let skill: Skill
+    let content: String
+}
+
+struct TurnSkillContext: Hashable {
+    let effectiveSkills: [Skill]
+    let explicitlyActivatedSkills: [ExplicitlyActivatedSkill]
 }

@@ -57,6 +57,16 @@ struct BashToolSchemaTests {
         #expect(request.signal == .interrupt)
     }
 
+    @Test func memoryWriteToolDescriptionMatchesUnifiedMemoryStore() async throws {
+        let settings = AppSettings()
+        let tools = ClaudeService().buildTools(modelId: "claude-sonnet-4-6", settings: settings)
+        let memoryWrite = try #require(toolNamed("memory_write", in: tools))
+        let description = try #require(extractString(labeled: "description", from: Mirror(reflecting: memoryWrite)))
+
+        #expect(description.contains("unified memory store"))
+        #expect(!description.contains("~/.agentgui/memory.md"))
+    }
+
     private func toolNamed(_ name: String, in tools: [MessageParameter.Tool]) -> MessageParameter.Tool? {
         tools.first { toolName(from: $0) == name }
     }

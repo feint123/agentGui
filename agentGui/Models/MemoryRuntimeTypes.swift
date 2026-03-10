@@ -150,19 +150,22 @@ struct MemoryRuntimeContext: Equatable, Sendable {
     var writePolicy: MemoryWritePolicy
     var warnings: [String]
     var renderedPrompt: String
+    var runtimeSnapshot: MemoryRuntimeSnapshot?
 
     init(
         profiles: [String],
         records: [MemoryRecord],
         writePolicy: MemoryWritePolicy = .readMostly,
         warnings: [String] = [],
-        renderedPrompt: String = ""
+        renderedPrompt: String = "",
+        runtimeSnapshot: MemoryRuntimeSnapshot? = nil
     ) {
         self.profiles = profiles
         self.records = records
         self.writePolicy = writePolicy
         self.warnings = warnings
         self.renderedPrompt = renderedPrompt
+        self.runtimeSnapshot = runtimeSnapshot
     }
 }
 

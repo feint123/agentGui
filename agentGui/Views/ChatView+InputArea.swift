@@ -13,7 +13,9 @@ extension ChatView {
 
     var inputArea: some View {
         VStack(spacing: 0) {
-            if mentionQuery != nil && !mentionCandidates.isEmpty {
+            if slashQuery != nil {
+                slashPopupCard
+            } else if mentionQuery != nil && !mentionCandidates.isEmpty {
                 mentionPopupCard
             }
             Divider()
@@ -27,12 +29,18 @@ extension ChatView {
                 if !attachedFiles.isEmpty {
                     fileChipsRow
                 }
+                if !activeInputDirectives.isEmpty {
+                    inputDirectiveChipsRow
+                }
 
                 HStack(alignment: .bottom, spacing: 10) {
                     MentionAwareEditor(
                         text: $inputText,
                         isDisabled: claudeService.isStreaming,
-                        onTextChange: { updateMentionState($0) },
+                        onTextChange: { updateComposerAssistState($0) },
+                        onMoveSelection: { handleComposerSelectionMove(delta: $0) },
+                        onCommitSelection: { commitComposerSelection() },
+                        onCancelAssist: { cancelComposerAssist() },
                         onFileDrop: { urls in
                             for url in urls {
                                 guard !attachedFiles.contains(where: { $0.url == url }) else { continue }
@@ -143,6 +151,48 @@ var fileChipsRow: some View {
             }
             .padding(.bottom, 6)
         }
+    }
+
+    var inputDirectiveChipsRow: some View {
+        HStack(spacing: 6) {
+            ForEach(activeInputDirectives, id: \.id) { directive in
+                inputDirectiveChip(directive)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    func inputDirectiveChip(_ directive: ChatInputDirective) -> some View {
+        let label: String
+        switch directive {
+        case .skill(let value):
+            label = "Skill: \(value.displayName)"
+        }
+
+        return HStack(spacing: 4) {
+            Image(systemName: "command")
+                .font(.caption2)
+                .foregroundStyle(Color.accentColor)
+            Text(label)
+                .font(.caption)
+                .lineLimit(1)
+            Button {
+                activeInputDirectives.removeAll { $0.id == directive.id }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
     }
 
     func fileChip(_ file: AttachedFile) -> some View {
@@ -256,6 +306,86 @@ var fileChipsRow: some View {
     // MARK: - @ Mention Popup
 
     @ViewBuilder
+    var slashPopupCard: some View {
+        VStack(spacing: 0) {
+            if slashCandidates.isEmpty {
+                HStack {
+                    Text("没有匹配的命令")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            } else {
+                ForEach(Array(slashCandidates.prefix(8))) { item in
+                    slashRow(item: item)
+                }
+            }
+        }
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.10), radius: 8, y: -2)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
+        .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)))
+    }
+
+    func slashRow(item: ChatSlashCommandItem) -> some View {
+        let isHighlighted = item.id == highlightedSlashItemID
+        return Button {
+            selectSlashItem(item)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "command")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(item.title)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        if let badge = item.badge {
+                            Text(badge)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        if item.isEnabledByDefault {
+                            Text("已启用")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.green)
+                        }
+                    }
+                    if !item.subtitle.isEmpty {
+                        Text(item.subtitle)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isHighlighted ? Color.accentColor.opacity(0.12) : .clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
     var mentionPopupCard: some View {
         VStack(spacing: 0) {
             ForEach(Array(mentionCandidates.prefix(8)), id: \.self) { url in
@@ -366,6 +496,107 @@ var fileChipsRow: some View {
         mentionCandidates = []
     }
 
+    func updateComposerAssistState(_ text: String) {
+        syncSlashState(with: text)
+
+        if slashQuery != nil {
+            if mentionQuery != nil {
+                withAnimation(.easeOut(duration: 0.12)) { mentionQuery = nil }
+                mentionCandidates = []
+            }
+            return
+        }
+
+        updateMentionState(text)
+    }
+
+    func syncSlashState(with text: String) {
+        var state = ChatComposerSlashState(
+            query: slashQuery,
+            candidates: slashCandidates,
+            highlightedItemID: highlightedSlashItemID
+        )
+        state.update(for: text, registry: chatSlashCommandRegistry)
+        slashQuery = state.query
+        slashCandidates = state.candidates
+        highlightedSlashItemID = state.highlightedItemID
+    }
+
+    var chatSlashCommandRegistry: ChatSlashCommandRegistry {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        return ChatSlashCommandRegistry(
+            providers: [
+                SkillChatSlashCommandProvider(
+                    skills: skillService.availableSkills,
+                    enabledSkillNames: settings.enabledSkillNames
+                )
+            ]
+        )
+    }
+
+    func handleComposerSelectionMove(delta: Int) -> Bool {
+        guard slashQuery != nil, !slashCandidates.isEmpty else { return false }
+        var state = ChatComposerSlashState(
+            query: slashQuery,
+            candidates: slashCandidates,
+            highlightedItemID: highlightedSlashItemID
+        )
+        state.moveSelection(delta: delta)
+        highlightedSlashItemID = state.highlightedItemID
+        return true
+    }
+
+    func commitComposerSelection() -> Bool {
+        if slashQuery != nil {
+            guard let selected = slashCandidates.first(where: { $0.id == highlightedSlashItemID }) ?? slashCandidates.first else {
+                return false
+            }
+            selectSlashItem(selected)
+            return true
+        }
+
+        if let firstMention = mentionCandidates.first, mentionQuery != nil {
+            let relPath: String = {
+                guard !mentionWorkingDir.isEmpty,
+                      firstMention.path.hasPrefix(mentionWorkingDir + "/") else { return firstMention.path }
+                return String(firstMention.path.dropFirst(mentionWorkingDir.count + 1))
+            }()
+            insertMention(url: firstMention, relPath: relPath)
+            return true
+        }
+
+        return false
+    }
+
+    func cancelComposerAssist() -> Bool {
+        var handled = false
+        if slashQuery != nil {
+            clearSlashState()
+            handled = true
+        }
+        if mentionQuery != nil {
+            withAnimation(.easeOut(duration: 0.12)) { mentionQuery = nil }
+            mentionCandidates = []
+            handled = true
+        }
+        return handled
+    }
+
+    func clearSlashState() {
+        slashQuery = nil
+        slashCandidates = []
+        highlightedSlashItemID = nil
+    }
+
+    func selectSlashItem(_ item: ChatSlashCommandItem) {
+        let result = ChatInputCommandParser.replacingSlashToken(in: inputText, selectedItem: item)
+        inputText = result.updatedText
+        if let directive = result.directive {
+            activeInputDirectives = [directive]
+        }
+        clearSlashState()
+    }
+
     nonisolated static func collectWorkspaceFiles(at url: URL, depth: Int = 0) -> [URL] {
         guard depth < 6 else { return [] }
         let fm = FileManager.default
@@ -390,6 +621,9 @@ var fileChipsRow: some View {
 /// preventing the text view from consuming drops meant for the outer SwiftUI drop target.
 private final class FileForwardingTextView: NSTextView {
     var onFileDropped: (([URL]) -> Void)?
+    var onMoveSelection: ((Int) -> Bool)?
+    var onCommitSelection: (() -> Bool)?
+    var onCancelAssist: (() -> Bool)?
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self],
@@ -417,6 +651,25 @@ private final class FileForwardingTextView: NSTextView {
         DispatchQueue.main.async { [weak self] in self?.onFileDropped?(urls) }
         return true
     }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.isEmpty {
+            switch event.keyCode {
+            case 125:
+                if onMoveSelection?(1) == true { return }
+            case 126:
+                if onMoveSelection?(-1) == true { return }
+            case 36, 48, 76:
+                if onCommitSelection?() == true { return }
+            case 53:
+                if onCancelAssist?() == true { return }
+            default:
+                break
+            }
+        }
+        super.keyDown(with: event)
+    }
 }
 
 /// NSTextView-backed text editor that highlights @mention tokens with accent-color styling.
@@ -425,6 +678,9 @@ private struct MentionAwareEditor: NSViewRepresentable {
     @Binding var text: String
     var isDisabled: Bool = false
     var onTextChange: (String) -> Void = { _ in }
+    var onMoveSelection: (Int) -> Bool = { _ in false }
+    var onCommitSelection: () -> Bool = { false }
+    var onCancelAssist: () -> Bool = { false }
     var onFileDrop: ([URL]) -> Void = { _ in }
 
     // MARK: Base attributes
@@ -457,6 +713,9 @@ private struct MentionAwareEditor: NSViewRepresentable {
         tv.isAutomaticTextReplacementEnabled = false
         tv.typingAttributes = Self.baseAttributes
         tv.onFileDropped = onFileDrop
+        tv.onMoveSelection = onMoveSelection
+        tv.onCommitSelection = onCommitSelection
+        tv.onCancelAssist = onCancelAssist
 
         let scrollView = NSScrollView()
         scrollView.documentView = tv
@@ -471,6 +730,9 @@ private struct MentionAwareEditor: NSViewRepresentable {
         guard let tv = scrollView.documentView as? FileForwardingTextView else { return }
         tv.isEditable = !isDisabled
         tv.onFileDropped = onFileDrop
+        tv.onMoveSelection = onMoveSelection
+        tv.onCommitSelection = onCommitSelection
+        tv.onCancelAssist = onCancelAssist
         if tv.string != text {
             let sel = tv.selectedRanges
             tv.string = text

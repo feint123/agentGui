@@ -60,6 +60,27 @@ struct UnifiedMemoryFileStoreAdapterTests {
         #expect(archived.supersededBy == newRecord.id)
     }
 
+    @Test func allRecordsIgnoresRuntimeSnapshotFiles() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+        let snapshotStore = MemoryRuntimeSnapshotStore(baseDirectory: baseDirectory)
+        let record = MemoryRecord.fixture(
+            id: "record-visible",
+            layer: .task,
+            kind: .working,
+            scope: .session(id: "session-visible"),
+            title: "Visible record"
+        )
+
+        _ = try store.persist(record: record)
+        try snapshotStore.save(.fixture(id: "snapshot-1", sessionId: "s1", threadId: "t1"))
+
+        let allRecords = try store.allRecords(includeArchived: true)
+
+        #expect(allRecords.count == 1)
+        #expect(allRecords.first?.id == "record-visible")
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

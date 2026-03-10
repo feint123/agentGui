@@ -42,12 +42,27 @@ extension ChatView {
             fullText += "\n\nReferenced files:\n\(refs)"
         }
 
+        do {
+            _ = try claudeService.resolveTurnSkillContext(
+                enabledSkillNames: settings.enabledSkillNames,
+                directives: activeInputDirectives
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        let auditedText = ChatInputDirectiveAudit.appendAuditTrail(
+            to: fullText,
+            directives: activeInputDirectives
+        )
+
         inputText = ""
         attachedFiles = []
         showFileContext = true
         showSelectionContext = true
 
-        let userMessage = Message.userMessage(text: fullText, session: session)
+        let userMessage = Message.userMessage(text: auditedText, session: session)
         userMessage.status = .completed
         modelContext.insert(userMessage)
         try? modelContext.save()
@@ -56,11 +71,13 @@ extension ChatView {
 
         do {
             try await claudeService.sendMessage(
-                text: fullText,
+                text: auditedText,
                 session: session,
                 modelId: modelId,
+                directives: activeInputDirectives,
                 modelContext: modelContext
             )
+            activeInputDirectives = []
         } catch is CancellationError {
             // User stopped the stream — no error to show
         } catch {
