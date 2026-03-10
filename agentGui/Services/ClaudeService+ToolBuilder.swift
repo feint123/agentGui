@@ -648,7 +648,8 @@ extension ClaudeService {
             Memory is injected into the system prompt at the start of every conversation, \
             so anything stored here will be available in future sessions. \
             Use 'overwrite' to replace the full content, 'append' to add new facts at the end. \
-            Keep entries concise. Write important facts, preferences, or context the user wants you to remember.
+            Keep entries concise. Write important facts, preferences, or context the user wants you to remember. \
+            During unified memory runtime migration, speculative creative semantic writes may be blocked by governance and require user confirmation.
             """,
             inputSchema: .init(
                 type: .object,

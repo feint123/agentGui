@@ -56,7 +56,7 @@ extension ClaudeService {
         case "read_pdf":
             return await executeReadPDFTool(input: input)
         case "memory_write":
-            return .detect(executeMemoryWrite(input: input), toolName: name)
+            return .detect(await executeGovernedMemoryWrite(input: input, session: session, modelContext: modelContext), toolName: name)
         case "create_execution_plan":
             return .detect(executeCreateExecutionPlan(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "verify_completion":
@@ -143,7 +143,7 @@ extension ClaudeService {
         case "read_pdf":
             return await executeReadPDFTool(input: input)
         case "memory_write":
-            return .detect(executeMemoryWrite(input: input), toolName: name)
+            return .detect(await executeGovernedMemoryWrite(input: input, session: nil, modelContext: modelContext), toolName: name)
         case "create_execution_plan":
             return .detect(executeCreateExecutionPlan(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "verify_completion":

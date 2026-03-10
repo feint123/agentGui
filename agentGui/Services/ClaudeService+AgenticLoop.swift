@@ -75,6 +75,7 @@ extension ClaudeService {
             tools: tools,
             system: system,
             settings: settings,
+            session: session,
             sessionId: session.sessionId,
             modelContext: modelContext,
             maxRounds: maxRounds,
@@ -114,6 +115,7 @@ extension ClaudeService {
         tools: [MessageParameter.Tool],
         system: MessageParameter.System?,
         settings: AppSettings,
+        session: Session? = nil,
         sessionId: String,
         modelContext: ModelContext,
         maxRounds: Int,
@@ -126,38 +128,63 @@ extension ClaudeService {
         var loopCtx = AgentLoopContext(phase: .executing)
         var loopMemory = ContextMemory()
         var lastRound: AgentRound? = nil
+        var memoryRuntimeProfiles: [String] = []
+        var memoryRuntimeLayers: [String] = []
+        var memoryRuntimeWarnings: [String] = []
 
-        // Inject persisted task memory as a priming context at loop start.
-        if !sessionId.isEmpty, let taskMem = TaskMemoryService.shared.load(sessionId: sessionId), !taskMem.isEmpty {
-            let tmText = taskMem.toPromptText()
-            print("[TaskMemory] Loaded persisted memory for session \(sessionId), \(taskMem.confirmedFacts.count) facts, \(taskMem.failedAttempts.count) failures")
-            messages.insert(
-                MessageParameter.Message(role: .user, content: .text("【任务级持久记忆】这是本任务的已知状态，请优先保留这些结构化状态：\n\n\(tmText)")),
-                at: 0
-            )
-            messages.insert(
-                MessageParameter.Message(role: .assistant, content: .text("已加载任务级持久记忆，将在后续操作中保持这些状态。")),
-                at: 1
-            )
-        }
-
-        if let storySlice = try? buildStoryMemoryBootstrap(
+        if let unifiedContext = try? await buildUnifiedMemoryBootstrap(
             settings: settings,
+            session: session,
             sessionId: sessionId,
             messages: messages,
             modelContext: modelContext
         ),
-              !storySlice.isEmpty {
-            print("[StoryMemory] Loaded project-scoped writing slice for session \(sessionId)")
-            let insertionIndex = min(messages.count, 2)
+           !unifiedContext.renderedPrompt.isEmpty {
+            print("[MemoryRuntime] Loaded unified memory slice for session \(sessionId)")
+            memoryRuntimeProfiles = unifiedContext.profiles
+            memoryRuntimeLayers = Array(Set(unifiedContext.records.map { $0.layer.rawValue })).sorted()
+            memoryRuntimeWarnings = unifiedContext.warnings
             messages.insert(
-                MessageParameter.Message(role: .user, content: .text("【创作记忆切片】以下是当前写作任务的项目级故事记忆，请优先保持人物、事件、伏笔和风格的一致性：\n\n\(storySlice)")),
-                at: insertionIndex
+                MessageParameter.Message(role: .user, content: .text("【统一记忆切片】以下是当前任务的统一记忆视图，请优先遵守其中的当前状态、事实、事件与风险：\n\n\(unifiedContext.renderedPrompt)")),
+                at: 0
             )
             messages.insert(
-                MessageParameter.Message(role: .assistant, content: .text("已加载创作记忆切片，将据此保持情节连续性与风格一致。")),
-                at: insertionIndex + 1
+                MessageParameter.Message(role: .assistant, content: .text("已加载统一记忆切片，将据此继续执行当前任务。")),
+                at: 1
             )
+        } else {
+            // Fallback: keep the legacy startup path functional during migration.
+            if !sessionId.isEmpty, let taskMem = TaskMemoryService.shared.load(sessionId: sessionId), !taskMem.isEmpty {
+                let tmText = taskMem.toPromptText()
+                print("[TaskMemory] Loaded persisted memory for session \(sessionId), \(taskMem.confirmedFacts.count) facts, \(taskMem.failedAttempts.count) failures")
+                messages.insert(
+                    MessageParameter.Message(role: .user, content: .text("【任务级持久记忆】这是本任务的已知状态，请优先保留这些结构化状态：\n\n\(tmText)")),
+                    at: 0
+                )
+                messages.insert(
+                    MessageParameter.Message(role: .assistant, content: .text("已加载任务级持久记忆，将在后续操作中保持这些状态。")),
+                    at: 1
+                )
+            }
+
+            if let storySlice = try? buildStoryMemoryBootstrap(
+                settings: settings,
+                sessionId: sessionId,
+                messages: messages,
+                modelContext: modelContext
+            ),
+                  !storySlice.isEmpty {
+                print("[StoryMemory] Loaded project-scoped writing slice for session \(sessionId)")
+                let insertionIndex = min(messages.count, 2)
+                messages.insert(
+                    MessageParameter.Message(role: .user, content: .text("【创作记忆切片】以下是当前写作任务的项目级故事记忆，请优先保持人物、事件、伏笔和风格的一致性：\n\n\(storySlice)")),
+                    at: insertionIndex
+                )
+                messages.insert(
+                    MessageParameter.Message(role: .assistant, content: .text("已加载创作记忆切片，将据此保持情节连续性与风格一致。")),
+                    at: insertionIndex + 1
+                )
+            }
         }
 
         while loopCtx.shouldContinue && loopCtx.roundIndex < maxRounds {
@@ -454,6 +481,15 @@ extension ClaudeService {
                         message: parentMessage,
                         agentRound: round
                     )
+                    if !memoryRuntimeProfiles.isEmpty {
+                        record.memoryRuntimeProfiles = memoryRuntimeProfiles
+                    }
+                    if !memoryRuntimeLayers.isEmpty {
+                        record.memoryRuntimeLayers = memoryRuntimeLayers
+                    }
+                    if !memoryRuntimeWarnings.isEmpty {
+                        record.memoryRuntimeWarnings = memoryRuntimeWarnings
+                    }
                     modelContext.insert(record)
                     try? modelContext.save()
 
@@ -707,6 +743,61 @@ extension ClaudeService {
             retrievalService: StoryMemoryRetrievalService(modelContext: modelContext)
         )
         return try assembler.buildWritingSlice(settings: settings, session: session, currentRequest: currentRequest)
+    }
+
+    @MainActor
+    private func buildUnifiedMemoryBootstrap(
+        settings: AppSettings,
+        session: Session?,
+        sessionId: String,
+        messages: [MessageParameter.Message],
+        modelContext: ModelContext
+    ) async throws -> MemoryRuntimeContext? {
+        guard !sessionId.isEmpty else { return nil }
+
+        let resolvedSession: Session?
+        if let session {
+            resolvedSession = session
+        } else {
+            let descriptor = FetchDescriptor<Session>(predicate: #Predicate { $0.sessionId == sessionId })
+            resolvedSession = try modelContext.fetch(descriptor).first
+        }
+
+        let currentRequest = messages.reversed()
+            .first(where: { $0.role == "user" })
+            .map { extractText(from: $0.content) } ?? ""
+
+        let projectId = resolvedSession?.activeWritingProjectId
+        let taskKind: MemoryTaskKind = {
+            if settings.enableStoryMemory, let projectId, !projectId.isEmpty {
+                return .creativeWriting
+            }
+            return .coding
+        }()
+
+        let workspaceRoot: String?
+        if let sessionDirectory = resolvedSession?.workingDirectory, !sessionDirectory.isEmpty {
+            workspaceRoot = sessionDirectory
+        } else if !settings.workingDirectory.isEmpty {
+            workspaceRoot = settings.workingDirectory
+        } else {
+            workspaceRoot = nil
+        }
+
+        let request = MemoryRuntimeRequest(
+            sessionId: sessionId,
+            threadId: sessionId,
+            workflowRunId: nil,
+            userRequest: currentRequest,
+            taskKind: taskKind,
+            projectId: projectId?.isEmpty == false ? projectId : nil,
+            workspaceRoot: workspaceRoot,
+            contextBudget: max(settings.storyMemoryPromptBudget * 1000, 4000)
+        )
+
+        let coordinator = MemoryRuntimeCoordinator(modelContext: modelContext)
+        let context = try await coordinator.prepareContext(for: request)
+        return context.records.isEmpty ? nil : context
     }
 
     private func populateStoryMemoryAuditFields(record: ToolCall, from agentMessage: AgentMessage) {

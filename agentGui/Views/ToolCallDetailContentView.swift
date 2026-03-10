@@ -26,20 +26,23 @@ struct ToolCallDetailSection: Identifiable, Equatable {
 
 enum ToolCallDetailPresentation {
     static func sections(for toolCall: ToolCall, row: ToolCallRowPresentation) -> [ToolCallDetailSection] {
+        let baseSections: [ToolCallDetailSection]
         switch row.style {
         case .read:
-            return readSections(for: toolCall, row: row)
+            baseSections = readSections(for: toolCall, row: row)
         case .edit:
-            return editSections(for: toolCall)
+            baseSections = editSections(for: toolCall)
         case .execute:
-            return executeSections(for: toolCall, row: row)
+            baseSections = executeSections(for: toolCall, row: row)
         case .search, .fetch:
-            return searchSections(for: row)
+            baseSections = searchSections(for: row)
         case .askUser:
-            return askUserSections(for: row)
+            baseSections = askUserSections(for: row)
         case .subagent, .other:
-            return fallbackSections(for: row)
+            baseSections = fallbackSections(for: row)
         }
+
+        return baseSections + runtimeMetadataSections(for: toolCall)
     }
 
     private static func readSections(for toolCall: ToolCall, row: ToolCallRowPresentation) -> [ToolCallDetailSection] {
@@ -114,6 +117,36 @@ enum ToolCallDetailPresentation {
     private static func fallbackSections(for row: ToolCallRowPresentation) -> [ToolCallDetailSection] {
         guard let output = row.detailText, !output.isEmpty else { return [] }
         return [.init(label: "详情", text: output, monospaced: false, maxHeight: 160)]
+    }
+
+    private static func runtimeMetadataSections(for toolCall: ToolCall) -> [ToolCallDetailSection] {
+        var sections: [ToolCallDetailSection] = []
+
+        if let profiles = toolCall.memoryRuntimeProfiles, !profiles.isEmpty {
+            sections.append(.init(label: "记忆 Profiles", text: profiles.joined(separator: "\n"), monospaced: false, maxHeight: 120))
+        }
+
+        if let layers = toolCall.memoryRuntimeLayers, !layers.isEmpty {
+            sections.append(.init(label: "记忆 Layers", text: layers.joined(separator: "\n"), monospaced: false, maxHeight: 120))
+        }
+
+        if let warnings = toolCall.memoryRuntimeWarnings, !warnings.isEmpty {
+            sections.append(.init(label: "记忆 Warnings", text: warnings.joined(separator: "\n"), monospaced: false, maxHeight: 120))
+        }
+
+        if toolCall.memoryBackgroundConsolidationQueued == true {
+            sections.append(.init(label: "记忆后台处理", text: "本轮已触发后台巩固 / 写入队列", monospaced: false, maxHeight: 80))
+        }
+
+        if let conflictIDs = toolCall.memoryConflictRecordIDs, !conflictIDs.isEmpty {
+            sections.append(.init(label: "记忆冲突记录", text: conflictIDs.joined(separator: "\n"), monospaced: true, maxHeight: 120))
+        }
+
+        if let confirmationIDs = toolCall.memoryConfirmationCandidateIDs, !confirmationIDs.isEmpty {
+            sections.append(.init(label: "待确认写入", text: confirmationIDs.joined(separator: "\n"), monospaced: true, maxHeight: 120))
+        }
+
+        return sections
     }
 
     private static func managedTaskSummary(for toolCall: ToolCall) -> String? {

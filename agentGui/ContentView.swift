@@ -333,6 +333,72 @@ struct SettingsView: View {
 
     private var memorySection: some View {
         Section {
+            if let settings {
+                Toggle("启用统一记忆运行时", isOn: Binding(
+                    get: { settings.enableUnifiedMemoryRuntime },
+                    set: { settings.enableUnifiedMemoryRuntime = $0; try? modelContext.save() }
+                ))
+
+                if settings.enableUnifiedMemoryRuntime {
+                    Stepper(value: Binding(
+                        get: { settings.unifiedMemoryContextBudget },
+                        set: { settings.unifiedMemoryContextBudget = $0; try? modelContext.save() }
+                    ), in: 4...16) {
+                        HStack {
+                            Text("统一记忆上下文预算")
+                            Spacer()
+                            Text("\(settings.unifiedMemoryContextBudget)")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+
+                    Toggle("启用记忆治理层", isOn: Binding(
+                        get: { settings.enableMemoryGovernance },
+                        set: { settings.enableMemoryGovernance = $0; try? modelContext.save() }
+                    ))
+
+                    Toggle("启用统一写路径", isOn: Binding(
+                        get: { settings.enableUnifiedMemoryWritePath },
+                        set: { settings.enableUnifiedMemoryWritePath = $0; try? modelContext.save() }
+                    ))
+
+                    Toggle("允许后台记忆巩固", isOn: Binding(
+                        get: { settings.enableBackgroundMemoryConsolidation },
+                        set: { settings.enableBackgroundMemoryConsolidation = $0; try? modelContext.save() }
+                    ))
+
+                    Toggle("启用 TTL Sweep", isOn: Binding(
+                        get: { settings.enableMemoryTTLSweep },
+                        set: { settings.enableMemoryTTLSweep = $0; try? modelContext.save() }
+                    ))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("待确认阈值")
+                            Spacer()
+                            Text(String(format: "%.0f%%", settings.memoryConfirmationThreshold * 100))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { settings.memoryConfirmationThreshold },
+                                set: { settings.memoryConfirmationThreshold = $0; try? modelContext.save() }
+                            ),
+                            in: 0.4...0.95,
+                            step: 0.05
+                        )
+                    }
+
+                    NavigationLink {
+                        MemoryManagementPanel()
+                    } label: {
+                        Label("打开记忆治理面板", systemImage: "tray.full")
+                    }
+                }
+            }
+
             TextEditor(text: $memoryContent)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 140, maxHeight: 280)
@@ -347,7 +413,7 @@ struct SettingsView: View {
         } header: {
             Text("长期记忆")
         } footer: {
-            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。")
+            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。统一记忆运行时用于把 TaskMemory / StoryMemory 组装成单一读视图，治理层用于限制低置信度写入。")
         }
     }
 

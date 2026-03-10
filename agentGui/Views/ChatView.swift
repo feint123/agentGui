@@ -88,7 +88,7 @@ struct ChatView: View {
             }
         }
         .navigationTitle(session.title)
-        .navigationSubtitle(claudeService.isConfigured ? "" : "⚠️ 请先配置 API Key")
+        .navigationSubtitle(navigationSubtitleText)
         .toolbar { toolbarContent }
         .alert("错误", isPresented: .constant(errorMessage != nil)) {
             Button("确定") { errorMessage = nil }
@@ -154,6 +154,21 @@ struct ChatView: View {
     var activeStoryProject: WritingProject? {
         guard let projectId = UUID(uuidString: session.activeWritingProjectId) else { return nil }
         return allWritingProjects.first(where: { $0.id == projectId })
+    }
+
+    var unifiedMemoryRuntimeEnabled: Bool {
+        AppSettings.getOrCreate(in: modelContext).enableUnifiedMemoryRuntime
+    }
+
+    var navigationSubtitleText: String {
+        if !claudeService.isConfigured {
+            return "⚠️ 请先配置 API Key"
+        }
+        if unifiedMemoryRuntimeEnabled {
+            let settings = AppSettings.getOrCreate(in: modelContext)
+            return settings.enableMemoryGovernance ? "统一记忆运行时已启用 · 治理层开启" : "统一记忆运行时已启用"
+        }
+        return ""
     }
 }
 

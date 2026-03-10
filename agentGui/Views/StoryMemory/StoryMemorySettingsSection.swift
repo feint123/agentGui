@@ -13,6 +13,17 @@ struct StoryMemorySettingsSection: View {
             if settings.enableStoryMemory {
                 Toggle("自动抽取剧情事件", isOn: binding(\ .storyMemoryAutoExtract))
 
+                if settings.enableUnifiedMemoryRuntime {
+                    LabeledContent("统一运行时") {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("创作 Profile 已接入")
+                            Text(settings.enableMemoryGovernance ? "治理层已启用" : "治理层已关闭")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 Stepper(value: binding(\ .storyMemoryPromptBudget), in: 2...12) {
                     HStack {
                         Text("Prompt 记忆预算")
@@ -34,11 +45,19 @@ struct StoryMemorySettingsSection: View {
                 } label: {
                     Label("管理创作项目", systemImage: "books.vertical")
                 }
+
+                if settings.enableUnifiedMemoryRuntime {
+                    NavigationLink {
+                        MemoryManagementPanel()
+                    } label: {
+                        Label("查看记忆治理面板", systemImage: "tray.full")
+                    }
+                }
             }
         } header: {
             Text("创作记忆")
         } footer: {
-            Text("项目级创作记忆用于维护角色、世界规则、时间线和连续性。默认模式下，主 Agent 只会按需委托给独立的创作记忆子代理；失败或未写入时会在时间线中显式显示，不会静默伪装成成功。它与长期记忆分离，不会写入 ~/.agentgui/memory.md。")
+            Text("项目级创作记忆用于维护角色、世界规则、时间线和连续性。默认模式下，主 Agent 只会按需委托给独立的创作记忆子代理；失败或未写入时会在时间线中显式显示，不会静默伪装成成功。启用统一记忆运行时后，创作记忆会以 Creative Profile 参与统一读路径，但仍与 ~/.agentgui/memory.md 分离。")
         }
     }
 

@@ -82,6 +82,27 @@ final class AppSettings {
     /// 当前创作记忆项目绑定模式：manual / session / auto
     var storyMemoryProjectMode: String = "auto"
 
+    /// 启用统一记忆运行时读取路径
+    var enableUnifiedMemoryRuntime: Bool = false
+
+    /// 统一记忆运行时的上下文预算（千字符级近似预算）
+    var unifiedMemoryContextBudget: Int = 8
+
+    /// 是否启用统一记忆治理层
+    var enableMemoryGovernance: Bool = true
+
+    /// 是否启用统一写路径
+    var enableUnifiedMemoryWritePath: Bool = true
+
+    /// 是否允许后台记忆巩固
+    var enableBackgroundMemoryConsolidation: Bool = true
+
+    /// 需要用户确认的默认置信度阈值
+    var memoryConfirmationThreshold: Double = 0.6
+
+    /// 是否启用 TTL sweep
+    var enableMemoryTTLSweep: Bool = true
+
 
     init() {
         self.apiKey = ""
@@ -108,6 +129,13 @@ final class AppSettings {
         self.storyMemoryAutoExtract = true
         self.storyMemoryPromptBudget = 6
         self.storyMemoryProjectMode = "auto"
+        self.enableUnifiedMemoryRuntime = false
+        self.unifiedMemoryContextBudget = 8
+        self.enableMemoryGovernance = true
+        self.enableUnifiedMemoryWritePath = true
+        self.enableBackgroundMemoryConsolidation = true
+        self.memoryConfirmationThreshold = 0.6
+        self.enableMemoryTTLSweep = true
     }
 }
 
