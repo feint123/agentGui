@@ -11,6 +11,8 @@ struct TestLaunchOptions {
     let sessionID: String?
     let workingDirectoryPath: String?
     let selectedFilePath: String?
+    let todoFixtureMode: String?
+    let initialComposerText: String?
 
     static var current: TestLaunchOptions {
         TestLaunchOptions(arguments: ProcessInfo.processInfo.arguments)
@@ -25,6 +27,8 @@ struct TestLaunchOptions {
         sessionID = Self.stringValue(for: "-com.agentgui.test.sessionId", in: arguments)
         workingDirectoryPath = Self.stringValue(for: "-com.agentgui.test.workingDirectory", in: arguments)
         selectedFilePath = Self.stringValue(for: "-com.agentgui.test.selectedFilePath", in: arguments)
+        todoFixtureMode = Self.stringValue(for: "-com.agentgui.test.todoFixtureMode", in: arguments)
+        initialComposerText = Self.stringValue(for: "-com.agentgui.test.initialComposerText", in: arguments)
 
         if let rawTab = Self.stringValue(for: "-com.agentgui.test.initialTab", in: arguments),
            let parsedTab = AppTab(rawValue: rawTab) {

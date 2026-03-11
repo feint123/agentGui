@@ -31,7 +31,6 @@ struct WorkspacePanelView: View {
 
     @Environment(WorkspaceState.self) private var workspaceState
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
-    @Environment(ClaudeService.self) private var claudeService
     @Environment(PersistenceCoordinator.self) private var persistenceCoordinator
     @Environment(\.modelContext) private var modelContext
 
@@ -54,11 +53,6 @@ struct WorkspacePanelView: View {
                 .padding(.vertical, 8)
             Divider()
                 .opacity(0.4)
-            if !todoItems.isEmpty {
-                TodoListView(items: todoItems)
-                Divider()
-                    .opacity(0.4)
-            }
             treeContent
                 .frame(maxHeight: .infinity, alignment: .top)
         }
@@ -67,18 +61,6 @@ struct WorkspacePanelView: View {
         .onChange(of: workspaceState.selectedSession?.persistentModelID) { _, _ in
             loadFromWorkspaceState()
         }
-    }
-
-    // MARK: - Todo Items
-
-    private var todoItems: [TodoItem] {
-        guard let session = workspaceState.selectedSession else { return [] }
-        let store = SessionTaskStateStore(modelContext: modelContext, persistenceCoordinator: persistenceCoordinator)
-        let persistedItems = store.todoItems(for: session.sessionId)
-        if !persistedItems.isEmpty {
-            return persistedItems
-        }
-        return claudeService.sessionTodoLists[session.sessionId] ?? []
     }
 
     // MARK: - Top directory bar

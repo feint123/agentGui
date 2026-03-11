@@ -9,14 +9,23 @@ import AppKit
 
 extension ChatView {
 
+    private var testLaunchOptions: TestLaunchOptions {
+        TestLaunchOptions.current
+    }
+
     // MARK: - Input Area
 
     var inputArea: some View {
         VStack(spacing: 0) {
-            if slashQuery != nil {
+            switch assistSurface {
+            case .slash:
                 slashPopupCard
-            } else if mentionQuery != nil && !mentionCandidates.isEmpty {
+            case .mention:
                 mentionPopupCard
+            case .todo:
+                todoPopupCard
+            case .none:
+                EmptyView()
             }
 
             VStack(spacing: 8) {
@@ -85,7 +94,45 @@ extension ChatView {
         .padding(.bottom, 10)
     }
     .background(.bar)
+    .onAppear {
+        applyUITestInitialComposerTextIfNeeded()
+    }
 }
+
+    private func applyUITestInitialComposerTextIfNeeded() {
+        guard testLaunchOptions.isUITestMode,
+              !didApplyUITestInitialComposerText,
+              let initialComposerText = testLaunchOptions.initialComposerText else {
+            return
+        }
+
+        didApplyUITestInitialComposerText = true
+        inputText = initialComposerText
+        updateComposerAssistState(initialComposerText)
+    }
+
+    private var currentTodoItems: [TodoItem] {
+        let store = SessionTaskStateStore(modelContext: modelContext)
+        let persistedItems = store.todoItems(for: session.sessionId)
+        if !persistedItems.isEmpty {
+            return persistedItems
+        }
+        return claudeService.sessionTodoLists[session.sessionId] ?? []
+    }
+
+    private var todoCardPresentation: ChatComposerTodoCardPresentation {
+        ChatComposerTodoCardPresentation.build(items: currentTodoItems, maxVisibleItems: 4)
+    }
+
+    private var assistSurface: ChatComposerAssistSurface {
+        ChatComposerAssistSurface.resolve(
+            slashQuery: slashQuery,
+            hasMentionCandidates: !mentionCandidates.isEmpty,
+            mentionQuery: mentionQuery,
+            todoPresentation: todoCardPresentation
+        )
+    }
+
     // MARK: - Context Chips
 
     var contextChipsRow: some View {
@@ -339,6 +386,7 @@ var fileChipsRow: some View {
         .shadow(color: .black.opacity(0.10), radius: 8, y: -2)
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
+        .accessibilityIdentifier("chat.slashPopup")
         .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)))
     }
 
@@ -409,6 +457,14 @@ var fileChipsRow: some View {
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
         .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)))
+    }
+
+    @ViewBuilder
+    var todoPopupCard: some View {
+        InputAreaTodoCardView(presentation: todoCardPresentation)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 4)
+            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)))
     }
 
     func mentionRow(url: URL) -> some View {

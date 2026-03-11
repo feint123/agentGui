@@ -58,6 +58,7 @@ struct ChatView: View {
     @State var slashCandidates: [ChatSlashCommandItem] = []
     @State var highlightedSlashItemID: String? = nil
     @State var activeInputDirectives: [ChatInputDirective] = []
+    @State var didApplyUITestInitialComposerText = false
 
     @FocusState var isInputFocused: Bool
 

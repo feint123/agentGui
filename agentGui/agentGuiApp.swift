@@ -149,6 +149,10 @@ struct agentGuiApp: App {
             ensureCompletedMessages(for: session, in: context)
         }
 
+        if let todoFixtureMode = launchOptions.todoFixtureMode {
+            ensureTodoItems(for: session.sessionId, mode: todoFixtureMode, in: context)
+        }
+
         if launchOptions.preloadToolCall {
             ensureCompletedMessages(for: session, in: context)
             ensureToolCall(for: session, in: context)
@@ -269,5 +273,20 @@ struct agentGuiApp: App {
             domain: .toolCalls,
             userMessage: "UI 测试工具调用初始化未成功保存"
         )
+    }
+
+    @MainActor
+    private func ensureTodoItems(for sessionId: String, mode: String, in context: ModelContext) {
+        guard mode == "basic" else { return }
+
+        let items = [
+            TodoItem(id: "todo-1", title: "确认输入区 Todo 卡片位置", status: .inProgress),
+            TodoItem(id: "todo-2", title: "验证 slash 浮层优先级", status: .pending),
+            TodoItem(id: "todo-3", title: "移除侧栏旧入口", status: .done)
+        ]
+
+        let store = SessionTaskStateStore(modelContext: context, persistenceCoordinator: .shared)
+        try? store.saveTodoItems(items, for: sessionId)
+        claudeService.sessionTodoLists[sessionId] = items
     }
 }

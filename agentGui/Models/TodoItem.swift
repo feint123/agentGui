@@ -7,7 +7,7 @@ import Foundation
 
 // MARK: - TodoStatus
 
-enum TodoStatus: String, Codable, CaseIterable {
+enum TodoStatus: String, Codable, CaseIterable, Equatable {
     case pending      = "pending"
     case inProgress   = "in_progress"
     case done         = "done"
@@ -34,7 +34,7 @@ enum TodoStatus: String, Codable, CaseIterable {
 
 // MARK: - TodoItem
 
-struct TodoItem: Codable, Identifiable {
+struct TodoItem: Codable, Identifiable, Equatable {
     var id: String
     var title: String
     var status: TodoStatus
