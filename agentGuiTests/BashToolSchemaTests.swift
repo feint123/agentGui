@@ -79,6 +79,43 @@ struct BashToolSchemaTests {
         #expect(tools.allSatisfy { cacheControlType(from: $0) == "ephemeral" })
     }
 
+    @Test func subagentCoderBashSchemaMatchesUnifiedRegistry() async throws {
+        let settings = AppSettings()
+        settings.enableBashTool = true
+        settings.enableTextEditorTool = true
+        let role = try #require(WorkflowRoleDefinition.find(named: "coder"))
+
+        let tools = ClaudeService().makeSubagentToolsForTests(
+            modelId: "claude-sonnet-4-6",
+            definition: role,
+            settings: settings
+        )
+        let bash = try #require(toolNamed("bash", in: tools))
+        let propertyNames = schemaPropertyNames(from: bash)
+
+        #expect(propertyNames.contains("execution_mode"))
+        #expect(propertyNames.contains("task_id"))
+        #expect(propertyNames.contains("signal"))
+    }
+
+    @Test func workflowCoderBashSchemaMatchesUnifiedRegistry() async throws {
+        let settings = AppSettings()
+        settings.enableBashTool = true
+        settings.enableTextEditorTool = true
+        let role = try #require(WorkflowRoleDefinition.find(named: "coder"))
+
+        let tools = WorkflowAgentRunner.makeToolsForTests(
+            role: role,
+            settings: settings
+        )
+        let bash = try #require(toolNamed("bash", in: tools))
+        let propertyNames = schemaPropertyNames(from: bash)
+
+        #expect(propertyNames.contains("execution_mode"))
+        #expect(propertyNames.contains("task_id"))
+        #expect(propertyNames.contains("signal"))
+    }
+
     private func toolNamed(_ name: String, in tools: [MessageParameter.Tool]) -> MessageParameter.Tool? {
         tools.first { toolName(from: $0) == name }
     }

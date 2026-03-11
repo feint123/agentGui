@@ -126,7 +126,8 @@ extension ClaudeService {
         parentMessage: Message?,
         onTextAccumulated: (String) -> Void,
         toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)? = nil,
-        executionRequirement: ExecutionRequirement = .none
+        executionRequirement: ExecutionRequirement = .none,
+        toolExecutionContext: ToolContext = .mainAgent
     ) async throws -> AgentLoopRunResult {
         var accumulatedText = ""
         var loopCtx = AgentLoopContext(phase: .executing)
@@ -577,7 +578,8 @@ extension ClaudeService {
                         toolName: pending.name,
                         input: input,
                         message: parentMessage,
-                        agentRound: round
+                        agentRound: round,
+                        executionContext: toolExecutionContext
                     )
                     if !memoryRuntimeProfiles.isEmpty {
                         record.memoryRuntimeProfiles = memoryRuntimeProfiles

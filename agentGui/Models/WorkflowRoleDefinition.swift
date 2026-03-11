@@ -30,6 +30,7 @@ struct WorkflowRoleDefinition: Sendable {
     let enableWebSearch: Bool
     let enableWebFetch: Bool
     let enableStoryMemoryTools: Bool
+    let toolGrants: [ToolGrant]
 
     // MARK: Artifact Permissions
 
@@ -72,6 +73,7 @@ struct WorkflowRoleDefinition: Sendable {
         enableWebSearch: Bool = false,
         enableWebFetch: Bool = false,
         enableStoryMemoryTools: Bool = false,
+        toolGrants: [ToolGrant] = [],
         readableArtifacts: Set<WorkflowArtifactKind> = [],
         writableArtifacts: Set<WorkflowArtifactKind> = [],
         subscribesTo: Set<WorkflowMessageKind> = [.task],
@@ -89,6 +91,7 @@ struct WorkflowRoleDefinition: Sendable {
         self.enableWebSearch = enableWebSearch
         self.enableWebFetch = enableWebFetch
         self.enableStoryMemoryTools = enableStoryMemoryTools
+        self.toolGrants = toolGrants
         self.readableArtifacts = readableArtifacts
         self.writableArtifacts = writableArtifacts
         self.subscribesTo = subscribesTo
@@ -163,6 +166,9 @@ extension WorkflowRoleDefinition {
         """,
         enableTextEditor: true,
         enableBash: false,
+        toolGrants: [
+            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker])
+        ],
         readableArtifacts: [],
         writableArtifacts: [.plan],
         subscribesTo: [.task],
@@ -199,6 +205,10 @@ extension WorkflowRoleDefinition {
         enableBash: false,
         enableWebSearch: true,
         enableWebFetch: true,
+        toolGrants: [
+            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker]),
+            .init(toolGroupID: .web, allowedContexts: [.subagent, .workflowWorker])
+        ],
         readableArtifacts: [.plan],
         writableArtifacts: [.explorationReport],
         subscribesTo: [.task, .infoRequest],
@@ -238,6 +248,10 @@ extension WorkflowRoleDefinition {
                 """,
                 enableTextEditor: true,
                 enableBash: true,
+                toolGrants: [
+                    .init(toolGroupID: .readWriteEditor, accessMode: .readWrite, allowedContexts: [.subagent, .workflowWorker]),
+                    .init(toolGroupID: .shell, allowedContexts: [.subagent, .workflowWorker])
+                ],
                 readableArtifacts: [.plan, .explorationReport, .reviewReport, .testReport],
                 writableArtifacts: [.codePatchSummary],
                 subscribesTo: [.task, .reviewFeedback, .rejection, .infoResponse],
@@ -275,6 +289,9 @@ extension WorkflowRoleDefinition {
         """,
         enableTextEditor: true,
         enableBash: false,
+        toolGrants: [
+            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker])
+        ],
         readableArtifacts: [.plan, .explorationReport, .codePatchSummary],
         writableArtifacts: [.reviewReport],
         subscribesTo: [.task, .handoff],
@@ -312,6 +329,9 @@ extension WorkflowRoleDefinition {
                 """,
                 enableTextEditor: false,
                 enableBash: true,
+                toolGrants: [
+                    .init(toolGroupID: .shell, allowedContexts: [.subagent, .workflowWorker])
+                ],
                 readableArtifacts: [.codePatchSummary],
                 writableArtifacts: [.testReport],
                 subscribesTo: [.task, .handoff],
@@ -339,6 +359,9 @@ extension WorkflowRoleDefinition {
         """,
         enableTextEditor: true,
         enableBash: false,
+        toolGrants: [
+            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker])
+        ],
         readableArtifacts: [],
         writableArtifacts: [],
         subscribesTo: [.task],
@@ -372,6 +395,9 @@ extension WorkflowRoleDefinition {
         enableTextEditor: false,
         enableBash: false,
         enableStoryMemoryTools: true,
+        toolGrants: [
+            .init(toolGroupID: .storyMemory, allowedContexts: [.subagent, .workflowWorker])
+        ],
         readableArtifacts: [],
         writableArtifacts: [],
         subscribesTo: [.task],
@@ -405,6 +431,10 @@ extension WorkflowRoleDefinition {
         """,
         enableTextEditor: true,
         enableBash: true,
+        toolGrants: [
+            .init(toolGroupID: .readWriteEditor, accessMode: .readWrite, allowedContexts: [.subagent, .workflowWorker]),
+            .init(toolGroupID: .shell, allowedContexts: [.subagent, .workflowWorker])
+        ],
         readableArtifacts: [],
         writableArtifacts: [],
         subscribesTo: [.task],
@@ -432,6 +462,9 @@ extension WorkflowRoleDefinition {
         """,
         enableTextEditor: true,
         enableBash: false,
+        toolGrants: [
+            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker])
+        ],
         readableArtifacts: [],
         writableArtifacts: [],
         subscribesTo: [.task],

@@ -34,114 +34,26 @@ extension ClaudeService {
 
     func buildTools(modelId: String, settings: AppSettings, enabledSkills: [Skill] = [], isSubagent: Bool = false) -> [MessageParameter.Tool] {
         var tools: [MessageParameter.Tool] = []
+        let registry = DefaultToolRegistry()
 
-        if settings.enableTextEditorTool {
-            tools.append(makeEphemeralTool(
-                name: "str_replace_based_edit_tool",
-                description: """
-                A text editor for viewing and modifying files. Supported commands:
-                - view: Read file contents, optionally with view_range [start, end] (1-based line numbers)
-                - str_replace: Replace an exact string in a file: provide old_str and new_str
-                - create: Create or overwrite a file with file_text
-                - insert: Insert new_str after insert_line (0 = prepend)
-                Always use absolute file paths.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "command": .init(type: .string, description: "One of: view, str_replace, create, insert"),
-                        "path": .init(type: .string, description: "Absolute path to the target file"),
-                        "old_str": .init(type: .string, description: "(str_replace) Exact text to find and replace"),
-                        "new_str": .init(type: .string, description: "(str_replace/insert) Replacement or inserted text"),
-                        "file_text": .init(type: .string, description: "(create) Full content of the new file"),
-                        "insert_line": .init(type: .integer, description: "(insert) Line number to insert after; 0 = before line 1"),
-                        "view_range": .init(type: .array, description: "(view) Optional [start_line, end_line] to limit output")
-                    ],
-                    required: ["command", "path"]
-                )
-            ))
+        if settings.enableTextEditorTool,
+           let definition = registry.definition(for: "str_replace_based_edit_tool") {
+            tools.append(definition.makeAnthropicTool())
         }
 
-        if settings.enableBashTool {
-            tools.append(makeEphemeralTool(
-                name: "bash",
-                description: """
-                Execute shell commands in a persistent bash session. \
-                The session preserves working directory and environment variables across calls. \
-                Use restart: true to reset the session.
-
-                For interactive commands that prompt for confirmation or input, set \
-                interactive: true on the initial command. The tool will return once output \
-                becomes idle, even if the command is still running. Then send follow-up input \
-                with input: "..." and interactive: true. Use interrupt: true to send Ctrl-C \
-                to the currently running foreground command.
-
-                For commands that run indefinitely (servers, watchers, build monitors), set \
-                background: true. The process is forked to the background immediately and a \
-                log file path is returned — use `cat <logpath>` or `tail -n 50 <logpath>` in \
-                a subsequent bash call to inspect output. The log file persists until the \
-                session ends or you delete it.
-
-                Use timeout to limit how long to wait for a foreground command (default 300s). \
-                If a command exceeds timeout, partial output is returned and the session restarts.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "command": .init(type: .string, description: "The bash command to execute"),
-                        "task_id": .init(type: .string, description: "Optional managed terminal task ID to continue or annotate an existing task."),
-                        "execution_mode": .init(type: .string, description: "Execution mode for the managed terminal task. One of: auto, foreground, background, interactive."),
-                        "input": .init(type: .string, description: "Text to send to the currently running interactive foreground command"),
-                        "signal": .init(type: .string, description: "Signal to send to the currently running foreground command. One of: interrupt, terminate."),
-                        "goal_hint": .init(type: .string, description: "Optional goal or intent hint used to classify how the command should run."),
-                        "scan_policy": .init(type: .string, description: "How aggressively the runtime should scan task state. One of: adaptive, manual."),
-                        "auto_reply_policy": .init(type: .string, description: "Prompt handling policy. One of: safeOnly, disabled."),
-                        "restart": .init(type: .boolean, description: "If true, restart the bash session and ignore command"),
-                        "interrupt": .init(type: .boolean, description: "If true, send Ctrl-C to the currently running foreground command"),
-                        "timeout": .init(type: .integer, description: "Max seconds to wait for the command to finish (default 300). Ignored when background is true."),
-                        "background": .init(type: .boolean, description: "If true, run the command in the background immediately and return PID + log file path. Use for servers/watchers that never exit."),
-                        "interactive": .init(type: .boolean, description: "If true, treat the command as interactive and return once output becomes idle so you can continue with input." )
-                    ],
-                    required: []
-                )
-            ))
+        if settings.enableBashTool,
+           let definition = registry.definition(for: "bash") {
+            tools.append(definition.makeAnthropicTool())
         }
 
-        if settings.enableWebSearchTool {
-            tools.append(makeEphemeralTool(
-                name: "web_search",
-                description: """
-                Search the web using Bing and return a list of relevant results (title, URL, snippet). \
-                Use when you need up-to-date information, facts, or references not in your training data.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "query": .init(type: .string, description: "The search query string"),
-                        "count": .init(type: .integer, description: "Number of results to return (1-10, default 5)")
-                    ],
-                    required: ["query"]
-                )
-            ))
+        if settings.enableWebSearchTool,
+           let definition = registry.definition(for: "web_search") {
+            tools.append(definition.makeAnthropicTool())
         }
 
-        if settings.enableWebFetchTool {
-            tools.append(makeEphemeralTool(
-                name: "web_fetch",
-                description: """
-                Fetch a webpage and return its cleaned text content. \
-                HTML boilerplate, scripts, styles, and navigation are stripped. \
-                Use after web_search to read the full content of a specific page.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "url": .init(type: .string, description: "The full URL to fetch (http or https)"),
-                        "max_chars": .init(type: .integer, description: "Maximum characters to return (default 8000, max 32000)")
-                    ],
-                    required: ["url"]
-                )
-            ))
+        if settings.enableWebFetchTool,
+           let definition = registry.definition(for: "web_fetch") {
+            tools.append(definition.makeAnthropicTool())
         }
 
         if !enabledSkills.isEmpty {
@@ -163,86 +75,15 @@ extension ClaudeService {
 
         // run_subagent: only available to the main agent (not inside subagent loops)
         if !isSubagent {
-            let agentList = WorkflowRoleDefinition.all
-                .map { "- \($0.name) (\($0.displayName)): \($0.description)" }
-                .joined(separator: "\n")
-            tools.append(makeEphemeralTool(
-                name: "run_subagent",
-                description: """
-                Delegate a focused task to a specialized built-in subagent. The subagent runs \
-                its own agentic loop with the appropriate tools and returns a result string.
-
-                WHEN TO USE:
-                - Research, exploration, or report writing → use "explorer" to gather information first
-                - Writing or modifying code → use "coder"
-                - Reviewing code quality or security → use "reviewer"
-                - Running shell/build/test commands → use "executor"
-                - Summarizing a document → use "summarizer"
-
-                Available agents:
-                \(agentList)
-
-                The task string must be self-contained: include all context the subagent needs \
-                (file paths, goals, constraints, relevant background). The subagent cannot ask \
-                follow-up questions.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "agent_name": .init(
-                            type: .string,
-                            description: "Identifier of the subagent to use. One of: \(WorkflowRoleDefinition.all.map(\.name).joined(separator: " | "))"
-                        ),
-                        "task": .init(
-                            type: .string,
-                            description: "Detailed, self-contained task description for the subagent."
-                        )
-                    ],
-                    required: ["agent_name", "task"]
-                )
-            ))
+            let context = ToolDefinitionBuildContext.default
+            if let definition = registry.definition(for: "run_subagent") {
+                tools.append(definition.makeAnthropicTool(context: context))
+            }
 
             // start_workflow: launches a multi-agent workflow (main agent only)
-            let workflowList = ClaudeService.availableWorkflows
-                .map { "- \($0.id): \($0.description)" }
-                .joined(separator: "\n")
-            tools.append(makeEphemeralTool(
-                name: "start_workflow",
-                description: """
-                Launch a multi-agent workflow for tasks that require sustained collaboration \
-                between specialized agents (planner → explorer → coder → reviewer → executor).
-
-                USE start_workflow WHEN the task:
-                - Requires implementing or refactoring code across multiple files
-                - Needs a plan-explore-code-review-verify pipeline
-                - Is complex enough that a single agent loop would be insufficient
-
-                DO NOT use start_workflow for:
-                - Simple Q&A, single-file edits, or quick lookups
-                - Tasks that can be completed in a few tool calls
-                - Anything already handled well by run_subagent
-
-                The workflow runs synchronously and returns a summary when complete. \
-                The task must be self-contained: include file paths, goals, and any constraints.
-
-                Available workflows:
-                \(workflowList)
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "workflow_id": .init(
-                            type: .string,
-                            description: "ID of the workflow to launch. One of: \(ClaudeService.availableWorkflows.map(\.id).joined(separator: " | "))"
-                        ),
-                        "task": .init(
-                            type: .string,
-                            description: "Self-contained task description including all context the workflow agents need."
-                        )
-                    ],
-                    required: ["workflow_id", "task"]
-                )
-            ))
+            if let definition = registry.definition(for: "start_workflow") {
+                tools.append(definition.makeAnthropicTool(context: context))
+            }
         }
 
         // update_todo_list: available to all agents (main and subagent)

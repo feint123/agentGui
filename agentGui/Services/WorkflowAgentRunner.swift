@@ -23,6 +23,19 @@ struct WorkflowAgentRunner {
     let settings: AppSettings
     let modelContext: ModelContext
 
+    static func makeToolsForTests(
+        role: WorkflowRoleDefinition,
+        settings: AppSettings
+    ) -> [MessageParameter.Tool] {
+        var tools = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
+            .init(context: .workflowWorker, role: role, settings: settings)
+        ).tools
+        if role.primaryOutputArtifactKind != nil {
+            tools.append(makeEmitArtifactTool(claudeService: ClaudeService()))
+        }
+        return tools
+    }
+
     // MARK: - Run
 
     func run(
@@ -147,7 +160,8 @@ struct WorkflowAgentRunner {
                     onAction?(String(snippet.prefix(80)))
                 }
             },
-            toolInterceptor: artifactInterceptor
+            toolInterceptor: artifactInterceptor,
+            toolExecutionContext: .workflowWorker
         )
         let outputText = loopResult.text
 
@@ -379,42 +393,20 @@ struct WorkflowAgentRunner {
     // MARK: - Tool Construction
 
     private func buildTools(role: WorkflowRoleDefinition) -> [MessageParameter.Tool] {
-        let stub = WorkflowToolStub(
-            enableTextEditor: role.enableTextEditor,
-            enableBash: role.enableBash,
-            enableWebSearch: role.enableWebSearch && settings.enableWebSearchTool,
-            enableWebFetch: role.enableWebFetch && settings.enableWebFetchTool
-        )
-        var tools = stub.buildTools()
+        var tools = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
+            .init(context: .workflowWorker, role: role, settings: settings)
+        ).tools
         if role.primaryOutputArtifactKind != nil {
-            tools.append(makeEmitArtifactTool())
+            tools.append(Self.makeEmitArtifactTool(claudeService: claudeService))
         }
         return tools
     }
 
-    private func makeEmitArtifactTool() -> MessageParameter.Tool {
-        claudeService.makeEphemeralTool(
-            name: "emit_workflow_artifact",
-            description: """
-            Submit the structured artifact that is the primary output of this activation. \
-            You MUST call this tool exactly once before finishing. \
-            Not calling it means your activation is rejected.
-            """,
-            inputSchema: .init(
-                type: .object,
-                properties: [
-                    "kind": .init(type: .string,
-                        description: "Artifact kind: plan | explorationReport | codePatchSummary | reviewReport | testReport | decisionLog | finalAnswer"),
-                    "schemaVersion": .init(type: .integer,
-                        description: "Schema version. Use 1."),
-                    "contentJson": .init(type: .string,
-                        description: "Full artifact payload serialised as a valid JSON string."),
-                    "status": .init(type: .string,
-                        description: "Artifact status: draft | approved | rejected | superseded (default: draft)")
-                ],
-                required: ["kind", "schemaVersion", "contentJson"]
-            )
-        )
+    private static func makeEmitArtifactTool(claudeService: ClaudeService) -> MessageParameter.Tool {
+        if let definition = DefaultToolRegistry().definition(for: "emit_workflow_artifact") {
+            return definition.makeAnthropicTool(context: .default)
+        }
+        return claudeService.makeEphemeralTool(name: "emit_workflow_artifact")
     }
 
     // MARK: - Output Assembly
@@ -479,112 +471,4 @@ private actor WorkflowContractViolationCollector {
 private struct WorkflowTaskPackage {
     let task: String
     let contractViolations: [WorkflowContractViolation]
-}
-
-// MARK: - WorkflowToolStub
-
-/// Utility that constructs tool parameter arrays for a given capability set.
-/// Mirrors the logic in ClaudeService+Subagent without requiring a ClaudeService reference.
-private struct WorkflowToolStub {
-    let enableTextEditor: Bool
-    let enableBash: Bool
-    let enableWebSearch: Bool
-    let enableWebFetch: Bool
-
-    func buildTools() -> [MessageParameter.Tool] {
-        var tools: [MessageParameter.Tool] = []
-
-        if enableTextEditor {
-            tools.append(.function(
-                name: "str_replace_based_edit_tool",
-                description: """
-                A text editor for viewing and modifying files. Supported commands:
-                - view: Read file contents, optionally with view_range [start, end] (1-based line numbers)
-                - str_replace: Replace an exact string in a file: provide old_str and new_str
-                - create: Create or overwrite a file with file_text
-                - insert: Insert new_str after insert_line (0 = prepend)
-                Always use absolute file paths.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "command":    .init(type: .string,  description: "One of: view, str_replace, create, insert"),
-                        "path":       .init(type: .string,  description: "Absolute path to the target file"),
-                        "old_str":    .init(type: .string,  description: "(str_replace) Exact text to find and replace"),
-                        "new_str":    .init(type: .string,  description: "(str_replace/insert) Replacement or inserted text"),
-                        "file_text":  .init(type: .string,  description: "(create) Full content of the new file"),
-                        "insert_line":.init(type: .integer, description: "(insert) Line number to insert after; 0 = before line 1"),
-                        "view_range": .init(type: .array,   description: "(view) Optional [start_line, end_line] to limit output")
-                    ],
-                    required: ["command", "path"]
-                ),
-                cacheControl: .init(type: .ephemeral)
-            ))
-        }
-
-        if enableBash {
-            tools.append(.function(
-                name: "bash",
-                description: """
-                Execute shell commands in a persistent bash session. \
-                The session preserves working directory and environment variables across calls. \
-                Common prompt-driven commands are auto-detected as interactive, including \
-                `read`, `sudo`, `ssh`, `git add -p`, `git rebase -i`, `git commit` without \
-                `-m`, `npm init`, `npm login`, `pnpm create`, `npx create`, and bare REPL \
-                commands like `python` or `node`. \
-                For interactive commands, set interactive: true and continue them with \
-                input: "..." on subsequent calls. Use interrupt: true to cancel the current \
-                foreground command with Ctrl-C.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "command":    .init(type: .string,  description: "The bash command to execute"),
-                        "input":      .init(type: .string,  description: "Text to send to the currently running interactive foreground command"),
-                        "restart":    .init(type: .boolean, description: "If true, restart the bash session"),
-                        "interrupt":  .init(type: .boolean, description: "If true, send Ctrl-C to the currently running foreground command"),
-                        "timeout":    .init(type: .integer, description: "Max seconds to wait (default 300)"),
-                        "background": .init(type: .boolean, description: "Run in background and return immediately"),
-                        "interactive": .init(type: .boolean, description: "If true, return once output becomes idle so the caller can continue the interactive session")
-                    ],
-                    required: []
-                ),
-                cacheControl: .init(type: .ephemeral)
-            ))
-        }
-
-        if enableWebSearch {
-            tools.append(.function(
-                name: "web_search",
-                description: "Search the web and return relevant results (title, URL, snippet).",
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "query": .init(type: .string,  description: "The search query"),
-                        "count": .init(type: .integer, description: "Number of results (1-10, default 5)")
-                    ],
-                    required: ["query"]
-                ),
-                cacheControl: .init(type: .ephemeral)
-            ))
-        }
-
-        if enableWebFetch {
-            tools.append(.function(
-                name: "web_fetch",
-                description: "Fetch a webpage and return its cleaned text content.",
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "url":       .init(type: .string,  description: "The full URL to fetch"),
-                        "max_chars": .init(type: .integer, description: "Maximum characters to return (default 8000)")
-                    ],
-                    required: ["url"]
-                ),
-                cacheControl: .init(type: .ephemeral)
-            ))
-        }
-
-        return tools
-    }
 }

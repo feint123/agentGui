@@ -34,6 +34,18 @@ final class ToolCall {
     /// 终端输出
     var terminalOutput: String?
 
+    /// Unified tool definition ID used to construct this tool schema
+    var toolDefinitionID: String?
+
+    /// Unified schema version captured when the tool call was created
+    var toolSchemaVersion: Int?
+
+    /// Why this tool was exposed to the model in the current context
+    var toolExposureSource: String?
+
+    /// Execution context raw value: mainAgent | subagent | workflowWorker
+    var toolExecutionContext: String?
+
     /// Managed bash task ID
     var terminalTaskId: String?
 
@@ -124,6 +136,10 @@ final class ToolCall {
         self.filePath = nil
         self.diffContent = nil
         self.terminalOutput = nil
+        self.toolDefinitionID = nil
+        self.toolSchemaVersion = nil
+        self.toolExposureSource = nil
+        self.toolExecutionContext = nil
         self.terminalTaskId = nil
         self.terminalTaskStatus = nil
         self.terminalPromptSummary = nil

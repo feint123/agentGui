@@ -122,6 +122,22 @@ enum ToolCallDetailPresentation {
     private static func runtimeMetadataSections(for toolCall: ToolCall) -> [ToolCallDetailSection] {
         var sections: [ToolCallDetailSection] = []
 
+        if let definitionID = toolCall.toolDefinitionID, !definitionID.isEmpty {
+            sections.append(.init(label: "工具定义 ID", text: definitionID, monospaced: true, maxHeight: 80))
+        }
+
+        if let schemaVersion = toolCall.toolSchemaVersion {
+            sections.append(.init(label: "Schema 版本", text: String(schemaVersion), monospaced: true, maxHeight: 80))
+        }
+
+        if let exposureSource = toolCall.toolExposureSource, !exposureSource.isEmpty {
+            sections.append(.init(label: "暴露来源", text: exposureSource, monospaced: false, maxHeight: 80))
+        }
+
+        if let executionContext = toolCall.toolExecutionContext, !executionContext.isEmpty {
+            sections.append(.init(label: "执行上下文", text: executionContext, monospaced: false, maxHeight: 80))
+        }
+
         if let snapshotID = toolCall.memoryRuntimeSnapshotID, !snapshotID.isEmpty {
             sections.append(.init(label: "记忆上下文快照", text: snapshotID, monospaced: true, maxHeight: 80))
         }

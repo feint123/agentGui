@@ -210,10 +210,15 @@ struct StoryMemoryPromptAssemblerTests {
 
     @Test func workflowRoleRegistryIncludesCreativeMemoryManager() async throws {
         let role = try #require(WorkflowRoleDefinition.find(named: "creative_memory_manager"))
+        let settings = AppSettings()
+        settings.enableStoryMemory = true
+        let result = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
+            .init(context: .subagent, role: role, settings: settings)
+        )
 
-        #expect(role.enableTextEditor == false)
-        #expect(role.enableBash == false)
-        #expect(role.enableStoryMemoryTools == true)
+        #expect(result.toolIDs.contains("story_memory_query"))
+        #expect(!result.toolIDs.contains("str_replace_based_edit_tool"))
+        #expect(!result.toolIDs.contains("bash"))
     }
 
     @Test func memoryRoleBuildsSubagentToolsWithStoryMemoryCapabilities() async throws {

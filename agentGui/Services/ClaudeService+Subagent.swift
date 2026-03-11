@@ -16,7 +16,7 @@ extension ClaudeService {
         definition: WorkflowRoleDefinition,
         settings: AppSettings
     ) -> [MessageParameter.Tool] {
-        buildSubagentTools(modelId: modelId, definition: definition, settings: settings)
+        buildSubagentTools(definition: definition, settings: settings)
     }
 
     /// 执行 run_subagent 工具调用：解析参数、查找定义、运行嵌套 loop
@@ -76,7 +76,7 @@ extension ClaudeService {
             messages: &loopMessages,
             service: service,
             modelId: modelId,
-            tools: buildSubagentTools(modelId: modelId, definition: definition, settings: settings),
+            tools: buildSubagentTools(definition: definition, settings: settings),
             system: system,
             settings: settings,
             sessionId: sessionId,
@@ -88,7 +88,8 @@ extension ClaudeService {
                 return round
             },
             parentMessage: nil,
-            onTextAccumulated: { _ in }
+            onTextAccumulated: { _ in },
+            toolExecutionContext: .subagent
         )
         let output = result.text.isEmpty ? "(subagent produced no output)" : result.text
         let elapsed = Date().timeIntervalSince(startTime)
@@ -101,115 +102,10 @@ extension ClaudeService {
     }
 
     /// 为子代理构建工具列表（根据定义配置，不添加 run_subagent / ask_user_question）
-    private func buildSubagentTools(modelId: String, definition: WorkflowRoleDefinition, settings: AppSettings) -> [MessageParameter.Tool] {
-        var tools: [MessageParameter.Tool] = []
-        if definition.enableTextEditor {
-            tools.append(makeEphemeralTool(
-                name: "str_replace_based_edit_tool",
-                description: """
-                A text editor for viewing and modifying files. Supported commands:
-                - view: Read file contents, optionally with view_range [start, end] (1-based line numbers)
-                - str_replace: Replace an exact string in a file: provide old_str and new_str
-                - create: Create or overwrite a file with file_text
-                - insert: Insert new_str after insert_line (0 = prepend)
-                Always use absolute file paths.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "command": .init(type: .string, description: "One of: view, str_replace, create, insert"),
-                        "path": .init(type: .string, description: "Absolute path to the target file"),
-                        "old_str": .init(type: .string, description: "(str_replace) Exact text to find and replace"),
-                        "new_str": .init(type: .string, description: "(str_replace/insert) Replacement or inserted text"),
-                        "file_text": .init(type: .string, description: "(create) Full content of the new file"),
-                        "insert_line": .init(type: .integer, description: "(insert) Line number to insert after; 0 = before line 1"),
-                        "view_range": .init(type: .array, description: "(view) Optional [start_line, end_line] to limit output")
-                    ],
-                    required: ["command", "path"]
-                )
-            ))
-        }
-        if definition.enableBash {
-            tools.append(makeEphemeralTool(
-                name: "bash",
-                description: """
-                Execute shell commands in a persistent bash session. \
-                The session preserves working directory and environment variables across calls. \
-                Use restart: true to reset the session.
-
-                Common prompt-driven commands are auto-detected as interactive, including \
-                `read`, `sudo`, `ssh`, `git add -p`, `git rebase -i`, `git commit` without \
-                `-m`, `npm init`, `npm login`, `pnpm create`, `npx create`, and bare REPL \
-                commands like `python` or `node`. For interactive commands, set \
-                interactive: true and continue them with input: "..." on subsequent calls. \
-                Use interrupt: true to cancel the current foreground command with Ctrl-C.
-
-                For commands that run indefinitely (servers, watchers, build monitors), set \
-                background: true. The process is forked to the background immediately and a \
-                log file path is returned — use `cat <logpath>` or `tail -n 50 <logpath>` in \
-                a subsequent bash call to inspect output.
-
-                Use timeout to limit how long to wait for a foreground command (default 300s).
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "command": .init(type: .string, description: "The bash command to execute"),
-                        "input": .init(type: .string, description: "Text to send to the currently running interactive foreground command"),
-                        "restart": .init(type: .boolean, description: "If true, restart the bash session and ignore command"),
-                        "interrupt": .init(type: .boolean, description: "If true, send Ctrl-C to the currently running foreground command"),
-                        "timeout": .init(type: .integer, description: "Max seconds to wait for the command to finish (default 300). Ignored when background is true."),
-                        "background": .init(type: .boolean, description: "If true, run the command in the background immediately and return PID + log file path. Use for servers/watchers that never exit."),
-                        "interactive": .init(type: .boolean, description: "If true, return once output becomes idle so the caller can continue the interactive session")
-                    ],
-                    required: []
-                )
-            ))
-        }
-        if definition.enableWebSearch && settings.enableWebSearchTool {
-            tools.append(makeEphemeralTool(
-                name: "web_search",
-                description: """
-                Search the web using Bing and return a list of relevant results (title, URL, snippet). \
-                Use when you need up-to-date information, facts, or references not in your training data.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "query": .init(type: .string, description: "The search query string"),
-                        "count": .init(type: .integer, description: "Number of results to return (1-10, default 5)")
-                    ],
-                    required: ["query"]
-                )
-            ))
-        }
-        if definition.enableWebFetch && settings.enableWebFetchTool {
-            tools.append(makeEphemeralTool(
-                name: "web_fetch",
-                description: """
-                Fetch a webpage and return its cleaned text content. \
-                HTML boilerplate, scripts, styles, and navigation are stripped. \
-                Use after web_search to read the full content of a specific page.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "url": .init(type: .string, description: "The full URL to fetch (http or https)"),
-                        "max_chars": .init(type: .integer, description: "Maximum characters to return (default 8000, max 32000)")
-                    ],
-                    required: ["url"]
-                )
-            ))
-        }
-        if definition.enableStoryMemoryTools && settings.enableStoryMemory {
-            tools.append(contentsOf: storyMemoryTools(modelId: modelId, settings: settings))
-        }
-        return tools
-    }
-
-    private func storyMemoryTools(modelId: String, settings: AppSettings) -> [MessageParameter.Tool] {
-        buildTools(modelId: modelId, settings: settings, isSubagent: true)
-            .filter { toolName(from: $0)?.hasPrefix("story_memory_") == true }
+    private func buildSubagentTools(definition: WorkflowRoleDefinition, settings: AppSettings) -> [MessageParameter.Tool] {
+        DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
+            .init(context: .subagent, role: definition, settings: settings)
+        ).tools
     }
 
     private func toolName(from tool: MessageParameter.Tool) -> String? {

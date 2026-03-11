@@ -15,7 +15,8 @@ extension ClaudeService {
         toolName: String,
         input: MessageResponse.Content.Input,
         message: Message?,
-        agentRound: AgentRound? = nil
+        agentRound: AgentRound? = nil,
+        executionContext: ToolContext = .mainAgent
     ) -> ToolCall {
         let path = input["path"]?.stringValue
         let fileName = path.map { ($0 as NSString).lastPathComponent } ?? ""
@@ -136,6 +137,12 @@ extension ClaudeService {
         record.filePath = path
         record.diffContent = diffContent
         record.startTime = Date()
+        if let definition = DefaultToolRegistry().definition(for: toolName) {
+            record.toolDefinitionID = definition.id
+            record.toolSchemaVersion = definition.schemaVersion
+        }
+        record.toolExposureSource = "context:\(executionContext.rawValue)"
+        record.toolExecutionContext = executionContext.rawValue
 
         if toolName == "bash", let metadata = bashTaskRecordMetadata(from: input, defaultTaskId: toolUseId) {
             record.terminalTaskId = metadata.taskId
