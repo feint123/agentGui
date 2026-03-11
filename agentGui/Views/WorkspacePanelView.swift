@@ -58,6 +58,7 @@ struct WorkspacePanelView: View {
             }
             treeContent
         }
+        .accessibilityIdentifier("panel.workspace")
         .onAppear { loadFromWorkspaceState() }
         .onChange(of: workspaceState.selectedSession?.persistentModelID) { _, _ in
             loadFromWorkspaceState()
@@ -96,10 +97,12 @@ struct WorkspacePanelView: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help("选择工作目录")
+            .accessibilityIdentifier("workspace.chooseDirectoryButton")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .background(.bar)
+        .accessibilityIdentifier("workspace.selector")
     }
 
     // MARK: - Tree
@@ -145,6 +148,7 @@ struct WorkspacePanelView: View {
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
+            .accessibilityIdentifier("workspace.fileTree")
         }
     }
 

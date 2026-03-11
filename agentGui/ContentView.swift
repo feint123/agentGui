@@ -11,7 +11,7 @@ import SwiftData
 /// 应用主视图
 struct ContentView: View {
 
-    @State private var selectedTab: AppTab = .chat
+    @State private var selectedTab: AppTab = TestLaunchOptions.current.initialTab
     @State private var persistenceCoordinator = PersistenceCoordinator.shared
     @Environment(ReliabilityCenterViewModel.self) private var reliabilityCenterViewModel
 
@@ -20,18 +20,21 @@ struct ContentView: View {
             MainSplitView()
                 .tabItem {
                     Label("对话", systemImage: selectedTab == .chat ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+                        .accessibilityIdentifier("tab.chat")
                 }
                 .tag(AppTab.chat)
 
             SkillsView()
                 .tabItem {
                     Label("Skills", systemImage: selectedTab == .skills ? "wand.and.stars" : "wand.and.stars")
+                        .accessibilityIdentifier("tab.skills")
                 }
                 .tag(AppTab.skills)
 
             SettingsView()
                 .tabItem {
                     Label("设置", systemImage: selectedTab == .settings ? "gearshape.fill" : "gearshape")
+                        .accessibilityIdentifier("tab.settings")
                 }
                 .tag(AppTab.settings)
 
@@ -41,6 +44,7 @@ struct ContentView: View {
                         "诊断",
                         systemImage: selectedTab == .reliability ? "cross.case.fill" : "cross.case"
                     )
+                    .accessibilityIdentifier("tab.reliability")
                 }
                 .tag(AppTab.reliability)
         }
@@ -117,9 +121,11 @@ struct SettingsView: View {
                 if showAPIKey {
                     TextField("sk-ant-...", text: $apiKeyInput)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("settings.apiKeyField")
                 } else {
                     SecureField("sk-ant-...", text: $apiKeyInput)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("settings.apiKeyField")
                 }
 
                 Button {
@@ -139,6 +145,7 @@ struct SettingsView: View {
             }
             .disabled(apiKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
             .foregroundStyle(isSaved ? .green : .accentColor)
+            .accessibilityIdentifier("settings.saveButton")
 
         } header: {
             Text("Anthropic API 配置")

@@ -256,6 +256,7 @@ struct ToolCallDetailContentView: View {
         } message: {
             Text(snapshotLoadError ?? "")
         }
+        .accessibilityIdentifier("toolDetail.panel")
     }
 
     private func detailTextBlock(

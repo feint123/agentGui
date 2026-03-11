@@ -140,4 +140,30 @@ extension Message {
         message.status = .failed
         return message
     }
+
+    @MainActor
+    static func userFixture(
+        text: String = "User input",
+        session: Session? = nil,
+        status: MessageStatus = .completed
+    ) -> Message {
+        let resolvedSession = session ?? Session.fixture(title: "Fixture Session")
+        let message = Message(direction: .user, contentType: .text, text: text, session: resolvedSession)
+        message.sequence = (resolvedSession.messages.map(\.sequence).max() ?? 0) + 1
+        message.status = status
+        return message
+    }
+
+    @MainActor
+    static func agentFixture(
+        text: String = "Agent response",
+        session: Session? = nil,
+        status: MessageStatus = .completed
+    ) -> Message {
+        let resolvedSession = session ?? Session.fixture(title: "Fixture Session")
+        let message = Message(direction: .agent, contentType: .text, text: text, session: resolvedSession)
+        message.sequence = (resolvedSession.messages.map(\.sequence).max() ?? 0) + 1
+        message.status = status
+        return message
+    }
 }

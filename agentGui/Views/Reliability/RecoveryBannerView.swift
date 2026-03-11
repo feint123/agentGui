@@ -22,8 +22,11 @@ struct RecoveryBannerView: View {
 
                 HStack(spacing: 10) {
                     Button("恢复查看", action: onView)
+                        .accessibilityIdentifier("recovery.viewButton")
                     Button("标记为中断", action: onInterrupt)
+                        .accessibilityIdentifier("recovery.interruptButton")
                     Button("清理现场", role: .destructive, action: onClear)
+                        .accessibilityIdentifier("recovery.clearButton")
                 }
                 .buttonStyle(.bordered)
             }
@@ -38,5 +41,6 @@ struct RecoveryBannerView: View {
         )
         .padding(.horizontal, 12)
         .padding(.top, 8)
+        .accessibilityIdentifier("recovery.banner")
     }
 }

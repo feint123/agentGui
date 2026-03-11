@@ -25,6 +25,7 @@ extension ChatView {
         } description: {
             Text("在下方输入您的问题，与 Claude 开始对话")
         }
+        .accessibilityIdentifier("chat.emptyState")
     }
 
     var messageListView: some View {
@@ -50,12 +51,14 @@ extension ChatView {
                             : nil
                     )
                     .id(message.id)
+                    .accessibilityIdentifier("message.row.\(message.id.uuidString)")
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 }
             }
             .listStyle(.plain)
+            .accessibilityIdentifier("chat.messageList")
             .onChange(of: allMessages.last?.textContent) { _, _ in
                 if claudeService.isStreaming {
                     scrollToBottom(proxy: proxy)

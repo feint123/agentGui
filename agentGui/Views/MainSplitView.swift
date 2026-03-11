@@ -31,16 +31,20 @@ struct MainSplitView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             WorkspacePanelView()
+                .accessibilityIdentifier("panel.workspace")
                 .navigationTitle("文件")
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
         } content: {
             FileEditorView()
+                .accessibilityIdentifier("panel.editor")
                 .navigationSplitViewColumnWidth(min: 280, ideal: 400)
         } detail: {
             if let session = workspaceState.selectedSession {
                 ChatView(session: session)
+                    .accessibilityIdentifier("panel.chat")
             } else {
                 emptyDetailState
+                    .accessibilityIdentifier("panel.chat.empty")
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -83,6 +87,7 @@ struct MainSplitView: View {
                     Image(systemName: "plus")
                 }
                 .help("新建对话")
+                .accessibilityIdentifier("chat.newSessionButton")
             }
         }
     }

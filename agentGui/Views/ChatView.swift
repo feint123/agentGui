@@ -108,6 +108,7 @@ struct ChatView: View {
                     .transition(.move(edge: .trailing))
             }
         }
+        .accessibilityIdentifier("panel.chat")
         .navigationTitle(session.title)
         .navigationSubtitle(navigationSubtitleText)
         .toolbar { toolbarContent }

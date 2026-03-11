@@ -12,7 +12,6 @@ extension ChatView {
 
     @ToolbarContentBuilder
     var toolbarContent: some ToolbarContent {
-        // 对话选择器（左侧/中央）
         ToolbarItem(placement: .primaryAction) {
             sessionPickerView
         }
@@ -28,7 +27,6 @@ extension ChatView {
             }
         }
 
-        // 更多操作菜单（右侧）
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button("清除对话") { clearMessages() }
@@ -40,16 +38,17 @@ extension ChatView {
                 Image(systemName: "ellipsis.circle")
             }
         }
-         ToolbarItem(placement: .primaryAction) {
+
+        ToolbarItem(placement: .primaryAction) {
             Button {
                 createNewSession()
             } label: {
                 Image(systemName: "plus")
             }
             .help("新建对话")
-         }
+            .accessibilityIdentifier("chat.newSessionButton")
+        }
 
-        // Workflow panel toggle — shown when a workflow exists for this session
         ToolbarItem(placement: .primaryAction) {
             if !allWorkflows.isEmpty {
                 Button {
@@ -75,13 +74,14 @@ extension ChatView {
             )) {
                 ForEach(allSessions) { session in
                     Text(session.title.isEmpty ? "新对话" : session.title)
-                        .frame(maxWidth:150)
+                        .frame(maxWidth: 150)
                         .tag(Optional(session))
                 }
             }
             .labelsHidden()
             .pickerStyle(.menu)
             .frame(maxWidth: 200)
+            .accessibilityIdentifier("chat.sessionPicker")
         }
     }
 
@@ -90,10 +90,6 @@ extension ChatView {
     func clearMessages() {
         activeTask?.cancel()
         activeTask = nil
-        // Setting this flag causes messagesArea to immediately render empty,
-        // removing all SwiftUI views that hold references to Message objects.
-        // The actual deletion is deferred to the next run-loop iteration so SwiftUI
-        // has a chance to re-render (detach those views) before backing data is gone.
         isClearingMessages = true
         Task { @MainActor in
             let snapshot = Array(allMessages)
@@ -118,7 +114,6 @@ extension ChatView {
         guard let current = workspaceState.selectedSession else { return }
         modelContext.delete(current)
         try? modelContext.save()
-        // Select most recent remaining session
         workspaceState.selectedSession = allSessions.first
     }
 }

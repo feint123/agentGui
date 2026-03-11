@@ -188,6 +188,17 @@ extension AppSettings {
         }
         return settings
     }
+
+    @MainActor
+    static func testFixture(
+        apiKey: String = "",
+        selectedModel: String = "claude-sonnet-4-6"
+    ) -> AppSettings {
+        let settings = AppSettings()
+        settings.apiKey = apiKey
+        settings.selectedModel = selectedModel
+        return settings
+    }
 }
 
 // MARK: - Available Models

@@ -217,4 +217,21 @@ extension ToolCall {
         toolCall.title = "执行命令"
         return toolCall
     }
+
+    @MainActor
+    static func fixture(
+        toolCallId: String = UUID().uuidString,
+        kind: ToolKind = .read,
+        message: Message? = nil,
+        filePath: String? = nil,
+        status: ToolStatus = .success
+    ) -> ToolCall {
+        let toolCall = ToolCall(toolCallId: toolCallId, kind: kind, message: message)
+        toolCall.filePath = filePath
+        toolCall.status = status
+        if status != .inProgress {
+            toolCall.endTime = Date()
+        }
+        return toolCall
+    }
 }

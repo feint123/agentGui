@@ -85,6 +85,17 @@ extension Session {
     var messageCount: Int {
         messages.count
     }
+
+    @MainActor
+    static func fixture(
+        sessionId: String = UUID().uuidString,
+        title: String = "Test Session",
+        workingDirectory: String = ""
+    ) -> Session {
+        let session = Session(sessionId: sessionId, title: title)
+        session.workingDirectory = workingDirectory
+        return session
+    }
 }
 
 // MARK: - SessionProtocol Conformance

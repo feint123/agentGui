@@ -141,6 +141,7 @@ struct ToolCallBubbleView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.05), lineWidth: 1)
         )
+            .accessibilityIdentifier("toolCall.row")
         .onChange(of: toolCall.status) { _, newStatus in
             guard !hasManualOverride else { return }
             isExpanded = newStatus == .inProgress && supportsExpansion

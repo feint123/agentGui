@@ -114,4 +114,20 @@ extension WorkflowInstance {
         }
         return Array(best.values).sorted { $0.kindRaw < $1.kindRaw }
     }
+
+    @MainActor
+    static func fixture(
+        sessionId: String = "fixture-session",
+        definitionId: String = "code_change",
+        userTask: String = "Test workflow",
+        status: WorkflowStatus = .pending
+    ) -> WorkflowInstance {
+        let workflow = WorkflowInstance(
+            sessionId: sessionId,
+            definitionId: definitionId,
+            userTask: userTask
+        )
+        workflow.status = status
+        return workflow
+    }
 }

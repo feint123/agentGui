@@ -17,12 +17,15 @@ struct agentGuiApp: App {
     static let persistenceSchemaVersion = PersistenceSchema.currentVersion
 
     private static var isRunningTests: Bool {
-        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil ||
+        ProcessInfo.processInfo.arguments.contains("-com.agentgui.test.mode")
     }
 
     init() {
         ConfigDirectoryManager.shared.setup()
     }
+
+    private let launchOptions = TestLaunchOptions.current
 
     @State private var claudeService = ClaudeService()
     @State private var skillService = SkillService()
@@ -88,9 +91,11 @@ struct agentGuiApp: App {
                 .environment(runtimeRecoveryService)
                 .environment(reliabilityCenterViewModel)
                 .onAppear {
-                    // 从持久化设置加载 API Key
                     let context = sharedModelContainer.mainContext
-                    let settings = AppSettings.getOrCreate(in: context)
+                    seedUITestDataIfNeeded(in: context)
+
+                    // 从持久化设置加载 API Key
+                    let settings = AppSettings.getOrCreate(in: context, persistenceCoordinator: .shared)
                     claudeService.applyConnectionSettings(settings)
                     claudeService.skillService = skillService
                     skillService.loadSkills()
@@ -100,7 +105,7 @@ struct agentGuiApp: App {
                     try? runtimeRecoveryService.refresh(from: context)
                     reliabilityCenterViewModel.refresh(using: context)
 
-                    if settings.enableUnifiedMemoryRuntime && settings.enableBackgroundMemoryConsolidation {
+                    if !launchOptions.isUITestMode && settings.enableUnifiedMemoryRuntime && settings.enableBackgroundMemoryConsolidation {
                         let scheduler = MemoryBackgroundScheduler()
                         scheduler.start(intervalSeconds: settings.memoryBackgroundSchedulerIntervalSeconds)
                         memoryBackgroundScheduler = scheduler
@@ -115,5 +120,147 @@ struct agentGuiApp: App {
                 }
         }
         .modelContainer(sharedModelContainer)
+    }
+
+    @MainActor
+    private func seedUITestDataIfNeeded(in context: ModelContext) {
+        guard launchOptions.isUITestMode else { return }
+
+        let persistenceCoordinator = PersistenceCoordinator.shared
+        let settings = AppSettings.getOrCreate(in: context, persistenceCoordinator: persistenceCoordinator)
+        var settingsChanged = false
+
+        if launchOptions.preloadAPIKey && settings.apiKey.isEmpty {
+            settings.apiKey = "sk-ant-ui-test"
+            settingsChanged = true
+        }
+
+        let sessionId = launchOptions.sessionID ?? "ui-test-session"
+        let session = ensureSession(sessionId: sessionId, in: context)
+
+        if launchOptions.preloadMessages {
+            ensureCompletedMessages(for: session, in: context)
+        }
+
+        if launchOptions.preloadToolCall {
+            ensureCompletedMessages(for: session, in: context)
+            ensureToolCall(for: session, in: context)
+        }
+
+        if launchOptions.recoveryMode {
+            ensurePendingAgentMessage(for: session, in: context)
+        }
+
+        if let workflowState = launchOptions.workflowState {
+            ensureWorkflow(for: sessionId, status: workflowState, in: context)
+        }
+
+        if settingsChanged {
+            try? persistenceCoordinator.save(
+                context,
+                domain: .settings,
+                userMessage: "UI 测试设置初始化未成功保存"
+            )
+        }
+    }
+
+    @MainActor
+    private func ensureSession(sessionId: String, in context: ModelContext) -> Session {
+        let existing = (try? context.fetch(FetchDescriptor<Session>()))?.first(where: { $0.sessionId == sessionId })
+        if let existing {
+            return existing
+        }
+
+        let session = Session.fixture(sessionId: sessionId, title: "UI Test Session")
+        context.insert(session)
+        try? PersistenceCoordinator.shared.save(
+            context,
+            domain: .sessionMessages,
+            userMessage: "UI 测试会话初始化未成功保存"
+        )
+        return session
+    }
+
+    @MainActor
+    private func ensureCompletedMessages(for session: Session, in context: ModelContext) {
+        guard session.messages.isEmpty else { return }
+        let userMessage = Message.userFixture(text: "Run the release checks", session: session)
+        let agentMessage = Message.agentFixture(text: "Release checklist prepared.", session: session)
+        context.insert(userMessage)
+        context.insert(agentMessage)
+        try? PersistenceCoordinator.shared.save(
+            context,
+            domain: .sessionMessages,
+            userMessage: "UI 测试消息初始化未成功保存"
+        )
+    }
+
+    @MainActor
+    private func ensurePendingAgentMessage(for session: Session, in context: ModelContext) {
+        let hasPendingAgentMessage = session.messages.contains { $0.direction == .agent && $0.status == .pending }
+        guard !hasPendingAgentMessage else { return }
+
+        let pendingMessage = Message.agentFixture(
+            text: "Partial response that should be recovered",
+            session: session,
+            status: .pending
+        )
+        context.insert(pendingMessage)
+        try? PersistenceCoordinator.shared.save(
+            context,
+            domain: .sessionMessages,
+            userMessage: "UI 测试恢复消息初始化未成功保存"
+        )
+    }
+
+    @MainActor
+    private func ensureWorkflow(for sessionId: String, status: WorkflowStatus, in context: ModelContext) {
+        let existing = (try? context.fetch(FetchDescriptor<WorkflowInstance>()))?.first(where: { $0.sessionId == sessionId })
+        if let existing {
+            existing.status = status
+            try? PersistenceCoordinator.shared.save(
+                context,
+                domain: .workflow,
+                userMessage: "UI 测试工作流状态未成功保存"
+            )
+            return
+        }
+
+        let workflow = WorkflowInstance.fixture(
+            sessionId: sessionId,
+            userTask: "Recover interrupted workflow",
+            status: status
+        )
+        context.insert(workflow)
+        try? PersistenceCoordinator.shared.save(
+            context,
+            domain: .workflow,
+            userMessage: "UI 测试工作流初始化未成功保存"
+        )
+    }
+
+    @MainActor
+    private func ensureToolCall(for session: Session, in context: ModelContext) {
+        let existingToolCall = session.messages
+            .flatMap(\.toolCalls)
+            .first(where: { $0.kind == .read })
+        guard existingToolCall == nil else { return }
+
+        guard let agentMessage = session.messages.first(where: { $0.direction == .agent }) else { return }
+
+        let toolCall = ToolCall.fixture(
+            kind: .read,
+            message: agentMessage,
+            filePath: "/tmp/ReleaseChecklist.md",
+            status: .inProgress
+        )
+        toolCall.title = "读取文件"
+        toolCall.terminalOutput = "Release checklist contents"
+        context.insert(toolCall)
+        try? PersistenceCoordinator.shared.save(
+            context,
+            domain: .toolCalls,
+            userMessage: "UI 测试工具调用初始化未成功保存"
+        )
     }
 }

@@ -46,6 +46,7 @@ struct SessionListView: View {
                 } label: {
                     Label("新对话", systemImage: "plus")
                 }
+                .accessibilityIdentifier("sessionList.createButton")
             }
         }
         .alert("删除对话", isPresented: $showingDeleteAlert, presenting: sessionToDelete) { _ in
@@ -75,7 +76,9 @@ struct SessionListView: View {
                 createNewSession()
             }
             .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("sessionList.createButton")
         }
+        .accessibilityIdentifier("sessionList.emptyState")
     }
 
     private var sessionsList: some View {
@@ -84,6 +87,7 @@ struct SessionListView: View {
                 SessionRowView(session: session) {
                     onSessionSelected(session)
                 }
+                .accessibilityIdentifier("sessionList.item.\(session.sessionId)")
                 .contextMenu {
                     Button(role: .destructive) {
                         sessionToDelete = session
@@ -103,6 +107,7 @@ struct SessionListView: View {
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
+        .accessibilityIdentifier("sessionList.list")
     }
 
     // MARK: - Actions

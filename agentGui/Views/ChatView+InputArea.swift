@@ -50,6 +50,7 @@ extension ChatView {
                     )
                     .frame(minHeight: 28, maxHeight: 130)
                     .padding(.horizontal, 4)
+                    .accessibilityIdentifier("chat.inputField")
 
                     sendButton
                 }
@@ -73,6 +74,7 @@ extension ChatView {
             .padding(.horizontal, 16)
         .padding(.bottom, 6)
         .padding(.top, 8)
+        .accessibilityIdentifier("chat.inputArea")
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             handleFileDrop(providers: providers)
         }
@@ -251,6 +253,7 @@ var fileChipsRow: some View {
                         .foregroundStyle(.red)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("chat.stopButton")
             } else {
                 Button {
                     activeTask = Task { await sendMessage() }
@@ -262,6 +265,7 @@ var fileChipsRow: some View {
                 .buttonStyle(.plain)
                 .disabled(!canSend)
                 .keyboardShortcut(.return, modifiers: .command)
+                .accessibilityIdentifier("chat.sendButton")
             }
         }
     }
