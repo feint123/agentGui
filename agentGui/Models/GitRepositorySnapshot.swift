@@ -22,6 +22,12 @@ struct GitFileChange: Identifiable, Equatable {
     let section: GitChangeSection
 }
 
+struct GitBranchReference: Identifiable, Equatable {
+    var id: String { name }
+    let name: String
+    let isCurrent: Bool
+}
+
 struct GitRepositorySnapshot: Equatable {
     let repositoryRoot: URL
     let repositoryName: String

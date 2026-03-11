@@ -24,7 +24,7 @@ struct GitServiceTests {
         #expect(runner.invocations.count == 2)
         #expect(runner.invocations[0].arguments == ["rev-parse", "--show-toplevel"])
         #expect(runner.invocations[0].workingDirectory == workspaceURL)
-        #expect(runner.invocations[1].arguments == ["status", "--porcelain=v1", "--branch"])
+        #expect(runner.invocations[1].arguments == ["-c", "core.quotepath=false", "status", "--porcelain=v1", "--branch"])
         #expect(runner.invocations[1].workingDirectory == repositoryRoot)
     }
 
@@ -62,37 +62,68 @@ struct GitServiceTests {
         #expect(runner.invocations[0].arguments == ["diff", "--cached", "--", "agentGui/Views/FileEditorView.swift"])
     }
 
-    @Test func fileMutationCommandsUseExpectedArguments() async throws {
+    @Test func diffPreservesChinesePathArgument() async throws {
+        let runner = FakeGitCommandRunner()
+        let service = GitService(commandRunner: runner)
+        let repositoryRoot = URL(fileURLWithPath: "/tmp/repo")
+        let change = GitFileChange(
+            relativePath: "文档/需求说明.md",
+            absoluteURL: repositoryRoot.appending(path: "文档/需求说明.md"),
+            status: .modified,
+            section: .modified
+        )
+
+        runner.results = [
+            .success(.init(stdout: "diff --git a/file b/file", stderr: "", exitCode: 0))
+        ]
+
+        _ = try await service.diff(for: change, staged: false, repositoryRoot: repositoryRoot)
+
+        #expect(runner.invocations[0].arguments == ["diff", "--", "文档/需求说明.md"])
+    }
+
+    @Test func listBranchesUsesExpectedArguments() async throws {
         let runner = FakeGitCommandRunner()
         let service = GitService(commandRunner: runner)
         let repositoryRoot = URL(fileURLWithPath: "/tmp/repo")
 
-        runner.results = Array(repeating: .success(.init(stdout: "", stderr: "", exitCode: 0)), count: 5)
+        runner.results = [
+            .success(.init(stdout: "* main\n  feature/sidebar\n", stderr: "", exitCode: 0))
+        ]
 
-        try await service.stage(path: "file.swift", repositoryRoot: repositoryRoot)
-        try await service.stageAll(repositoryRoot: repositoryRoot)
-        try await service.unstage(path: "file.swift", repositoryRoot: repositoryRoot)
-        try await service.discard(path: "file.swift", repositoryRoot: repositoryRoot)
-        try await service.cleanUntracked(path: "file.swift", repositoryRoot: repositoryRoot)
+        let branches = try await service.listBranches(repositoryRoot: repositoryRoot)
 
-        #expect(runner.invocations.map(\.arguments) == [
-            ["add", "--", "file.swift"],
-            ["add", "--all"],
-            ["restore", "--staged", "--", "file.swift"],
-            ["restore", "--", "file.swift"],
-            ["clean", "-f", "--", "file.swift"]
-        ])
+        #expect(branches.map(\.name) == ["main", "feature/sidebar"])
+        #expect(branches.first?.isCurrent == true)
+        #expect(runner.invocations[0].arguments == ["branch", "--list"])
     }
 
-    @Test func commitRejectsEmptyMessageBeforeRunningGit() async throws {
+    @Test func switchBranchUsesExpectedArguments() async throws {
         let runner = FakeGitCommandRunner()
         let service = GitService(commandRunner: runner)
+        let repositoryRoot = URL(fileURLWithPath: "/tmp/repo")
 
-        await #expect(throws: GitServiceError.emptyCommitMessage) {
-            try await service.commit(message: "   ", repositoryRoot: URL(fileURLWithPath: "/tmp/repo"))
+        runner.results = [
+            .success(.init(stdout: "", stderr: "", exitCode: 0))
+        ]
+
+        try await service.switchBranch(to: "feature/sidebar", repositoryRoot: repositoryRoot)
+
+        #expect(runner.invocations[0].arguments == ["switch", "feature/sidebar"])
+    }
+
+    @Test func switchBranchMapsCommandFailureToUserFacingMessage() async throws {
+        let runner = FakeGitCommandRunner()
+        let service = GitService(commandRunner: runner)
+        let repositoryRoot = URL(fileURLWithPath: "/tmp/repo")
+
+        runner.results = [
+            .success(.init(stdout: "", stderr: "fatal: invalid reference: missing-branch", exitCode: 128))
+        ]
+
+        await #expect(throws: GitServiceError.commandFailed("fatal: invalid reference: missing-branch")) {
+            try await service.switchBranch(to: "missing-branch", repositoryRoot: repositoryRoot)
         }
-
-        #expect(runner.invocations.isEmpty)
     }
 }
 

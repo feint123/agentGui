@@ -38,4 +38,24 @@ struct GitDiffPresentationTests {
         #expect(presentation.changeSummary.deletions == 0)
         #expect(presentation.sections.isEmpty)
     }
+
+    @Test func detectsBinaryDiffEmptyStateReason() {
+        let descriptor = GitDiffEmptyStateDescriptor.make(
+            title: "docs/image.png",
+            diffText: "Binary files a/docs/image.png and b/docs/image.png differ"
+        )
+
+        #expect(descriptor.title == "无法预览二进制 Diff")
+        #expect(descriptor.message == "这个文件是二进制内容，当前只支持文本 patch 预览。")
+    }
+
+    @Test func detectsMetadataOnlyDiffEmptyStateReason() {
+        let descriptor = GitDiffEmptyStateDescriptor.make(
+            title: "docs/README.md",
+            diffText: "diff --git a/docs/README.md b/docs/README.md\nindex 1111111..2222222 100644\n--- a/docs/README.md\n+++ b/docs/README.md"
+        )
+
+        #expect(descriptor.title == "无可显示的 Diff")
+        #expect(descriptor.message == "这个文件当前没有可渲染的 patch，可能只有元数据变化。")
+    }
 }

@@ -1,36 +1,19 @@
 import Foundation
 import Observation
 
-enum GitDangerousAction: Equatable {
-    case discard(GitFileChange)
-    case clean(GitFileChange)
-
-    var change: GitFileChange {
-        switch self {
-        case .discard(let change), .clean(let change):
-            return change
-        }
-    }
-}
-
 @Observable
 @MainActor
 final class GitPanelViewModel {
     var snapshot: GitRepositorySnapshot?
     var isLoading = false
     var loadError: String?
+    var branchActionError: String?
     var selectedChange: GitFileChange?
-    var selectedDiffIsStaged = false
+    var selectedDiffSection: GitChangeSection?
     var selectedDiffText: String?
-    var commitMessage = ""
-    var transientBanner: String?
-    var pendingDangerousAction: GitDangerousAction?
+    var availableBranches: [GitBranchReference] = []
+    var isSwitchingBranch = false
     var currentWorkingDirectory: URL?
-
-    var canCommit: Bool {
-        guard let snapshot else { return false }
-        return !snapshot.stagedChanges.isEmpty && !commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     private let gitService: GitServicing
 
@@ -38,20 +21,46 @@ final class GitPanelViewModel {
         self.gitService = gitService ?? GitService()
     }
 
-    func refresh(for workingDirectory: URL) async {
+    func refresh(for workingDirectory: URL, workspaceState: WorkspaceState? = nil) async {
         currentWorkingDirectory = workingDirectory
         isLoading = true
         defer { isLoading = false }
 
         do {
-            snapshot = try await gitService.repositorySnapshot(for: workingDirectory)
+            let snapshot = try await gitService.repositorySnapshot(for: workingDirectory)
+            let branches = try await gitService.listBranches(repositoryRoot: snapshot.repositoryRoot)
+            self.snapshot = snapshot
+            availableBranches = branches
+            reconcileSelection(with: workspaceState)
             loadError = nil
+            branchActionError = nil
         } catch GitServiceError.notAGitRepository {
             snapshot = nil
+            availableBranches = []
             loadError = nil
+            branchActionError = nil
+            clearSelection(in: workspaceState)
         } catch {
             snapshot = nil
+            availableBranches = []
             loadError = error.localizedDescription
+            branchActionError = nil
+            clearSelection(in: workspaceState)
+        }
+    }
+
+    func switchBranch(to branchName: String) async {
+        guard let repositoryRoot = snapshot?.repositoryRoot ?? currentWorkingDirectory else { return }
+
+        isSwitchingBranch = true
+        defer { isSwitchingBranch = false }
+
+        do {
+            try await gitService.switchBranch(to: branchName, repositoryRoot: repositoryRoot)
+            branchActionError = nil
+            await refresh(for: repositoryRoot)
+        } catch {
+            branchActionError = error.localizedDescription
         }
     }
 
@@ -63,7 +72,7 @@ final class GitPanelViewModel {
         do {
             let diffText = try await gitService.diff(for: change, staged: staged, repositoryRoot: repositoryRoot)
             selectedChange = change
-            selectedDiffIsStaged = staged
+            selectedDiffSection = change.section
             selectedDiffText = diffText
             workspaceState.selectedGitDiffPath = change.absoluteURL
             workspaceState.selectedGitDiffText = diffText
@@ -74,80 +83,25 @@ final class GitPanelViewModel {
         }
     }
 
-    func stage(_ change: GitFileChange) async {
-        guard let repositoryRoot = snapshot?.repositoryRoot ?? currentWorkingDirectory else { return }
-        await performMutation(successMessage: "已暂存 \(change.relativePath)") {
-            try await gitService.stage(path: change.relativePath, repositoryRoot: repositoryRoot)
-        }
-    }
-
-    func unstage(_ change: GitFileChange) async {
-        guard let repositoryRoot = snapshot?.repositoryRoot ?? currentWorkingDirectory else { return }
-        await performMutation(successMessage: "已取消暂存 \(change.relativePath)") {
-            try await gitService.unstage(path: change.relativePath, repositoryRoot: repositoryRoot)
-        }
-    }
-
-    func stageAll() async {
-        guard let repositoryRoot = snapshot?.repositoryRoot ?? currentWorkingDirectory else { return }
-        await performMutation(successMessage: "已暂存全部变更") {
-            try await gitService.stageAll(repositoryRoot: repositoryRoot)
-        }
-    }
-
-    func requestDiscard(_ change: GitFileChange) {
-        pendingDangerousAction = .discard(change)
-    }
-
-    func requestClean(_ change: GitFileChange) {
-        pendingDangerousAction = .clean(change)
-    }
-
-    func confirmPendingAction() async {
-        guard let action = pendingDangerousAction,
-              let repositoryRoot = snapshot?.repositoryRoot ?? currentWorkingDirectory else {
-            pendingDangerousAction = nil
+    private func reconcileSelection(with workspaceState: WorkspaceState?) {
+        guard let selectedChange else { return }
+        let allChanges = (snapshot?.stagedChanges ?? []) + (snapshot?.unstagedChanges ?? []) + (snapshot?.untrackedChanges ?? [])
+        if let updatedChange = allChanges.first(where: { $0.id == selectedChange.id }) {
+            self.selectedChange = updatedChange
+            if workspaceState?.selectedGitDiffPath == selectedChange.absoluteURL {
+                workspaceState?.selectedGitDiffPath = updatedChange.absoluteURL
+                workspaceState?.selectedGitDiffTitle = updatedChange.relativePath
+            }
             return
         }
 
-        pendingDangerousAction = nil
-
-        switch action {
-        case .discard(let change):
-            await performMutation(successMessage: "已丢弃 \(change.relativePath) 的改动") {
-                try await gitService.discard(path: change.relativePath, repositoryRoot: repositoryRoot)
-            }
-        case .clean(let change):
-            await performMutation(successMessage: "已删除未跟踪文件 \(change.relativePath)") {
-                try await gitService.cleanUntracked(path: change.relativePath, repositoryRoot: repositoryRoot)
-            }
-        }
+        clearSelection(in: workspaceState)
     }
 
-    func commit() async {
-        guard let repositoryRoot = snapshot?.repositoryRoot ?? currentWorkingDirectory else { return }
-        let message = commitMessage
-
-        do {
-            try await gitService.commit(message: message, repositoryRoot: repositoryRoot)
-            commitMessage = ""
-            transientBanner = "提交成功"
-            loadError = nil
-            await refresh(for: repositoryRoot)
-        } catch {
-            loadError = error.localizedDescription
-        }
-    }
-
-    private func performMutation(successMessage: String, operation: () async throws -> Void) async {
-        guard let workingDirectory = currentWorkingDirectory ?? snapshot?.repositoryRoot else { return }
-        do {
-            try await operation()
-            transientBanner = successMessage
-            loadError = nil
-            await refresh(for: workingDirectory)
-        } catch {
-            loadError = error.localizedDescription
-        }
+    private func clearSelection(in workspaceState: WorkspaceState?) {
+        selectedChange = nil
+        selectedDiffSection = nil
+        selectedDiffText = nil
+        workspaceState?.clearGitDiffSelection()
     }
 }

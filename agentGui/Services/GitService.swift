@@ -7,13 +7,9 @@ protocol GitCommandRunning {
 @MainActor
 protocol GitServicing {
     func repositorySnapshot(for workingDirectory: URL) async throws -> GitRepositorySnapshot
+    func listBranches(repositoryRoot: URL) async throws -> [GitBranchReference]
+    func switchBranch(to branchName: String, repositoryRoot: URL) async throws
     func diff(for change: GitFileChange, staged: Bool, repositoryRoot: URL) async throws -> String
-    func stage(path: String, repositoryRoot: URL) async throws
-    func stageAll(repositoryRoot: URL) async throws
-    func unstage(path: String, repositoryRoot: URL) async throws
-    func discard(path: String, repositoryRoot: URL) async throws
-    func cleanUntracked(path: String, repositoryRoot: URL) async throws
-    func commit(message: String, repositoryRoot: URL) async throws
 }
 
 struct GitCommandResult: Equatable {
@@ -26,7 +22,6 @@ enum GitServiceError: LocalizedError, Equatable {
     case notAGitRepository
     case commandFailed(String)
     case parseFailed(String)
-    case emptyCommitMessage
     case binaryDiffUnavailable
 
     var errorDescription: String? {
@@ -37,8 +32,6 @@ enum GitServiceError: LocalizedError, Equatable {
             return message
         case .parseFailed(let message):
             return message
-        case .emptyCommitMessage:
-            return "提交信息不能为空。"
         case .binaryDiffUnavailable:
             return "该文件的 diff 无法以文本形式显示。"
         }
@@ -56,7 +49,7 @@ final class GitService: GitServicing {
     func repositorySnapshot(for workingDirectory: URL) async throws -> GitRepositorySnapshot {
         let repositoryRoot = try await resolveRepositoryRoot(for: workingDirectory)
         let result = try await commandRunner.run(
-            arguments: ["status", "--porcelain=v1", "--branch"],
+            arguments: ["-c", "core.quotepath=false", "status", "--porcelain=v1", "--branch"],
             workingDirectory: repositoryRoot
         )
         try validate(result)
@@ -66,6 +59,31 @@ final class GitService: GitServicing {
         } catch {
             throw GitServiceError.parseFailed("无法解析 Git 状态。")
         }
+    }
+
+    func listBranches(repositoryRoot: URL) async throws -> [GitBranchReference] {
+        let result = try await commandRunner.run(arguments: ["branch", "--list"], workingDirectory: repositoryRoot)
+        try validate(result)
+
+        let lines = result.stdout
+            .split(whereSeparator: \ .isNewline)
+            .map(String.init)
+
+        return lines.compactMap { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+
+            if trimmed.hasPrefix("*") {
+                let branchName = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
+                return GitBranchReference(name: branchName, isCurrent: true)
+            }
+
+            return GitBranchReference(name: trimmed, isCurrent: false)
+        }
+    }
+
+    func switchBranch(to branchName: String, repositoryRoot: URL) async throws {
+        try await runMutation(["switch", branchName], repositoryRoot: repositoryRoot)
     }
 
     func diff(for change: GitFileChange, staged: Bool, repositoryRoot: URL) async throws -> String {
@@ -82,39 +100,13 @@ final class GitService: GitServicing {
         return output
     }
 
-    func stage(path: String, repositoryRoot: URL) async throws {
-        try await runMutation(["add", "--", path], repositoryRoot: repositoryRoot)
-    }
-
-    func stageAll(repositoryRoot: URL) async throws {
-        try await runMutation(["add", "--all"], repositoryRoot: repositoryRoot)
-    }
-
-    func unstage(path: String, repositoryRoot: URL) async throws {
-        try await runMutation(["restore", "--staged", "--", path], repositoryRoot: repositoryRoot)
-    }
-
-    func discard(path: String, repositoryRoot: URL) async throws {
-        try await runMutation(["restore", "--", path], repositoryRoot: repositoryRoot)
-    }
-
-    func cleanUntracked(path: String, repositoryRoot: URL) async throws {
-        try await runMutation(["clean", "-f", "--", path], repositoryRoot: repositoryRoot)
-    }
-
-    func commit(message: String, repositoryRoot: URL) async throws {
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw GitServiceError.emptyCommitMessage }
-        try await runMutation(["commit", "-m", trimmed], repositoryRoot: repositoryRoot)
-    }
-
     private func resolveRepositoryRoot(for workingDirectory: URL) async throws -> URL {
         let result = try await commandRunner.run(arguments: ["rev-parse", "--show-toplevel"], workingDirectory: workingDirectory)
         guard result.exitCode == 0 else {
             if result.stderr.localizedCaseInsensitiveContains("not a git repository") {
                 throw GitServiceError.notAGitRepository
             }
-            throw GitServiceError.commandFailed(errorMessage(from: result))
+            throw GitServiceError.commandFailed(userFacingErrorMessage(from: result))
         }
 
         let rootPath = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -134,11 +126,11 @@ final class GitService: GitServicing {
             if result.stderr.localizedCaseInsensitiveContains("not a git repository") {
                 throw GitServiceError.notAGitRepository
             }
-            throw GitServiceError.commandFailed(errorMessage(from: result))
+            throw GitServiceError.commandFailed(userFacingErrorMessage(from: result))
         }
     }
 
-    private func errorMessage(from result: GitCommandResult) -> String {
+    private func userFacingErrorMessage(from result: GitCommandResult) -> String {
         let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return stderr.isEmpty ? (stdout.isEmpty ? "Git 命令执行失败。" : stdout) : stderr
@@ -146,14 +138,16 @@ final class GitService: GitServicing {
 }
 
 struct ProcessGitCommandRunner: GitCommandRunning {
+    private static let gitExecutablePath = resolveGitExecutablePath()
+
     func run(arguments: [String], workingDirectory: URL) async throws -> GitCommandResult {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
 
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["git"] + arguments
+            process.executableURL = URL(fileURLWithPath: Self.gitExecutablePath)
+            process.arguments = arguments
             process.currentDirectoryURL = workingDirectory
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
@@ -172,5 +166,17 @@ struct ProcessGitCommandRunner: GitCommandRunning {
                 continuation.resume(throwing: error)
             }
         }
+    }
+
+    private static func resolveGitExecutablePath() -> String {
+        let fileManager = FileManager.default
+        let candidatePaths = [
+            "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
+            "/opt/homebrew/bin/git",
+            "/usr/local/bin/git",
+            "/usr/bin/git"
+        ]
+
+        return candidatePaths.first(where: { fileManager.isExecutableFile(atPath: $0) }) ?? "/usr/bin/git"
     }
 }

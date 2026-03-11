@@ -10,8 +10,7 @@ struct GitPanelView: View {
 
             if let snapshot = gitPanelViewModel.snapshot {
                 summary(snapshot)
-                changeSections(snapshot)
-                commitComposer
+                branchSwitcher
             } else if gitPanelViewModel.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -22,31 +21,26 @@ struct GitPanelView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color.primary.opacity(0.03))
-        .confirmationDialog(
-            pendingActionTitle,
-            isPresented: Binding(
-                get: { gitPanelViewModel.pendingDangerousAction != nil },
-                set: { if !$0 { gitPanelViewModel.pendingDangerousAction = nil } }
-            )
-        ) {
-            Button("确认", role: .destructive) {
-                Task { await gitPanelViewModel.confirmPendingAction() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text(pendingActionMessage)
-        }
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityIdentifier("git.panel")
         .alert(
             "Git 操作失败",
             isPresented: Binding(
-                get: { gitPanelViewModel.loadError != nil && gitPanelViewModel.snapshot != nil },
-                set: { if !$0 { gitPanelViewModel.loadError = nil } }
+                get: { activeErrorMessage != nil && gitPanelViewModel.snapshot != nil },
+                set: {
+                    if !$0 {
+                        gitPanelViewModel.loadError = nil
+                        gitPanelViewModel.branchActionError = nil
+                    }
+                }
             )
         ) {
-            Button("确定") { gitPanelViewModel.loadError = nil }
+            Button("确定") {
+                gitPanelViewModel.loadError = nil
+                gitPanelViewModel.branchActionError = nil
+            }
         } message: {
-            Text(gitPanelViewModel.loadError ?? "")
+            Text(activeErrorMessage ?? "")
         }
     }
 
@@ -54,26 +48,35 @@ struct GitPanelView: View {
         HStack(spacing: 8) {
             Label("Git", systemImage: "point.topleft.down.curvedto.point.bottomright.up")
                 .font(.caption.weight(.semibold))
+                .accessibilityIdentifier("git.panel.header")
             Spacer(minLength: 0)
             Button {
                 guard let workingDirectory = gitPanelViewModel.currentWorkingDirectory else { return }
-                Task { await gitPanelViewModel.refresh(for: workingDirectory) }
+                Task { await gitPanelViewModel.refresh(for: workingDirectory, workspaceState: workspaceState) }
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
             .disabled(gitPanelViewModel.currentWorkingDirectory == nil || gitPanelViewModel.isLoading)
+            .accessibilityIdentifier("git.panel.refresh")
         }
     }
 
     private func summary(_ snapshot: GitRepositorySnapshot) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(snapshot.repositoryName)
-                    .font(.subheadline.weight(.semibold))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(snapshot.repositoryName)
+                        .font(.subheadline.weight(.semibold))
+                        .accessibilityIdentifier("git.summary.repository")
+                    Text(snapshot.branchName)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("git.summary.branch")
+                }
                 Spacer(minLength: 0)
-                Text(snapshot.branchName)
-                    .font(.caption.monospaced())
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -82,17 +85,12 @@ struct GitPanelView: View {
                 statPill("Modified", count: snapshot.unstagedChanges.count)
                 statPill("Untracked", count: snapshot.untrackedChanges.count)
             }
+            .accessibilityIdentifier("git.panel.summary")
 
             if snapshot.hasRemoteTrackingBranch {
                 Text("Ahead \(snapshot.aheadCount) · Behind \(snapshot.behindCount)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            if let banner = gitPanelViewModel.transientBanner, !banner.isEmpty {
-                Text(banner)
-                    .font(.caption)
-                    .foregroundStyle(.green)
             }
 
             if snapshot.stagedChanges.isEmpty && snapshot.unstagedChanges.isEmpty && snapshot.untrackedChanges.isEmpty {
@@ -103,103 +101,35 @@ struct GitPanelView: View {
         }
     }
 
-    private func changeSections(_ snapshot: GitRepositorySnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if !snapshot.stagedChanges.isEmpty {
-                changeSection(title: "Staged", changes: snapshot.stagedChanges, staged: true)
-            }
-            if !snapshot.unstagedChanges.isEmpty {
-                changeSection(title: "Modified", changes: snapshot.unstagedChanges, staged: false)
-            }
-            if !snapshot.untrackedChanges.isEmpty {
-                changeSection(title: "Untracked", changes: snapshot.untrackedChanges, staged: false)
-            }
-        }
-    }
-
-    private func changeSection(title: String, changes: [GitFileChange], staged: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            ForEach(changes) { change in
-                VStack(alignment: .leading, spacing: 4) {
-                    Button {
-                        Task { await gitPanelViewModel.selectDiff(for: change, staged: staged, workspaceState: workspaceState) }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(change.statusBadge)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                            Text(change.relativePath)
-                                .font(.caption)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer(minLength: 0)
+    private var branchSwitcher: some View {
+        HStack(spacing: 8) {
+            Menu {
+                if gitPanelViewModel.availableBranches.isEmpty {
+                    Text("暂无可切换分支")
+                } else {
+                    ForEach(gitPanelViewModel.availableBranches) { branch in
+                        Button(branch.name) {
+                            Task { await gitPanelViewModel.switchBranch(to: branch.name) }
                         }
-                    }
-                    .buttonStyle(.plain)
-
-                    HStack(spacing: 6) {
-                        if staged {
-                            smallAction("取消暂存") {
-                                Task { await gitPanelViewModel.unstage(change) }
-                            }
-                        } else if change.section == .untracked {
-                            smallAction("暂存") {
-                                Task { await gitPanelViewModel.stage(change) }
-                            }
-                            smallAction("删除", role: .destructive) {
-                                gitPanelViewModel.requestClean(change)
-                            }
-                        } else {
-                            smallAction("暂存") {
-                                Task { await gitPanelViewModel.stage(change) }
-                            }
-                            smallAction("丢弃", role: .destructive) {
-                                gitPanelViewModel.requestDiscard(change)
-                            }
-                        }
+                        .disabled(branch.isCurrent || gitPanelViewModel.isSwitchingBranch)
                     }
                 }
-                .padding(.vertical, 2)
+            } label: {
+                Label(gitPanelViewModel.isSwitchingBranch ? "切换中..." : "切换分支", systemImage: "arrow.triangle.branch")
+                    .font(.caption)
             }
+            .accessibilityIdentifier("git.branch.menu")
+            .disabled(gitPanelViewModel.availableBranches.isEmpty)
 
-            if title != "Staged" && (!changes.isEmpty) {
-                smallAction("全部暂存") {
-                    Task { await gitPanelViewModel.stageAll() }
-                }
-            }
+            Spacer(minLength: 0)
         }
-    }
-
-    private var commitComposer: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Commit")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            TextField("输入提交信息", text: Bindable(gitPanelViewModel).commitMessage, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-
-            HStack {
-                Spacer(minLength: 0)
-                Button("提交") {
-                    Task { await gitPanelViewModel.commit() }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!gitPanelViewModel.canCommit || gitPanelViewModel.isLoading)
-            }
-        }
-        .padding(.top, 4)
     }
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("当前目录不是 Git 仓库")
                 .font(.caption.weight(.medium))
-            Text("切换到仓库目录后，这里会显示分支、变更和提交入口。")
+            Text("切换到仓库目录后，这里会显示仓库摘要和分支入口。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -217,47 +147,7 @@ struct GitPanelView: View {
         .background(Color.primary.opacity(0.06), in: Capsule())
     }
 
-    private func smallAction(_ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
-        Button(title, role: role, action: action)
-            .buttonStyle(.borderless)
-            .font(.caption)
-    }
-
-    private var pendingActionTitle: String {
-        switch gitPanelViewModel.pendingDangerousAction {
-        case .discard:
-            return "确认丢弃改动"
-        case .clean:
-            return "确认删除未跟踪文件"
-        case nil:
-            return "确认操作"
-        }
-    }
-
-    private var pendingActionMessage: String {
-        guard let action = gitPanelViewModel.pendingDangerousAction else { return "" }
-        switch action {
-        case .discard(let change):
-            return "将撤销 \(change.relativePath) 的未暂存改动。"
-        case .clean(let change):
-            return "将删除未跟踪文件 \(change.relativePath)。"
-        }
-    }
-}
-
-private extension GitFileChange {
-    var statusBadge: String {
-        switch status {
-        case .added:
-            return "A"
-        case .modified:
-            return "M"
-        case .deleted:
-            return "D"
-        case .renamed:
-            return "R"
-        case .untracked:
-            return "?"
-        }
+    private var activeErrorMessage: String? {
+        gitPanelViewModel.branchActionError ?? gitPanelViewModel.loadError
     }
 }

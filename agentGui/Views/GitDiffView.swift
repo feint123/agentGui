@@ -25,6 +25,45 @@ struct GitDiffRowStyle: Equatable {
     }
 }
 
+struct GitDiffEmptyStateDescriptor: Equatable {
+    let title: String
+    let message: String
+    let systemImage: String
+
+    static func make(title: String, diffText: String) -> GitDiffEmptyStateDescriptor {
+        let normalized = diffText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty {
+            return .init(
+                title: "无可显示的 Diff",
+                message: "这个文件当前没有可渲染的 patch，或者 diff 内容为空。",
+                systemImage: "doc.text.magnifyingglass"
+            )
+        }
+
+        if normalized.localizedCaseInsensitiveContains("binary files") || normalized.localizedCaseInsensitiveContains("git binary patch") {
+            return .init(
+                title: "无法预览二进制 Diff",
+                message: "这个文件是二进制内容，当前只支持文本 patch 预览。",
+                systemImage: "doc.fill.badge.ellipsis"
+            )
+        }
+
+        if normalized.localizedCaseInsensitiveContains("too large") {
+            return .init(
+                title: "Diff 过大",
+                message: "这个文件的变更过大，当前未展开完整 patch。",
+                systemImage: "doc.text.below.ecg"
+            )
+        }
+
+        return .init(
+            title: "无可显示的 Diff",
+            message: "这个文件当前没有可渲染的 patch，可能只有元数据变化。",
+            systemImage: "doc.text.magnifyingglass"
+        )
+    }
+}
+
 struct GitDiffPresentation: Equatable {
     struct ChangeSummary: Equatable {
         let additions: Int
@@ -199,12 +238,17 @@ enum FileEditorDisplayMode: Equatable {
 
 struct GitDiffView: View {
     @Environment(WorkspaceState.self) private var workspaceState
+    @Environment(GitPanelViewModel.self) private var gitPanelViewModel
 
     let title: String
     let diffText: String
 
     private var presentation: GitDiffPresentation {
         GitDiffPresentation.build(title: title, diffText: diffText)
+    }
+
+    private var emptyStateDescriptor: GitDiffEmptyStateDescriptor {
+        GitDiffEmptyStateDescriptor.make(title: title, diffText: diffText)
     }
 
     var body: some View {
@@ -227,6 +271,7 @@ struct GitDiffView: View {
                 .background(Color(NSColor.textBackgroundColor))
             }
         }
+        .accessibilityIdentifier("git.diff")
     }
 
     private var header: some View {
@@ -238,6 +283,7 @@ struct GitDiffView: View {
                     Label("返回文件", systemImage: "chevron.left")
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("git.diff.back")
 
                 Divider()
                     .frame(height: 14)
@@ -251,9 +297,19 @@ struct GitDiffView: View {
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .accessibilityIdentifier("git.diff.path")
                     Text("Patch Preview")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                if let sourceLabel = diffSourceLabel {
+                    Text(sourceLabel)
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.primary.opacity(0.06), in: Capsule())
+                        .accessibilityIdentifier("git.diff.source")
                 }
 
                 Spacer(minLength: 0)
@@ -263,6 +319,7 @@ struct GitDiffView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(.bar)
+            .accessibilityIdentifier("git.diff.header")
         }
     }
 
@@ -396,11 +453,24 @@ struct GitDiffView: View {
         URL(fileURLWithPath: presentation.filePath).lastPathComponent
     }
 
+    private var diffSourceLabel: String? {
+        switch gitPanelViewModel.selectedDiffSection {
+        case .staged:
+            return "已暂存 Diff"
+        case .modified:
+            return gitPanelViewModel.selectedChange?.section == .untracked ? "未跟踪文件" : "未暂存 Diff"
+        case .untracked:
+            return "未跟踪文件"
+        case nil:
+            return nil
+        }
+    }
+
     private var emptyState: some View {
         ContentUnavailableView {
-            Label("无可显示的 Diff", systemImage: "doc.text.magnifyingglass")
+            Label(emptyStateDescriptor.title, systemImage: emptyStateDescriptor.systemImage)
         } description: {
-            Text("这个文件当前没有可渲染的 patch，或者 diff 内容为空。")
+            Text(emptyStateDescriptor.message)
         }
     }
 }

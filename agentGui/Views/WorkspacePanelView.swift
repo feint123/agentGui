@@ -49,6 +49,9 @@ struct WorkspacePanelView: View {
         VStack(spacing: 0) {
             directoryBar
             GitPanelView()
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
             Divider()
                 .opacity(0.4)
             if !todoItems.isEmpty {
@@ -57,6 +60,7 @@ struct WorkspacePanelView: View {
                     .opacity(0.4)
             }
             treeContent
+                .frame(maxHeight: .infinity, alignment: .top)
         }
         .accessibilityIdentifier("panel.workspace")
         .onAppear { loadFromWorkspaceState() }
@@ -119,22 +123,10 @@ struct WorkspacePanelView: View {
                 let gitChange = gitChangeMatch(for: node)
                 FileRowView(
                     node: node,
-                    isSelected: !node.isDirectory && workspaceState.selectedFile == node.id,
+                    isSelected: !node.isDirectory && (workspaceState.selectedFile == node.id || workspaceState.selectedGitDiffPath == node.id),
                     gitChange: gitChange,
                     onPreviewDiff: { change, staged in
                         Task { await gitPanelViewModel.selectDiff(for: change, staged: staged, workspaceState: workspaceState) }
-                    },
-                    onStage: { change in
-                        Task { await gitPanelViewModel.stage(change) }
-                    },
-                    onUnstage: { change in
-                        Task { await gitPanelViewModel.unstage(change) }
-                    },
-                    onDiscard: { change in
-                        gitPanelViewModel.requestDiscard(change)
-                    },
-                    onDeleteUntracked: { change in
-                        gitPanelViewModel.requestClean(change)
                     }
                 ) {
                     if !node.isDirectory {
@@ -199,7 +191,7 @@ struct WorkspacePanelView: View {
         currentDirectory = url
         loadDirectory(url)
         startWatching(url)
-        Task { await gitPanelViewModel.refresh(for: url) }
+        Task { await gitPanelViewModel.refresh(for: url, workspaceState: workspaceState) }
     }
 
     private func loadFromWorkspaceState() {
@@ -401,10 +393,6 @@ private struct FileRowView: View {
     let isSelected: Bool
     let gitChange: GitFileChange?
     let onPreviewDiff: (GitFileChange, Bool) -> Void
-    let onStage: (GitFileChange) -> Void
-    let onUnstage: (GitFileChange) -> Void
-    let onDiscard: (GitFileChange) -> Void
-    let onDeleteUntracked: (GitFileChange) -> Void
     let onTap: () -> Void
 
     @State private var isHovered = false
@@ -422,10 +410,11 @@ private struct FileRowView: View {
             if let gitChange {
                 Text(gitChange.statusBadge)
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(statusColor(for: gitChange.status))
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
-                    .background(Color.primary.opacity(0.08), in: Capsule())
+                    .background(statusColor(for: gitChange.status).opacity(isSelected || isHovered ? 0.16 : 0.08), in: Capsule())
+                    .opacity(isSelected || isHovered ? 1 : 0.72)
             }
             Spacer(minLength: 0)
         }
@@ -437,6 +426,7 @@ private struct FileRowView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+        .accessibilityIdentifier(node.isDirectory ? "workspace.directory.\(node.name)" : "workspace.file.\(node.name)")
         .onHover { hovered in
             withAnimation(.easeInOut(duration: 0.12)) {
                 isHovered = hovered
@@ -447,22 +437,12 @@ private struct FileRowView: View {
                 Button("查看 Diff") {
                     onPreviewDiff(gitChange, gitChange.section == .staged)
                 }
-                switch gitChange.section {
-                case .staged:
-                    Button("取消暂存") { onUnstage(gitChange) }
-                case .modified:
-                    Button("暂存") { onStage(gitChange) }
-                    Button("丢弃改动", role: .destructive) { onDiscard(gitChange) }
-                case .untracked:
-                    Button("暂存") { onStage(gitChange) }
-                    Button("删除文件", role: .destructive) { onDeleteUntracked(gitChange) }
-                }
             }
         }
     }
 
     private var backgroundFill: Color {
-        if isSelected { return Color.accentColor.opacity(0.12) }
+        if isSelected { return Color.accentColor.opacity(0.14) }
         if isHovered  { return Color.primary.opacity(0.07) }
         return .clear
     }
@@ -476,6 +456,19 @@ private struct FileRowView: View {
 
     private func fileIcon(for name: String) -> String {
         FileIconSymbolResolver.symbol(forFileName: name)
+    }
+
+    private func statusColor(for status: GitChangeStatus) -> Color {
+        switch status {
+        case .added, .untracked:
+            return .green
+        case .deleted:
+            return .red
+        case .renamed:
+            return .orange
+        case .modified:
+            return .secondary
+        }
     }
 }
 

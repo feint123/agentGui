@@ -43,43 +43,125 @@ struct GitPanelViewModelTests {
         #expect(workspaceState.selectedGitDiffPath == change.absoluteURL)
     }
 
-    @Test func requestDiscardOnlyStoresPendingAction() async throws {
+    @Test func selectDiffKeepsChinesePathSelectionState() async throws {
         let service = FakeGitService()
+        service.diffText = "diff --git a/文档/需求说明.md b/文档/需求说明.md"
         let viewModel = GitPanelViewModel(gitService: service)
-        let change = GitRepositorySnapshot.fixture().unstagedChanges[0]
+        let workspaceState = WorkspaceState()
+        let root = URL(fileURLWithPath: "/tmp/repo")
+        let change = GitFileChange(
+            relativePath: "文档/需求说明.md",
+            absoluteURL: root.appending(path: "文档/需求说明.md"),
+            status: .modified,
+            section: .modified
+        )
 
-        viewModel.requestDiscard(change)
+        await viewModel.selectDiff(for: change, staged: false, workspaceState: workspaceState)
 
-        #expect(service.discardedPaths.isEmpty)
-        #expect(viewModel.pendingDangerousAction == .discard(change))
+        #expect(viewModel.selectedChange?.relativePath == "文档/需求说明.md")
+        #expect(viewModel.selectedDiffSection == .modified)
+        #expect(workspaceState.selectedGitDiffTitle == "文档/需求说明.md")
     }
 
-    @Test func confirmPendingActionExecutesAndRefreshes() async throws {
+    @Test func refreshPreservesSelectedChangeWhenStillPresent() async throws {
         let service = FakeGitService()
         service.snapshot = .fixture(branchName: "main")
         let viewModel = GitPanelViewModel(gitService: service)
-        let change = GitRepositorySnapshot.fixture().untrackedChanges[0]
+        let workspaceState = WorkspaceState()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/repo")
 
-        viewModel.currentWorkingDirectory = URL(fileURLWithPath: "/tmp/repo")
-        viewModel.requestClean(change)
-        await viewModel.confirmPendingAction()
+        let existingChange = GitRepositorySnapshot.fixture().unstagedChanges[0]
+        viewModel.selectedChange = existingChange
+        viewModel.selectedDiffSection = .modified
+        workspaceState.selectedGitDiffPath = existingChange.absoluteURL
+        workspaceState.selectedGitDiffTitle = existingChange.relativePath
+        workspaceState.selectedGitDiffText = "diff --git a/file b/file"
 
-        #expect(service.cleanedPaths == ["docs/spec/basic.md"])
-        #expect(service.refreshInputs == [URL(fileURLWithPath: "/tmp/repo")])
-        #expect(viewModel.pendingDangerousAction == nil)
+        await viewModel.refresh(for: workingDirectory, workspaceState: workspaceState)
+
+        #expect(viewModel.selectedChange?.relativePath == existingChange.relativePath)
+        #expect(workspaceState.selectedGitDiffPath == existingChange.absoluteURL)
     }
 
-    @Test func canCommitRequiresStagedChangesAndMessage() async throws {
+    @Test func refreshClearsSelectionWhenChangeDisappears() async throws {
+        let service = FakeGitService()
+        service.snapshot = .fixture(branchName: "main", unstagedChanges: [])
+        let viewModel = GitPanelViewModel(gitService: service)
+        let workspaceState = WorkspaceState()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/repo")
+
+        let removedChange = GitRepositorySnapshot.fixture().unstagedChanges[0]
+        viewModel.selectedChange = removedChange
+        viewModel.selectedDiffSection = .modified
+        viewModel.selectedDiffText = "diff --git a/file b/file"
+        workspaceState.selectedGitDiffPath = removedChange.absoluteURL
+        workspaceState.selectedGitDiffTitle = removedChange.relativePath
+        workspaceState.selectedGitDiffText = "diff --git a/file b/file"
+
+        await viewModel.refresh(for: workingDirectory, workspaceState: workspaceState)
+
+        #expect(viewModel.selectedChange == nil)
+        #expect(viewModel.selectedDiffText == nil)
+        #expect(workspaceState.selectedGitDiffPath == nil)
+        #expect(workspaceState.selectedGitDiffTitle == nil)
+    }
+
+    @Test func refreshAlsoLoadsAvailableBranches() async throws {
+        let service = FakeGitService()
+        service.snapshot = .fixture(branchName: "main")
+        service.branches = [
+            .init(name: "main", isCurrent: true),
+            .init(name: "feature/sidebar", isCurrent: false)
+        ]
+        let viewModel = GitPanelViewModel(gitService: service)
+
+        await viewModel.refresh(for: URL(fileURLWithPath: "/tmp/repo"))
+
+        #expect(viewModel.availableBranches.map(\.name) == ["main", "feature/sidebar"])
+        #expect(viewModel.availableBranches.first?.isCurrent == true)
+    }
+
+    @Test func switchBranchRefreshesSnapshotAndBranches() async throws {
+        let service = FakeGitService()
+        let viewModel = GitPanelViewModel(gitService: service)
+        let workingDirectory = URL(fileURLWithPath: "/tmp/repo")
+
+        service.snapshot = .fixture(branchName: "main")
+        service.branches = [
+            .init(name: "main", isCurrent: true),
+            .init(name: "feature/sidebar", isCurrent: false)
+        ]
+
+        await viewModel.refresh(for: workingDirectory)
+
+        service.snapshot = .fixture(branchName: "feature/sidebar")
+        service.branches = [
+            .init(name: "main", isCurrent: false),
+            .init(name: "feature/sidebar", isCurrent: true)
+        ]
+
+        await viewModel.switchBranch(to: "feature/sidebar")
+
+        #expect(service.switchedBranches == ["feature/sidebar"])
+        #expect(viewModel.snapshot?.branchName == "feature/sidebar")
+        #expect(viewModel.availableBranches.first(where: { $0.name == "feature/sidebar" })?.isCurrent == true)
+    }
+
+    @Test func switchBranchStoresUserFacingErrorOnFailure() async throws {
         let service = FakeGitService()
         let viewModel = GitPanelViewModel(gitService: service)
 
-        #expect(!viewModel.canCommit)
+        service.snapshot = .fixture(branchName: "main")
+        service.branches = [
+            .init(name: "main", isCurrent: true),
+            .init(name: "feature/sidebar", isCurrent: false)
+        ]
+        service.switchBranchError = .commandFailed("fatal: invalid reference: missing-branch")
 
-        viewModel.snapshot = .fixture()
-        #expect(!viewModel.canCommit)
+        await viewModel.refresh(for: URL(fileURLWithPath: "/tmp/repo"))
+        await viewModel.switchBranch(to: "missing-branch")
 
-        viewModel.commitMessage = "feat: add git ui"
-        #expect(viewModel.canCommit)
+        #expect(viewModel.branchActionError == "fatal: invalid reference: missing-branch")
     }
 }
 
@@ -87,14 +169,11 @@ private final class FakeGitService: GitServicing {
     var snapshot: GitRepositorySnapshot?
     var snapshotError: GitServiceError?
     var diffText: String = ""
+    var branches: [GitBranchReference] = []
     var refreshInputs: [URL] = []
     var diffRequests: [(path: String, staged: Bool, root: URL)] = []
-    var stagedPaths: [String] = []
-    var unstagedPaths: [String] = []
-    var discardedPaths: [String] = []
-    var cleanedPaths: [String] = []
-    var stageAllCount = 0
-    var commitMessages: [String] = []
+    var switchedBranches: [String] = []
+    var switchBranchError: GitServiceError?
 
     func repositorySnapshot(for workingDirectory: URL) async throws -> GitRepositorySnapshot {
         refreshInputs.append(workingDirectory)
@@ -102,39 +181,54 @@ private final class FakeGitService: GitServicing {
         return snapshot ?? .fixture()
     }
 
+    func listBranches(repositoryRoot: URL) async throws -> [GitBranchReference] {
+        branches
+    }
+
+    func switchBranch(to branchName: String, repositoryRoot: URL) async throws {
+        if let switchBranchError { throw switchBranchError }
+        switchedBranches.append(branchName)
+    }
+
     func diff(for change: GitFileChange, staged: Bool, repositoryRoot: URL) async throws -> String {
         diffRequests.append((change.relativePath, staged, repositoryRoot))
         return diffText
     }
-
-    func stage(path: String, repositoryRoot: URL) async throws {
-        stagedPaths.append(path)
-    }
-
-    func stageAll(repositoryRoot: URL) async throws {
-        stageAllCount += 1
-    }
-
-    func unstage(path: String, repositoryRoot: URL) async throws {
-        unstagedPaths.append(path)
-    }
-
-    func discard(path: String, repositoryRoot: URL) async throws {
-        discardedPaths.append(path)
-    }
-
-    func cleanUntracked(path: String, repositoryRoot: URL) async throws {
-        cleanedPaths.append(path)
-    }
-
-    func commit(message: String, repositoryRoot: URL) async throws {
-        commitMessages.append(message)
-    }
 }
 
 private extension GitRepositorySnapshot {
-    static func fixture(branchName: String = "feature/basic-git") -> GitRepositorySnapshot {
+    static func fixture(
+        branchName: String = "feature/basic-git",
+        stagedChanges: [GitFileChange]? = nil,
+        unstagedChanges: [GitFileChange]? = nil,
+        untrackedChanges: [GitFileChange]? = nil
+    ) -> GitRepositorySnapshot {
         let root = URL(fileURLWithPath: "/tmp/repo")
+        let defaultStaged = [
+            GitFileChange(
+                relativePath: "agentGui/Views/FileEditorView.swift",
+                absoluteURL: root.appending(path: "agentGui/Views/FileEditorView.swift"),
+                status: .modified,
+                section: .staged
+            )
+        ]
+        let defaultUnstaged = [
+            GitFileChange(
+                relativePath: "agentGui/Views/WorkspacePanelView.swift",
+                absoluteURL: root.appending(path: "agentGui/Views/WorkspacePanelView.swift"),
+                status: .modified,
+                section: .modified
+            )
+        ]
+        let defaultUntracked = [
+            GitFileChange(
+                relativePath: "docs/spec/basic.md",
+                absoluteURL: root.appending(path: "docs/spec/basic.md"),
+                status: .untracked,
+                section: .untracked
+            )
+        ]
+
         return GitRepositorySnapshot(
             repositoryRoot: root,
             repositoryName: "repo",
@@ -142,30 +236,9 @@ private extension GitRepositorySnapshot {
             hasRemoteTrackingBranch: true,
             aheadCount: 1,
             behindCount: 0,
-            stagedChanges: [
-                GitFileChange(
-                    relativePath: "agentGui/Views/FileEditorView.swift",
-                    absoluteURL: root.appending(path: "agentGui/Views/FileEditorView.swift"),
-                    status: .modified,
-                    section: .staged
-                )
-            ],
-            unstagedChanges: [
-                GitFileChange(
-                    relativePath: "agentGui/Views/WorkspacePanelView.swift",
-                    absoluteURL: root.appending(path: "agentGui/Views/WorkspacePanelView.swift"),
-                    status: .modified,
-                    section: .modified
-                )
-            ],
-            untrackedChanges: [
-                GitFileChange(
-                    relativePath: "docs/spec/basic.md",
-                    absoluteURL: root.appending(path: "docs/spec/basic.md"),
-                    status: .untracked,
-                    section: .untracked
-                )
-            ]
+            stagedChanges: stagedChanges ?? defaultStaged,
+            unstagedChanges: unstagedChanges ?? defaultUnstaged,
+            untrackedChanges: untrackedChanges ?? defaultUntracked
         )
     }
 }

@@ -18,8 +18,6 @@ extension ChatView {
             } else if mentionQuery != nil && !mentionCandidates.isEmpty {
                 mentionPopupCard
             }
-            Divider()
-                .opacity(0.5)
 
             VStack(spacing: 8) {
                 if (showFileContext && workspaceState.selectedFile != nil) ||
