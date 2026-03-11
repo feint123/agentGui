@@ -6,7 +6,6 @@
 import SwiftUI
 import SwiftData
 import AppKit
-import CoreServices
 
 // MARK: - FileNode
 
@@ -39,8 +38,7 @@ struct WorkspacePanelView: View {
     @State private var rootNodes: [FileNode] = []
     @State private var currentDirectory: URL?
     @State private var isLoading = false
-    @State private var directoryWatcher: DirectoryWatcher?
-    @State private var updateTask: Task<Void, Never>?
+    @State private var refreshCoordinator = WorkspaceTreeRefreshCoordinator()
 
     // MARK: - Body
 
@@ -57,7 +55,13 @@ struct WorkspacePanelView: View {
                 .frame(maxHeight: .infinity, alignment: .top)
         }
         .accessibilityIdentifier("panel.workspace")
-        .onAppear { loadFromWorkspaceState() }
+        .onAppear {
+            configureRefreshCoordinator()
+            loadFromWorkspaceState()
+        }
+        .onDisappear {
+            refreshCoordinator.setDirectory(nil)
+        }
         .onChange(of: workspaceState.selectedSession?.persistentModelID) { _, _ in
             loadFromWorkspaceState()
         }
@@ -170,9 +174,8 @@ struct WorkspacePanelView: View {
     }
 
     private func setDirectory(_ url: URL) {
-        currentDirectory = url
-        loadDirectory(url)
-        startWatching(url)
+        currentDirectory = url.standardizedFileURL
+        refreshCoordinator.setDirectory(currentDirectory)
         Task { await gitPanelViewModel.refresh(for: url, workspaceState: workspaceState) }
     }
 
@@ -182,165 +185,19 @@ struct WorkspacePanelView: View {
         guard !dir.isEmpty else {
             rootNodes = []
             currentDirectory = nil
+            refreshCoordinator.setDirectory(nil)
             return
         }
-        let url = URL(fileURLWithPath: dir)
+        let url = URL(fileURLWithPath: dir).standardizedFileURL
         if url != currentDirectory {
             setDirectory(url)
         }
     }
 
-    private func startWatching(_ url: URL) {
-        directoryWatcher?.stop()
-        directoryWatcher = DirectoryWatcher(path: url.path) { paths in
-            handleChanges(paths: paths, rootURL: url)
-        }
-    }
-
-    /// 部分刷新：只重新扫描发生变更的目录，保留其余节点的结构与展开状态。
-    private func handleChanges(paths: [String], rootURL: URL) {
-        let rootStd = rootURL.standardizedFileURL
-        let rootPath = rootStd.path
-
-        // 推断需要重新扫描的目录集合
-        var dirtyDirs = Set<URL>()
-        for path in paths {
-            let url = URL(fileURLWithPath: path).standardizedFileURL
-            let parent = url.deletingLastPathComponent()
-            // 文件的父目录 or 目录本身，都需要重新扫描
-            if parent.path == rootPath || parent.path.hasPrefix(rootPath + "/") {
-                dirtyDirs.insert(parent)
-            }
-            if url.path == rootPath || url.path.hasPrefix(rootPath + "/") {
-                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-                if isDir { dirtyDirs.insert(url) }
-            }
-        }
-        guard !dirtyDirs.isEmpty else { return }
-
-        // 按路径深度排序（浅层优先，子目录更新会被父目录合并覆盖）
-        let sortedDirs = dirtyDirs.sorted { $0.path.count < $1.path.count }
-        let snapshot = rootNodes
-        // Capture on main actor before entering detached task
-        let openFile = workspaceState.selectedFile
-
-        updateTask?.cancel()
-        updateTask = Task.detached(priority: .userInitiated) {
-            var updated = snapshot
-            for dirURL in sortedDirs {
-                if Task.isCancelled { return }
-                if dirURL == rootStd {
-                    let fresh = Self.shallowScan(at: rootURL)
-                    updated = Self.mergeNodes(existing: updated, freshScan: fresh)
-                } else {
-                    updated = Self.applyPartialUpdate(to: updated, at: dirURL)
-                }
-            }
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                self.rootNodes = updated
-                // Notify editor if the currently open file lives in a dirty directory
-                if let openFile,
-                   dirtyDirs.contains(openFile.deletingLastPathComponent()) {
-                    self.workspaceState.externallyModifiedFile = openFile
-                }
-            }
-        }
-    }
-
-    /// 只读取目录的直接子项（不递归）。
-    nonisolated static func shallowScan(at url: URL) -> [(name: String, url: URL, isDirectory: Bool)] {
-        let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-        return items.compactMap { itemURL -> (name: String, url: URL, isDirectory: Bool)? in
-            guard let isDir = try? itemURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory
-            else { return nil }
-            return (name: itemURL.lastPathComponent, url: itemURL, isDirectory: isDir == true)
-        }
-        .sorted { lhs, rhs in
-            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
-    }
-
-    /// 将现有节点列表与新的浅层扫描结果合并：
-    /// - 仍存在的节点 → 保留原 FileNode（含已展开的子树）
-    /// - 新出现的节点 → 新建（目录会递归扫描）
-    /// - 已消失的节点 → 自动删除（不在 freshScan 中）
-    nonisolated static func mergeNodes(
-        existing: [FileNode],
-        freshScan: [(name: String, url: URL, isDirectory: Bool)]
-    ) -> [FileNode] {
-        let existingMap = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-        return freshScan.map { item in
-            if let existing = existingMap[item.url] {
-                return existing  // 保留原节点，展开状态不变
-            }
-            if item.isDirectory {
-                let children = buildNodes(at: item.url, depth: 0)
-                return FileNode(id: item.url, name: item.name, isDirectory: true, children: children)
-            }
-            return FileNode(id: item.url, name: item.name, isDirectory: false, children: nil)
-        }
-    }
-
-    /// 递归定位 targetURL 所在的节点并重新扫描，其他节点保持不变。
-    nonisolated static func applyPartialUpdate(to nodes: [FileNode], at targetURL: URL) -> [FileNode] {
-        let targetPath = targetURL.path
-        return nodes.map { node -> FileNode in
-            guard node.isDirectory else { return node }
-            let nodePath = node.id.path
-            if nodePath == targetPath {
-                let fresh = shallowScan(at: node.id)
-                let merged = mergeNodes(existing: node.children ?? [], freshScan: fresh)
-                return FileNode(id: node.id, name: node.name, isDirectory: true, children: merged)
-            } else if targetPath.hasPrefix(nodePath + "/") {
-                // 目标在此节点内部，递归向下
-                let updated = applyPartialUpdate(to: node.children ?? [], at: targetURL)
-                return FileNode(id: node.id, name: node.name, isDirectory: true, children: updated)
-            }
-            return node
-        }
-    }
-
-    private func loadDirectory(_ url: URL) {
-        isLoading = true
-        Task.detached(priority: .userInitiated) {
-            let nodes = Self.buildNodes(at: url, depth: 0)
-            await MainActor.run {
-                self.rootNodes = nodes
-                self.isLoading = false
-            }
-        }
-    }
-
-    nonisolated static func buildNodes(at url: URL, depth: Int) -> [FileNode] {
-        guard depth < 8 else { return [] }
-        let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-
-        return items.compactMap { itemURL -> FileNode? in
-            guard let isDir = try? itemURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory else {
-                return nil
-            }
-            if isDir == true {
-                let subNodes = buildNodes(at: itemURL, depth: depth + 1)
-                return FileNode(id: itemURL, name: itemURL.lastPathComponent, isDirectory: true, children: subNodes)
-            } else {
-                return FileNode(id: itemURL, name: itemURL.lastPathComponent, isDirectory: false, children: nil)
-            }
-        }
-        .sorted { lhs, rhs in
-            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+    private func configureRefreshCoordinator() {
+        refreshCoordinator.onNodesChanged = { nodes, loading in
+            self.rootNodes = nodes
+            self.isLoading = loading
         }
     }
 
@@ -468,71 +325,6 @@ private extension GitFileChange {
         case .untracked:
             return "?"
         }
-    }
-}
-
-// MARK: - DirectoryWatcher
-
-/// 使用 FSEvents 递归监听目录内文件变更，回调携带发生变更的路径列表
-private final class DirectoryWatcher: @unchecked Sendable {
-
-    private var streamRef: FSEventStreamRef?
-
-    init(path: String, onChange: @escaping ([String]) -> Void) {
-        start(path: path, onChange: onChange)
-    }
-
-    deinit { stop() }
-
-    private func start(path: String, onChange: @escaping ([String]) -> Void) {
-        final class CallbackBox {
-            let fn: ([String]) -> Void
-            init(_ fn: @escaping ([String]) -> Void) { self.fn = fn }
-        }
-
-        let paths = [path] as CFArray
-        let box = Unmanaged.passRetained(CallbackBox(onChange))
-        var ctx = FSEventStreamContext(
-            version: 0,
-            info: box.toOpaque(),
-            retain: nil,
-            release: { ptr in Unmanaged<CallbackBox>.fromOpaque(ptr!).release() },
-            copyDescription: nil
-        )
-        let flags: FSEventStreamCreateFlags =
-            UInt32(kFSEventStreamCreateFlagNoDefer) |
-            UInt32(kFSEventStreamCreateFlagWatchRoot) |
-            UInt32(kFSEventStreamCreateFlagUseCFTypes) // 以 CFArray 形式返回路径
-
-        guard let stream = FSEventStreamCreate(
-            kCFAllocatorDefault,
-            { _, info, _, eventPaths, _, _ in
-                // kFSEventStreamCreateFlagUseCFTypes 保证 eventPaths 是 CFArray of CFString
-                let nsArray = unsafeBitCast(eventPaths, to: NSArray.self)
-                let changedPaths = nsArray as? [String] ?? []
-                Unmanaged<CallbackBox>.fromOpaque(info!).takeUnretainedValue().fn(changedPaths)
-            },
-            &ctx,
-            paths,
-            FSEventStreamEventId.max, // kFSEventStreamEventIdSinceNow
-            0.4,
-            flags
-        ) else {
-            box.release()
-            return
-        }
-
-        FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-        FSEventStreamStart(stream)
-        self.streamRef = stream
-    }
-
-    func stop() {
-        guard let stream = streamRef else { return }
-        FSEventStreamStop(stream)
-        FSEventStreamInvalidate(stream)
-        FSEventStreamRelease(stream)
-        self.streamRef = nil
     }
 }
 
