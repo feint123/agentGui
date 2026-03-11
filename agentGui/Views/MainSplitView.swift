@@ -20,6 +20,7 @@ struct MainSplitView: View {
     @State private var gitPanelViewModel = GitPanelViewModel()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @Environment(\.modelContext) private var modelContext
+    private let launchOptions = TestLaunchOptions.current
 
     // MARK: - Query
 
@@ -53,6 +54,12 @@ struct MainSplitView: View {
         .onAppear {
             if workspaceState.selectedSession == nil {
                 workspaceState.selectedSession = sessions.first
+            }
+            if let selectedFilePath = launchOptions.selectedFilePath {
+                let selectedFileURL = URL(fileURLWithPath: selectedFilePath).standardizedFileURL
+                if FileManager.default.fileExists(atPath: selectedFileURL.path) {
+                    workspaceState.selectedFile = selectedFileURL
+                }
             }
         }
         .onChange(of: sessions) { _, newSessions in

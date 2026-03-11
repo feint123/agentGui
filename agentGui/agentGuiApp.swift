@@ -138,6 +138,13 @@ struct agentGuiApp: App {
         let sessionId = launchOptions.sessionID ?? "ui-test-session"
         let session = ensureSession(sessionId: sessionId, in: context)
 
+        if let workingDirectoryPath = launchOptions.workingDirectoryPath,
+           session.workingDirectory != workingDirectoryPath {
+            session.workingDirectory = workingDirectoryPath
+            settings.workingDirectory = workingDirectoryPath
+            settingsChanged = true
+        }
+
         if launchOptions.preloadMessages {
             ensureCompletedMessages(for: session, in: context)
         }

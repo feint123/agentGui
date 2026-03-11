@@ -30,6 +30,9 @@ struct FileEditorView: View {
     @State private var hasUnsavedChanges: Bool = false
     @State private var viewerType: FileViewerType = .text
     @State private var viewerImage: NSImage? = nil
+    @State private var openFileRefreshMonitor = OpenFileRefreshMonitor()
+    @State private var externalConflictCoordinator = FileEditorExternalConflictCoordinator()
+    private let launchOptions = TestLaunchOptions.current
 
     // MARK: - Body
 
@@ -44,22 +47,39 @@ struct FileEditorView: View {
                 emptyState
             }
         }
+        .onAppear {
+            openFileRefreshMonitor.onExternalChange = { changedURL in
+                workspaceState.externallyModifiedFile = changedURL
+            }
+            openFileRefreshMonitor.watch(workspaceState.selectedFile)
+        }
+        .onDisappear {
+            openFileRefreshMonitor.watch(nil)
+        }
         .onChange(of: textContent) { _, newValue in
             hasUnsavedChanges = loadedFileURL != nil && newValue != fileContent
         }
         .onChange(of: workspaceState.selectedFile) { _, newURL in
             workspaceState.editorSelection = nil
+            externalConflictCoordinator.clear()
             if let url = newURL {
+                openFileRefreshMonitor.watch(url)
                 loadFile(url)
             } else {
+                openFileRefreshMonitor.watch(nil)
                 clearEditor()
             }
         }
         .onChange(of: workspaceState.externallyModifiedFile) { _, url in
             guard let url, url == loadedFileURL else { return }
             workspaceState.externallyModifiedFile = nil
-            guard !hasUnsavedChanges else { return }
-            loadFile(url)
+            applyExternalConflictOutcome(
+                externalConflictCoordinator.handleExternalChange(
+                    changedURL: url,
+                    loadedURL: loadedFileURL,
+                    hasUnsavedChanges: hasUnsavedChanges
+                )
+            )
         }
         .alert("错误", isPresented: .constant(errorMessage != nil)) {
             Button("确定") { errorMessage = nil }
@@ -82,6 +102,21 @@ struct FileEditorView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if launchOptions.isUITestMode, viewerType == .text {
+                    Text(hasUnsavedChanges ? "dirty" : "clean")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("fileEditor.dirtyState")
+                    Text(textContent)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 260, alignment: .trailing)
+                        .accessibilityIdentifier("fileEditor.testMirror")
+                        .accessibilityLabel(textContent)
+                        .accessibilityValue(textContent)
+                }
                 if viewerType == .text {
                     Button {
                         saveFile(url)
@@ -94,6 +129,7 @@ struct FileEditorView: View {
                     }
                     .buttonStyle(.borderless)
                     .disabled(!hasUnsavedChanges || isSaving)
+                    .accessibilityIdentifier("fileEditor.saveButton")
                     .help("保存 (⌘S)")
                     .keyboardShortcut("s", modifiers: .command)
                 }
@@ -104,14 +140,49 @@ struct FileEditorView: View {
 
             Divider()
 
+            if let conflict = externalConflictCoordinator.pendingConflict {
+                externalConflictBanner(conflict)
+                Divider()
+            }
+
             fileContentView(for: url)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
+            openFileRefreshMonitor.watch(url)
+            externalConflictCoordinator.clear()
             if loadedFileURL != url {
                 loadFile(url)
             }
         }
+    }
+
+    private func externalConflictBanner(_ conflict: FileEditorExternalConflict) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("磁盘版本已变化，本地也有未保存修改。")
+                    .font(.caption.weight(.semibold))
+                Text(conflict.url.lastPathComponent)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            Button("保留当前编辑") {
+                applyExternalConflictOutcome(externalConflictCoordinator.resolve(.keepLocalChanges))
+            }
+            .buttonStyle(.borderless)
+            Button("重新加载") {
+                applyExternalConflictOutcome(externalConflictCoordinator.resolve(.reloadFromDisk))
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.08))
     }
 
     @ViewBuilder
@@ -188,13 +259,16 @@ struct FileEditorView: View {
             }
         }
 
-        fileContent = loadedText
-        textContent = loadedText
+        let normalizedText = FileEditorLoadedTextState.normalizedTextForInitialLoad(loadedText, fileURL: url)
+
+        fileContent = normalizedText
+        textContent = normalizedText
         loadedFileURL = url
         hasUnsavedChanges = false
     }
 
     private func clearEditor() {
+        externalConflictCoordinator.clear()
         textContent = ""
         fileContent = ""
         loadedFileURL = nil
@@ -210,6 +284,7 @@ struct FileEditorView: View {
             do {
                 try textToSave.write(to: url, atomically: true, encoding: .utf8)
                 await MainActor.run {
+                    self.externalConflictCoordinator.handleSuccessfulSave(for: url)
                     self.fileContent = textToSave
                     self.hasUnsavedChanges = false
                     self.isSaving = false
@@ -220,6 +295,15 @@ struct FileEditorView: View {
                     self.isSaving = false
                 }
             }
+        }
+    }
+
+    private func applyExternalConflictOutcome(_ outcome: FileEditorExternalConflictOutcome) {
+        switch outcome {
+        case .none, .presentConflict:
+            break
+        case .reload(let url):
+            loadFile(url)
         }
     }
 }

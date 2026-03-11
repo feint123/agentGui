@@ -72,6 +72,7 @@ struct BlockTextEditor: NSViewRepresentable {
         textView.onFileDropped = onFileDrop
         textView.onCommand = onCommand
         textView.onFocusChange = onFocusChange
+        textView.setAccessibilityIdentifier("blockEditor.textView")
         applyStyle(to: textView)
 
         let scrollView = NSScrollView()

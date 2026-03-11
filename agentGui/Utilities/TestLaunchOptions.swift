@@ -9,6 +9,8 @@ struct TestLaunchOptions {
     let workflowState: WorkflowStatus?
     let recoveryMode: Bool
     let sessionID: String?
+    let workingDirectoryPath: String?
+    let selectedFilePath: String?
 
     static var current: TestLaunchOptions {
         TestLaunchOptions(arguments: ProcessInfo.processInfo.arguments)
@@ -21,6 +23,8 @@ struct TestLaunchOptions {
         preloadToolCall = Self.boolValue(for: "-com.agentgui.test.preloadToolCall", in: arguments)
         recoveryMode = Self.boolValue(for: "-com.agentgui.test.recoveryMode", in: arguments)
         sessionID = Self.stringValue(for: "-com.agentgui.test.sessionId", in: arguments)
+        workingDirectoryPath = Self.stringValue(for: "-com.agentgui.test.workingDirectory", in: arguments)
+        selectedFilePath = Self.stringValue(for: "-com.agentgui.test.selectedFilePath", in: arguments)
 
         if let rawTab = Self.stringValue(for: "-com.agentgui.test.initialTab", in: arguments),
            let parsedTab = AppTab(rawValue: rawTab) {
