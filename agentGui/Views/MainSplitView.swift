@@ -17,6 +17,7 @@ struct MainSplitView: View {
     // MARK: - Properties
 
     @State private var workspaceState = WorkspaceState()
+    @State private var gitPanelViewModel = GitPanelViewModel()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @Environment(\.modelContext) private var modelContext
 
@@ -44,6 +45,7 @@ struct MainSplitView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .environment(workspaceState)
+        .environment(gitPanelViewModel)
         .onAppear {
             if workspaceState.selectedSession == nil {
                 workspaceState.selectedSession = sessions.first

@@ -54,6 +54,15 @@ final class WorkspaceState {
     /// 消费后应置回 nil。
     var externallyModifiedFile: URL?
 
+    /// 当前在编辑区预览的 Git diff 对应文件。
+    var selectedGitDiffPath: URL?
+
+    /// 当前在编辑区预览的 Git diff 文本。
+    var selectedGitDiffText: String?
+
+    /// 当前 Git diff 视图标题。
+    var selectedGitDiffTitle: String?
+
     // MARK: - Computed
 
     /// 当前有效工作目录：优先使用 session 级别设置，回退到 AppSettings 全局配置
@@ -62,4 +71,11 @@ final class WorkspaceState {
         if !sessionDir.isEmpty { return sessionDir }
         return globalDefault
     }
+
+    func clearGitDiffSelection() {
+        selectedGitDiffPath = nil
+        selectedGitDiffText = nil
+        selectedGitDiffTitle = nil
+    }
 }
+

@@ -17,6 +17,7 @@ struct FileEditorView: View {
     // MARK: - Environment
 
     @Environment(WorkspaceState.self) private var workspaceState
+    @Environment(GitPanelViewModel.self) private var gitPanelViewModel
 
     // MARK: - State
 
@@ -34,9 +35,12 @@ struct FileEditorView: View {
 
     var body: some View {
         Group {
-            if let fileURL = workspaceState.selectedFile {
+            switch FileEditorDisplayMode.resolve(from: workspaceState) {
+            case .gitDiff(let title, let diffText):
+                GitDiffView(title: title, diffText: diffText)
+            case .file(let fileURL):
                 editorView(for: fileURL)
-            } else {
+            case .empty:
                 emptyState
             }
         }
@@ -144,7 +148,7 @@ struct FileEditorView: View {
         ContentUnavailableView {
             Label("未选择文件", systemImage: "doc.text")
         } description: {
-            Text("从左侧文件树中单击文件来打开")
+            Text(gitPanelViewModel.snapshot == nil ? "从左侧文件树中单击文件来打开" : "从左侧文件树或 Git 面板中选择文件")
         }
     }
 

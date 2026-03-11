@@ -30,6 +30,7 @@ struct WorkspacePanelView: View {
     // MARK: - Environment
 
     @Environment(WorkspaceState.self) private var workspaceState
+    @Environment(GitPanelViewModel.self) private var gitPanelViewModel
     @Environment(ClaudeService.self) private var claudeService
     @Environment(\.modelContext) private var modelContext
 
@@ -46,6 +47,7 @@ struct WorkspacePanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             directoryBar
+            GitPanelView()
             Divider()
                 .opacity(0.4)
             if !todoItems.isEmpty {
@@ -56,6 +58,9 @@ struct WorkspacePanelView: View {
             treeContent
         }
         .onAppear { loadFromWorkspaceState() }
+        .onChange(of: workspaceState.selectedSession?.persistentModelID) { _, _ in
+            loadFromWorkspaceState()
+        }
     }
 
     // MARK: - Todo Items
@@ -102,11 +107,29 @@ struct WorkspacePanelView: View {
             emptyState
         } else {
             List(rootNodes, children: \.optionalChildren) { node in
+                let gitChange = gitChangeMatch(for: node)
                 FileRowView(
                     node: node,
-                    isSelected: !node.isDirectory && workspaceState.selectedFile == node.id
+                    isSelected: !node.isDirectory && workspaceState.selectedFile == node.id,
+                    gitChange: gitChange,
+                    onPreviewDiff: { change, staged in
+                        Task { await gitPanelViewModel.selectDiff(for: change, staged: staged, workspaceState: workspaceState) }
+                    },
+                    onStage: { change in
+                        Task { await gitPanelViewModel.stage(change) }
+                    },
+                    onUnstage: { change in
+                        Task { await gitPanelViewModel.unstage(change) }
+                    },
+                    onDiscard: { change in
+                        gitPanelViewModel.requestDiscard(change)
+                    },
+                    onDeleteUntracked: { change in
+                        gitPanelViewModel.requestClean(change)
+                    }
                 ) {
                     if !node.isDirectory {
+                        workspaceState.clearGitDiffSelection()
                         workspaceState.selectedFile = node.id
                     }
                 }
@@ -158,11 +181,12 @@ struct WorkspacePanelView: View {
         currentDirectory = url
         loadDirectory(url)
         startWatching(url)
+        Task { await gitPanelViewModel.refresh(for: url) }
     }
 
     private func loadFromWorkspaceState() {
         let settings = AppSettings.getOrCreate(in: modelContext)
-        let dir = settings.workingDirectory
+        let dir = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
         guard !dir.isEmpty else {
             rootNodes = []
             currentDirectory = nil
@@ -327,6 +351,20 @@ struct WorkspacePanelView: View {
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
     }
+
+    private func gitChangeMatch(for node: FileNode) -> GitFileChange? {
+        guard !node.isDirectory, let snapshot = gitPanelViewModel.snapshot else { return nil }
+        let relativePath = relativePath(for: node.id, root: snapshot.repositoryRoot)
+        return (snapshot.stagedChanges + snapshot.unstagedChanges + snapshot.untrackedChanges)
+            .first { $0.relativePath == relativePath }
+    }
+
+    private func relativePath(for fileURL: URL, root: URL) -> String {
+        let rootPath = root.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        guard filePath.hasPrefix(rootPath + "/") else { return fileURL.lastPathComponent }
+        return String(filePath.dropFirst(rootPath.count + 1))
+    }
 }
 
 // MARK: - FileNode helper
@@ -343,6 +381,12 @@ private extension FileNode {
 private struct FileRowView: View {
     let node: FileNode
     let isSelected: Bool
+    let gitChange: GitFileChange?
+    let onPreviewDiff: (GitFileChange, Bool) -> Void
+    let onStage: (GitFileChange) -> Void
+    let onUnstage: (GitFileChange) -> Void
+    let onDiscard: (GitFileChange) -> Void
+    let onDeleteUntracked: (GitFileChange) -> Void
     let onTap: () -> Void
 
     @State private var isHovered = false
@@ -357,6 +401,14 @@ private struct FileRowView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(isSelected ? Color.accentColor : .primary)
                 .lineLimit(1)
+            if let gitChange {
+                Text(gitChange.statusBadge)
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.primary.opacity(0.08), in: Capsule())
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 6)
@@ -370,6 +422,23 @@ private struct FileRowView: View {
         .onHover { hovered in
             withAnimation(.easeInOut(duration: 0.12)) {
                 isHovered = hovered
+            }
+        }
+        .contextMenu {
+            if let gitChange {
+                Button("查看 Diff") {
+                    onPreviewDiff(gitChange, gitChange.section == .staged)
+                }
+                switch gitChange.section {
+                case .staged:
+                    Button("取消暂存") { onUnstage(gitChange) }
+                case .modified:
+                    Button("暂存") { onStage(gitChange) }
+                    Button("丢弃改动", role: .destructive) { onDiscard(gitChange) }
+                case .untracked:
+                    Button("暂存") { onStage(gitChange) }
+                    Button("删除文件", role: .destructive) { onDeleteUntracked(gitChange) }
+                }
             }
         }
     }
@@ -389,6 +458,23 @@ private struct FileRowView: View {
 
     private func fileIcon(for name: String) -> String {
         FileIconSymbolResolver.symbol(forFileName: name)
+    }
+}
+
+private extension GitFileChange {
+    var statusBadge: String {
+        switch status {
+        case .added:
+            return "A"
+        case .modified:
+            return "M"
+        case .deleted:
+            return "D"
+        case .renamed:
+            return "R"
+        case .untracked:
+            return "?"
+        }
     }
 }
 
