@@ -12,6 +12,7 @@ import Foundation
 
 @Model
 final class WorkflowInstance {
+    static let persistenceSchemaVersion = PersistenceSchema.currentVersion
 
     // MARK: - Identity
 

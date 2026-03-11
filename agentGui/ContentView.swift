@@ -12,6 +12,8 @@ import SwiftData
 struct ContentView: View {
 
     @State private var selectedTab: AppTab = .chat
+    @State private var persistenceCoordinator = PersistenceCoordinator.shared
+    @Environment(ReliabilityCenterViewModel.self) private var reliabilityCenterViewModel
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -32,8 +34,29 @@ struct ContentView: View {
                     Label("设置", systemImage: selectedTab == .settings ? "gearshape.fill" : "gearshape")
                 }
                 .tag(AppTab.settings)
+
+            ReliabilityCenterView()
+                .tabItem {
+                    Label(
+                        "诊断",
+                        systemImage: selectedTab == .reliability ? "cross.case.fill" : "cross.case"
+                    )
+                }
+                .tag(AppTab.reliability)
         }
         .frame(minWidth: 900, minHeight: 600)
+        .environment(persistenceCoordinator)
+        .alert(
+            "保存失败",
+            isPresented: Binding(
+                get: { persistenceCoordinator.lastFailure != nil },
+                set: { if !$0 { persistenceCoordinator.dismissFailure() } }
+            )
+        ) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(persistenceCoordinator.lastFailureSummary ?? "本次变更未成功保存。")
+        }
     }
 }
 
@@ -41,6 +64,7 @@ enum AppTab: String, CaseIterable {
     case chat
     case skills
     case settings
+    case reliability
 }
 
 // MARK: - Settings View
@@ -50,6 +74,7 @@ struct SettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(ClaudeService.self) private var claudeService
+    @Environment(PersistenceCoordinator.self) private var persistenceCoordinator
     @Environment(SkillService.self) private var skillService
     @State private var settings: AppSettings?
     @State private var apiKeyInput: String = ""
@@ -160,9 +185,10 @@ struct SettingsView: View {
     private var modelSection: some View {
         if let settings {
             Section("Claude 模型") {
-                Picker("使用模型", selection: Binding(
+                Picker("使用模型", selection: persistedSettingsBinding(
                     get: { settings.selectedModel },
-                    set: { settings.selectedModel = $0; try? modelContext.save() }
+                    userMessage: "模型设置未成功保存",
+                    set: { settings.selectedModel = $0 }
                 )) {
                     ForEach(AppSettings.availableModels, id: \.id) { model in
                         Text(model.name).tag(model.id)
@@ -178,9 +204,10 @@ struct SettingsView: View {
     private var appearanceSection: some View {
         if let settings {
             Section("外观") {
-                Picker("主题", selection: Binding(
+                Picker("主题", selection: persistedSettingsBinding(
                     get: { settings.themeMode },
-                    set: { settings.themeMode = $0; try? modelContext.save() }
+                    userMessage: "主题设置未成功保存",
+                    set: { settings.themeMode = $0 }
                 )) {
                     ForEach(ThemeMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
@@ -196,33 +223,38 @@ struct SettingsView: View {
     private var toolsSection: some View {
         if let settings {
             Section {
-                Toggle("启用文本编辑器工具（文件读写）", isOn: Binding(
+                Toggle("启用文本编辑器工具（文件读写）", isOn: persistedSettingsBinding(
                     get: { settings.enableTextEditorTool },
-                    set: { settings.enableTextEditorTool = $0; try? modelContext.save() }
+                    userMessage: "文本编辑工具设置未成功保存",
+                    set: { settings.enableTextEditorTool = $0 }
                 ))
 
-                Toggle("启用 Bash 工具（执行 shell 命令）", isOn: Binding(
+                Toggle("启用 Bash 工具（执行 shell 命令）", isOn: persistedSettingsBinding(
                     get: { settings.enableBashTool },
-                    set: { settings.enableBashTool = $0; try? modelContext.save() }
+                    userMessage: "Bash 工具设置未成功保存",
+                    set: { settings.enableBashTool = $0 }
                 ))
 
                 if settings.enableBashTool {
-                    TextField("工作目录（留空使用 HOME）", text: Binding(
+                    TextField("工作目录（留空使用 HOME）", text: persistedSettingsBinding(
                         get: { settings.workingDirectory },
-                        set: { settings.workingDirectory = $0; try? modelContext.save() }
+                        userMessage: "工作目录设置未成功保存",
+                        set: { settings.workingDirectory = $0 }
                     ))
                     .textFieldStyle(.roundedBorder)
                 }
 
-                Toggle("启用 Web Search 工具（Bing 搜索）", isOn: Binding(
+                Toggle("启用 Web Search 工具（Bing 搜索）", isOn: persistedSettingsBinding(
                     get: { settings.enableWebSearchTool },
-                    set: { settings.enableWebSearchTool = $0; try? modelContext.save() }
+                    userMessage: "Web Search 设置未成功保存",
+                    set: { settings.enableWebSearchTool = $0 }
                 ))
 
                 if settings.enableWebSearchTool {
-                    Toggle("优先使用 Ollama Web Search", isOn: Binding(
+                    Toggle("优先使用 Ollama Web Search", isOn: persistedSettingsBinding(
                         get: { settings.enableOllamaWebSearch },
-                        set: { settings.enableOllamaWebSearch = $0; try? modelContext.save() }
+                        userMessage: "Ollama Web Search 设置未成功保存",
+                        set: { settings.enableOllamaWebSearch = $0 }
                     ))
                     .padding(.leading, 16)
 
@@ -243,8 +275,9 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
                             Button("保存") {
-                                settings.ollamaAPIKey = ollamaAPIKeyInput
-                                try? modelContext.save()
+                                _ = persistSettingsMutation("Ollama API Key 未成功保存") {
+                                    settings.ollamaAPIKey = ollamaAPIKeyInput
+                                }
                             }
                             .disabled(ollamaAPIKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
                         }
@@ -253,9 +286,10 @@ struct SettingsView: View {
                 }
 
 
-                Toggle("启用 Web Fetch 工具（获取网页内容）", isOn: Binding(
+                Toggle("启用 Web Fetch 工具（获取网页内容）", isOn: persistedSettingsBinding(
                     get: { settings.enableWebFetchTool },
-                    set: { settings.enableWebFetchTool = $0; try? modelContext.save() }
+                    userMessage: "Web Fetch 设置未成功保存",
+                    set: { settings.enableWebFetchTool = $0 }
                 ))
             } header: {
                 Text("工具")
@@ -264,9 +298,10 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("启用 Extended Thinking（Claude 3.7 及更高版本）", isOn: Binding(
+                Toggle("启用 Extended Thinking（Claude 3.7 及更高版本）", isOn: persistedSettingsBinding(
                     get: { settings.enableExtendedThinking },
-                    set: { settings.enableExtendedThinking = $0; try? modelContext.save() }
+                    userMessage: "Extended Thinking 设置未成功保存",
+                    set: { settings.enableExtendedThinking = $0 }
                 ))
 
                 if settings.enableExtendedThinking {
@@ -279,9 +314,10 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Slider(
-                            value: Binding(
+                            value: persistedSettingsBinding(
                                 get: { Double(settings.extendedThinkingBudget) },
-                                set: { settings.extendedThinkingBudget = Int($0); try? modelContext.save() }
+                                userMessage: "Thinking 预算未成功保存",
+                                set: { settings.extendedThinkingBudget = Int($0) }
                             ),
                             in: 1000...32000,
                             step: 1000
@@ -295,9 +331,10 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("启用反思与自我修正", isOn: Binding(
+                Toggle("启用反思与自我修正", isOn: persistedSettingsBinding(
                     get: { settings.enableReflection },
-                    set: { settings.enableReflection = $0; try? modelContext.save() }
+                    userMessage: "反思循环设置未成功保存",
+                    set: { settings.enableReflection = $0 }
                 ))
 
                 if settings.enableReflection {
@@ -310,9 +347,10 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Slider(
-                            value: Binding(
+                            value: persistedSettingsBinding(
                                 get: { settings.reflectionConfidenceThreshold },
-                                set: { settings.reflectionConfidenceThreshold = $0; try? modelContext.save() }
+                                userMessage: "反思阈值未成功保存",
+                                set: { settings.reflectionConfidenceThreshold = $0 }
                             ),
                             in: 0.5...1.0,
                             step: 0.05
@@ -334,15 +372,17 @@ struct SettingsView: View {
     private var memorySection: some View {
         Section {
             if let settings {
-                Toggle("启用统一记忆运行时", isOn: Binding(
+                Toggle("启用统一记忆运行时", isOn: persistedSettingsBinding(
                     get: { settings.enableUnifiedMemoryRuntime },
-                    set: { settings.enableUnifiedMemoryRuntime = $0; try? modelContext.save() }
+                    userMessage: "统一记忆运行时设置未成功保存",
+                    set: { settings.enableUnifiedMemoryRuntime = $0 }
                 ))
 
                 if settings.enableUnifiedMemoryRuntime {
-                    Stepper(value: Binding(
+                    Stepper(value: persistedSettingsBinding(
                         get: { settings.unifiedMemoryContextBudget },
-                        set: { settings.unifiedMemoryContextBudget = $0; try? modelContext.save() }
+                        userMessage: "统一记忆上下文预算未成功保存",
+                        set: { settings.unifiedMemoryContextBudget = $0 }
                     ), in: 4...16) {
                         HStack {
                             Text("统一记忆上下文预算")
@@ -353,24 +393,28 @@ struct SettingsView: View {
                         }
                     }
 
-                    Toggle("启用记忆治理层", isOn: Binding(
+                    Toggle("启用记忆治理层", isOn: persistedSettingsBinding(
                         get: { settings.enableMemoryGovernance },
-                        set: { settings.enableMemoryGovernance = $0; try? modelContext.save() }
+                        userMessage: "记忆治理设置未成功保存",
+                        set: { settings.enableMemoryGovernance = $0 }
                     ))
 
-                    Toggle("启用统一写路径", isOn: Binding(
+                    Toggle("启用统一写路径", isOn: persistedSettingsBinding(
                         get: { settings.enableUnifiedMemoryWritePath },
-                        set: { settings.enableUnifiedMemoryWritePath = $0; try? modelContext.save() }
+                        userMessage: "统一写路径设置未成功保存",
+                        set: { settings.enableUnifiedMemoryWritePath = $0 }
                     ))
 
-                    Toggle("允许后台记忆巩固", isOn: Binding(
+                    Toggle("允许后台记忆巩固", isOn: persistedSettingsBinding(
                         get: { settings.enableBackgroundMemoryConsolidation },
-                        set: { settings.enableBackgroundMemoryConsolidation = $0; try? modelContext.save() }
+                        userMessage: "后台记忆巩固设置未成功保存",
+                        set: { settings.enableBackgroundMemoryConsolidation = $0 }
                     ))
 
-                    Stepper(value: Binding(
+                    Stepper(value: persistedSettingsBinding(
                         get: { settings.memoryBackgroundSchedulerIntervalSeconds },
-                        set: { settings.memoryBackgroundSchedulerIntervalSeconds = $0; try? modelContext.save() }
+                        userMessage: "后台调度周期未成功保存",
+                        set: { settings.memoryBackgroundSchedulerIntervalSeconds = $0 }
                     ), in: 5...600, step: 5) {
                         HStack {
                             Text("后台调度周期")
@@ -381,14 +425,16 @@ struct SettingsView: View {
                         }
                     }
 
-                    Toggle("启用 TTL Sweep", isOn: Binding(
+                    Toggle("启用 TTL Sweep", isOn: persistedSettingsBinding(
                         get: { settings.enableMemoryTTLSweep },
-                        set: { settings.enableMemoryTTLSweep = $0; try? modelContext.save() }
+                        userMessage: "TTL Sweep 设置未成功保存",
+                        set: { settings.enableMemoryTTLSweep = $0 }
                     ))
 
-                    Stepper(value: Binding(
+                    Stepper(value: persistedSettingsBinding(
                         get: { settings.memoryTTLSweepIntervalSeconds },
-                        set: { settings.memoryTTLSweepIntervalSeconds = $0; try? modelContext.save() }
+                        userMessage: "TTL Sweep 周期未成功保存",
+                        set: { settings.memoryTTLSweepIntervalSeconds = $0 }
                     ), in: 60...3600, step: 60) {
                         HStack {
                             Text("TTL Sweep 周期")
@@ -408,9 +454,10 @@ struct SettingsView: View {
                                 .monospacedDigit()
                         }
                         Slider(
-                            value: Binding(
+                            value: persistedSettingsBinding(
                                 get: { settings.memoryConfirmationThreshold },
-                                set: { settings.memoryConfirmationThreshold = $0; try? modelContext.save() }
+                                userMessage: "待确认阈值未成功保存",
+                                set: { settings.memoryConfirmationThreshold = $0 }
                             ),
                             in: 0.4...0.95,
                             step: 0.05
@@ -476,7 +523,7 @@ struct SettingsView: View {
     // MARK: - Actions
 
     private func loadSettings() {
-        let s = AppSettings.getOrCreate(in: modelContext)
+        let s = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
         settings = s
         apiKeyInput = s.apiKey
         baseURLInput = s.baseURL
@@ -491,9 +538,12 @@ struct SettingsView: View {
         guard let settings else { return }
         let trimmedKey = apiKeyInput.trimmingCharacters(in: .whitespaces)
         let trimmedURL = baseURLInput.trimmingCharacters(in: .whitespaces)
-        settings.apiKey = trimmedKey
-        settings.baseURL = trimmedURL
-        try? modelContext.save()
+        if !persistSettingsMutation("Anthropic 设置未成功保存", mutation: {
+            settings.apiKey = trimmedKey
+            settings.baseURL = trimmedURL
+        }) {
+            return
+        }
         claudeService.applyConnectionSettings(settings)
 
         withAnimation { isSaved = true }
@@ -504,10 +554,13 @@ struct SettingsView: View {
 
     private func saveProxySettings(for settings: AppSettings) {
         guard isProxyConfigurationValid else { return }
-        settings.enableNetworkProxy = proxyEnabled
-        settings.networkProxyURL = proxyURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        settings.networkProxyBypassList = proxyBypassInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        try? modelContext.save()
+        if !persistSettingsMutation("代理设置未成功保存", mutation: {
+            settings.enableNetworkProxy = proxyEnabled
+            settings.networkProxyURL = proxyURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            settings.networkProxyBypassList = proxyBypassInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        }) {
+            return
+        }
         claudeService.applyConnectionSettings(settings)
 
         withAnimation { isProxySaved = true }
@@ -523,6 +576,32 @@ struct SettingsView: View {
             withAnimation { isMemorySaved = false }
         }
     }
+
+    @discardableResult
+    private func persistSettingsMutation(_ userMessage: String, mutation: () -> Void) -> Bool {
+        mutation()
+        do {
+            try persistenceCoordinator.save(modelContext, domain: .settings, userMessage: userMessage)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func persistedSettingsBinding<Value>(
+        get: @escaping () -> Value,
+        userMessage: String,
+        set: @escaping (Value) -> Void
+    ) -> Binding<Value> {
+        Binding(
+            get: get,
+            set: { newValue in
+                _ = persistSettingsMutation(userMessage) {
+                    set(newValue)
+                }
+            }
+        )
+    }
 }
 
 // MARK: - Skills View
@@ -530,6 +609,7 @@ struct SettingsView: View {
 struct SkillsView: View {
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(PersistenceCoordinator.self) private var persistenceCoordinator
     @Environment(SkillService.self) private var skillService
     @State private var settings: AppSettings?
 
@@ -559,8 +639,9 @@ struct SkillsView: View {
                                         } else {
                                             names.removeAll { $0 == skill.directoryName }
                                         }
-                                        settings.enabledSkillNames = names
-                                        try? modelContext.save()
+                                        _ = persistSettingsMutation("技能启用状态未成功保存") {
+                                            settings.enabledSkillNames = names
+                                        }
                                     }
                                 )) {
                                     VStack(alignment: .leading, spacing: 2) {
@@ -590,8 +671,19 @@ struct SkillsView: View {
             .formStyle(.grouped)
             .navigationTitle("Skills")
             .onAppear {
-                settings = AppSettings.getOrCreate(in: modelContext)
+                settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
             }
+        }
+    }
+
+    @discardableResult
+    private func persistSettingsMutation(_ userMessage: String, mutation: () -> Void) -> Bool {
+        mutation()
+        do {
+            try persistenceCoordinator.save(modelContext, domain: .settings, userMessage: userMessage)
+            return true
+        } catch {
+            return false
         }
     }
 }

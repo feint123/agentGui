@@ -32,6 +32,7 @@ struct WorkspacePanelView: View {
     @Environment(WorkspaceState.self) private var workspaceState
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
     @Environment(ClaudeService.self) private var claudeService
+    @Environment(PersistenceCoordinator.self) private var persistenceCoordinator
     @Environment(\.modelContext) private var modelContext
 
     // MARK: - State
@@ -67,6 +68,11 @@ struct WorkspacePanelView: View {
 
     private var todoItems: [TodoItem] {
         guard let session = workspaceState.selectedSession else { return [] }
+        let store = SessionTaskStateStore(modelContext: modelContext, persistenceCoordinator: persistenceCoordinator)
+        let persistedItems = store.todoItems(for: session.sessionId)
+        if !persistedItems.isEmpty {
+            return persistedItems
+        }
         return claudeService.sessionTodoLists[session.sessionId] ?? []
     }
 
@@ -172,9 +178,17 @@ struct WorkspacePanelView: View {
         panel.prompt = "选择"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         setDirectory(url)
-        let settings = AppSettings.getOrCreate(in: modelContext)
+        let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
         settings.workingDirectory = url.path
-        try? modelContext.save()
+        do {
+            try persistenceCoordinator.save(
+                modelContext,
+                domain: .settings,
+                userMessage: "工作目录未成功保存"
+            )
+        } catch {
+            return
+        }
     }
 
     private func setDirectory(_ url: URL) {
@@ -185,7 +199,7 @@ struct WorkspacePanelView: View {
     }
 
     private func loadFromWorkspaceState() {
-        let settings = AppSettings.getOrCreate(in: modelContext)
+        let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
         let dir = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
         guard !dir.isEmpty else {
             rootNodes = []

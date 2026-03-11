@@ -3,6 +3,7 @@ import SwiftData
 import Testing
 @testable import agentGui
 
+@MainActor
 struct StoryMemoryModelTests {
 
     private func makeStoryContainer() throws -> ModelContainer {

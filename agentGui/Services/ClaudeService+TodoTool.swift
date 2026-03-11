@@ -12,7 +12,11 @@ extension ClaudeService {
     // MARK: - Update Todo List
 
     @discardableResult
-    func executeUpdateTodoList(input: MessageResponse.Content.Input, sessionId: String) -> String {
+    func executeUpdateTodoList(
+        input: MessageResponse.Content.Input,
+        sessionId: String,
+        modelContext: ModelContext
+    ) -> String {
         guard let itemsValue = input["items"] else {
             return "Error: missing 'items' parameter"
         }
@@ -24,7 +28,13 @@ extension ClaudeService {
         else {
             return "Error: failed to parse 'items' array"
         }
-        sessionTodoLists[sessionId] = items
+        let store = SessionTaskStateStore(modelContext: modelContext)
+        do {
+            try store.saveTodoItems(items, for: sessionId)
+            sessionTodoLists[sessionId] = items
+        } catch {
+            return "Error: failed to persist todo list"
+        }
         return "Todo list updated with \(items.count) items."
     }
 }

@@ -19,6 +19,7 @@ struct ChatView: View {
     @Environment(SkillService.self) var skillService
     @Environment(WorkspaceState.self) var workspaceState
     @Environment(WorkflowRuntime.self) var workflowRuntime
+    @Environment(RuntimeRecoveryService.self) var runtimeRecoveryService
 
     // MARK: - Properties
 
@@ -81,6 +82,20 @@ struct ChatView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
+                if let recoverySnapshot = runtimeRecoveryService.recoveryItems(for: session.sessionId).first {
+                    RecoveryBannerView(
+                        snapshot: recoverySnapshot,
+                        onView: {
+                            try? runtimeRecoveryService.markViewed(recoverySnapshot, in: modelContext)
+                        },
+                        onInterrupt: {
+                            try? runtimeRecoveryService.markInterrupted(recoverySnapshot, in: modelContext)
+                        },
+                        onClear: {
+                            try? runtimeRecoveryService.clear(recoverySnapshot, in: modelContext)
+                        }
+                    )
+                }
                 messagesArea
                 inputArea
             }
@@ -150,6 +165,9 @@ struct ChatView: View {
         .sheet(isPresented: $showStoryProjectBrowser) {
             StoryProjectListView(session: session)
                 .frame(minWidth: 900, minHeight: 620)
+        }
+        .task(id: session.sessionId) {
+            try? runtimeRecoveryService.refresh(from: modelContext)
         }
     }
 

@@ -79,16 +79,8 @@ extension ClaudeService {
 
     /// Encodes `plan` as JSON and writes it to the matching `Session.planJson`.
     func persistPlan(_ plan: ExecutionPlan, sessionId: String, modelContext: ModelContext) {
-        guard let data = try? JSONEncoder().encode(plan),
-              let json = String(data: data, encoding: .utf8)
-        else { return }
-        let descriptor = FetchDescriptor<Session>(
-            predicate: #Predicate { $0.sessionId == sessionId }
-        )
-        if let session = (try? modelContext.fetch(descriptor))?.first {
-            session.planJson = json
-            try? modelContext.save()
-        }
+        let store = SessionTaskStateStore(modelContext: modelContext)
+        try? store.savePlan(plan, for: sessionId)
     }
 
     // MARK: - Verify Completion
@@ -97,6 +89,7 @@ extension ClaudeService {
     func executeVerifyCompletion(
         input: MessageResponse.Content.Input,
         sessionId: String,
+        modelContext: ModelContext,
         claimAssessmentOverride: ExecutionClaimAssessment? = nil
     ) async -> String {
         let dynamicToStringArray: (MessageResponse.Content.DynamicContent) -> [String]? = { value in
@@ -123,7 +116,13 @@ extension ClaudeService {
             notVerified: notVerified,
             conclusion: conclusion
         )
-        sessionVerifications[sessionId] = verification
+        let store = SessionTaskStateStore(modelContext: modelContext)
+        do {
+            try store.saveVerification(verification, for: sessionId)
+            sessionVerifications[sessionId] = verification
+        } catch {
+            return "Error: failed to persist verification"
+        }
 
         var output = "Verification recorded.\n"
         output += "✅ Verified (\(verified.count)):\n"

@@ -10,6 +10,8 @@ import Foundation
 
 @Model
 final class AppSettings {
+    static let persistenceSchemaVersion = PersistenceSchema.currentVersion
+
     /// Anthropic API 密钥
     var apiKey: String
 
@@ -163,7 +165,11 @@ extension AppSettings {
 // MARK: - Shared Instance
 extension AppSettings {
     /// 获取或创建单例设置
-    static func getOrCreate(in context: ModelContext) -> AppSettings {
+    @MainActor
+    static func getOrCreate(
+        in context: ModelContext,
+        persistenceCoordinator: PersistenceCoordinator? = nil
+    ) -> AppSettings {
         let descriptor = FetchDescriptor<AppSettings>()
         if let existing = try? context.fetch(descriptor).first {
             return existing
@@ -171,7 +177,15 @@ extension AppSettings {
 
         let settings = AppSettings()
         context.insert(settings)
-        try? context.save()
+        if let persistenceCoordinator {
+            try? persistenceCoordinator.save(
+                context,
+                domain: .settings,
+                userMessage: "设置初始化未成功保存"
+            )
+        } else {
+            try? context.save()
+        }
         return settings
     }
 }

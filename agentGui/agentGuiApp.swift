@@ -8,8 +8,13 @@
 import SwiftUI
 import SwiftData
 
+enum PersistenceSchema {
+    static let currentVersion = 1
+}
+
 @main
 struct agentGuiApp: App {
+    static let persistenceSchemaVersion = PersistenceSchema.currentVersion
 
     private static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -23,6 +28,8 @@ struct agentGuiApp: App {
     @State private var skillService = SkillService()
     @State private var workflowRuntime: WorkflowRuntime?
     @State private var memoryBackgroundScheduler: MemoryBackgroundScheduler?
+    @State private var runtimeRecoveryService = RuntimeRecoveryService()
+    @State private var reliabilityCenterViewModel = ReliabilityCenterViewModel()
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -41,6 +48,9 @@ struct agentGuiApp: App {
             StoryTimelineEvent.self,
             StoryForeshadowItem.self,
             StoryContinuityIssue.self,
+            SessionTaskState.self,
+            RecoverySnapshot.self,
+            IntegrityIssue.self,
             // Workflow orchestration models (Phase 1)
             WorkflowInstance.self,
             WorkflowMessageRecord.self,
@@ -75,6 +85,8 @@ struct agentGuiApp: App {
                 .environment(claudeService)
                 .environment(skillService)
                 .environment(workflowRuntime ?? WorkflowRuntime(claudeService: claudeService))
+                .environment(runtimeRecoveryService)
+                .environment(reliabilityCenterViewModel)
                 .onAppear {
                     // 从持久化设置加载 API Key
                     let context = sharedModelContainer.mainContext
@@ -85,6 +97,8 @@ struct agentGuiApp: App {
                     let runtime = WorkflowRuntime(claudeService: claudeService)
                     workflowRuntime = runtime
                     claudeService.workflowRuntime = runtime
+                    try? runtimeRecoveryService.refresh(from: context)
+                    reliabilityCenterViewModel.refresh(using: context)
 
                     if settings.enableUnifiedMemoryRuntime && settings.enableBackgroundMemoryConsolidation {
                         let scheduler = MemoryBackgroundScheduler()

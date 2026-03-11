@@ -10,6 +10,8 @@ import Foundation
 
 @Model
 final class Session {
+    static let persistenceSchemaVersion = PersistenceSchema.currentVersion
+
     /// 唯一会话 ID
     var sessionId: String
 
