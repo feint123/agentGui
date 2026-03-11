@@ -238,6 +238,7 @@ enum InlineStyleAction: String, Hashable, CaseIterable {
 
 struct InlineSelectionState: Equatable {
     let blockID: UUID
+    let selectedRange: NSRange
     /// Rect in NSScreen coordinates reported by NSTextView.firstRect(forCharacterRange:)
     let selectionRect: CGRect
     let hasSelection: Bool

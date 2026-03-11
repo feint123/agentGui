@@ -15,8 +15,8 @@ private let perfEditor = PerformanceMonitor.self
 struct BlockDocumentEditor: View {
     @Binding var text: String
     let fileURL: URL
-    /// Called whenever the editor selection changes; passes the selected text (or nil when cleared).
-    var onSelectionTextChange: ((String?) -> Void)? = nil
+    /// Called whenever the editor selection changes; passes the selected text and file line range.
+    var onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var document = BlockDocument.empty
@@ -101,7 +101,7 @@ struct BlockDocumentEditor: View {
                                         selectionState = nil
                                     }
                                 }
-                                onSelectionTextChange?(state.hasSelection ? state.selectedText : nil)
+                                onSelectionChange?(selectionSnapshot(for: state))
                             },
                             onSlashMenuPositionChange: { rect in
                                 slashMenuPosition = rect
@@ -575,6 +575,55 @@ struct BlockDocumentEditor: View {
 
     private func supportsIndentation(_ kind: DocumentBlockKind) -> Bool {
         kind == .bulletedList || kind == .numberedList || kind == .todo || kind == .quote
+    }
+}
+
+private extension BlockDocumentEditor {
+    func selectionSnapshot(for state: InlineSelectionState) -> EditorSelectionSnapshot? {
+        guard state.hasSelection else { return nil }
+        return EditorSelectionSnapshot(
+            text: state.selectedText,
+            lineRange: lineRange(for: state)
+        )
+    }
+
+    func lineRange(for state: InlineSelectionState) -> FileLineRange? {
+        guard let blockIndex = document.blocks.firstIndex(where: { $0.id == state.blockID }) else {
+            return nil
+        }
+
+        let block = document.blocks[blockIndex]
+        guard !block.text.isEmpty else { return nil }
+
+        let serializedPrefix = BlockMarkdownCodec.serialize(
+            BlockDocument(blocks: Array(document.blocks.prefix(blockIndex + 1))),
+            fileURL: fileURL
+        )
+        guard let blockTextRange = serializedPrefix.range(of: block.text, options: .backwards) else {
+            return nil
+        }
+
+        let source = block.text as NSString
+        let safeLocation = max(0, min(state.selectedRange.location, source.length))
+        let safeLength = max(0, min(state.selectedRange.length, source.length - safeLocation))
+        let safeRange = NSRange(location: safeLocation, length: safeLength)
+        guard safeRange.length > 0 else { return nil }
+
+        let linesBeforeBlock = newlineCount(in: String(serializedPrefix[..<blockTextRange.lowerBound]))
+        let textBeforeSelection = source.substring(to: safeRange.location)
+        let selectedText = source.substring(with: safeRange)
+        let startLine = linesBeforeBlock + 1 + newlineCount(in: textBeforeSelection)
+        let endLine = startLine + newlineCount(in: selectedText)
+
+        return FileLineRange(startLine: startLine, endLine: endLine)
+    }
+
+    func newlineCount(in text: String) -> Int {
+        text.reduce(into: 0) { partialResult, character in
+            if character == "\n" {
+                partialResult += 1
+            }
+        }
     }
 }
 

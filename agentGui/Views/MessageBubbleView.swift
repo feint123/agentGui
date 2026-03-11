@@ -7,6 +7,7 @@ import SwiftUI
 
 struct MessageBubbleView: View {
     let message: Message
+    var workspaceRoot: String = ""
     var isStreaming: Bool = false
     var onCopy: () -> Void = {}
     var onEdit: ((String) -> Void)? = nil
@@ -29,7 +30,7 @@ struct MessageBubbleView: View {
         var hasMedia: Bool { !images.isEmpty || !pdfs.isEmpty }
     }
 
-    private var parsedContent: ParsedContent {
+    private var agentParsedContent: ParsedContent {
         let raw = message.textContent ?? ""
         let separator = "\n\nReferenced files:\n"
         guard let range = raw.range(of: separator) else {
@@ -50,6 +51,18 @@ struct MessageBubbleView: View {
             else { others.append(path) }
         }
         return ParsedContent(text: text, images: images, pdfs: pdfs, others: others)
+    }
+
+    private var userParsedContent: ParsedUserMessageText {
+        UserMessageTextParser.parse(text: message.textContent ?? "", workspaceRoot: workspaceRoot)
+    }
+
+    private var userPresentation: UserMessagePresentation {
+        UserMessagePresentation.make(from: userParsedContent)
+    }
+
+    private var editableUserText: String {
+        userParsedContent.bodyText
     }
 
     var body: some View {
@@ -111,11 +124,17 @@ struct MessageBubbleView: View {
     }
 
     private var userBubble: some View {
-        let content = parsedContent
+        let content = userPresentation
         return VStack(alignment: .trailing, spacing: 8) {
-            Text(content.text)
-                .font(.body)
-                .textSelection(.enabled)
+            Group {
+                if content.hasStructuredInlineContent {
+                    UserMessageInlineContentView(presentation: content)
+                } else {
+                    Text(userParsedContent.bodyText)
+                        .font(.body)
+                }
+            }
+            .textSelection(.enabled)
             if !content.images.isEmpty || !content.pdfs.isEmpty {
                 mediaGrid(images: content.images, pdfs: content.pdfs)
             }
@@ -179,7 +198,7 @@ struct MessageBubbleView: View {
 
     @ViewBuilder
     private var agentCardContent: some View {
-        let content = parsedContent
+        let content = agentParsedContent
 
         VStack(alignment: .leading, spacing: 8) {
             AgentMessageStepFlowView(message: message)
@@ -201,7 +220,7 @@ struct MessageBubbleView: View {
         HStack(spacing: 2) {
             if message.direction == .user, onEdit != nil {
                 actionButton("pencil", tooltip: "编辑") {
-                    editText = parsedContent.text
+                    editText = editableUserText
                     isEditing = true
                 }
             }
@@ -236,7 +255,7 @@ struct MessageBubbleView: View {
         }
         if message.direction == .user, onEdit != nil {
             Button {
-                editText = parsedContent.text
+                editText = editableUserText
                 isEditing = true
             } label: {
                 Label("编辑", systemImage: "pencil")

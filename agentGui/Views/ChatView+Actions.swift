@@ -24,17 +24,22 @@ extension ChatView {
         let settings = AppSettings.getOrCreate(in: modelContext)
         fullText = expandMentions(in: fullText, workingDirectory: settings.workingDirectory)
 
-        // Build context XML prefix from current file path and/or selected text
+        // Build a parseable workspace context prefix from the current file path and/or selected text.
         var contextParts: [String] = []
-        if showFileContext, let fileURL = workspaceState.selectedFile {
-            contextParts.append("<file path=\"\(fileURL.path)\"/>")
-        }
         if showSelectionContext, let sel = workspaceState.editorSelectedText, !sel.isEmpty {
-            let path = workspaceState.selectedFile?.path ?? ""
-            contextParts.append("<selection path=\"\(path)\">\n\(sel)\n</selection>")
+            if let fileURL = workspaceState.selectedFile {
+                contextParts.append("当前文件: \(WorkspaceFileContextFormatter.inlineReference(for: fileURL, lineRange: workspaceState.editorSelectedLineRange))")
+            } else if let lineRange = workspaceState.editorSelectedLineRange {
+                contextParts.append("当前文件: :\(lineRange.displayText)")
+            } else {
+                contextParts.append("当前文件:")
+            }
+            contextParts.append("选区内容:\n\(sel)")
+        } else if showFileContext, let fileURL = workspaceState.selectedFile {
+            contextParts.append("当前文件: \(WorkspaceFileContextFormatter.inlineReference(for: fileURL))")
         }
         if !contextParts.isEmpty {
-            fullText = "<context>\n" + contextParts.joined(separator: "\n") + "\n</context>\n\n" + fullText
+            fullText = contextParts.joined(separator: "\n") + "\n\n" + fullText
         }
 
         if !attachedFiles.isEmpty {

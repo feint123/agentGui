@@ -44,7 +44,7 @@ struct FileEditorView: View {
             hasUnsavedChanges = loadedFileURL != nil && newValue != fileContent
         }
         .onChange(of: workspaceState.selectedFile) { _, newURL in
-            workspaceState.editorSelectedText = nil
+            workspaceState.editorSelection = nil
             if let url = newURL {
                 loadFile(url)
             } else {
@@ -114,8 +114,8 @@ struct FileEditorView: View {
     private func fileContentView(for url: URL) -> some View {
         switch viewerType {
         case .text:
-            BlockDocumentEditor(text: $textContent, fileURL: url, onSelectionTextChange: { text in
-                workspaceState.editorSelectedText = text
+            BlockDocumentEditor(text: $textContent, fileURL: url, onSelectionChange: { snapshot in
+                workspaceState.editorSelection = snapshot
             })
         case .image:
             Group {

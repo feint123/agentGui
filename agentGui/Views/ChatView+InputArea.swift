@@ -90,45 +90,59 @@ extension ChatView {
 
     var contextChipsRow: some View {
         HStack(spacing: 6) {
-            if showFileContext, let fileURL = workspaceState.selectedFile {
-                contextChip(
-                    systemImage: "doc.text",
-                    label: fileURL.lastPathComponent,
-                    tint: .accentColor
-                ) { showFileContext = false }
-            }
-            if showSelectionContext, let sel = workspaceState.editorSelectedText, !sel.isEmpty {
+            if let fileURL = workspaceState.selectedFile,
+               showFileContext || (showSelectionContext && workspaceState.editorSelectedText?.isEmpty == false) {
                 contextChip(
                     systemImage: "text.cursor",
-                    label: "已选 \(sel.count) 字符",
+                    label: combinedFileContextLabel,
                     tint: .orange
-                ) { showSelectionContext = false }
+                ) {
+                    showFileContext = false
+                    showSelectionContext = false
+                }
+            } else if showFileContext, let fileURL = workspaceState.selectedFile {
+                contextChip(
+                    systemImage: "doc.text",
+                    label: WorkspaceFileContextFormatter.displayLabel(for: fileURL),
+                    tint: .accentColor
+                ) { showFileContext = false }
             }
             Spacer(minLength: 0)
         }
     }
 
+    private var combinedFileContextLabel: String {
+        if let fileURL = workspaceState.selectedFile {
+            return WorkspaceFileContextFormatter.displayLabel(
+                for: fileURL,
+                lineRange: workspaceState.editorSelectedLineRange
+            )
+        }
+        return workspaceState.editorSelectedLineRange?.displayText ?? "已选文本"
+    }
+
     func contextChip(systemImage: String, label: String, tint: Color, onRemove: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
-                .font(.caption2)
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(tint)
             Text(label)
-                .font(.caption)
+                .font(.body)
+                .foregroundStyle(.primary.opacity(0.72))
                 .lineLimit(1)
             Button(action: onRemove) {
                 Image(systemName: "xmark")
-                    .font(.caption2)
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.tertiary)
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 1)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
     }
@@ -223,16 +237,7 @@ var fileChipsRow: some View {
     }
 
     func fileIcon(for name: String) -> String {
-        let ext = (name as NSString).pathExtension.lowercased()
-        switch ext {
-        case "swift": return "swift"
-        case "py": return "doc.text"
-        case "js", "ts": return "doc.text"
-        case "json": return "curlybraces"
-        case "md": return "doc.richtext"
-        case "png", "jpg", "jpeg", "gif", "svg": return "photo"
-        default: return "doc"
-        }
+        FileIconSymbolResolver.symbol(forFileName: name)
     }
 
     var sendButton: some View {

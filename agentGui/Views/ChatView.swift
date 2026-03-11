@@ -134,7 +134,7 @@ struct ChatView: View {
         .onChange(of: workspaceState.selectedFile) { _, _ in
             showFileContext = true
         }
-        .onChange(of: workspaceState.editorSelectedText) { _, _ in
+        .onChange(of: workspaceState.editorSelection) { _, _ in
             showSelectionContext = true
         }
         .onChange(of: workflowRuntime.isRunning) { _, isRunning in

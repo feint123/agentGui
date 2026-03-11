@@ -28,11 +28,15 @@ extension ChatView {
     }
 
     var messageListView: some View {
-        ScrollViewReader { proxy in
+        let globalWorkingDirectory = AppSettings.getOrCreate(in: modelContext).workingDirectory
+        let effectiveWorkspaceRoot = workspaceState.effectiveWorkingDirectory(globalDefault: globalWorkingDirectory)
+
+        return ScrollViewReader { proxy in
             List {
                 ForEach(allMessages) { message in
                     MessageBubbleView(
                         message: message,
+                        workspaceRoot: effectiveWorkspaceRoot,
                         isStreaming: claudeService.isStreaming,
                         onCopy: { copyMessage(message) },
                         onEdit: message.direction == .user

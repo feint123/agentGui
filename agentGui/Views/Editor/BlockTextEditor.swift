@@ -332,6 +332,7 @@ struct BlockTextEditor: NSViewRepresentable {
             guard selectedRange.length > 0 else {
                 parent.onSelectionChange?(InlineSelectionState(
                     blockID: parent.blockID,
+                    selectedRange: selectedRange,
                     selectionRect: .zero,
                     hasSelection: false,
                     activeActions: [],
@@ -346,6 +347,7 @@ struct BlockTextEditor: NSViewRepresentable {
             let selectedText = (textView.string as NSString).substring(with: selectedRange)
             parent.onSelectionChange?(InlineSelectionState(
                 blockID: parent.blockID,
+                selectedRange: selectedRange,
                 selectionRect: screenRect,
                 hasSelection: true,
                 activeActions: activeActions,
