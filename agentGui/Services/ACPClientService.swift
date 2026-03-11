@@ -112,8 +112,35 @@ final class ClaudeService {
     /// 每个 Session 的完成验证记录（key = sessionId）
     var sessionVerifications: [String: CompletionVerification] = [:]
 
+    /// 每个 Session 已观察到的执行证据（key = sessionId）
+    var sessionExecutionEvidence: [String: Set<ExecutionEvidenceKind>] = [:]
+
     /// Skill service reference for tool dispatch and system prompt
     var skillService: SkillService?
+
+    func makeEphemeralSystemPrompt(_ prompt: String) -> MessageParameter.System? {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return .list([
+            .init(text: trimmed, cacheControl: .init(type: .ephemeral))
+        ])
+    }
+
+    func makeEphemeralTool(
+        name: String,
+        description: String? = nil,
+        inputSchema: JSONSchema? = nil
+    ) -> MessageParameter.Tool {
+        .function(
+            name: name,
+            description: description,
+            inputSchema: inputSchema,
+            cacheControl: .init(type: .ephemeral)
+        )
+    }
+
+    /// Optional structured business log sink used by tests and future observability integration.
+    var businessLogSink: BusinessLogSink?
 
     /// Workflow runtime — injected from the app root after creation.
     var workflowRuntime: WorkflowRuntime?
@@ -314,8 +341,17 @@ final class ClaudeService {
         modelContext.insert(assistantMessage)
         try? modelContext.save()
 
+        let latestUserText = apiMessages.reversed()
+            .first(where: { $0.role == "user" })
+            .map { extractText(from: $0.content) } ?? ""
+        let executionRequirement = await assessExecutionRequirement(
+            for: latestUserText,
+            service: service,
+            modelId: modelId
+        )
+
         do {
-            try await runAgenticLoop(
+            let result = try await runAgenticLoop(
                 apiMessages: apiMessages,
                 assistantMessage: assistantMessage,
                 service: service,
@@ -324,9 +360,10 @@ final class ClaudeService {
                 systemPrompt: systemPrompt,
                 session: session,
                 settings: settings,
-                modelContext: modelContext
+                modelContext: modelContext,
+                executionRequirement: executionRequirement
             )
-            assistantMessage.status = .completed
+            assistantMessage.status = result.completedSuccessfully ? .completed : .failed
             if assistantMessage.textContent?.isEmpty ?? true {
                 assistantMessage.textContent = "(无响应)"
             }

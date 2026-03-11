@@ -106,8 +106,8 @@ enum ProxyURLSessionFactory {
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.connectionProxyDictionary = proxyDictionary
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 60
+        configuration.timeoutIntervalForRequest = 300
+        configuration.timeoutIntervalForResource = 600
         return URLSession(configuration: configuration)
     }
 }

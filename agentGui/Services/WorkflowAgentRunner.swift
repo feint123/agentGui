@@ -32,17 +32,32 @@ struct WorkflowAgentRunner {
         activationRecord: WorkflowActivationRecord,
         onAction: ((String) -> Void)? = nil
     ) async throws -> AgentActivationResult {
+        func emitBusinessEvent(_ event: AgentBusinessEvent, metadata: [String: Any] = [:]) {
+            let contextMetadata = BusinessLogContext(
+                workflowID: context.workflowId.uuidString
+            )
+            BusinessMonitor.emit(event, context: contextMetadata, metadata: metadata, sink: claudeService.businessLogSink)
+        }
+
         let taskPackage = buildTask(role: role, context: context, inbox: inboxMessages)
         let task = taskPackage.task
         var loopMessages: [MessageParameter.Message] = [.init(role: .user, content: .text(task))]
-        let system: MessageParameter.System? = role.systemPrompt.isEmpty
-            ? nil
-            : .text(role.systemPrompt)
+        let system = claudeService.makeEphemeralSystemPrompt(role.systemPrompt)
 
         let tools = buildTools(role: role)
 
-        print("[Workflow] ▶ \(role.displayName) activation | tools=\(tools.count) inbox=\(inboxMessages.count) maxTurns=\(role.maxTurnsPerActivation)")
-        print("[Workflow]   task preview: \(task.prefix(200).replacingOccurrences(of: "\n", with: " "))")
+        emitBusinessEvent(
+            .workflowActivationStarted,
+            metadata: [
+                "activationID": activationRecord.id.uuidString,
+                "roleName": role.name,
+                "roleDisplayName": role.displayName,
+                "inboxCount": inboxMessages.count,
+                "maxTurns": role.maxTurnsPerActivation,
+                "toolCount": tools.count,
+                "taskPreview": String(task.prefix(200)).replacingOccurrences(of: "\n", with: " ")
+            ]
+        )
 
         // Artifact capture: roles with a primaryOutputArtifactKind MUST call
         // emit_workflow_artifact. If they don't, the activation is marked failed.
@@ -73,7 +88,15 @@ struct WorkflowAgentRunner {
                         artifactKind: kind
                     )
                     await violationCollector.capture(violation)
-                    print("[Workflow] ⚠ Contract[writableArtifacts]: \(violation.summary)")
+                    emitBusinessEvent(
+                        .workflowContractViolation,
+                        metadata: [
+                            "roleName": roleName,
+                            "violationKind": violation.kind.rawValue,
+                            "summary": violation.summary,
+                            "artifactKind": kind.rawValue
+                        ]
+                    )
                     return .failure("Contract violation: role '\(roleName)' cannot write '\(kind.rawValue)'. Permitted kinds: [\(role.writableArtifacts.map(\.rawValue).sorted().joined(separator: ", "))]")
                 }
                 guard let data = contentJson.data(using: .utf8),
@@ -102,7 +125,7 @@ struct WorkflowAgentRunner {
         }
 
         let startTime = Date()
-        let outputText = try await claudeService.runCoreAgentLoop(
+        let loopResult = try await claudeService.runCoreAgentLoop(
             messages: &loopMessages,
             service: service,
             modelId: modelId,
@@ -126,6 +149,7 @@ struct WorkflowAgentRunner {
             },
             toolInterceptor: artifactInterceptor
         )
+        let outputText = loopResult.text
 
         let elapsed = Date().timeIntervalSince(startTime)
         let turnsUsed = max(1, loopMessages.count / 2)
@@ -133,13 +157,18 @@ struct WorkflowAgentRunner {
         let interceptedViolations = await violationCollector.violations
         let contractViolations = taskPackage.contractViolations + interceptedViolations
 
-        print("[Workflow] ✓ \(role.displayName) loop done | elapsed=\(String(format: "%.1fs", elapsed)) turns=\(turnsUsed) outputLen=\(outputText.count) artifact=\(capturedArtifact.map { $0.kind.displayName } ?? "none")")
-
         let resultKind: ActivationResultKind
-        if outputText.isEmpty {
+        if outputText.isEmpty || !loopResult.completedSuccessfully {
             resultKind = .failed
         } else if role.primaryOutputArtifactKind != nil, capturedArtifact == nil {
-            print("[Workflow] ✗ \(role.displayName) rejected — emit_workflow_artifact was not called")
+            emitBusinessEvent(
+                .workflowContractViolation,
+                metadata: [
+                    "roleName": role.name,
+                    "violationKind": "missingPrimaryArtifact",
+                    "summary": "emit_workflow_artifact was not called for a role that requires a primary artifact"
+                ]
+            )
             resultKind = .failed
         } else {
             resultKind = .success
@@ -152,9 +181,7 @@ struct WorkflowAgentRunner {
         )
         let summary = buildSummary(outputText: outputText, role: role, elapsed: elapsed)
 
-        print("[Workflow]   artifacts=\(newArtifacts.map(\.kind.displayName).joined(separator: ",")) msgs=\(newMessages.map(\.kind.displayName).joined(separator: ","))")
-
-        return AgentActivationResult(
+        let result = AgentActivationResult(
             role: role.name,
             outputText: outputText,
             newMessages: newMessages,
@@ -164,6 +191,21 @@ struct WorkflowAgentRunner {
             turnsUsed: turnsUsed,
             contractViolations: contractViolations
         )
+        emitBusinessEvent(
+            .workflowActivationFinished,
+            metadata: [
+                "activationID": activationRecord.id.uuidString,
+                "roleName": role.name,
+                "resultKind": result.resultKind.rawValue,
+                "turnsUsed": result.turnsUsed,
+                "artifactCount": result.newArtifacts.count,
+                "messageCount": result.newMessages.count,
+                "elapsedSeconds": elapsed,
+                "outputLength": outputText.count,
+                "contractViolationCount": contractViolations.count
+            ]
+        )
+        return result
     }
 
     // MARK: - Task Construction
@@ -351,7 +393,7 @@ struct WorkflowAgentRunner {
     }
 
     private func makeEmitArtifactTool() -> MessageParameter.Tool {
-        .function(
+        claudeService.makeEphemeralTool(
             name: "emit_workflow_artifact",
             description: """
             Submit the structured artifact that is the primary output of this activation. \
@@ -475,7 +517,8 @@ private struct WorkflowToolStub {
                         "view_range": .init(type: .array,   description: "(view) Optional [start_line, end_line] to limit output")
                     ],
                     required: ["command", "path"]
-                )
+                ),
+                cacheControl: .init(type: .ephemeral)
             ))
         }
 
@@ -505,7 +548,8 @@ private struct WorkflowToolStub {
                         "interactive": .init(type: .boolean, description: "If true, return once output becomes idle so the caller can continue the interactive session")
                     ],
                     required: []
-                )
+                ),
+                cacheControl: .init(type: .ephemeral)
             ))
         }
 
@@ -520,7 +564,8 @@ private struct WorkflowToolStub {
                         "count": .init(type: .integer, description: "Number of results (1-10, default 5)")
                     ],
                     required: ["query"]
-                )
+                ),
+                cacheControl: .init(type: .ephemeral)
             ))
         }
 
@@ -535,7 +580,8 @@ private struct WorkflowToolStub {
                         "max_chars": .init(type: .integer, description: "Maximum characters to return (default 8000)")
                     ],
                     required: ["url"]
-                )
+                ),
+                cacheControl: .init(type: .ephemeral)
             ))
         }
 

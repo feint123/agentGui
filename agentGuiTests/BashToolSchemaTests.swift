@@ -61,10 +61,22 @@ struct BashToolSchemaTests {
         let settings = AppSettings()
         let tools = ClaudeService().buildTools(modelId: "claude-sonnet-4-6", settings: settings)
         let memoryWrite = try #require(toolNamed("memory_write", in: tools))
-        let description = try #require(extractString(labeled: "description", from: Mirror(reflecting: memoryWrite)))
+        let description = try #require(encodedToolDictionary(from: memoryWrite)?["description"] as? String)
 
         #expect(description.contains("unified memory store"))
         #expect(!description.contains("~/.agentgui/memory.md"))
+    }
+
+    @Test func toolBuilderMarksToolsAsEphemeralForPromptCaching() async throws {
+        let settings = AppSettings()
+        settings.enableBashTool = true
+        settings.enableWebFetchTool = true
+        settings.enableWebSearchTool = true
+
+        let tools = ClaudeService().buildTools(modelId: "claude-sonnet-4-6", settings: settings)
+
+        #expect(!tools.isEmpty)
+        #expect(tools.allSatisfy { cacheControlType(from: $0) == "ephemeral" })
     }
 
     private func toolNamed(_ name: String, in tools: [MessageParameter.Tool]) -> MessageParameter.Tool? {
@@ -76,57 +88,29 @@ struct BashToolSchemaTests {
     }
 
     private func toolName(from tool: MessageParameter.Tool) -> String? {
-        extractString(labeled: "name", from: Mirror(reflecting: tool))
+        encodedToolDictionary(from: tool)?["name"] as? String
     }
 
     private func schemaPropertyNames(from tool: MessageParameter.Tool) -> Set<String> {
-        extractPropertyNames(from: Mirror(reflecting: tool))
-    }
-
-    private func extractString(labeled target: String, from mirror: Mirror) -> String? {
-        for child in mirror.children {
-            if child.label == target, let value = child.value as? String {
-                return value
-            }
-
-            let childMirror = Mirror(reflecting: child.value)
-            if let value = extractString(labeled: target, from: childMirror) {
-                return value
-            }
+        guard let inputSchema = encodedToolDictionary(from: tool)?["input_schema"] as? [String: Any],
+              let properties = inputSchema["properties"] as? [String: Any] else {
+            return []
         }
 
-        return nil
+        return Set(properties.keys)
     }
 
-    private func extractPropertyNames(from mirror: Mirror) -> Set<String> {
-        var names: Set<String> = []
-
-        for child in mirror.children {
-            if child.label == "properties" {
-                names.formUnion(collectStringKeys(from: Mirror(reflecting: child.value)))
-            }
-
-            names.formUnion(extractPropertyNames(from: Mirror(reflecting: child.value)))
-        }
-
-        return names
+    private func cacheControlType(from tool: MessageParameter.Tool) -> String? {
+        (encodedToolDictionary(from: tool)?["cache_control"] as? [String: String])?["type"]
     }
 
-    private func collectStringKeys(from mirror: Mirror) -> Set<String> {
-        var names: Set<String> = []
-
-        for child in mirror.children {
-            let childMirror = Mirror(reflecting: child.value)
-            if childMirror.displayStyle == .tuple {
-                let tupleChildren = Array(childMirror.children)
-                if let key = tupleChildren.first?.value as? String {
-                    names.insert(key)
-                }
-            }
-
-            names.formUnion(collectStringKeys(from: childMirror))
+    private func encodedToolDictionary(from tool: MessageParameter.Tool) -> [String: Any]? {
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(tool),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
         }
 
-        return names
+        return json
     }
 }

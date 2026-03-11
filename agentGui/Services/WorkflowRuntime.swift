@@ -16,6 +16,7 @@
 //
 
 import Foundation
+import OSLog
 import SwiftData
 
 // MARK: - WorkflowHandle
@@ -31,6 +32,7 @@ struct WorkflowHandle: Sendable {
 @Observable
 @MainActor
 final class WorkflowRuntime {
+    private static let logger = Logger(subsystem: "com.agentgui", category: "Workflow")
 
     // MARK: - Observable State
 
@@ -60,7 +62,16 @@ final class WorkflowRuntime {
     // MARK: - Logging
 
     private func log(_ msg: String) {
-        print("[Workflow] \(msg)")
+        Self.logger.info("\(msg)")
+    }
+
+    private func emitBusinessEvent(
+        _ event: AgentBusinessEvent,
+        workflowID: UUID?,
+        metadata: [String: Any] = [:]
+    ) {
+        let context = BusinessLogContext(workflowID: workflowID?.uuidString)
+        BusinessMonitor.emit(event, context: context, metadata: metadata, sink: claudeService.businessLogSink)
     }
 
     // MARK: - Public API
@@ -101,6 +112,17 @@ final class WorkflowRuntime {
         // Build initial context
         var context = definition.makeInitialContext(task: initialTask, sessionId: session.sessionId)
         context.workspaceContext = workspaceContext
+        emitBusinessEvent(
+            .workflowStarted,
+            workflowID: context.workflowId,
+            metadata: [
+                "definitionId": definition.id,
+                "definitionName": definition.displayName,
+                "sessionID": session.sessionId,
+                "workingDirectory": workspaceContext.workingDirectory,
+                "skillCount": workspaceContext.availableSkills.count
+            ]
+        )
 
         // Persist the WorkflowInstance
         let instance = WorkflowInstance(
@@ -334,6 +356,16 @@ final class WorkflowRuntime {
         log("  status : \(context.status.displayName)")
         log("  ticks  : \(context.totalTicks) | activations: \(context.totalActivations)")
         log("  artifacts produced: \(context.artifacts.values.map(\.kind.displayName).joined(separator: ", "))")
+        emitBusinessEvent(
+            .workflowFinished,
+            workflowID: context.workflowId,
+            metadata: [
+                "status": context.status.displayName,
+                "ticks": context.totalTicks,
+                "activationCount": context.totalActivations,
+                "artifactCount": context.artifacts.count
+            ]
+        )
         return WorkflowHandle(workflowId: context.workflowId, definitionId: definition.id)
     }
 
@@ -378,6 +410,17 @@ final class WorkflowRuntime {
             modelContext.insert(record)
             instance.messages.append(record)
             log("⚠ Contract violation recorded: \(violation.summary)")
+            emitBusinessEvent(
+                .workflowContractViolation,
+                workflowID: context.workflowId,
+                metadata: [
+                    "roleName": violation.roleName,
+                    "violationKind": violation.kind.rawValue,
+                    "summary": violation.summary,
+                    "messageKind": violation.messageKind?.rawValue ?? "",
+                    "artifactId": violation.artifactId ?? ""
+                ]
+            )
         }
         try? modelContext.save()
     }

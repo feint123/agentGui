@@ -71,9 +71,7 @@ extension ClaudeService {
     ) async throws -> AgentMessage {
         let startTime = Date()
         var loopMessages: [MessageParameter.Message] = [.init(role: .user, content: .text(task))]
-        let system: MessageParameter.System? = definition.systemPrompt.isEmpty
-            ? nil
-            : .text(definition.systemPrompt)
+        let system = makeEphemeralSystemPrompt(definition.systemPrompt)
         let result = try await runCoreAgentLoop(
             messages: &loopMessages,
             service: service,
@@ -92,7 +90,7 @@ extension ClaudeService {
             parentMessage: nil,
             onTextAccumulated: { _ in }
         )
-        let output = result.isEmpty ? "(subagent produced no output)" : result
+        let output = result.text.isEmpty ? "(subagent produced no output)" : result.text
         let elapsed = Date().timeIntervalSince(startTime)
         let metadata: [String: String] = [
             "agent":    definition.name,
@@ -106,7 +104,7 @@ extension ClaudeService {
     private func buildSubagentTools(modelId: String, definition: WorkflowRoleDefinition, settings: AppSettings) -> [MessageParameter.Tool] {
         var tools: [MessageParameter.Tool] = []
         if definition.enableTextEditor {
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "str_replace_based_edit_tool",
                 description: """
                 A text editor for viewing and modifying files. Supported commands:
@@ -132,7 +130,7 @@ extension ClaudeService {
             ))
         }
         if definition.enableBash {
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "bash",
                 description: """
                 Execute shell commands in a persistent bash session. \
@@ -169,7 +167,7 @@ extension ClaudeService {
             ))
         }
         if definition.enableWebSearch && settings.enableWebSearchTool {
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "web_search",
                 description: """
                 Search the web using Bing and return a list of relevant results (title, URL, snippet). \
@@ -186,7 +184,7 @@ extension ClaudeService {
             ))
         }
         if definition.enableWebFetch && settings.enableWebFetchTool {
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "web_fetch",
                 description: """
                 Fetch a webpage and return its cleaned text content. \

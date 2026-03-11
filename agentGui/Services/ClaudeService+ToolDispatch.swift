@@ -60,7 +60,7 @@ extension ClaudeService {
         case "create_execution_plan":
             return .detect(executeCreateExecutionPlan(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "verify_completion":
-            return .detect(executeVerifyCompletion(input: input, sessionId: sessionId), toolName: name)
+            return .detect(await executeVerifyCompletion(input: input, sessionId: sessionId), toolName: name)
         case "story_memory_create_project":
             return .detect(executeStoryMemoryCreateProject(input: input, session: session, modelContext: modelContext), toolName: name)
         case "story_memory_attach_project":
@@ -147,7 +147,7 @@ extension ClaudeService {
         case "create_execution_plan":
             return .detect(executeCreateExecutionPlan(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "verify_completion":
-            return .detect(executeVerifyCompletion(input: input, sessionId: sessionId), toolName: name)
+            return .detect(await executeVerifyCompletion(input: input, sessionId: sessionId), toolName: name)
         case "story_memory_create_project":
             return .detect(executeStoryMemoryCreateProject(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "story_memory_attach_project":

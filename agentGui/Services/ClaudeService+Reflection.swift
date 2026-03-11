@@ -95,7 +95,7 @@ extension ClaudeService {
             model: .other(modelId),
             messages: messages + [userMsg],
             maxTokens: 1024,
-            system: .text(reflectionSystemPrompt)
+            system: makeEphemeralSystemPrompt(reflectionSystemPrompt)
         )
 
         do {

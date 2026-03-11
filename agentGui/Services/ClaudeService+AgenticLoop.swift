@@ -61,14 +61,15 @@ extension ClaudeService {
         session: Session,
         settings: AppSettings,
         modelContext: ModelContext,
-        maxRounds: Int = 50
-    ) async throws {
+        executionRequirement: ExecutionRequirement = .none,
+        maxRounds: Int = 500
+    ) async throws -> AgentLoopRunResult {
         let loopSpan = perfLog.startSpan("AgenticLoop", category: "Loop", level: .verbose)
         defer { loopSpan.end() }
 
         var loopMessages = apiMessages
-        let system: MessageParameter.System? = systemPrompt.isEmpty ? nil : .text(systemPrompt)
-        try await runCoreAgentLoop(
+        let system = makeEphemeralSystemPrompt(systemPrompt)
+        let result = try await runCoreAgentLoop(
             messages: &loopMessages,
             service: service,
             modelId: modelId,
@@ -87,11 +88,13 @@ extension ClaudeService {
                 assistantMessage.textContent = text
                 uiSpan.addMetadata("length", value: text.count)
                 uiSpan.end()
-            }
+            },
+            executionRequirement: executionRequirement
         )
         let saveSpan = perfLog.startSpan("FinalSave", category: "Database")
         try? modelContext.save()
         saveSpan.end()
+        return result
     }
 
     // MARK: - Core Loop
@@ -122,16 +125,39 @@ extension ClaudeService {
         makeRound: (Int) -> AgentRound,
         parentMessage: Message?,
         onTextAccumulated: (String) -> Void,
-        toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)? = nil
-    ) async throws -> String {
+        toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)? = nil,
+        executionRequirement: ExecutionRequirement = .none
+    ) async throws -> AgentLoopRunResult {
         var accumulatedText = ""
         var loopCtx = AgentLoopContext(phase: .executing)
         var loopMemory = ContextMemory()
         var lastRound: AgentRound? = nil
+        let runID = UUID().uuidString
+        var executionEvidence: Set<ExecutionEvidenceKind> = []
+        var executionGuardRetryCount = 0
         var memoryRuntimeProfiles: [String] = []
         var memoryRuntimeLayers: [String] = []
         var memoryRuntimeWarnings: [String] = []
         var memoryRuntimeSnapshotID: String?
+
+        func emitBusinessEvent(_ event: AgentBusinessEvent, metadata: [String: Any] = [:]) {
+            let context = BusinessLogContext(
+                runID: runID,
+                sessionID: sessionId.isEmpty ? nil : sessionId,
+                roundIndex: loopCtx.roundIndex,
+                phase: loopCtx.phase.label
+            )
+            BusinessMonitor.emit(event, context: context, metadata: metadata, sink: businessLogSink)
+        }
+
+        emitBusinessEvent(
+            .loopStarted,
+            metadata: [
+                "modelId": modelId,
+                "maxRounds": maxRounds,
+                "messageCount": messages.count
+            ]
+        )
 
         if let unifiedContext = try? await buildUnifiedMemoryBootstrap(
             settings: settings,
@@ -151,7 +177,14 @@ extension ClaudeService {
             }
 
             if !unifiedContext.renderedPrompt.isEmpty {
-                print("[MemoryRuntime] Loaded unified memory slice for session \(sessionId)")
+                emitBusinessEvent(
+                    .memoryBootstrapLoaded,
+                    metadata: [
+                        "source": "unified",
+                        "recordCount": unifiedContext.records.count,
+                        "warningCount": unifiedContext.warnings.count
+                    ]
+                )
                 messages.insert(
                     MessageParameter.Message(role: .user, content: .text("【统一记忆切片】以下是当前任务的统一记忆视图，请优先遵守其中的当前状态、事实、事件与风险：\n\n\(unifiedContext.renderedPrompt)")),
                     at: 0
@@ -169,7 +202,14 @@ extension ClaudeService {
                !taskMem.isEmpty,
                let tmText = try? taskMemoryPromptText(sessionId: sessionId, store: unifiedStore),
                !tmText.isEmpty {
-                print("[TaskMemory] Loaded unified task memory for session \(sessionId), \(taskMem.confirmedFacts.count) facts, \(taskMem.failedAttempts.count) failures")
+                emitBusinessEvent(
+                    .memoryBootstrapLoaded,
+                    metadata: [
+                        "source": "task-unified",
+                        "confirmedFactCount": taskMem.confirmedFacts.count,
+                        "failedAttemptCount": taskMem.failedAttempts.count
+                    ]
+                )
                 messages.insert(
                     MessageParameter.Message(role: .user, content: .text("【任务级持久记忆】这是本任务的已知状态，请优先保留这些结构化状态：\n\n\(tmText)")),
                     at: 0
@@ -187,7 +227,13 @@ extension ClaudeService {
                 modelContext: modelContext
             ),
                   !storySlice.isEmpty {
-                print("[StoryMemory] Loaded project-scoped writing slice for session \(sessionId)")
+                emitBusinessEvent(
+                    .memoryBootstrapLoaded,
+                    metadata: [
+                        "source": "story",
+                        "promptLength": storySlice.count
+                    ]
+                )
                 let insertionIndex = min(messages.count, 2)
                 messages.insert(
                     MessageParameter.Message(role: .user, content: .text("【创作记忆切片】以下是当前写作任务的项目级故事记忆，请优先保持人物、事件、伏笔和风格的一致性：\n\n\(storySlice)")),
@@ -199,7 +245,6 @@ extension ClaudeService {
                 )
             }
         }
-        print("Initial messages count: \(messages.count)，messages: \(messages.map { String(describing: $0) })")
         while loopCtx.shouldContinue && loopCtx.roundIndex < maxRounds {
             try Task.checkCancellation()
 
@@ -208,7 +253,13 @@ extension ClaudeService {
             // loopCtx.transition(stopReason:) cannot overwrite the phase.
             if loopCtx.phase == .reflecting {
                 let trigger = loopCtx.pendingFailureTrigger
-                print("[Reflection] Starting failure-driven reflection pass \(loopCtx.reflectionCount + 1), trigger: \(trigger?.description ?? "none")")
+                emitBusinessEvent(
+                    .reflectionStarted,
+                    metadata: [
+                        "reflectionPass": loopCtx.reflectionCount + 1,
+                        "trigger": trigger?.description ?? "none"
+                    ]
+                )
                 let reflection = await reflectOnRound(
                     messages: messages,
                     service: service,
@@ -221,7 +272,6 @@ extension ClaudeService {
 
                 // Persist on the most-recent round (already created by the previous iteration)
                 if let ref = reflection {
-                    print("[Reflection] confidence=\(ref.confidence) retry=\(ref.shouldRetry)")
                     // Stamp the reflection data onto the last completed round
                     if let round = lastRound {
                         round.reflectionConfidence = ref.confidence
@@ -241,9 +291,18 @@ extension ClaudeService {
                                 concerns: ref.concerns,
                                 suggestedFixes: ref.suggestedFixes
                             )
-                            print("[Reflection] Wrote failure record to unified task memory (session \(sessionId))")
                         } catch {
-                            print("[Reflection] Failed to write unified task memory: \(error)")
+                            emitBusinessEvent(
+                                .reflectionCompleted,
+                                metadata: [
+                                    "confidence": ref.confidence,
+                                    "shouldRetry": ref.shouldRetry,
+                                    "concernCount": ref.concerns.count,
+                                    "suggestedFixCount": ref.suggestedFixes.count,
+                                    "taskMemoryWriteStatus": "failed",
+                                    "taskMemoryWriteError": String(describing: error)
+                                ]
+                            )
                         }
                     }
 
@@ -260,15 +319,39 @@ extension ClaudeService {
                             """
                         messages.append(.init(role: .user, content: .text(correctionPrompt)))
                     }
+                        emitBusinessEvent(
+                            .reflectionCompleted,
+                            metadata: [
+                                "confidence": ref.confidence,
+                                "shouldRetry": ref.shouldRetry,
+                                "concernCount": ref.concerns.count,
+                                "suggestedFixCount": ref.suggestedFixes.count,
+                                "taskMemoryWriteStatus": sessionId.isEmpty ? "skipped" : "completed"
+                            ]
+                        )
                     loopCtx.reflectionComplete(shouldRetry: ref.shouldRetry)
                 } else {
-                    print("[Reflection] Reflection call failed or returned nil — skipping retry")
+                        emitBusinessEvent(
+                            .reflectionCompleted,
+                            metadata: [
+                                "result": "missing",
+                                "shouldRetry": false
+                            ]
+                        )
                     loopCtx.reflectionComplete(shouldRetry: false)
                 }
                 continue
             }
 
-            print("[\(loopCtx.phase)] Starting round \(loopCtx.roundIndex) with \(messages.count) messages")
+            emitBusinessEvent(
+                .roundStarted,
+                metadata: [
+                    "messageCount": messages.count,
+                    "phase": loopCtx.phase.label,
+                    "modelId": modelId
+                ]
+            )
+            let accumulatedTextBeforeRound = accumulatedText
 
             let roundSpan = perfLog.startSpan("Round_\(loopCtx.roundIndex)", category: "Loop", level: .normal)
 
@@ -285,7 +368,6 @@ extension ClaudeService {
             let budget = settings.extendedThinkingBudget
             // thinking budget must be < maxTokens; give at least 4096 for response
             let maxTokens = useThinking ? max(budget + 4096, 16000) : 8192
-            print("Using model \(modelId) with maxTokens \(maxTokens)")
 
             let params = MessageParameter(
                 model: .other(modelId),
@@ -295,7 +377,6 @@ extension ClaudeService {
                 tools: tools.isEmpty ? nil : tools,
                 thinking: useThinking ? .init(budgetTokens: budget) : nil
             )
-            print("Sending message with \(params.messages.count) messages, system: \(system == nil ? "none" : "present")")
 
             // Count input tokens before streaming (reliable: countTokens API always returns input_tokens)
             if let tokenCount = try? await service.countTokens(
@@ -307,12 +388,10 @@ extension ClaudeService {
                 )
             ) {
                 currentInputTokens = tokenCount.inputTokens
-                print("Input tokens: \(tokenCount.inputTokens) (\(Int(contextUsageRatio * 100))%)")
             }
 
             let stream = try await service.streamMessage(params)
             let roundIdx = loopCtx.nextRound()
-            print("Received stream for round \(roundIdx)")
 
             let streamSpan = perfLog.startSpan("StreamRound_\(roundIdx)", category: "API", level: .normal)
 
@@ -456,7 +535,14 @@ extension ClaudeService {
 
             // Drive state machine transition based on stop_reason
             loopCtx.transition(stopReason: stopReason)
-            print("[\(loopCtx.phase)] stop_reason=\(stopReason ?? "nil") after round \(roundIdx)")
+            emitBusinessEvent(
+                .stopReasonReceived,
+                metadata: [
+                    "stopReason": stopReason ?? "nil",
+                    "phase": loopCtx.phase.label,
+                    "roundIndex": roundIdx
+                ]
+            )
 
             switch loopCtx.phase {
 
@@ -473,7 +559,14 @@ extension ClaudeService {
                 var toolResultObjects: [MessageParameter.Message.Content.ContentObject] = []
 
                 for pending in sorted {
-                    print("Executing tool \(pending.name) with input: \(pending.partialJson)")
+                    emitBusinessEvent(
+                        .toolExecutionStarted,
+                        metadata: [
+                            "toolName": pending.name,
+                            "inputLength": pending.partialJson.count,
+                            "roundIndex": roundIdx
+                        ]
+                    )
                     let toolSpan = perfLog.startSpan("tool_\(pending.name)", category: "Tool", level: .normal)
 
                     let input = pending.parsedInput
@@ -628,6 +721,10 @@ extension ClaudeService {
                     record.terminalOutput = result.text
                     record.status = result.toolCallStatus
                     record.endTime = Date()
+                    if let evidence = ExecutionGuard.evidenceKind(toolName: pending.name, input: input, result: result) {
+                        executionEvidence.insert(evidence)
+                        sessionExecutionEvidence[sessionId] = executionEvidence
+                    }
                     try? modelContext.save()
 
                     // Detect failure events that warrant failure-driven reflection.
@@ -649,6 +746,17 @@ extension ClaudeService {
                         }
                     }
 
+                    emitBusinessEvent(
+                        .toolExecutionFinished,
+                        metadata: [
+                            "toolName": pending.name,
+                            "status": result.toolCallStatus.rawValue,
+                            "isError": result.isError,
+                            "outputLength": result.text.count,
+                            "roundIndex": roundIdx
+                        ]
+                    )
+
                     toolResultObjects.append(.toolResult(pending.id, result.text, isError: result.isError ? true : nil))
                     toolResultObjects.append(contentsOf: result.mediaContent)
 
@@ -664,7 +772,13 @@ extension ClaudeService {
 
             case .continuingTruncatedResponse:
                 // Model hit token limit; inject a continuation turn without replanning
-                print("max_tokens at round \(roundIdx) — injecting continuation turn")
+                emitBusinessEvent(
+                    .continuationInjected,
+                    metadata: [
+                        "reason": "max_tokens",
+                        "roundIndex": roundIdx
+                    ]
+                )
                 if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
                 if !assistantObjects.isEmpty {
                     messages.append(.init(role: .assistant, content: .list(assistantObjects)))
@@ -677,7 +791,13 @@ extension ClaudeService {
 
             case .resumingAfterPause:
                 // Server-side sampling pause; resume by feeding partial response back
-                print("pause_turn at round \(roundIdx) — resuming server-side sampling")
+                emitBusinessEvent(
+                    .continuationInjected,
+                    metadata: [
+                        "reason": "pause_turn",
+                        "roundIndex": roundIdx
+                    ]
+                )
                 if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
                 if !assistantObjects.isEmpty {
                     messages.append(.init(role: .assistant, content: .list(assistantObjects)))
@@ -686,10 +806,36 @@ extension ClaudeService {
                 loopCtx.continuationInjected()
 
             case .finalizing:
+                let guardDecision = ExecutionGuard.resolveFinalization(
+                    requirement: executionRequirement,
+                    evidenceKinds: executionEvidence,
+                    retryCount: executionGuardRetryCount
+                )
+                switch guardDecision {
+                case .allow:
+                    break
+                case .requestExecution(let prompt):
+                    accumulatedText = accumulatedTextBeforeRound
+                    onTextAccumulated(accumulatedText)
+                    if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
+                    if !assistantObjects.isEmpty {
+                        messages.append(.init(role: .assistant, content: .list(assistantObjects)))
+                    }
+                    messages.append(.init(role: .user, content: .text(prompt)))
+                    executionGuardRetryCount += 1
+                    loopCtx.retryAfterExecutionGuard()
+                    break
+                case .fail(let reason):
+                    loopCtx.phase = .failed
+                    loopCtx.terminationReason = reason
+                    break
+                }
+
                 // Failure-driven reflection: only trigger when a specific failure event was detected
                 // (tool error, reviewer rejection, or executor validation failure). Generic
                 // end_turns without failures skip reflection entirely.
-                if settings.enableReflection,
+                if loopCtx.phase == .finalizing,
+                   settings.enableReflection,
                    loopCtx.pendingFailureTrigger != nil,
                    loopCtx.reflectionCount < 3 {
                     loopCtx.phase = .reflecting
@@ -698,7 +844,6 @@ extension ClaudeService {
 
             case .failed:
                 let reason = loopCtx.terminationReason ?? "stop_reason=\(stopReason ?? "nil")"
-                print("Agent loop failed: \(reason)")
                 let errorNote = "\n\n⚠️ Agent loop ended unexpectedly (\(reason))."
                 accumulatedText += errorNote
                 parentMessage?.textContent = (parentMessage?.textContent ?? "") + errorNote
@@ -713,13 +858,27 @@ extension ClaudeService {
 
         // Safety: loop exited because maxRounds was reached (not a natural stop)
         if loopCtx.roundIndex >= maxRounds && loopCtx.shouldContinue {
-            print("Agent loop reached maxRounds (\(maxRounds)), terminating")
             let notice = "\n\n⚠️ Agent loop stopped after reaching the maximum of \(maxRounds) rounds."
             accumulatedText += notice
             parentMessage?.textContent = (parentMessage?.textContent ?? "") + notice
+            emitBusinessEvent(.loopFailed, metadata: ["terminationReason": "maxRounds"])
+            return AgentLoopRunResult(
+                text: accumulatedText,
+                completedSuccessfully: false,
+                terminationReason: "maxRounds"
+            )
         }
 
-        return accumulatedText
+        let result = AgentLoopRunResult(
+            text: accumulatedText,
+            completedSuccessfully: loopCtx.phase == .finalizing,
+            terminationReason: loopCtx.phase == .finalizing ? nil : loopCtx.terminationReason
+        )
+        emitBusinessEvent(
+            result.completedSuccessfully ? .loopFinished : .loopFailed,
+            metadata: ["terminationReason": result.terminationReason ?? "completed"]
+        )
+        return result
     }
 
     private func buildStoryMemoryBootstrap(

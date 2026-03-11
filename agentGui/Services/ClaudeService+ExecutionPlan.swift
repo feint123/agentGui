@@ -94,7 +94,11 @@ extension ClaudeService {
     // MARK: - Verify Completion
 
     @discardableResult
-    func executeVerifyCompletion(input: MessageResponse.Content.Input, sessionId: String) -> String {
+    func executeVerifyCompletion(
+        input: MessageResponse.Content.Input,
+        sessionId: String,
+        claimAssessmentOverride: ExecutionClaimAssessment? = nil
+    ) async -> String {
         let dynamicToStringArray: (MessageResponse.Content.DynamicContent) -> [String]? = { value in
             let any = self.dynamicContentToAny(value)
             guard let arr = any as? [Any],
@@ -124,6 +128,20 @@ extension ClaudeService {
         var output = "Verification recorded.\n"
         output += "✅ Verified (\(verified.count)):\n"
         output += verified.map { "  - \($0)" }.joined(separator: "\n")
+        let evidence = sessionExecutionEvidence[sessionId] ?? []
+        let claimAssessment: ExecutionClaimAssessment?
+        if let claimAssessmentOverride {
+            claimAssessment = claimAssessmentOverride
+        } else if evidence.isEmpty,
+                  let service,
+                  let assessment = await assessVerificationClaims(verified, service: service, modelId: currentModelId) {
+            claimAssessment = assessment
+        } else {
+            claimAssessment = nil
+        }
+        if evidence.isEmpty, ExecutionGuard.shouldWarnForVerificationClaims(claimAssessment) {
+            output += "\n⚠️ Warning: verification claims mention execution results, but there is no execution evidence recorded for this session."
+        }
         if !notVerified.isEmpty {
             output += "\n⚠️ Not verified (\(notVerified.count)):\n"
             output += notVerified.map { "  - \($0)" }.joined(separator: "\n")

@@ -8,6 +8,12 @@
 
 import Foundation
 
+struct AgentLoopRunResult: Equatable {
+    let text: String
+    let completedSuccessfully: Bool
+    let terminationReason: String?
+}
+
 // MARK: - AgentLoopPhase
 
 /// Every distinct phase the agent loop can occupy.
@@ -50,6 +56,29 @@ enum AgentLoopPhase: Equatable {
             return true
         case .finalizing, .failed, .cancelled:
             return false
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .idle:
+            return "idle"
+        case .executing:
+            return "executing"
+        case .awaitingToolResults:
+            return "awaitingToolResults"
+        case .continuingTruncatedResponse:
+            return "continuingTruncatedResponse"
+        case .resumingAfterPause:
+            return "resumingAfterPause"
+        case .finalizing:
+            return "finalizing"
+        case .reflecting:
+            return "reflecting"
+        case .failed:
+            return "failed"
+        case .cancelled:
+            return "cancelled"
         }
     }
 }
@@ -118,6 +147,10 @@ struct AgentLoopContext {
 
     /// Called after a continuation or resume turn has been injected.
     mutating func continuationInjected() {
+        phase = .executing
+    }
+
+    mutating func retryAfterExecutionGuard() {
         phase = .executing
     }
 

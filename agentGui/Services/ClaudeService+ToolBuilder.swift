@@ -36,7 +36,7 @@ extension ClaudeService {
         var tools: [MessageParameter.Tool] = []
 
         if settings.enableTextEditorTool {
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "str_replace_based_edit_tool",
                 description: """
                 A text editor for viewing and modifying files. Supported commands:
@@ -63,7 +63,7 @@ extension ClaudeService {
         }
 
         if settings.enableBashTool {
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "bash",
                 description: """
                 Execute shell commands in a persistent bash session. \
@@ -108,7 +108,7 @@ extension ClaudeService {
         }
 
         if settings.enableWebSearchTool {
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "web_search",
                 description: """
                 Search the web using Bing and return a list of relevant results (title, URL, snippet). \
@@ -126,7 +126,7 @@ extension ClaudeService {
         }
 
         if settings.enableWebFetchTool {
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "web_fetch",
                 description: """
                 Fetch a webpage and return its cleaned text content. \
@@ -145,7 +145,7 @@ extension ClaudeService {
         }
 
         if !enabledSkills.isEmpty {
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "read_skill",
                 description: "Load the full instructions of a skill by name. Use when the user's request matches a skill's purpose.",
                 inputSchema: .init(
@@ -166,7 +166,7 @@ extension ClaudeService {
             let agentList = WorkflowRoleDefinition.all
                 .map { "- \($0.name) (\($0.displayName)): \($0.description)" }
                 .joined(separator: "\n")
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "run_subagent",
                 description: """
                 Delegate a focused task to a specialized built-in subagent. The subagent runs \
@@ -206,7 +206,7 @@ extension ClaudeService {
             let workflowList = ClaudeService.availableWorkflows
                 .map { "- \($0.id): \($0.description)" }
                 .joined(separator: "\n")
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "start_workflow",
                 description: """
                 Launch a multi-agent workflow for tasks that require sustained collaboration \
@@ -246,7 +246,7 @@ extension ClaudeService {
         }
 
         // update_todo_list: available to all agents (main and subagent)
-        tools.append(.function(
+        tools.append(makeEphemeralTool(
             name: "update_todo_list",
             description: """
             Update the current task list shown in the workspace panel. \
@@ -273,7 +273,7 @@ extension ClaudeService {
         ))
 
         // create_execution_plan: records a structured plan before tackling complex tasks
-        tools.append(.function(
+        tools.append(makeEphemeralTool(
             name: "create_execution_plan",
             description: """
             Record a structured execution plan before starting a complex task. \
@@ -297,7 +297,7 @@ extension ClaudeService {
         ))
 
         // verify_completion: explicitly states what was and wasn't verified before finishing
-        tools.append(.function(
+        tools.append(makeEphemeralTool(
             name: "verify_completion",
             description: """
             Record a completion verification just before finishing a task. \
@@ -316,7 +316,7 @@ extension ClaudeService {
         ))
 
         if settings.enableStoryMemory && isSubagent {
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_create_project",
                 description: "Create a writing project for story memory, optionally attaching it to the current session.",
                 inputSchema: .init(
@@ -330,7 +330,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_attach_project",
                 description: "Attach an existing writing project to the current session.",
                 inputSchema: .init(
@@ -342,7 +342,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_upsert_character",
                 description: "Create or update a character profile in the active writing project.",
                 inputSchema: .init(
@@ -363,7 +363,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_upsert_chapter",
                 description: "Create or update a chapter record in the active writing project.",
                 inputSchema: .init(
@@ -381,7 +381,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_upsert_scene",
                 description: "Create or update a scene record under an existing chapter in the active writing project.",
                 inputSchema: .init(
@@ -403,7 +403,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_upsert_world_rule",
                 description: "Create or update a world rule in the active writing project.",
                 inputSchema: .init(
@@ -423,7 +423,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_upsert_location",
                 description: "Create or update a location profile in the active writing project.",
                 inputSchema: .init(
@@ -440,7 +440,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_upsert_foreshadow",
                 description: "Create or update a foreshadow item in the active writing project.",
                 inputSchema: .init(
@@ -458,7 +458,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_upsert_style_profile",
                 description: "Create or update the singleton style profile for the active writing project.",
                 inputSchema: .init(
@@ -477,7 +477,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_update_continuity_issue",
                 description: "Update the status of an existing continuity issue in the active writing project.",
                 inputSchema: .init(
@@ -492,7 +492,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_append_event",
                 description: "Append a timeline event to the active writing project.",
                 inputSchema: .init(
@@ -513,7 +513,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_query",
                 description: "Query the active writing project for structured story memory entities.",
                 inputSchema: .init(
@@ -532,7 +532,7 @@ extension ClaudeService {
                 )
             ))
 
-            tools.append(.function(
+            tools.append(makeEphemeralTool(
                 name: "story_memory_verify_continuity",
                 description: "Check a draft scene against recent story memory for continuity risks.",
                 inputSchema: .init(
@@ -555,7 +555,7 @@ extension ClaudeService {
         }
 
         // ask_user_question is always available to the main agent only
-        tools.append(.function(
+        tools.append(makeEphemeralTool(
             name: "ask_user_question",
             description: """
             Ask the user one or more questions with structured multiple-choice options. \
@@ -606,7 +606,7 @@ extension ClaudeService {
             )
         ))
 
-        tools.append(.function(
+        tools.append(makeEphemeralTool(
             name: "analyze_image",
             description: """
             Load a local image file and analyze its visual content. \
@@ -623,7 +623,7 @@ extension ClaudeService {
             )
         ))
 
-        tools.append(.function(
+        tools.append(makeEphemeralTool(
             name: "read_pdf",
             description: """
             Extract all text content from a local PDF file using PDFKit. \
@@ -641,7 +641,7 @@ extension ClaudeService {
         ))
 
         // memory_write: always available — lets Claude persist governed long-term facts across sessions
-        tools.append(.function(
+        tools.append(makeEphemeralTool(
             name: "memory_write",
             description: """
             Persist important long-term facts into the unified memory store. \
