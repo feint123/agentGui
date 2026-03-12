@@ -461,22 +461,6 @@ final class ClaudeService {
             parts.append("## Working Directory\nThe current working directory for all file and bash tool operations is: \(workingDirectory)")
         }
 
-        if settings.enableStoryMemory,
-           let session = sessionOverride ?? currentSession,
-           !session.activeWritingProjectId.isEmpty {
-            parts.append("""
-            ## Creative Memory Delegation
-
-            This session is bound to a writing project. Treat project memory as an on-demand collaborator, not as a permanent toolbox in your main context.
-
-            Use `run_subagent` with `agent_name: \"creative_memory_manager\"` only when the current task depends on project canon, such as character state, world rules, timeline, foreshadowing, continuity, or project-bound writeback decisions.
-
-            始终按需委托，只请求当前任务所需的最小相关记忆切片。
-            The delegated result must be interpreted in three buckets: facts, inferences, and risks.
-            If memory delegation fails, continue the writing task only if it is still possible, and explicitly note that project memory was not updated.
-            """)
-        }
-
         if !skills.isEmpty {
             var lines = [
                 "## Available Skills",
@@ -510,25 +494,22 @@ final class ClaudeService {
 
         You have access to specialized subagents via the `run_subagent` tool. Follow these rules strictly:
 
-        **Use `explorer` FIRST whenever the task involves:**
+        **Use `explore` FIRST whenever the task involves:**
         - Researching a topic, technology, product, or capability ("explore X", "research Y", "what can Z do", "Z 的能力")
         - Writing a report, analysis, comparison, or summary that requires gathering information
         - Finding documentation, APIs, changelogs, news, or any external reference
         - Answering factual questions about things that may have changed since your training cutoff
 
         **Workflow for research/report tasks (MANDATORY):**
-        1. Call `run_subagent` with `agent_name: "explorer"` to gather all needed information.
-        2. Wait for the explorer's result.
+        1. Call `run_subagent` with `agent_name: "explore"` to gather all needed information.
+        2. Wait for the explore result.
         3. Synthesize the findings into the final response for the user.
-        Do NOT attempt to answer research questions from memory alone when `explorer` can gather live, accurate data.
+        Do NOT attempt to answer research questions from memory alone when `explore` can gather live, accurate data.
 
         **Other delegation rules:**
-        - Use `coder` for implementing or modifying code files.
-        - Use `reviewer` for code quality/security audits.
-        - Use `executor` for running shell commands, builds, or tests.
-        - Use `summarizer` for distilling long documents into concise summaries.
-        - Use `planner` for very large or ambiguous tasks where you need a structured plan before starting.
-        - Use `creative_memory_manager` when the request needs project-bound creative memory retrieval, canon write review, or continuity checking.
+        - Use `worker` for implementing or modifying files and for targeted verification work that is part of the implementation step.
+        - Use `verifier` for final quality gates, evidence review, and checking whether claims are actually supported.
+        - Prefer direct execution for simple edits; delegate only when the task benefits from a focused subagent loop.
         """)
 
         parts.append("""
@@ -541,8 +522,7 @@ final class ClaudeService {
         Call `create_execution_plan` at the very start to produce a structured plan artifact.
         - Break the work into 5–15 concrete, verb-first steps.
         - List key assumptions and success criteria.
-        - For very large or ambiguous tasks, delegate planning to `run_subagent` (agent_name: "planner") \
-          and use its JSON output as the basis for your `create_execution_plan` call.
+                - For very large or ambiguous tasks, use `run_subagent` with `agent_name: "explore"` first to gather the missing context before creating the plan.
 
         ### 2. EXECUTE
         Work through the plan steps in order.
@@ -575,8 +555,8 @@ final class ClaudeService {
 
         **USE `start_workflow` for:**
         - Implementing or refactoring code across multiple files where you need to plan, \
-          explore the codebase, write code, review it, and verify the result
-        - Large-scale tasks that benefit from the plan → explore → code → review → execute pipeline
+                    explore the codebase, implement changes, and verify the result
+        - Large-scale tasks that benefit from the plan → explore → implement → verify pipeline
 
         **DO NOT use `start_workflow` for:**
         - Simple Q&A, quick lookups, or single-file edits

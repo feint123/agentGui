@@ -17,22 +17,20 @@ enum ToolContext: String, Codable, Hashable {
 }
 
 struct ToolDefinitionBuildContext {
-    let availableAgents: [WorkflowRoleDefinition]
+    let agentCatalog: any AgentCatalogProtocol
     let availableWorkflows: [(id: String, displayName: String, description: String)]
 
     static let `default` = ToolDefinitionBuildContext(
-        availableAgents: WorkflowRoleDefinition.all,
+        agentCatalog: AgentCatalog.shared,
         availableWorkflows: ClaudeService.availableWorkflows
     )
 
     var agentListText: String {
-        availableAgents
-            .map { "- \($0.name) (\($0.displayName)): \($0.description)" }
-            .joined(separator: "\n")
+        agentCatalog.agentListText
     }
 
     var agentNameListText: String {
-        availableAgents.map(\.name).joined(separator: " | ")
+        agentCatalog.agentNameListText
     }
 
     var workflowListText: String {

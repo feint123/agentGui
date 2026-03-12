@@ -44,7 +44,7 @@ struct AgentLoopIntegrationTests {
                 {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-subagent","name":"run_subagent"}}
                 """),
                 decodeStreamEvent("""
-                {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\\"agent_name\\\":\\\"planner\\\",\\\"task\\\":\\\"Plan the fix\\\"}"}}
+                {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\\"agent_name\\\":\\\"explore\\\",\\\"task\\\":\\\"Explore the fix\\\"}"}}
                 """),
                 decodeStreamEvent("""
                 {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
@@ -92,9 +92,9 @@ struct AgentLoopIntegrationTests {
         #expect(result.completedSuccessfully)
         #expect(result.text.contains("outer loop finished"))
         #expect(toolCalls.count == 1)
-        #expect(toolCalls.first?.subagentAgentName == "planner")
+        #expect(toolCalls.first?.subagentAgentName == "explore")
         #expect(toolCalls.first?.subagentResultKind == "text")
-        #expect(toolCalls.first?.subagentMessageMetadata?["agent"] == "planner")
+        #expect(toolCalls.first?.subagentMessageMetadata?["agent"] == "explore")
     }
 
     @Test func runCoreAgentLoopTracksForegroundBashTaskToCompletion() async throws {

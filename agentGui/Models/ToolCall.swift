@@ -106,7 +106,7 @@ final class ToolCall {
     /// AgentMessage 携带的元数据键值对（轮次数、耗时等）（kind == .subagent 时使用）
     var subagentMessageMetadata: [String: String]?
 
-    /// 创作记忆委托的任务类型（kind == .subagent 且 agent == creative_memory_manager 时使用）
+    /// 子代理相关的记忆审计任务类型（如有附带记忆审计元数据时使用）
     var storyMemoryTaskType: String?
 
     /// 创作记忆委托结果状态（ready / projectNotBound / failed ...）

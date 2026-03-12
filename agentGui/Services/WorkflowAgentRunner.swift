@@ -305,7 +305,7 @@ struct WorkflowAgentRunner {
             }
         }
 
-        if role.name == "coder",
+        if role.name == "worker",
            let evaluatorEntry = renderEvaluatorLoopEntry(in: context, inbox: inbox) {
             parts.append(evaluatorEntry)
         }
@@ -356,7 +356,7 @@ struct WorkflowAgentRunner {
 
         return [
             "\n## Evaluator Loop Entry",
-            "You are re-entering the coder because the previous candidate failed evaluator checks.",
+            "You are re-entering the worker because the previous candidate failed evaluator checks.",
             "Carry every item in the structured payload below into the next patch and address them explicitly.",
             "```json",
             serializeEvaluatorFailure(failure, historyCount: context.evaluatorLoop.failureHistory.count),

@@ -25,13 +25,16 @@ struct FailureClassificationHook: AgentLoopHook {
         }
 
         let agentName = context.toolInput["agent_name"]?.stringValue ?? ""
-        if agentName == "reviewer" && context.toolResultText.contains("needs_revision") {
-            return .failureTrigger(.reviewerRejection(feedback: context.toolResultText))
-        }
-        if agentName == "executor" &&
-            (context.toolResultText.contains("\"status\": \"failed\"") ||
-             context.toolResultText.contains("\"status\":\"failed\"")) {
-            return .failureTrigger(.executorValidationFailure(detail: context.toolResultText))
+        if agentName == "verifier" {
+            if context.toolResultText.contains("needs_revision") {
+                return .failureTrigger(.reviewerRejection(feedback: context.toolResultText))
+            }
+            if context.toolResultText.contains("\"status\": \"failed\"") ||
+                context.toolResultText.contains("\"status\":\"failed\"") ||
+                context.toolResultText.contains("\"status\": \"needs_revision\"") ||
+                context.toolResultText.contains("\"status\":\"needs_revision\"") {
+                return .failureTrigger(.verificationFailure(detail: context.toolResultText))
+            }
         }
 
         return .continue

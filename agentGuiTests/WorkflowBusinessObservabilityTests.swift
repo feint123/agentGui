@@ -20,7 +20,7 @@ struct WorkflowBusinessObservabilityTests {
             modelContext: try makeModelContext()
         )
 
-        let role = try #require(WorkflowRoleDefinition.find(named: "summarizer"))
+        let role = try #require(WorkflowRoleDefinition.find(named: "verifier"))
         let context = WorkflowContext(sessionId: "", definitionId: "test-workflow", userTask: "review the implementation")
         let activationRecord = WorkflowActivationRecord(
             workflowId: context.workflowId,

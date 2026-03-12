@@ -149,7 +149,7 @@ struct WorkflowContext: Sendable {
     /// Accumulated artifacts produced during the workflow.
     var artifacts: [String: WorkflowArtifact] = [:]
 
-    /// Structured evaluator loop state shared across coder / reviewer / executor.
+    /// Structured evaluator loop state shared across worker / verifier stages.
     var evaluatorLoop = WorkflowEvaluatorLoopState()
 
     /// Hard runtime contract violations recorded during delivery and activation.

@@ -73,9 +73,9 @@ struct AgentMessageFlowPresentationTests {
         #expect(toolCall.fileName == "ChatView.swift")
     }
 
-    @Test func creativeMemorySubagentRowSurfacesAuditSummary() async throws {
+    @Test func subagentRowSurfacesAuditSummaryWhenMemoryFieldsExist() async throws {
         let tool = ToolCall(toolCallId: "subagent-memory", kind: .subagent)
-        tool.subagentAgentName = "creative_memory_manager"
+        tool.subagentAgentName = "worker"
         tool.storyMemoryTaskType = "verifyContinuity"
         tool.storyMemoryStatus = "ready"
         tool.storyMemoryRiskSummary = "顾沉突然离开王都将与上一章冲突"

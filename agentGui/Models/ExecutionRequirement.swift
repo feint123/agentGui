@@ -99,7 +99,7 @@ enum ExecutionGuard {
         case "bash":
             return .bash
         case "run_subagent":
-            return input["agent_name"]?.stringValue == "executor" ? .executorSubagent : nil
+            return input["agent_name"]?.stringValue == "worker" ? .executorSubagent : nil
         case "start_workflow":
             return result.isError ? nil : .workflow
         case _ where builtinExecutionToolNames.contains(toolName):

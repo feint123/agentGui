@@ -17,7 +17,7 @@ struct ExecutionRequirementTests {
 
     @Test func evidenceClassificationRecognizesExecutionTools() {
         let toolInput: MessageResponse.Content.Input = [
-            "agent_name": .string("executor")
+            "agent_name": .string("worker")
         ]
 
         #expect(ExecutionGuard.evidenceKind(toolName: "bash", input: [:], result: .success("ok")) == .bash)

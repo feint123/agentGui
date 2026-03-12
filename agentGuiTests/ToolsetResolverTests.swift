@@ -7,7 +7,7 @@ import Testing
 struct ToolsetResolverTests {
 
     @Test func resolverExcludesWebSearchWhenDisabledInSettings() throws {
-        let role = try #require(WorkflowRoleDefinition.find(named: "explorer"))
+        let role = try #require(WorkflowRoleDefinition.find(named: "explore"))
         let settings = AppSettings()
         settings.enableTextEditorTool = true
         settings.enableWebSearchTool = false
@@ -23,20 +23,19 @@ struct ToolsetResolverTests {
         #expect(result.excludedToolIDs.contains("web_search"))
     }
 
-    @Test func resolverExposesStoryMemoryToolsForCreativeMemoryManager() throws {
-        let role = try #require(WorkflowRoleDefinition.find(named: "creative_memory_manager"))
+    @Test func resolverExposesEditorAndShellToolsForWorker() throws {
+        let role = try #require(WorkflowRoleDefinition.find(named: "worker"))
         let settings = AppSettings()
-        settings.enableStoryMemory = true
+        settings.enableTextEditorTool = true
+        settings.enableBashTool = true
 
         let result = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
             .init(context: .subagent, role: role, settings: settings)
         )
 
-        #expect(result.toolIDs.contains("story_memory_query"))
-        #expect(result.toolIDs.contains("story_memory_verify_continuity"))
-        #expect(result.toolIDs.contains("story_memory_upsert_character"))
-        #expect(!result.toolIDs.contains("bash"))
-        #expect(!result.toolIDs.contains("str_replace_based_edit_tool"))
+        #expect(result.toolIDs.contains("str_replace_based_edit_tool"))
+        #expect(result.toolIDs.contains("bash"))
+        #expect(!result.toolIDs.contains("story_memory_query"))
     }
 
     @Test func resolverBuildsReadOnlyToolsetForVerifier() throws {

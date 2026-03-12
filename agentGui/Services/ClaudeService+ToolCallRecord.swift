@@ -76,10 +76,8 @@ extension ClaudeService {
         case "run_subagent":
             kind = .subagent
             let agentName = input["agent_name"]?.stringValue ?? ""
-            let definition = WorkflowRoleDefinition.find(named: agentName)
-            title = agentName == "creative_memory_manager"
-                ? "创作记忆委托"
-                : "子代理: \(definition?.displayName ?? agentName)"
+            let definition = AgentCatalog.shared.find(named: agentName)
+            title = "子代理: \(definition?.displayName ?? agentName)"
         case "update_todo_list":
             kind = .todo
             let itemCount = input["items"]?.arrayValue?.count ?? 0

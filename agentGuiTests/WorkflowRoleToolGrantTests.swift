@@ -5,11 +5,13 @@ import Testing
 @MainActor
 struct WorkflowRoleToolGrantTests {
 
-    @Test func plannerRoleResolvesReadOnlyEditorWithoutShell() throws {
-        let role = try #require(WorkflowRoleDefinition.find(named: "planner"))
+    @Test func exploreRoleResolvesReadOnlyEditorWithoutShell() throws {
+        let role = try #require(WorkflowRoleDefinition.find(named: "explore"))
         let settings = AppSettings()
         settings.enableTextEditorTool = true
         settings.enableBashTool = true
+        settings.enableWebSearchTool = true
+        settings.enableWebFetchTool = true
 
         let result = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
             .init(context: .subagent, role: role, settings: settings)
@@ -17,10 +19,12 @@ struct WorkflowRoleToolGrantTests {
 
         #expect(result.toolIDs.contains("str_replace_based_edit_tool"))
         #expect(!result.toolIDs.contains("bash"))
+        #expect(result.toolIDs.contains("web_search"))
+        #expect(result.toolIDs.contains("web_fetch"))
     }
 
-    @Test func coderRoleResolvesEditorAndShellTools() throws {
-        let role = try #require(WorkflowRoleDefinition.find(named: "coder"))
+    @Test func workerRoleResolvesEditorAndShellTools() throws {
+        let role = try #require(WorkflowRoleDefinition.find(named: "worker"))
         let settings = AppSettings()
         settings.enableTextEditorTool = true
         settings.enableBashTool = true
@@ -31,5 +35,19 @@ struct WorkflowRoleToolGrantTests {
 
         #expect(result.toolIDs.contains("str_replace_based_edit_tool"))
         #expect(result.toolIDs.contains("bash"))
+    }
+
+    @Test func verifierRoleResolvesReadOnlyEditorWithoutShell() throws {
+        let role = try #require(WorkflowRoleDefinition.find(named: "verifier"))
+        let settings = AppSettings()
+        settings.enableTextEditorTool = true
+        settings.enableBashTool = true
+
+        let result = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
+            .init(context: .subagent, role: role, settings: settings)
+        )
+
+        #expect(result.toolIDs.contains("str_replace_based_edit_tool"))
+        #expect(!result.toolIDs.contains("bash"))
     }
 }

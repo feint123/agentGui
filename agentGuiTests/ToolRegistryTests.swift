@@ -31,6 +31,29 @@ struct ToolRegistryTests {
         #expect((payload["cache_control"] as? [String: String])?["type"] == "ephemeral")
     }
 
+    @Test func runSubagentToolExposesOnlyThreeBuiltInAgents() throws {
+        let registry = DefaultToolRegistry()
+        let definition = try #require(registry.definition(for: "run_subagent"))
+        let tool = definition.makeAnthropicTool()
+
+        let payload = try #require(encodedToolDictionary(from: tool))
+        let description = try #require(payload["description"] as? String)
+        let schema = try #require(payload["input_schema"] as? [String: Any])
+        let properties = try #require(schema["properties"] as? [String: Any])
+        let agentName = try #require(properties["agent_name"] as? [String: Any])
+        let agentDescription = try #require(agentName["description"] as? String)
+
+        #expect(description.contains("explore"))
+        #expect(description.contains("worker"))
+        #expect(description.contains("verifier"))
+        #expect(!description.contains("planner"))
+        #expect(!description.contains("coder"))
+        #expect(!description.contains("reviewer"))
+        #expect(!description.contains("executor"))
+
+        #expect(agentDescription.contains("explore | worker | verifier"))
+    }
+
     private func encodedToolDictionary(from tool: MessageParameter.Tool) -> [String: Any]? {
         let encoder = JSONEncoder()
         guard let data = try? encoder.encode(tool),

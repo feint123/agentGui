@@ -203,47 +203,15 @@ struct StoryMemoryPromptAssemblerTests {
         )
 
         #expect(prompt.contains("run_subagent"))
-        #expect(prompt.contains("creative_memory_manager"))
-        #expect(prompt.contains("按需委托"))
+        #expect(prompt.contains("explore"))
+        #expect(prompt.contains("worker"))
+        #expect(prompt.contains("verifier"))
+        #expect(!prompt.contains("creative_memory_manager"))
         #expect(!prompt.contains("Use structured story memory tools when available instead of collapsing these facts into generic notes."))
     }
 
-    @Test func workflowRoleRegistryIncludesCreativeMemoryManager() async throws {
-        let role = try #require(WorkflowRoleDefinition.find(named: "creative_memory_manager"))
-        let settings = AppSettings()
-        settings.enableStoryMemory = true
-        let result = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
-            .init(context: .subagent, role: role, settings: settings)
-        )
-
-        #expect(result.toolIDs.contains("story_memory_query"))
-        #expect(!result.toolIDs.contains("str_replace_based_edit_tool"))
-        #expect(!result.toolIDs.contains("bash"))
-    }
-
-    @Test func memoryRoleBuildsSubagentToolsWithStoryMemoryCapabilities() async throws {
-        let settings = AppSettings()
-        settings.enableStoryMemory = true
-        let role = try #require(WorkflowRoleDefinition.find(named: "creative_memory_manager"))
-
-        let tools = ClaudeService().makeSubagentToolsForTests(modelId: "claude-sonnet-4-6", definition: role, settings: settings)
-        let names = toolNames(from: tools)
-
-        #expect(names.contains("story_memory_query"))
-        #expect(names.contains("story_memory_verify_continuity"))
-        #expect(names.contains("story_memory_upsert_character"))
-    }
-
-    @Test func memoryRoleDoesNotExposeGeneralWriteCodeToolsByDefault() async throws {
-        let settings = AppSettings()
-        settings.enableStoryMemory = true
-        let role = try #require(WorkflowRoleDefinition.find(named: "creative_memory_manager"))
-
-        let tools = ClaudeService().makeSubagentToolsForTests(modelId: "claude-sonnet-4-6", definition: role, settings: settings)
-        let names = toolNames(from: tools)
-
-        #expect(!names.contains("bash"))
-        #expect(!names.contains("str_replace_based_edit_tool"))
+    @Test func workflowRoleRegistryExcludesLegacyCreativeMemoryManager() async throws {
+        #expect(WorkflowRoleDefinition.find(named: "creative_memory_manager") == nil)
     }
 
     @Test func agentLoopDoesNotInjectStoryMemoryBootstrapForNonMemoryTasks() async throws {

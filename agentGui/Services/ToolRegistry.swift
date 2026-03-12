@@ -234,11 +234,9 @@ struct DefaultToolRegistry: ToolRegistry {
                 its own agentic loop with the appropriate tools and returns a result string.
 
                 WHEN TO USE:
-                - Research, exploration, or report writing → use "explorer" to gather information first
-                - Writing or modifying code → use "coder"
-                - Reviewing code quality or security → use "reviewer"
-                - Running shell/build/test commands → use "executor"
-                - Summarizing a document → use "summarizer"
+                - Research, codebase discovery, or factual investigation → use "explore"
+                - Implementing or modifying files, with targeted verification when needed → use "worker"
+                - Checking whether claims are actually supported by evidence → use "verifier"
 
                 Available agents:
                 \(context.agentListText)
@@ -272,11 +270,11 @@ struct DefaultToolRegistry: ToolRegistry {
             descriptionBuilder: { context in
                 """
                 Launch a multi-agent workflow for tasks that require sustained collaboration \
-                between specialized agents (planner → explorer → coder → reviewer → executor).
+                between specialized agents (explore → worker → verifier).
 
                 USE start_workflow WHEN the task:
                 - Requires implementing or refactoring code across multiple files
-                - Needs a plan-explore-code-review-verify pipeline
+                - Needs a coordinated explore-implement-verify pipeline
                 - Is complex enough that a single agent loop would be insufficient
 
                 DO NOT use start_workflow for:

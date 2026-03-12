@@ -8,7 +8,7 @@ struct AgentLoopToolExecutionCoordinatorTests {
 
     @Test func interceptorWinsOverBuiltInRouting() async {
         let coordinator = AgentLoopToolExecutionCoordinator(dependencies: .fixture())
-        let pendingTool = AgentLoopPendingTool(id: "call-1", name: "run_subagent", partialJson: "{\"agent_name\":\"coder\",\"task\":\"fix\"}")
+        let pendingTool = AgentLoopPendingTool(id: "call-1", name: "run_subagent", partialJson: "{\"agent_name\":\"worker\",\"task\":\"fix\"}")
         let record = ToolCall.fixture(toolCallId: "call-1", kind: .execute)
 
         let outcome = await coordinator.execute(
@@ -25,17 +25,17 @@ struct AgentLoopToolExecutionCoordinatorTests {
         let coordinator = AgentLoopToolExecutionCoordinator(
             dependencies: .fixture(
                 runSubagent: { _, _ in
-                    .text("done", sender: "coder", metadata: ["rounds": "2"])
+                    .text("done", sender: "worker", metadata: ["rounds": "2"])
                 }
             )
         )
-        let pendingTool = AgentLoopPendingTool(id: "call-2", name: "run_subagent", partialJson: "{\"agent_name\":\"coder\",\"task\":\"fix\"}")
+        let pendingTool = AgentLoopPendingTool(id: "call-2", name: "run_subagent", partialJson: "{\"agent_name\":\"worker\",\"task\":\"fix\"}")
         let record = ToolCall.fixture(toolCallId: "call-2", kind: .execute)
 
         let outcome = await coordinator.execute(pendingTool: pendingTool, record: record)
 
         #expect(outcome.result.text == "done")
-        #expect(outcome.record.subagentAgentName == "coder")
+        #expect(outcome.record.subagentAgentName == "worker")
         #expect(outcome.record.subagentResultKind == "text")
         #expect(outcome.record.subagentMessageMetadata?["rounds"] == "2")
     }
@@ -114,7 +114,7 @@ struct AgentLoopToolExecutionCoordinatorTests {
 
 private extension AgentLoopToolExecutionCoordinator.Dependencies {
     static func fixture(
-        runSubagent: @escaping (MessageResponse.Content.Input, ToolCall) async -> AgentMessage = { _, _ in .text("subagent", sender: "coder") },
+        runSubagent: @escaping (MessageResponse.Content.Input, ToolCall) async -> AgentMessage = { _, _ in .text("subagent", sender: "worker") },
         startWorkflow: @escaping (MessageResponse.Content.Input) async -> ToolExecutionResult = { _ in .success("workflow") },
         executeTool: @escaping (String, MessageResponse.Content.Input) async -> ToolExecutionResult = { name, _ in .success(name) },
         normalizeBashRequest: @escaping (MessageResponse.Content.Input) throws -> BashToolRequest = { _ in

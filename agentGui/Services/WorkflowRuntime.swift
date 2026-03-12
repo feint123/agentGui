@@ -380,7 +380,7 @@ final class WorkflowRuntime {
         let msg = WorkflowMessage(
             workflowId: context.workflowId,
             sender: "runtime",
-            recipients: ["planner"],
+            recipients: ["explore"],
             kind: .escalation,
             subject: "Workflow stalled",
             body: reason

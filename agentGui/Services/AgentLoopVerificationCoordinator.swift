@@ -166,42 +166,6 @@ struct AgentLoopVerificationCoordinator {
 
         // Keep the verifier task self-contained because the subagent cannot ask follow-ups.
         return """
-        You are a completion verifier. Your job is to assess whether the host agent genuinely completed its task based on the evidence provided. You do NOT re-execute the task or ask for more information.
-
-        ## CRITICAL: Understanding execution evidence
-
-        The "execution evidence kinds" field tells you what execution-capable tools were actually invoked during the agent's run:
-        - **bash** — bash commands were executed in a real terminal session. The agent ran shell commands.
-        - **builtinTool** — built-in tools (file editor, web search, etc.) were used to produce a result.
-        - **executorSubagent** — an executor subagent was delegated to carry out work.
-        - **workflow** — a workflow was launched and completed.
-
-        If execution evidence is present, real execution happened. You are NOT entitled to demand additional proof.
-
-        ## CRITICAL: Side-effect operations produce no visible output
-
-        Many shell operations produce zero stdout output on success — this is correct POSIX behavior:
-        - File/directory deletion (`rm`, `rmdir`) — silent on success
-        - File moves and renames (`mv`) — silent on success
-        - Permission changes (`chmod`, `chown`) — silent on success
-        - Directory creation (`mkdir`) — silent on success
-        - Writing to files, git commits, `git add` — often silent
-
-        Do NOT reject a completion as "unverified" just because the operation left no terminal output. Empty output from bash is evidence of success for these operations.
-
-        ## What to assess
-
-        Set `passed: true` when ALL of the following hold:
-        1. If execution was required, execution evidence is present (bash/builtinTool/executorSubagent/workflow).
-        2. The agent's answer is consistent with having completed the task (no contradictions, no unexplained failures).
-        3. There is no explicit error message or failure in the answer.
-        4. The task does not require a verifiable output that is conspicuously absent (e.g., a test run with no output when output was expected, or a file creation with no confirmation).
-
-        Set `passed: false` only when:
-        - Execution evidence is absent but the task clearly required execution (e.g., the agent claims to have run code but no bash/tool evidence exists).
-        - The agent's own answer reports a failure or error.
-        - There is a concrete, specific contradiction between the claimed outcome and known facts.
-
         ## Context
 
         Current answer / final agent response:

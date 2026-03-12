@@ -38,9 +38,7 @@ struct AgentLoopToolExecutionCoordinator {
             if !agentMessage.metadata.isEmpty {
                 record.subagentMessageMetadata = agentMessage.metadata
             }
-            if record.subagentAgentName == "creative_memory_manager" {
-                dependencies.populateStoryMemoryAuditFields(record, agentMessage)
-            }
+            dependencies.populateStoryMemoryAuditFields(record, agentMessage)
             return AgentLoopToolExecutionOutcome(result: agentMessage.toExecutionResult(), record: record)
         }
 

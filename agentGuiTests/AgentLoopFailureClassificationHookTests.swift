@@ -16,10 +16,10 @@ struct AgentLoopFailureClassificationHookTests {
         #expect(result == .failureTrigger(.toolFailure(toolName: "bash", errorText: "command failed")))
     }
 
-    @Test func failureClassificationHookRecognizesReviewerRejection() async throws {
+    @Test func failureClassificationHookRecognizesVerifierNeedsRevision() async throws {
         let hook = FailureClassificationHook()
         var context = AgentLoopHookContext.testFailureClassificationContext(toolName: "run_subagent")
-        context.toolInput = ["agent_name": .string("reviewer")]
+        context.toolInput = ["agent_name": .string("verifier")]
         context.toolResultText = "{\"status\":\"needs_revision\"}"
 
         let result = try await hook.perform(stage: .classifyFailureTrigger, context: context)
@@ -27,15 +27,15 @@ struct AgentLoopFailureClassificationHookTests {
         #expect(result == .failureTrigger(.reviewerRejection(feedback: context.toolResultText)))
     }
 
-    @Test func failureClassificationHookRecognizesExecutorFailure() async throws {
+    @Test func failureClassificationHookRecognizesVerifierFailure() async throws {
         let hook = FailureClassificationHook()
         var context = AgentLoopHookContext.testFailureClassificationContext(toolName: "run_subagent")
-        context.toolInput = ["agent_name": .string("executor")]
+        context.toolInput = ["agent_name": .string("verifier")]
         context.toolResultText = "{\"status\":\"failed\"}"
 
         let result = try await hook.perform(stage: .classifyFailureTrigger, context: context)
 
-        #expect(result == .failureTrigger(.executorValidationFailure(detail: context.toolResultText)))
+        #expect(result == .failureTrigger(.verificationFailure(detail: context.toolResultText)))
     }
 }
 

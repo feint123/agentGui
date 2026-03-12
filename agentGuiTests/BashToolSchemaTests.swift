@@ -79,11 +79,11 @@ struct BashToolSchemaTests {
         #expect(tools.allSatisfy { cacheControlType(from: $0) == "ephemeral" })
     }
 
-    @Test func subagentCoderBashSchemaMatchesUnifiedRegistry() async throws {
+    @Test func subagentWorkerBashSchemaMatchesUnifiedRegistry() async throws {
         let settings = AppSettings()
         settings.enableBashTool = true
         settings.enableTextEditorTool = true
-        let role = try #require(WorkflowRoleDefinition.find(named: "coder"))
+        let role = try #require(WorkflowRoleDefinition.find(named: "worker"))
 
         let tools = ClaudeService().makeSubagentToolsForTests(
             modelId: "claude-sonnet-4-6",
@@ -98,11 +98,11 @@ struct BashToolSchemaTests {
         #expect(propertyNames.contains("signal"))
     }
 
-    @Test func workflowCoderBashSchemaMatchesUnifiedRegistry() async throws {
+    @Test func workflowWorkerBashSchemaMatchesUnifiedRegistry() async throws {
         let settings = AppSettings()
         settings.enableBashTool = true
         settings.enableTextEditorTool = true
-        let role = try #require(WorkflowRoleDefinition.find(named: "coder"))
+        let role = try #require(WorkflowRoleDefinition.find(named: "worker"))
 
         let tools = WorkflowAgentRunner.makeToolsForTests(
             role: role,

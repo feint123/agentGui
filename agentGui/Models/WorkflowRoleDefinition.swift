@@ -107,7 +107,7 @@ struct WorkflowRoleDefinition: Sendable {
         switch defaultOutputMessageKind {
         case .approval, .rejection, .reviewFeedback:
             // Reducers are responsible for routing evaluator feedback so they can
-            // aggregate reviewer/executor results before waking the coder.
+            // aggregate verification results before waking the worker.
             return []
         case .infoResponse:
             // Respond to whoever sent us an infoRequest
@@ -127,319 +127,32 @@ struct WorkflowRoleDefinition: Sendable {
 
 extension WorkflowRoleDefinition {
 
-    /// All built-in roles — used as the lookup table for run_subagent and workflows.
-    static let all: [WorkflowRoleDefinition] = [
-        planner, explorer, coder, reviewer, executor, verifier, creative_memory_manager, writer
-    ]
+    /// All built-in roles — loaded from the structured built-in agent catalog.
+    static var all: [WorkflowRoleDefinition] {
+        AgentCatalog.shared.workflowRoleDefinitions
+    }
 
     static func find(named name: String) -> WorkflowRoleDefinition? {
         all.first { $0.name == name }
     }
 
-    // MARK: Planner
+    // Legacy internal workflow aliases retained only to keep older workflow
+    // templates compiling during the three-role migration.
+    static var planner: WorkflowRoleDefinition { explore }
+    static var explorer: WorkflowRoleDefinition { explore }
+    static var coder: WorkflowRoleDefinition { worker }
+    static var reviewer: WorkflowRoleDefinition { verifier }
+    static var executor: WorkflowRoleDefinition { verifier }
 
-    static let planner = WorkflowRoleDefinition(
-        name: "planner",
-        displayName: "规划师",
-        description: "分析任务需求，输出结构化执行计划。只读，不执行操作。",
-        systemPrompt: """
-        You are a strategic planning assistant. Your ONLY job is to analyze the task and produce \
-        a detailed, structured execution plan. Do NOT execute any actions or make any changes.
+    static var explore: WorkflowRoleDefinition {
+        AgentCatalog.shared.find(named: "explore")!.workflowRoleDefinition
+    }
 
-        Required output — return a JSON object with this exact structure:
-        {
-          "goal": "one-sentence description of what needs to be achieved",
-          "steps": [
-            { "id": "1", "title": "action-oriented step title" }
-          ],
-          "assumptions": ["assumption 1"],
-          "success_criteria": ["criterion 1"],
-          "requires_exploration": true
-        }
+    static var worker: WorkflowRoleDefinition {
+        AgentCatalog.shared.find(named: "worker")!.workflowRoleDefinition
+    }
 
-        Planning rules:
-        - Read relevant files (view only) to understand context before planning.
-        - Break complex tasks into 5–15 small, concrete, verifiable steps.
-        - Set "requires_exploration" to true if code locations or dependencies are unclear.
-        - Return ONLY the JSON object — no prose before or after.
-        """,
-        enableTextEditor: true,
-        enableBash: false,
-        toolGrants: [
-            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker])
-        ],
-        readableArtifacts: [],
-        writableArtifacts: [.plan],
-        subscribesTo: [.task],
-        defaultOutputMessageKind: .handoff,
-        primaryOutputArtifactKind: .plan,
-        maxTurnsPerActivation: 6,
-        maxActivations: 3
-    )
-
-    // MARK: Explorer
-
-    static let explorer = WorkflowRoleDefinition(
-        name: "explorer",
-        displayName: "探索者",
-        description: "Investigates the codebase, local documentation, and approved web sources to gather the minimum high-value context needed for downstream agents. Operates in a strictly read-only mode, identifies relevant files and symbols, summarizes findings, highlights unknowns and risk areas, and returns structured exploration output without making code or file changes.",
-        systemPrompt: """
-        You are a versatile research and exploration assistant. Your job is to gather information \
-        from local files or the web and deliver a clear, structured answer.
-
-        Rules:
-        - Use the text editor ONLY with the "view" command — do NOT create, edit, or delete files.
-        - Be concise: summarize findings rather than quoting verbatim at length.
-        - Cite sources (file paths or URLs) for key facts.
-        - Return a structured exploration report as JSON:
-        {
-          "relevant_files": ["path/to/file.swift"],
-          "key_symbols": ["ClassName", "methodName"],
-          "findings": "summary of what was found",
-          "open_questions": ["question 1"],
-          "risk_areas": ["risk 1"]
-        }
-        """,
-        enableTextEditor: true,
-        enableBash: false,
-        enableWebSearch: true,
-        enableWebFetch: true,
-        toolGrants: [
-            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker]),
-            .init(toolGroupID: .web, allowedContexts: [.subagent, .workflowWorker])
-        ],
-        readableArtifacts: [.plan],
-        writableArtifacts: [.explorationReport],
-        subscribesTo: [.task, .infoRequest],
-        defaultOutputMessageKind: .infoResponse,
-        primaryOutputArtifactKind: .explorationReport,
-        maxTurnsPerActivation: 12,
-        maxActivations: 5
-    )
-
-    // MARK: Coder
-
-        static let coder = WorkflowRoleDefinition(
-                name: "coder",
-                displayName: "编写者",
-                description: "实现代码变更：编写新文件或修改现有文件，可运行命令验证。",
-                systemPrompt: """
-                You are a focused coding assistant. Your job is to implement the exact changes described \
-                in the task using the text editor and bash tools.
-
-                Rules:
-                - Read relevant files first before making changes.
-                - Make minimal, targeted edits. Do not refactor code beyond what is asked.
-                - Use bash to run build or test commands only when needed to verify changes.
-                - When you are re-entered by evaluator feedback, treat the "Evaluator Loop Entry"
-                    section in the task as mandatory structured input. Carry every listed failure reason
-                    into the next patch; do not ignore a failed item just because the free-text summary is short.
-                - After completing all changes, return a patch summary as JSON:
-                {
-                    "changed_files": ["path/to/file.swift"],
-                    "summary": "brief description of what was changed",
-                    "verification_command": "swift build",
-                    "evaluator_iteration": 1,
-                    "addressed_failures": ["failure or review item you addressed"],
-                    "needs_more_context": false,
-                    "context_questions": []
-                }
-                """,
-                enableTextEditor: true,
-                enableBash: true,
-                toolGrants: [
-                    .init(toolGroupID: .readWriteEditor, accessMode: .readWrite, allowedContexts: [.subagent, .workflowWorker]),
-                    .init(toolGroupID: .shell, allowedContexts: [.subagent, .workflowWorker])
-                ],
-                readableArtifacts: [.plan, .explorationReport, .reviewReport, .testReport],
-                writableArtifacts: [.codePatchSummary],
-                subscribesTo: [.task, .reviewFeedback, .rejection, .infoResponse],
-                defaultOutputMessageKind: .handoff,
-                primaryOutputArtifactKind: .codePatchSummary,
-                maxTurnsPerActivation: 16,
-                maxActivations: 5
-        )
-
-    // MARK: Reviewer
-
-    static let reviewer = WorkflowRoleDefinition(
-        name: "reviewer",
-        displayName: "审查者",
-        description: "审查代码质量、安全性、规范性，返回结构化审查报告。只读，不修改文件。",
-        systemPrompt: """
-        You are a careful code reviewer inside an evaluator-optimizer loop. Your job is to read \
-        the latest candidate patch and produce structured feedback that the coder will use in the \
-        very next iteration.
-
-        Rules:
-        - Use the text editor ONLY with the "view" command — do NOT modify any files.
-        - Organize findings by severity: Critical / Warning / Suggestion.
-        - Be specific: point to file paths and line numbers where relevant.
-        - Treat blocking findings as actionable optimizer feedback, not just a final gate.
-        - Return a structured review report as JSON:
-        {
-          "blocking_findings": [],
-          "warnings": [],
-          "suggestions": [],
-          "verdict": "approved",
-          "summary": "brief verdict explanation"
-        }
-        Note: "verdict" must be "approved" or "needs_revision".
-        """,
-        enableTextEditor: true,
-        enableBash: false,
-        toolGrants: [
-            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker])
-        ],
-        readableArtifacts: [.plan, .explorationReport, .codePatchSummary],
-        writableArtifacts: [.reviewReport],
-        subscribesTo: [.task, .handoff],
-        defaultOutputMessageKind: .reviewFeedback,
-        primaryOutputArtifactKind: .reviewReport,
-        maxTurnsPerActivation: 8,
-        maxActivations: 5
-    )
-
-    // MARK: Verifier
-
-    static let verifier = WorkflowRoleDefinition(
-        name: "verifier",
-        displayName: "验证者",
-        description: "Evaluates whether the main agent's completion claim is actually supported by evidence, test results, and unresolved risks. Operates in read-only mode and returns a structured verification verdict.",
-        systemPrompt: """
-        You are a verification specialist working for the host agent loop.
-
-        Rules:
-        - Do not edit files.
-        - Judge whether the task is actually complete based on the provided claims, evidence, review feedback, and risks.
-        - Return JSON only with the fields: passed, summary, verified_items, failed_items, missing_evidence, risk_areas, recommended_next_action, confidence.
-        """,
-        enableTextEditor: true,
-        enableBash: false,
-        toolGrants: [
-            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent])
-        ],
-        readableArtifacts: [.plan, .explorationReport, .codePatchSummary, .reviewReport, .testReport],
-        writableArtifacts: [],
-        subscribesTo: [.task, .handoff],
-        defaultOutputMessageKind: .statusUpdate,
-        primaryOutputArtifactKind: nil,
-        maxTurnsPerActivation: 6,
-        maxActivations: 3
-    )
-
-    // MARK: Executor
-
-        static let executor = WorkflowRoleDefinition(
-                name: "executor",
-                displayName: "执行者",
-                description: "运行 bash 命令（构建、测试、脚本等），返回结果摘要。",
-                systemPrompt: """
-                You are a focused command executor inside an evaluator-optimizer loop. Your job is to run \
-                the verification commands for the latest candidate patch and return structured failure \
-                details that the coder can use in the next iteration.
-
-                Rules:
-                - Run only the commands described in the task.
-                - If a command fails, diagnose the error and attempt to fix it (max 2 retries).
-                - Treat each failure as optimizer feedback: capture the concrete failing command, symptom,
-                    and reproducible failure details.
-                - Return a structured test report as JSON:
-                {
-                    "command": "swift build",
-                    "status": "passed",
-                    "output_summary": "Build succeeded with 0 errors",
-                    "failures": [],
-                    "reproducible": true
-                }
-                Note: "status" must be "passed" or "failed".
-                """,
-                enableTextEditor: false,
-                enableBash: true,
-                toolGrants: [
-                    .init(toolGroupID: .shell, allowedContexts: [.subagent, .workflowWorker])
-                ],
-                readableArtifacts: [.codePatchSummary],
-                writableArtifacts: [.testReport],
-                subscribesTo: [.task, .handoff],
-                defaultOutputMessageKind: .statusUpdate,
-                primaryOutputArtifactKind: .testReport,
-                maxTurnsPerActivation: 8,
-                maxActivations: 5
-        )
-
-
-    // MARK: CreativeMemoryManager
-
-    static let creative_memory_manager = WorkflowRoleDefinition(
-        name: "creative_memory_manager",
-        displayName: "创作记忆管理员",
-        description: "处理创作项目记忆检索、canon 写入审查、项目绑定核对与连续性检查。",
-        systemPrompt: """
-        You are the creative memory manager for a writing project.
-
-        Responsibilities:
-        - Retrieve the smallest relevant project memory slice for the current writing task.
-        - Separate returned information into facts, inferences, and risks.
-        - Review candidate canon updates and decide whether they should be written, confirmed, or skipped.
-        - Check continuity and report structured risks instead of rewriting the prose.
-
-        Rules:
-        - Do not perform long-form creative writing.
-        - Do not use code-editing or bash tools.
-        - Use only story-memory domain tools.
-        - Return structured JSON compatible with StoryMemoryDelegationResponse.
-        """,
-        enableTextEditor: false,
-        enableBash: false,
-        enableStoryMemoryTools: true,
-        toolGrants: [
-            .init(toolGroupID: .storyMemory, allowedContexts: [.subagent, .workflowWorker])
-        ],
-        readableArtifacts: [],
-        writableArtifacts: [],
-        subscribesTo: [.task],
-        defaultOutputMessageKind: .statusUpdate,
-        primaryOutputArtifactKind: nil,
-        maxTurnsPerActivation: 8,
-        maxActivations: 5
-    )
-
-    // MARK: Writer
-
-    static let writer = WorkflowRoleDefinition(
-        name: "writer",
-        displayName: "写作者",
-        description: "专业写作辅助：生成、润色、改写、翻译各类文本内容。",
-        systemPrompt: """
-        You are a professional writing assistant. Your task is to help with various writing needs.
-
-        Capabilities:
-        - Generate original content based on prompts
-        - Polish and improve existing text
-        - Rewrite in different styles (formal, casual, creative, etc.)
-        - Translate between languages
-        - Expand or summarize content
-
-        Rules:
-        - Maintain the original meaning when polishing/rewriting
-        - Adapt the style to the specified tone
-        - For translation, preserve formatting and structure
-        - Return clean, ready-to-use text
-        """,
-        enableTextEditor: true,
-        enableBash: true,
-        toolGrants: [
-            .init(toolGroupID: .readWriteEditor, accessMode: .readWrite, allowedContexts: [.subagent, .workflowWorker]),
-            .init(toolGroupID: .shell, allowedContexts: [.subagent, .workflowWorker])
-        ],
-        readableArtifacts: [],
-        writableArtifacts: [],
-        subscribesTo: [.task],
-        defaultOutputMessageKind: .statusUpdate,
-        primaryOutputArtifactKind: nil,
-        maxTurnsPerActivation: 8,
-        maxActivations: 5
-    )
-
+    static var verifier: WorkflowRoleDefinition {
+        AgentCatalog.shared.find(named: "verifier")!.workflowRoleDefinition
+    }
 }

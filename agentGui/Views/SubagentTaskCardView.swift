@@ -183,7 +183,7 @@ struct SubagentTaskCardView: View {
                 }
             }
 
-            if toolCall.subagentAgentName == "creative_memory_manager" {
+            if toolCall.storyMemoryTaskType != nil || toolCall.storyMemoryStatus != nil || toolCall.storyMemoryRiskSummary != nil || toolCall.storyMemoryFallbackNote != nil {
                 labeledBlock(label: "记忆审计") {
                     VStack(alignment: .leading, spacing: 4) {
                         if let taskType = toolCall.storyMemoryTaskType, let status = toolCall.storyMemoryStatus {

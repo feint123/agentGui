@@ -63,14 +63,15 @@ extension ClaudeService {
         sessionId: String,
         modelContext: ModelContext
     ) async throws -> AgentMessage {
-        guard let definition = WorkflowRoleDefinition.find(named: name) else {
-            let available = WorkflowRoleDefinition.all.map(\.name).joined(separator: ", ")
+        let catalog = AgentCatalog.shared
+        guard let definition = catalog.find(named: name) else {
+            let available = catalog.subagentInvocableAgents.map(\.name).joined(separator: ", ")
             return .error("unknown agent '\(name)'. Available: \(available)", sender: "system")
         }
 
         return try await runSubagentLoop(
             task: task,
-            definition: definition,
+            definition: definition.workflowRoleDefinition,
             toolCallRecord: toolCallRecord,
             service: service,
             modelId: modelId,
