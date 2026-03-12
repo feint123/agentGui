@@ -31,34 +31,44 @@ extension ChatView {
     var messageListView: some View {
         let globalWorkingDirectory = AppSettings.getOrCreate(in: modelContext).workingDirectory
         let effectiveWorkspaceRoot = workspaceState.effectiveWorkingDirectory(globalDefault: globalWorkingDirectory)
+        let projectionTrigger = ChatMessageListProjectionTrigger(
+            messages: allMessages,
+            workspaceRoot: effectiveWorkspaceRoot
+        )
+        let displaySnapshot = resolvedMessageListSnapshot(for: projectionTrigger)
+        let messagesByID = Dictionary(uniqueKeysWithValues: allMessages.map { ($0.id, $0) })
 
         return ScrollViewReader { proxy in
             List {
-                ForEach(allMessages) { message in
-                    MessageBubbleView(
-                        message: message,
-                        workspaceRoot: effectiveWorkspaceRoot,
-                        isStreaming: claudeService.isStreaming,
-                        onCopy: { copyMessage(message) },
-                        onEdit: message.direction == .user
-                            ? { newText in editAndResend(message: message, newText: newText) }
-                            : nil,
-                        onDelete: { deleteMessage(message) },
-                        onDeleteFrom: { deleteFrom(message) },
-                        onRegenerate: message.direction == .agent ? { regenerate() } : nil,
-                        onRetry: (message.direction == .agent && message.status == .failed)
-                            ? { regenerate() }
-                            : nil
-                    )
-                    .id(message.id)
-                    .accessibilityIdentifier("message.row.\(message.id.uuidString)")
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                ForEach(displaySnapshot.rows) { row in
+                    if let message = messagesByID[row.id] {
+                        MessageBubbleView(
+                            snapshot: row,
+                            isStreaming: claudeService.isStreaming,
+                            onCopy: { copyMessage(message) },
+                            onEdit: row.direction == .user
+                                ? { newText in editAndResend(message: message, newText: newText) }
+                                : nil,
+                            onDelete: { deleteMessage(message) },
+                            onDeleteFrom: { deleteFrom(message) },
+                            onRegenerate: row.direction == .agent ? { regenerate() } : nil,
+                            onRetry: (row.direction == .agent && row.status == .failed)
+                                ? { regenerate() }
+                                : nil
+                        )
+                        .id(row.id)
+                        .accessibilityIdentifier("message.row.\(row.id.uuidString)")
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    }
                 }
             }
             .listStyle(.plain)
             .accessibilityIdentifier("chat.messageList")
+            .task(id: projectionTrigger) {
+                rebuildMessageListSnapshot(for: projectionTrigger)
+            }
             .onChange(of: allMessages.last?.textContent) { _, _ in
                 if claudeService.isStreaming {
                     scrollToBottom(proxy: proxy)
@@ -73,5 +83,26 @@ extension ChatView {
                 proxy.scrollTo(last.id, anchor: .bottom)
             }
         }
+    }
+
+    func resolvedMessageListSnapshot(for projectionTrigger: ChatMessageListProjectionTrigger) -> ChatMessageListSnapshot {
+        guard messageListProjectionTrigger != projectionTrigger else {
+            return messageListSnapshot
+        }
+
+        return ChatMessageListSnapshotBuilder.build(
+            messages: allMessages,
+            workspaceRoot: projectionTrigger.workspaceRoot,
+            previous: messageListSnapshot.cache
+        )
+    }
+
+    func rebuildMessageListSnapshot(for projectionTrigger: ChatMessageListProjectionTrigger) {
+        messageListSnapshot = ChatMessageListSnapshotBuilder.build(
+            messages: allMessages,
+            workspaceRoot: projectionTrigger.workspaceRoot,
+            previous: messageListSnapshot.cache
+        )
+        messageListProjectionTrigger = projectionTrigger
     }
 }

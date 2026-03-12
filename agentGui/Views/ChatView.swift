@@ -38,6 +38,8 @@ struct ChatView: View {
     @State var activeTask: Task<Void, Never>?
     /// Prevents ForEach from accessing Message objects that are about to be deleted
     @State var isClearingMessages = false
+    @State var messageListSnapshot = ChatMessageListSnapshot.empty
+    @State var messageListProjectionTrigger: ChatMessageListProjectionTrigger?
 
     // MARK: - Workflow
     @State var showWorkflowPanel = false

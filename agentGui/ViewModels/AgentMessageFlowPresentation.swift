@@ -3,6 +3,21 @@ import Foundation
 struct AgentMessageFlowSnapshot: Equatable {
     let messageID: UUID
     let steps: [AgentMessageFlowStep]
+    private let toolCallsByID: [UUID: ToolCall]
+
+    init(messageID: UUID, steps: [AgentMessageFlowStep], toolCallsByID: [UUID: ToolCall] = [:]) {
+        self.messageID = messageID
+        self.steps = steps
+        self.toolCallsByID = toolCallsByID
+    }
+
+    func toolCall(for id: UUID) -> ToolCall? {
+        toolCallsByID[id]
+    }
+
+    static func == (lhs: AgentMessageFlowSnapshot, rhs: AgentMessageFlowSnapshot) -> Bool {
+        lhs.messageID == rhs.messageID && lhs.steps == rhs.steps
+    }
 }
 
 enum AgentMessageFlowStep: Equatable, Identifiable {
@@ -84,8 +99,20 @@ enum AgentMessageFlowPresentation {
             messageID: message.id,
             steps: entries.sorted { lhs, rhs in
                 entrySort(lhs: lhs, rhs: rhs)
-            }.map(\.step)
+            }.map(\.step),
+            toolCallsByID: makeToolLookup(for: message)
         )
+    }
+
+    nonisolated private static func makeToolLookup(for message: Message) -> [UUID: ToolCall] {
+        let roundCalls = message.agentRounds.flatMap(\.toolCalls)
+        let directCalls = message.toolCalls.filter { $0.agentRound == nil }
+
+        var lookup: [UUID: ToolCall] = [:]
+        for toolCall in roundCalls + directCalls {
+            lookup[toolCall.id] = toolCall
+        }
+        return lookup
     }
 
     nonisolated private static func buildEntries(

@@ -45,7 +45,7 @@ struct AgentMessageFlowPresentationTests {
         })
     }
 
-    @Test func stepFlowToolLookupDeduplicatesRepeatedToolCallRelationships() async throws {
+    @Test func flowSnapshotToolLookupDeduplicatesRepeatedToolCallRelationships() async throws {
         let message = Message.agentMessage(text: nil, session: Session(title: "Retry"))
         let round = AgentRound(roundIndex: 0, message: message)
         let tool = ToolCall(toolCallId: "exec-duplicate", kind: .execute, message: message, agentRound: round)
@@ -55,10 +55,22 @@ struct AgentMessageFlowPresentationTests {
         round.toolCalls = [tool, tool]
         message.agentRounds = [round]
 
-        let lookup = AgentMessageStepFlowView.makeToolLookup(for: message)
+        let snapshot = AgentMessageFlowPresentation.snapshot(for: message)
 
-        #expect(lookup.count == 1)
-        #expect(lookup[tool.id] === tool)
+        #expect(snapshot.toolCall(for: tool.id) === tool)
+    }
+
+    @Test func flowSnapshotProvidesDirectToolCallLookupForRenderedSteps() async throws {
+        let message = AgentMessageFlowFixture.makeChronologicalMessage()
+
+        let snapshot = AgentMessageFlowPresentation.snapshot(for: message)
+        let toolStep = try #require(snapshot.steps.compactMap { step -> ToolStepPresentation? in
+            guard case .tool(let value) = step else { return nil }
+            return value
+        }.first)
+
+        let toolCall = try #require(snapshot.toolCall(for: toolStep.toolCallID))
+        #expect(toolCall.fileName == "ChatView.swift")
     }
 
     @Test func creativeMemorySubagentRowSurfacesAuditSummary() async throws {

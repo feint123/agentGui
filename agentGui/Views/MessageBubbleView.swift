@@ -6,8 +6,7 @@
 import SwiftUI
 
 struct MessageBubbleView: View {
-    let message: Message
-    var workspaceRoot: String = ""
+    let snapshot: MessageRowSnapshot
     var isStreaming: Bool = false
     var onCopy: () -> Void = {}
     var onEdit: ((String) -> Void)? = nil
@@ -21,53 +20,9 @@ struct MessageBubbleView: View {
     @State private var editText = ""
     @State private var viewingMedia: MediaItem? = nil
 
-    // 解析消息文本和文件引用，将部件分类: 图片/PDF/其他
-    private struct ParsedContent {
-        let text: String
-        let images: [String]
-        let pdfs: [String]
-        let others: [String]
-        var hasMedia: Bool { !images.isEmpty || !pdfs.isEmpty }
-    }
-
-    private var agentParsedContent: ParsedContent {
-        let raw = message.textContent ?? ""
-        let separator = "\n\nReferenced files:\n"
-        guard let range = raw.range(of: separator) else {
-            return ParsedContent(text: raw, images: [], pdfs: [], others: [])
-        }
-        let text = String(raw[raw.startIndex..<range.lowerBound])
-        let filesSection = String(raw[range.upperBound...])
-        let paths = filesSection
-            .split(separator: "\n")
-            .map { $0.hasPrefix("- ") ? String($0.dropFirst(2)) : String($0) }
-            .filter { !$0.isEmpty }
-        var images: [String] = []
-        var pdfs: [String] = []
-        var others: [String] = []
-        for path in paths {
-            if AttachedFile.pathIsImage(path) { images.append(path) }
-            else if AttachedFile.pathIsPDF(path) { pdfs.append(path) }
-            else { others.append(path) }
-        }
-        return ParsedContent(text: text, images: images, pdfs: pdfs, others: others)
-    }
-
-    private var userParsedContent: ParsedUserMessageText {
-        UserMessageTextParser.parse(text: message.textContent ?? "", workspaceRoot: workspaceRoot)
-    }
-
-    private var userPresentation: UserMessagePresentation {
-        UserMessagePresentation.make(from: userParsedContent)
-    }
-
-    private var editableUserText: String {
-        userParsedContent.bodyText
-    }
-
     var body: some View {
         Group {
-            if message.direction == .user {
+            if snapshot.direction == .user {
                 userMessageRow
             } else {
                 agentMessageRow
@@ -110,7 +65,7 @@ struct MessageBubbleView: View {
                         removal: .opacity
                     ))
             }
-            Text(message.timestamp.formatted(date: .omitted, time: .shortened))
+            Text(snapshot.timestamp.formatted(date: .omitted, time: .shortened))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             Text(senderName)
@@ -123,29 +78,34 @@ struct MessageBubbleView: View {
         }
     }
 
+    @ViewBuilder
     private var userBubble: some View {
-        let content = userPresentation
-        return VStack(alignment: .trailing, spacing: 8) {
-            Group {
-                if content.hasStructuredInlineContent {
-                    UserMessageInlineContentView(presentation: content)
-                } else {
-                    Text(userParsedContent.bodyText)
-                        .font(.body)
+        if let user = snapshot.user {
+            let content = user.presentation
+            VStack(alignment: .trailing, spacing: 8) {
+                Group {
+                    if content.hasStructuredInlineContent {
+                        UserMessageInlineContentView(presentation: content)
+                    } else {
+                        Text(user.bodyText)
+                            .font(.body)
+                    }
+                }
+                .textSelection(.enabled)
+                if !content.images.isEmpty || !content.pdfs.isEmpty {
+                    mediaGrid(images: content.images, pdfs: content.pdfs)
+                }
+                if !content.others.isEmpty {
+                    fileReferenceBadge(count: content.others.count)
                 }
             }
-            .textSelection(.enabled)
-            if !content.images.isEmpty || !content.pdfs.isEmpty {
-                mediaGrid(images: content.images, pdfs: content.pdfs)
-            }
-            if !content.others.isEmpty { fileReferenceBadge(count: content.others.count) }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.accentColor.opacity(0.15))
+            )
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.accentColor.opacity(0.15))
-        )
     }
 
     // MARK: - Agent / system message
@@ -157,7 +117,7 @@ struct MessageBubbleView: View {
             // Three-layer content: answer card → summary bar → artifact drawer
             agentCardContent
             // Retry button always visible on failure
-            if message.status == .failed, let retry = onRetry {
+            if snapshot.status == .failed, let retry = onRetry {
                 Button(action: retry) {
                     Label("重新发送", systemImage: "arrow.clockwise")
                         .font(.caption)
@@ -175,14 +135,14 @@ struct MessageBubbleView: View {
     /// Compact header row: icon, name, timestamp, hover actions.
     private var agentHeaderRow: some View {
         HStack(spacing: 5) {
-            Image(systemName: message.direction == .agent ? "sparkle" : "info.circle.fill")
+            Image(systemName: snapshot.direction == .agent ? "sparkle" : "info.circle.fill")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(message.direction == .agent ? .orange : .secondary)
+                .foregroundStyle(snapshot.direction == .agent ? .orange : .secondary)
             Text(senderName)
                 .font(.caption)
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
-            Text(message.timestamp.formatted(date: .omitted, time: .shortened))
+            Text(snapshot.timestamp.formatted(date: .omitted, time: .shortened))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             Spacer(minLength: 0)
@@ -198,17 +158,17 @@ struct MessageBubbleView: View {
 
     @ViewBuilder
     private var agentCardContent: some View {
-        let content = agentParsedContent
+        if let agent = snapshot.agent {
+            VStack(alignment: .leading, spacing: 8) {
+                AgentMessageStepFlowView(snapshot: agent.flow)
 
-        VStack(alignment: .leading, spacing: 8) {
-            AgentMessageStepFlowView(message: message)
-
-            if message.agentRounds.isEmpty {
-                if !content.images.isEmpty || !content.pdfs.isEmpty {
-                    mediaGrid(images: content.images, pdfs: content.pdfs)
-                }
-                if !content.others.isEmpty {
-                    fileReferenceBadge(count: content.others.count)
+                if !agent.hasAgentRounds {
+                    if agent.attachments.hasMedia {
+                        mediaGrid(images: agent.attachments.images, pdfs: agent.attachments.pdfs)
+                    }
+                    if !agent.attachments.others.isEmpty {
+                        fileReferenceBadge(count: agent.attachments.others.count)
+                    }
                 }
             }
         }
@@ -218,9 +178,9 @@ struct MessageBubbleView: View {
 
     private var messageActionsRow: some View {
         HStack(spacing: 2) {
-            if message.direction == .user, onEdit != nil {
+            if snapshot.direction == .user, onEdit != nil {
                 actionButton("pencil", tooltip: "编辑") {
-                    editText = editableUserText
+                    editText = snapshot.editableUserText ?? ""
                     isEditing = true
                 }
             }
@@ -253,9 +213,9 @@ struct MessageBubbleView: View {
         Button { onCopy() } label: {
             Label("复制", systemImage: "doc.on.doc")
         }
-        if message.direction == .user, onEdit != nil {
+        if snapshot.direction == .user, onEdit != nil {
             Button {
-                editText = editableUserText
+                editText = snapshot.editableUserText ?? ""
                 isEditing = true
             } label: {
                 Label("编辑", systemImage: "pencil")
@@ -317,11 +277,7 @@ struct MessageBubbleView: View {
     }
 
     private var senderName: String {
-        switch message.direction {
-        case .user: return "你"
-        case .agent: return "Claude"
-        case .system: return "系统"
-        }
+        snapshot.senderName
     }
 
 

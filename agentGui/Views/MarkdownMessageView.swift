@@ -17,6 +17,22 @@ struct MarkdownMessageView: View {
     @SwiftUI.State private var parser = MarkdownMessageIncrementalParser()
     @SwiftUI.State private var snapshot = MarkdownIncrementalSnapshot(sourceText: "", blocks: [])
 
+    init(text: String) {
+        self.text = text
+        let parser = MarkdownMessageIncrementalParser()
+        _parser = SwiftUI.State(initialValue: parser)
+        _snapshot = SwiftUI.State(initialValue: Self.initialSnapshot(for: text))
+    }
+
+    @MainActor
+    static func initialSnapshot(for text: String) -> MarkdownIncrementalSnapshot {
+        guard !text.isEmpty else {
+            return MarkdownIncrementalSnapshot(sourceText: "", blocks: [])
+        }
+        let parser = MarkdownMessageIncrementalParser()
+        return parser.reconcile(oldText: "", newText: text)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(snapshot.blocks.enumerated()), id: \.element.id) { index, block in

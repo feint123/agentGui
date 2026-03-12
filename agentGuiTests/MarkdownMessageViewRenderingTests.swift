@@ -5,6 +5,16 @@ import Testing
 @MainActor
 struct MarkdownMessageViewRenderingTests {
 
+    @Test func initialSnapshotSeedsBlocksBeforeAppear() async throws {
+        let text = "# Title\n\nFirst paragraph"
+
+        let snapshot = MarkdownMessageView.initialSnapshot(for: text)
+
+        #expect(snapshot.sourceText == text)
+        #expect(snapshot.blocks.isEmpty == false)
+        #expect(snapshot.blocks.first?.kind == .heading(level: 1))
+    }
+
     @Test func finalStreamedTableMatchesFullParseProjection() async throws {
         let parser = MarkdownMessageIncrementalParser()
         let full = """

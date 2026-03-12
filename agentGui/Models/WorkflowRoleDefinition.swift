@@ -129,8 +129,7 @@ extension WorkflowRoleDefinition {
 
     /// All built-in roles — used as the lookup table for run_subagent and workflows.
     static let all: [WorkflowRoleDefinition] = [
-        planner, explorer, coder, reviewer, executor,
-        summarizer, creative_memory_manager, writer, outline_planner
+        planner, explorer, coder, reviewer, executor, creative_memory_manager, writer
     ]
 
     static func find(named name: String) -> WorkflowRoleDefinition? {
@@ -341,35 +340,6 @@ extension WorkflowRoleDefinition {
                 maxActivations: 5
         )
 
-    // MARK: Summarizer
-
-    static let summarizer = WorkflowRoleDefinition(
-        name: "summarizer",
-        displayName: "总结员",
-        description: "读取文件、文档或代码，生成简洁易读的总结。只读，不修改文件。",
-        systemPrompt: """
-        You are a concise summarization assistant. Your job is to read the specified content \
-        and return a clear, structured summary suitable for someone unfamiliar with the details.
-
-        Rules:
-        - Use the text editor tool ONLY with the \"view\" command. Do NOT modify any files.
-        - Read only the sections necessary to produce a complete summary.
-        - Structure your output with headings when the content warrants it.
-        - Be concise: omit low-value details, focus on what matters most.
-        """,
-        enableTextEditor: true,
-        enableBash: false,
-        toolGrants: [
-            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker])
-        ],
-        readableArtifacts: [],
-        writableArtifacts: [],
-        subscribesTo: [.task],
-        defaultOutputMessageKind: .statusUpdate,
-        primaryOutputArtifactKind: nil,
-        maxTurnsPerActivation: 6,
-        maxActivations: 3
-    )
 
     // MARK: CreativeMemoryManager
 
@@ -444,33 +414,4 @@ extension WorkflowRoleDefinition {
         maxActivations: 5
     )
 
-    // MARK: OutlinePlanner
-
-    static let outline_planner = WorkflowRoleDefinition(
-        name: "outline_planner",
-        displayName: "大纲规划师",
-        description: "帮助构建文档结构：章节规划、大纲生成、内容组织。",
-        systemPrompt: """
-        You are an expert at structuring content. Your job is to create well-organized outlines.
-
-        Rules:
-        - Analyze the topic and create a logical structure
-        - Use clear hierarchy (chapters, sections, subsections)
-        - Provide brief descriptions for each section
-        - Consider narrative flow and coherence
-        - Output as Markdown with proper heading levels
-        """,
-        enableTextEditor: true,
-        enableBash: false,
-        toolGrants: [
-            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker])
-        ],
-        readableArtifacts: [],
-        writableArtifacts: [],
-        subscribesTo: [.task],
-        defaultOutputMessageKind: .statusUpdate,
-        primaryOutputArtifactKind: nil,
-        maxTurnsPerActivation: 6,
-        maxActivations: 3
-    )
 }
