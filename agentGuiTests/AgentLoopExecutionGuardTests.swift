@@ -54,6 +54,31 @@ struct AgentLoopExecutionGuardTests {
         #expect(!output.contains("无执行证据"))
     }
 
+    @Test func executionGuardRetryRestoresPriorProjectionAndQueuesCorrectionPrompt() {
+        var messages: [MessageParameter.Message] = []
+        var loopContext = AgentLoopContext(phase: .finalizing)
+
+        let outcome = AgentLoopPhaseOutcomeApplier.apply(
+            phase: .finalizing,
+            finalizationDecision: .retry(prompt: "need terminal evidence"),
+            loopContext: &loopContext,
+            messages: &messages,
+            accumulatedText: "after",
+            accumulatedTextBeforeRound: "before",
+            currentRoundText: "delta",
+            assistantObjects: []
+        )
+
+        #expect(loopContext.phase == .executing)
+        #expect(outcome.projectedTextReset == "before")
+        #expect(extractText(from: messages.last?.content) == "need terminal evidence")
+    }
+
+    private func extractText(from content: MessageParameter.Message.Content?) -> String {
+        guard let content else { return "" }
+        return ClaudeService().extractText(from: content)
+    }
+
     private func makeVerifyInput(
         verified: [String],
         notVerified: [String],

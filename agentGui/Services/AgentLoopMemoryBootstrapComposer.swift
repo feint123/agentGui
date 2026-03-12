@@ -1,0 +1,129 @@
+import Foundation
+import SwiftAnthropic
+
+struct AgentLoopMemoryBootstrapComposition {
+    var patch: AgentLoopMessagePatch?
+    var runtimeProfiles: [String] = []
+    var runtimeLayers: [String] = []
+    var runtimeWarnings: [String] = []
+    var runtimeSnapshotID: String?
+}
+
+struct AgentLoopMemoryBootstrapComposer {
+    struct Dependencies {
+        var loadUnifiedContext: () async throws -> MemoryRuntimeContext?
+        var loadTaskMemory: () throws -> TaskMemory?
+        var loadTaskMemoryPromptText: () throws -> String?
+        var loadStorySlice: () throws -> String?
+        var saveRuntimeSnapshot: (MemoryRuntimeSnapshot) throws -> String?
+    }
+
+    let dependencies: Dependencies
+
+    func compose(bootstrapMessageCount: Int) async throws -> AgentLoopMemoryBootstrapComposition {
+        if let unifiedContext = try await dependencies.loadUnifiedContext() {
+            var composition = AgentLoopMemoryBootstrapComposition(
+                runtimeProfiles: unifiedContext.profiles,
+                runtimeLayers: Array(Set(unifiedContext.records.map { $0.layer.rawValue })).sorted(),
+                runtimeWarnings: unifiedContext.warnings,
+                runtimeSnapshotID: nil
+            )
+
+            if let snapshot = unifiedContext.runtimeSnapshot {
+                composition.runtimeSnapshotID = try dependencies.saveRuntimeSnapshot(snapshot) ?? snapshot.id
+            }
+
+            if !unifiedContext.renderedPrompt.isEmpty {
+                composition.patch = AgentLoopMessagePatch(
+                    insertions: [
+                        .init(
+                            index: 0,
+                            message: MessageParameter.Message(
+                                role: .user,
+                                content: .text("【统一记忆切片】以下是当前任务的统一记忆视图，请优先遵守其中的当前状态、事实、事件与风险：\n\n\(unifiedContext.renderedPrompt)")
+                            )
+                        ),
+                        .init(
+                            index: 1,
+                            message: MessageParameter.Message(
+                                role: .assistant,
+                                content: .text("已加载统一记忆切片，将据此继续执行当前任务。")
+                            )
+                        )
+                    ],
+                    metadata: [
+                        "source": "unified",
+                        "recordCount": unifiedContext.records.count,
+                        "warningCount": unifiedContext.warnings.count
+                    ]
+                )
+            }
+
+            return composition
+        }
+
+        var patch = AgentLoopMessagePatch()
+
+        if let taskMemory = try dependencies.loadTaskMemory(),
+           !taskMemory.isEmpty,
+           let taskMemoryPromptText = try dependencies.loadTaskMemoryPromptText(),
+           !taskMemoryPromptText.isEmpty {
+            patch.insertions.append(
+                .init(
+                    index: 0,
+                    message: MessageParameter.Message(
+                        role: .user,
+                        content: .text("【任务级持久记忆】这是本任务的已知状态，请优先保留这些结构化状态：\n\n\(taskMemoryPromptText)")
+                    )
+                )
+            )
+            patch.insertions.append(
+                .init(
+                    index: 1,
+                    message: MessageParameter.Message(
+                        role: .assistant,
+                        content: .text("已加载任务级持久记忆，将在后续操作中保持这些状态。")
+                    )
+                )
+            )
+            patch.metadata = [
+                "source": "task-unified",
+                "confirmedFactCount": taskMemory.confirmedFacts.count,
+                "failedAttemptCount": taskMemory.failedAttempts.count
+            ]
+        }
+
+        if let storySlice = try dependencies.loadStorySlice(),
+           !storySlice.isEmpty {
+            let insertionIndex = patch.insertions.isEmpty ? min(bootstrapMessageCount, 2) : 2
+            patch.insertions.append(
+                .init(
+                    index: insertionIndex,
+                    message: MessageParameter.Message(
+                        role: .user,
+                        content: .text("【创作记忆切片】以下是当前写作任务的项目级故事记忆，请优先保持人物、事件、伏笔和风格的一致性：\n\n\(storySlice)")
+                    )
+                )
+            )
+            patch.insertions.append(
+                .init(
+                    index: insertionIndex + 1,
+                    message: MessageParameter.Message(
+                        role: .assistant,
+                        content: .text("已加载创作记忆切片，将据此保持情节连续性与风格一致。")
+                    )
+                )
+            )
+            if patch.metadata.isEmpty {
+                patch.metadata = [
+                    "source": "story",
+                    "promptLength": storySlice.count
+                ]
+            }
+        }
+
+        return AgentLoopMemoryBootstrapComposition(
+            patch: patch.insertions.isEmpty ? nil : patch
+        )
+    }
+}

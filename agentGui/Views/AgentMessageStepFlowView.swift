@@ -8,9 +8,18 @@ struct AgentMessageStepFlowView: View {
     }
 
     private var toolLookup: [UUID: ToolCall] {
+        Self.makeToolLookup(for: message)
+    }
+
+    static func makeToolLookup(for message: Message) -> [UUID: ToolCall] {
         let roundCalls = message.agentRounds.flatMap(\.toolCalls)
         let directCalls = message.toolCalls.filter { $0.agentRound == nil }
-        return Dictionary(uniqueKeysWithValues: (roundCalls + directCalls).map { ($0.id, $0) })
+
+        var lookup: [UUID: ToolCall] = [:]
+        for toolCall in roundCalls + directCalls {
+            lookup[toolCall.id] = toolCall
+        }
+        return lookup
     }
 
     var body: some View {

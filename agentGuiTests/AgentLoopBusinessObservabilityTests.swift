@@ -53,6 +53,32 @@ struct AgentLoopBusinessObservabilityTests {
         #expect(sink.events.map(\.event) == [.loopStarted, .roundStarted, .stopReasonReceived, .loopFinished])
     }
 
+    @Test func runCoreAgentLoopFailsWhenToolUseStopReasonHasNoParsedTools() async throws {
+        let claudeService = ClaudeService()
+
+        var messages: [MessageParameter.Message] = [
+            .init(role: .user, content: .text("run a tool"))
+        ]
+
+        let result = try await claudeService.runCoreAgentLoop(
+            messages: &messages,
+            service: FakeAnthropicService.toolUseWithoutBlocks(),
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            settings: AppSettings(),
+            sessionId: "",
+            modelContext: try makeModelContext(),
+            maxRounds: 2,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none
+        )
+
+        #expect(!result.completedSuccessfully)
+        #expect(result.terminationReason == "stop_reason=tool_use but no tool blocks parsed")
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
@@ -86,6 +112,14 @@ private final class FakeAnthropicService: AnthropicService {
             """),
             decodeStreamEvent("""
             {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+            """)
+        ])
+    }
+
+    static func toolUseWithoutBlocks() -> FakeAnthropicService {
+        FakeAnthropicService(streamEvents: [
+            decodeStreamEvent("""
+            {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
             """)
         ])
     }

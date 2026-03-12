@@ -45,6 +45,22 @@ struct AgentMessageFlowPresentationTests {
         })
     }
 
+    @Test func stepFlowToolLookupDeduplicatesRepeatedToolCallRelationships() async throws {
+        let message = Message.agentMessage(text: nil, session: Session(title: "Retry"))
+        let round = AgentRound(roundIndex: 0, message: message)
+        let tool = ToolCall(toolCallId: "exec-duplicate", kind: .execute, message: message, agentRound: round)
+        tool.title = "xcodebuild"
+        tool.status = .success
+
+        round.toolCalls = [tool, tool]
+        message.agentRounds = [round]
+
+        let lookup = AgentMessageStepFlowView.makeToolLookup(for: message)
+
+        #expect(lookup.count == 1)
+        #expect(lookup[tool.id] === tool)
+    }
+
     @Test func creativeMemorySubagentRowSurfacesAuditSummary() async throws {
         let tool = ToolCall(toolCallId: "subagent-memory", kind: .subagent)
         tool.subagentAgentName = "creative_memory_manager"
