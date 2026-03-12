@@ -15,109 +15,6 @@ struct ExecutionRequirementTests {
         #expect(encoded.contains("ephemeral"))
     }
 
-    @Test func promptDescribesJsonContractForModelClassifier() {
-        let prompt = ExecutionRequirement.makePrompt(for: "请执行 xcodebuild test 并告诉我结果")
-
-        #expect(prompt.contains("requiresExecution"))
-        #expect(prompt.contains("confidence"))
-        #expect(prompt.contains("actual tool execution"))
-        #expect(prompt.contains("built-in tool"))
-    }
-
-    @Test func parseAssessmentHandlesMarkdownFences() {
-        let raw = """
-        ```json
-        {
-          "requiresExecution": true,
-          "confidence": 0.92,
-          "rationale": "The user explicitly asked to run a test command."
-        }
-        ```
-        """
-
-        let assessment = ExecutionRequirement.parseAssessment(from: raw)
-
-        #expect(assessment?.requiresExecution == true)
-        #expect(assessment?.confidence == 0.92)
-    }
-
-    @Test func highConfidenceAssessmentRequiresExecution() {
-        let requirement = ExecutionRequirement.fromAssessment(
-            ExecutionRequirementAssessment(
-                requiresExecution: true,
-                confidence: 0.91,
-                rationale: "The request requires running a command."
-            )
-        )
-
-        #expect(requirement.requiresExecution)
-        #expect(requirement.confidence == 0.91)
-    }
-
-    @Test func lowConfidenceAssessmentDoesNotRequireExecution() {
-        let requirement = ExecutionRequirement.fromAssessment(
-            ExecutionRequirementAssessment(
-                requiresExecution: true,
-                confidence: 0.42,
-                rationale: "Intent is ambiguous."
-            )
-        )
-
-        #expect(!requirement.requiresExecution)
-        #expect(requirement.confidence == 0.42)
-    }
-
-    @Test func finalizationRequiresExecutionEvidenceWhenRequested() {
-        let requirement = ExecutionRequirement.fromAssessment(
-            ExecutionRequirementAssessment(
-                requiresExecution: true,
-                confidence: 0.9,
-                rationale: "The user explicitly requested running a test command."
-            )
-        )
-
-        let firstAttempt = ExecutionGuard.resolveFinalization(
-            requirement: requirement,
-            evidenceKinds: [],
-            retryCount: 0
-        )
-
-        let secondAttempt = ExecutionGuard.resolveFinalization(
-            requirement: requirement,
-            evidenceKinds: [],
-            retryCount: 1
-        )
-
-        guard case .requestExecution(let prompt) = firstAttempt else {
-            Issue.record("Expected first finalization attempt to request execution")
-            return
-        }
-        #expect(prompt.contains("bash"))
-
-        guard case .fail(let reason) = secondAttempt else {
-            Issue.record("Expected second finalization attempt to fail")
-            return
-        }
-        #expect(reason.contains("Execution required"))
-    }
-
-    @Test func finalizationAllowsCompletionAfterExecutionEvidence() {
-        let requirement = ExecutionRequirement.fromAssessment(
-            ExecutionRequirementAssessment(
-                requiresExecution: true,
-                confidence: 0.9,
-                rationale: "The user explicitly requested running a test command."
-            )
-        )
-        let decision = ExecutionGuard.resolveFinalization(
-            requirement: requirement,
-            evidenceKinds: [.bash],
-            retryCount: 0
-        )
-
-        #expect(decision == .allow)
-    }
-
     @Test func evidenceClassificationRecognizesExecutionTools() {
         let toolInput: MessageResponse.Content.Input = [
             "agent_name": .string("executor")
@@ -134,23 +31,6 @@ struct ExecutionRequirementTests {
         #expect(ExecutionGuard.evidenceKind(toolName: "verify_completion", input: [:], result: .success("ok")) == nil)
         #expect(ExecutionGuard.evidenceKind(toolName: "update_todo_list", input: [:], result: .success("ok")) == nil)
         #expect(ExecutionGuard.evidenceKind(toolName: "read_skill", input: [:], result: .success("ok")) == nil)
-    }
-
-    @Test func finalizationAllowsCompletionAfterBuiltinToolEvidence() {
-        let requirement = ExecutionRequirement.fromAssessment(
-            ExecutionRequirementAssessment(
-                requiresExecution: true,
-                confidence: 0.9,
-                rationale: "The user explicitly requested real tool execution."
-            )
-        )
-        let decision = ExecutionGuard.resolveFinalization(
-            requirement: requirement,
-            evidenceKinds: [.builtinTool],
-            retryCount: 0
-        )
-
-        #expect(decision == .allow)
     }
 
     private func encodedSystemJSON(from system: MessageParameter.System?) -> String {
@@ -174,7 +54,7 @@ struct ExecutionRequirementTests {
         ```
         """
 
-        let assessment = ExecutionRequirement.parseClaimAssessment(from: raw)
+        let assessment = VerificationEvidenceSupport.parseClaimAssessment(from: raw)
 
         #expect(assessment?.claimsExecutionResults == true)
         #expect(assessment?.confidence == 0.88)

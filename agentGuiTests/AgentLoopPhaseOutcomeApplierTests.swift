@@ -28,33 +28,12 @@ struct AgentLoopPhaseOutcomeApplierTests {
         #expect(outcome.projectedTextReset == nil)
     }
 
-    @Test func applierRetriesFinalizationAndRestoresProjectedText() {
-        var messages: [MessageParameter.Message] = []
-        var loopContext = AgentLoopContext(phase: .finalizing)
-        let outcome = AgentLoopPhaseOutcomeApplier.apply(
-            phase: .finalizing,
-            finalizationDecision: .retry(prompt: "run it for real"),
-            loopContext: &loopContext,
-            messages: &messages,
-            accumulatedText: "current",
-            accumulatedTextBeforeRound: "before",
-            currentRoundText: "delta",
-            assistantObjects: []
-        )
-
-        #expect(loopContext.phase == .executing)
-        #expect(outcome.projectedTextReset == "before")
-        #expect(messages.count == 2)
-        #expect(extractText(from: messages.last?.content) == "run it for real")
-    }
-
     @Test func applierEntersReflectionOnlyWhenFailureTriggerExistsAndBudgetRemains() {
         var messages: [MessageParameter.Message] = []
         var loopContext = AgentLoopContext(phase: .finalizing)
         loopContext.pendingFailureTrigger = .toolFailure(toolName: "bash", errorText: "boom")
         let outcome = AgentLoopPhaseOutcomeApplier.apply(
             phase: .finalizing,
-            finalizationDecision: .allow,
             loopContext: &loopContext,
             messages: &messages,
             accumulatedText: "current",
@@ -71,7 +50,6 @@ struct AgentLoopPhaseOutcomeApplierTests {
         loopContext.reflectionCount = 3
         _ = AgentLoopPhaseOutcomeApplier.apply(
             phase: .finalizing,
-            finalizationDecision: .allow,
             loopContext: &loopContext,
             messages: &messages,
             accumulatedText: "current",
@@ -90,7 +68,6 @@ struct AgentLoopPhaseOutcomeApplierTests {
 
         let outcome = AgentLoopPhaseOutcomeApplier.apply(
             phase: .finalizing,
-            finalizationDecision: .allow,
             loopContext: &loopContext,
             messages: &messages,
             accumulatedText: "done",

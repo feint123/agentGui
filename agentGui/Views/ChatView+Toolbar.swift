@@ -34,6 +34,10 @@ extension ChatView {
                 Button(role: .destructive) { deleteCurrentSession() } label: {
                     Label("删除当前对话", systemImage: "trash")
                 }
+                Button(role: .destructive) { deleteAllSessions() } label: {
+                    Label(isDeletingAllSessions ? "正在删除所有会话..." : "删除所有会话", systemImage: "trash.slash")
+                }
+                .disabled(isDeletingAllSessions)
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -111,9 +115,64 @@ extension ChatView {
     }
 
     private func deleteCurrentSession() {
+        SessionToolbarActions(modelContext: modelContext, workspaceState: workspaceState).deleteCurrentSession()
+    }
+
+    private func deleteAllSessions() {
+        guard !isDeletingAllSessions else { return }
+
+        activeTask?.cancel()
+        activeTask = nil
+        isDeletingAllSessions = true
+
+        Task { @MainActor in
+            await SessionToolbarActions(modelContext: modelContext, workspaceState: workspaceState)
+                .deleteAllSessions(batchSize: 50)
+            isDeletingAllSessions = false
+        }
+    }
+}
+
+@MainActor
+struct SessionToolbarActions {
+    let modelContext: ModelContext
+    let workspaceState: WorkspaceState
+
+    func deleteCurrentSession() {
         guard let current = workspaceState.selectedSession else { return }
         modelContext.delete(current)
         try? modelContext.save()
-        workspaceState.selectedSession = allSessions.first
+        workspaceState.selectedSession = fetchMostRecentSession()
+    }
+
+    func deleteAllSessions(batchSize: Int = 50) async {
+        let descriptor = FetchDescriptor<Session>()
+        let sessions = (try? modelContext.fetch(descriptor)) ?? []
+        let effectiveBatchSize = max(1, batchSize)
+
+        workspaceState.selectedSession = nil
+
+        var pendingDeletes = 0
+        for session in sessions {
+            modelContext.delete(session)
+            pendingDeletes += 1
+
+            if pendingDeletes == effectiveBatchSize {
+                try? modelContext.save()
+                pendingDeletes = 0
+                await Task.yield()
+            }
+        }
+
+        if pendingDeletes > 0 {
+            try? modelContext.save()
+        }
+    }
+
+    private func fetchMostRecentSession() -> Session? {
+        let descriptor = FetchDescriptor<Session>(
+            sortBy: [SortDescriptor(\Session.updatedAt, order: .reverse)]
+        )
+        return try? modelContext.fetch(descriptor).first
     }
 }

@@ -21,7 +21,6 @@ struct AgentLoopBuiltInHookFactoryTests {
             "tool-audit",
             "failure-classification",
             "reflection-handling",
-            "finalization-guard",
             "business-observability"
         ])
     }

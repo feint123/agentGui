@@ -25,6 +25,20 @@ struct AgentLoopBusinessObservabilityTests {
         #expect(sink.events.first?.metadata["modelId"] as? String == "claude-test")
     }
 
+    @Test func businessObservabilityHookMapsBootstrapToMemoryBootstrapLoadedEvent() async throws {
+        let sink = InMemoryBusinessLogSink()
+        let hook = BusinessObservabilityHook(sink: sink)
+
+        let result = try await hook.perform(
+            stage: .didApplyBootstrap,
+            context: .testObservabilityContext(metadata: ["profileCount": 2])
+        )
+
+        #expect(result == .continue)
+        #expect(sink.events.map(\.event) == [.memoryBootstrapLoaded])
+        #expect(sink.events.first?.metadata["profileCount"] as? Int == 2)
+    }
+
     @Test func runCoreAgentLoopEmitsLifecycleEventsInOrder() async throws {
         let sink = InMemoryBusinessLogSink()
         let claudeService = ClaudeService()
@@ -50,7 +64,14 @@ struct AgentLoopBusinessObservabilityTests {
         )
 
         #expect(result.completedSuccessfully)
-        #expect(sink.events.map(\.event) == [.loopStarted, .roundStarted, .stopReasonReceived, .loopFinished])
+        #expect(sink.events.map(\.event) == [
+            .loopStarted,
+            .roundStarted,
+            .stopReasonReceived,
+            .verificationGateEvaluated,
+            .verificationSkipped,
+            .loopFinished
+        ])
     }
 
     @Test func runCoreAgentLoopFailsWhenToolUseStopReasonHasNoParsedTools() async throws {
@@ -77,6 +98,36 @@ struct AgentLoopBusinessObservabilityTests {
 
         #expect(!result.completedSuccessfully)
         #expect(result.terminationReason == "stop_reason=tool_use but no tool blocks parsed")
+    }
+
+    @Test func runCoreAgentLoopMaxRoundsFailureEmitsLoopFailedButNotLoopFinished() async throws {
+        let sink = InMemoryBusinessLogSink()
+        let claudeService = ClaudeService()
+        claudeService.businessLogSink = sink
+
+        var messages: [MessageParameter.Message] = [
+            .init(role: .user, content: .text("do not start"))
+        ]
+
+        let result = try await claudeService.runCoreAgentLoop(
+            messages: &messages,
+            service: FakeAnthropicService.endTurn(text: "unused"),
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            settings: AppSettings(),
+            sessionId: "",
+            modelContext: try makeModelContext(),
+            maxRounds: 0,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none
+        )
+
+        #expect(!result.completedSuccessfully)
+        #expect(result.terminationReason == "maxRounds")
+        #expect(sink.events.map(\.event).contains(.loopFailed))
+        #expect(!sink.events.map(\.event).contains(.loopFinished))
     }
 
     private func makeModelContext() throws -> ModelContext {

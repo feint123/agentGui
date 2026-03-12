@@ -138,16 +138,19 @@ struct WorkflowAgentRunner {
         }
 
         let startTime = Date()
-        let loopResult = try await claudeService.runCoreAgentLoop(
-            messages: &loopMessages,
+        let request = AgentLoopRunRequest(
             service: service,
             modelId: modelId,
             tools: tools,
             system: system,
+            maxRounds: role.maxTurnsPerActivation,
+            toolExecutionContext: .workflowWorker
+        )
+        let runtime = AgentLoopRuntime(
             settings: settings,
+            session: nil,
             sessionId: context.sessionId,
             modelContext: modelContext,
-            maxRounds: role.maxTurnsPerActivation,
             makeRound: { idx in
                 let round = AgentRound(roundIndex: idx)
                 round.subagentToolCall = nil
@@ -157,8 +160,12 @@ struct WorkflowAgentRunner {
             streamProjectionTarget: onAction.map { action in
                 .workflowAction(action)
             } ?? .none,
-            toolInterceptor: artifactInterceptor,
-            toolExecutionContext: .workflowWorker
+            toolInterceptor: artifactInterceptor
+        )
+        let loopResult = try await claudeService.runCoreAgentLoop(
+            messages: &loopMessages,
+            request: request,
+            runtime: runtime
         )
         let outputText = loopResult.text
 

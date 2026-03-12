@@ -364,15 +364,6 @@ final class ClaudeService {
         modelContext.insert(assistantMessage)
         try? modelContext.save()
 
-        let latestUserText = apiMessages.reversed()
-            .first(where: { $0.role == "user" })
-            .map { extractText(from: $0.content) } ?? ""
-        let executionRequirement = await assessExecutionRequirement(
-            for: latestUserText,
-            service: service,
-            modelId: modelId
-        )
-
         do {
             let result = try await runAgenticLoop(
                 apiMessages: apiMessages,
@@ -384,7 +375,6 @@ final class ClaudeService {
                 session: session,
                 settings: settings,
                 modelContext: modelContext,
-                executionRequirement: executionRequirement
             )
             assistantMessage.status = result.completedSuccessfully ? .completed : .failed
             if assistantMessage.textContent?.isEmpty ?? true {

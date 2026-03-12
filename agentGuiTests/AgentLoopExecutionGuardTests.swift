@@ -54,26 +54,6 @@ struct AgentLoopExecutionGuardTests {
         #expect(!output.contains("无执行证据"))
     }
 
-    @Test func executionGuardRetryRestoresPriorProjectionAndQueuesCorrectionPrompt() {
-        var messages: [MessageParameter.Message] = []
-        var loopContext = AgentLoopContext(phase: .finalizing)
-
-        let outcome = AgentLoopPhaseOutcomeApplier.apply(
-            phase: .finalizing,
-            finalizationDecision: .retry(prompt: "need terminal evidence"),
-            loopContext: &loopContext,
-            messages: &messages,
-            accumulatedText: "after",
-            accumulatedTextBeforeRound: "before",
-            currentRoundText: "delta",
-            assistantObjects: []
-        )
-
-        #expect(loopContext.phase == .executing)
-        #expect(outcome.projectedTextReset == "before")
-        #expect(extractText(from: messages.last?.content) == "need terminal evidence")
-    }
-
     @Test func verificationFailureTriggerHasDedicatedEvidenceLabel() {
         let trigger = FailureTrigger.verificationFailure(detail: "missing execution evidence")
 
@@ -81,9 +61,14 @@ struct AgentLoopExecutionGuardTests {
         #expect(trigger.description.contains("missing execution evidence"))
     }
 
-    private func extractText(from content: MessageParameter.Message.Content?) -> String {
-        guard let content else { return "" }
-        return ClaudeService().extractText(from: content)
+    @Test func verificationFailureTransitionKeepsPendingTriggerUntilReflectionConsumesIt() {
+        var loopContext = AgentLoopContext(phase: .verifying)
+        loopContext.pendingFailureTrigger = .verificationFailure(detail: "missing execution evidence")
+
+        loopContext.verificationComplete(passed: false)
+
+        #expect(loopContext.phase == .reflecting)
+        #expect(loopContext.pendingFailureTrigger == .verificationFailure(detail: "missing execution evidence"))
     }
 
     private func makeVerifyInput(

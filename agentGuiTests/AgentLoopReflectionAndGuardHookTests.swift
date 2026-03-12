@@ -20,23 +20,6 @@ struct AgentLoopReflectionAndGuardHookTests {
         #expect(result == .reflection(.init(shouldRetry: true, correctionPrompt: "apply fix")))
     }
 
-    @Test func finalizationGuardHookMapsExecutionGuardRequestToRetryDecision() async throws {
-        let hook = FinalizationGuardHook()
-        var context = AgentLoopHookContext.testReflectionContext()
-        context.metadata = [
-            "executionRequirement": ExecutionRequirement(
-                requiresExecution: true,
-                confidence: 1,
-                reason: "must execute"
-            ),
-            "executionEvidenceKinds": Set<ExecutionEvidenceKind>(),
-            "retryCount": 0
-        ]
-
-        let result = try await hook.perform(stage: .decideFinalization, context: context)
-
-        #expect(result == .decision(.finalization(.retry(prompt: ExecutionGuard.correctionPrompt))))
-    }
 }
 
 private extension AgentLoopHookContext {

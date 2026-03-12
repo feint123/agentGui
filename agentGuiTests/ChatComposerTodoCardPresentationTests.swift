@@ -27,8 +27,9 @@ struct ChatComposerTodoCardPresentationTests {
 
         #expect(presentation.isVisible)
         #expect(presentation.progressText == "2/5")
-        #expect(presentation.visibleItems.map(\.title) == ["doing", "pending", "pending-2"])
-        #expect(presentation.hiddenCount == 2)
+        #expect(presentation.visibleItems.map(\.title) == ["doing", "pending", "pending-2", "done", "done-2"])
+        #expect(presentation.hiddenCount == 0)
+        #expect(presentation.showsScrollContainer)
     }
 
     @Test func buildKeepsCancelledItemsAfterActiveItems() async throws {
@@ -41,6 +42,21 @@ struct ChatComposerTodoCardPresentationTests {
         let presentation = ChatComposerTodoCardPresentation.build(items: items, maxVisibleItems: 5)
 
         #expect(presentation.visibleItems.map(\.title) == ["pending", "done", "cancelled"])
+        #expect(!presentation.showsScrollContainer)
+    }
+
+    @Test func buildEnablesScrollOnlyWhenItemCountExceedsThreshold() async throws {
+        let items = [
+            TodoItem(id: "1", title: "one", status: .pending),
+            TodoItem(id: "2", title: "two", status: .pending),
+            TodoItem(id: "3", title: "three", status: .pending),
+            TodoItem(id: "4", title: "four", status: .pending)
+        ]
+
+        let presentation = ChatComposerTodoCardPresentation.build(items: items, maxVisibleItems: 4)
+
+        #expect(!presentation.showsScrollContainer)
+        #expect(presentation.maxListHeight == nil)
     }
 
     @Test func assistSurfacePrefersSlashOverTodo() async throws {

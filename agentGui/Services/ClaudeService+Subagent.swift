@@ -95,16 +95,19 @@ extension ClaudeService {
         let startTime = Date()
         var loopMessages: [MessageParameter.Message] = [.init(role: .user, content: .text(task))]
         let system = makeEphemeralSystemPrompt(definition.systemPrompt)
-        let result = try await runCoreAgentLoop(
-            messages: &loopMessages,
+        let request = AgentLoopRunRequest(
             service: service,
             modelId: modelId,
             tools: buildSubagentTools(definition: definition, settings: settings),
             system: system,
+            maxRounds: definition.maxRounds,
+            toolExecutionContext: .subagent
+        )
+        let runtime = AgentLoopRuntime(
             settings: settings,
+            session: nil,
             sessionId: sessionId,
             modelContext: modelContext,
-            maxRounds: definition.maxRounds,
             makeRound: { idx in
                 let round = AgentRound(roundIndex: idx)
                 round.subagentToolCall = toolCallRecord
@@ -112,7 +115,12 @@ extension ClaudeService {
             },
             parentMessage: nil,
             streamProjectionTarget: .none,
-            toolExecutionContext: .subagent
+            toolInterceptor: nil
+        )
+        let result = try await runCoreAgentLoop(
+            messages: &loopMessages,
+            request: request,
+            runtime: runtime
         )
         let output = result.text.isEmpty ? "(subagent produced no output)" : result.text
         let elapsed = Date().timeIntervalSince(startTime)

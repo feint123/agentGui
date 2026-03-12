@@ -1,54 +1,8 @@
 import Foundation
 import SwiftAnthropic
 
-struct ExecutionRequirement: Equatable, Sendable {
-    let requiresExecution: Bool
-    let confidence: Double
-    let reason: String?
-
-    nonisolated static var none: ExecutionRequirement {
-        ExecutionRequirement(requiresExecution: false, confidence: 0, reason: nil)
-    }
-
+enum VerificationEvidenceSupport {
     nonisolated static let confidenceThreshold = 0.75
-
-    nonisolated static func makePrompt(for userText: String) -> String {
-        """
-        Determine whether the user's latest request requires actual tool execution in the local environment as part of fulfilling the request.
-
-        User request:
-        \(userText)
-
-        Respond ONLY with a valid JSON object in this exact schema:
-        {
-          "requiresExecution": <true|false>,
-          "confidence": <number 0.0-1.0>,
-          "rationale": <string>
-        }
-
-        Rules:
-        - requiresExecution = true only when fulfilling the request correctly requires actually using a command or built-in tool in the environment.
-        - Built-in tool execution includes actions such as editing files, fetching external content, writing memory/state, launching workflows or subagents, or other tool-mediated operations that do real work beyond pure explanation.
-        - requiresExecution = false for explanation-only requests, planning, how-to guidance, code-only edits without execution, or analysis that does not require running anything.
-        - confidence should be high only when the intent is explicit and unambiguous.
-        - Return JSON only. No markdown fences.
-        """
-    }
-
-    static func fromAssessment(_ assessment: ExecutionRequirementAssessment) -> ExecutionRequirement {
-        let clampedConfidence = max(0, min(1, assessment.confidence))
-        return ExecutionRequirement(
-            requiresExecution: assessment.requiresExecution && clampedConfidence >= confidenceThreshold,
-            confidence: clampedConfidence,
-            reason: assessment.rationale
-        )
-    }
-
-    static func parseAssessment(from text: String) -> ExecutionRequirementAssessment? {
-        let cleaned = stripMarkdownFences(text)
-        guard let data = cleaned.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(ExecutionRequirementAssessment.self, from: data)
-    }
 
     static func parseClaimAssessment(from text: String) -> ExecutionClaimAssessment? {
         let cleaned = stripMarkdownFences(text)
@@ -70,59 +24,17 @@ struct ExecutionRequirement: Equatable, Sendable {
     }
 }
 
-struct ExecutionRequirementAssessment: Codable, Equatable, Sendable {
-    let requiresExecution: Bool
-    let confidence: Double
-    let rationale: String
-}
-
 struct ExecutionClaimAssessment: Codable, Equatable, Sendable {
     let claimsExecutionResults: Bool
     let confidence: Double
     let rationale: String
 }
 
-private let executionRequirementSystemPrompt = """
-You are an intent classifier for an AI coding assistant. Your only job is to determine whether the user's request requires real tool execution in the environment. Output only strict JSON.
-"""
-
 private let executionClaimSystemPrompt = """
 You are a classifier for completion-verification statements. Decide whether the provided verification items claim that a command, build, test, or runtime verification was actually executed. Output only strict JSON.
 """
 
 extension ClaudeService {
-    func assessExecutionRequirement(
-        for userText: String,
-        service: any AnthropicService,
-        modelId: String
-    ) async -> ExecutionRequirement {
-        let trimmed = userText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return .none }
-
-        let params = MessageParameter(
-            model: .other(classifierModelId(preferredModelId: modelId)),
-            messages: [
-                .init(role: .user, content: .text(ExecutionRequirement.makePrompt(for: trimmed)))
-            ],
-            maxTokens: 256,
-            system: makeEphemeralSystemPrompt(executionRequirementSystemPrompt)
-        )
-
-        do {
-            let response = try await service.createMessage(params)
-            guard let textContent = response.content.compactMap({ block -> String? in
-                if case .text(let text, _) = block { return text }
-                return nil
-            }).first,
-            let assessment = ExecutionRequirement.parseAssessment(from: textContent) else {
-                return .none
-            }
-            return ExecutionRequirement.fromAssessment(assessment)
-        } catch {
-            return .none
-        }
-    }
-
     private func classifierModelId(preferredModelId: String) -> String {
         preferredModelId.isEmpty ? "claude-haiku-4-5" : "claude-haiku-4-5"
     }
@@ -163,7 +75,7 @@ extension ClaudeService {
             }).first else {
                 return nil
             }
-            return ExecutionRequirement.parseClaimAssessment(from: textContent)
+            return VerificationEvidenceSupport.parseClaimAssessment(from: textContent)
         } catch {
             return nil
         }
@@ -177,28 +89,7 @@ enum ExecutionEvidenceKind: String, Hashable {
     case workflow
 }
 
-enum ExecutionGuardDecision: Equatable {
-    case allow
-    case requestExecution(prompt: String)
-    case fail(reason: String)
-}
-
 enum ExecutionGuard {
-    static func resolveFinalization(
-        requirement: ExecutionRequirement,
-        evidenceKinds: Set<ExecutionEvidenceKind>,
-        retryCount: Int
-    ) -> ExecutionGuardDecision {
-        guard requirement.requiresExecution else { return .allow }
-        guard evidenceKinds.isEmpty else { return .allow }
-
-        if retryCount == 0 {
-            return .requestExecution(prompt: correctionPrompt)
-        }
-
-        return .fail(reason: "Execution required but no execution-capable tool was used before end_turn")
-    }
-
     static func evidenceKind(
         toolName: String,
         input: MessageResponse.Content.Input,
@@ -221,7 +112,7 @@ enum ExecutionGuard {
     static func shouldWarnForVerificationClaims(_ assessment: ExecutionClaimAssessment?) -> Bool {
         guard let assessment else { return false }
         let clampedConfidence = max(0, min(1, assessment.confidence))
-        return assessment.claimsExecutionResults && clampedConfidence >= ExecutionRequirement.confidenceThreshold
+        return assessment.claimsExecutionResults && clampedConfidence >= VerificationEvidenceSupport.confidenceThreshold
     }
 
     private static let builtinExecutionToolNames: Set<String> = [
@@ -248,5 +139,4 @@ enum ExecutionGuard {
         "story_memory_verify_continuity"
     ]
 
-    static let correctionPrompt = "You must actually execute the requested work using bash, a relevant built-in tool, the executor subagent, or start_workflow. Do not claim completion without a real tool call."
 }

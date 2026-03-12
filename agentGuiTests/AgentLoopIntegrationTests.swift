@@ -7,6 +7,34 @@ import Testing
 @MainActor
 struct AgentLoopIntegrationTests {
 
+    @Test func runCoreAgentLoopReturnsMaxRoundsFailureWhenLoopNeverExecutes() async throws {
+        let claudeService = ClaudeService()
+        let modelContext = try makeModelContext()
+
+        var messages: [MessageParameter.Message] = [
+            .init(role: .user, content: .text("never start"))
+        ]
+
+        let result = try await claudeService.runCoreAgentLoop(
+            messages: &messages,
+            service: SequencedFakeAnthropicService(streamBatches: []),
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            settings: .testFixture(),
+            sessionId: "session-max-rounds",
+            modelContext: modelContext,
+            maxRounds: 0,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none
+        )
+
+        #expect(!result.completedSuccessfully)
+        #expect(result.terminationReason == "maxRounds")
+        #expect(result.text.contains("[Stopped: maximum rounds reached]"))
+    }
+
     @Test func runCoreAgentLoopExecutesRunSubagentAndPersistsSubagentAudit() async throws {
         let claudeService = ClaudeService()
         let modelContext = try makeModelContext()
@@ -192,7 +220,7 @@ struct AgentLoopIntegrationTests {
         #expect(verification.summary == "verification passed")
     }
 
-    @Test func runCoreAgentLoopCanPassVerificationWithoutVerifyCompletionRecord() async throws {
+    @Test func runCoreAgentLoopDoesNotUseLegacyExecutionRequirementGuard() async throws {
         let claudeService = ClaudeService()
         let modelContext = try makeModelContext()
         let service = SequencedFakeAnthropicService(streamBatches: [
@@ -230,16 +258,14 @@ struct AgentLoopIntegrationTests {
             maxRounds: 5,
             makeRound: { AgentRound(roundIndex: $0) },
             parentMessage: nil,
-            streamProjectionTarget: .none,
-            executionRequirement: ExecutionRequirement(requiresExecution: true, confidence: 0.9, reason: "code task")
+            streamProjectionTarget: .none
         )
 
         let store = SessionTaskStateStore(modelContext: modelContext)
-        let verification = try #require(store.verification(for: "session-verifier-no-tool"))
 
         #expect(result.completedSuccessfully)
-        #expect(verification.passed == true)
-        #expect(verification.summary == "verification passed without verify_completion")
+        #expect(result.terminationReason == nil)
+        #expect(store.verification(for: "session-verifier-no-tool") == nil)
     }
 
     private func makeModelContext() throws -> ModelContext {

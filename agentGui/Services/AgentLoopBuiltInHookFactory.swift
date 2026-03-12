@@ -38,7 +38,6 @@ struct AgentLoopBuiltInHookFactory {
             ReflectionHandlingHook { context in
                 try await dependencies.reflectionResolver(context, state)
             },
-            FinalizationGuardHook(),
             BusinessObservabilityHook(sink: dependencies.businessLogSink)
         ]
     }

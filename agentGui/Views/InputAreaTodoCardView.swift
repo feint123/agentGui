@@ -2,14 +2,28 @@ import SwiftUI
 
 struct InputAreaTodoCardView: View {
     let presentation: ChatComposerTodoCardPresentation
+    @State private var isExpanded = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Label(presentation.title, systemImage: "checklist")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .accessibilityIdentifier("chat.todoCard.header")
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Label(presentation.title, systemImage: "checklist")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .accessibilityIdentifier("chat.todoCard.header")
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("chat.todoCard.toggle")
                 Spacer(minLength: 0)
                 Text(presentation.progressText)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -19,32 +33,24 @@ struct InputAreaTodoCardView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
 
-            if !presentation.visibleItems.isEmpty {
+            if isExpanded, !presentation.visibleItems.isEmpty {
                 Divider()
                     .opacity(0.08)
 
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(presentation.visibleItems) { item in
-                        TodoRowContentView(item: item)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                    }
-
-                    if presentation.hiddenCount > 0 {
-                        HStack(spacing: 6) {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.tertiary)
-                            Text("还有 \(presentation.hiddenCount) 项")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.top, 6)
-                        .padding(.bottom, 10)
-                    }
-                }
+                TodoListView(
+                    items: presentation.visibleItems,
+                    maxHeight: presentation.maxListHeight,
+                    showsScrollIndicators: presentation.showsScrollContainer
+                )
+                .accessibilityIdentifier("chat.todoCard.scrollArea")
                 .padding(.vertical, 4)
+            } else if !isExpanded {
+                Text("已折叠，点击展开任务列表")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+                    .accessibilityIdentifier("chat.todoCard.collapsedHint")
             }
         }
         .background(.regularMaterial)

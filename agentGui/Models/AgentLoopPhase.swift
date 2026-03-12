@@ -160,10 +160,6 @@ struct AgentLoopContext {
         phase = .executing
     }
 
-    mutating func retryAfterExecutionGuard() {
-        phase = .executing
-    }
-
     /// Advance the round counter and return the index just assigned.
     mutating func nextRound() -> Int {
         defer { roundIndex += 1 }

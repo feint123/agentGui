@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 enum ChatComposerAssistSurface: Equatable {
@@ -31,18 +32,22 @@ struct ChatComposerTodoCardPresentation: Equatable {
     let visibleItems: [TodoItem]
     let hiddenCount: Int
     let isVisible: Bool
+    let showsScrollContainer: Bool
+    let maxListHeight: CGFloat?
 
     static func build(items: [TodoItem], maxVisibleItems: Int = 4) -> ChatComposerTodoCardPresentation {
         let prioritizedItems = items.sorted(by: sortItems)
-        let visibleItems = Array(prioritizedItems.prefix(maxVisibleItems))
         let doneCount = items.filter { $0.status == .done }.count
+        let showsScrollContainer = items.count > maxVisibleItems
 
         return ChatComposerTodoCardPresentation(
             title: "任务列表",
             progressText: "\(doneCount)/\(items.count)",
-            visibleItems: visibleItems,
-            hiddenCount: max(0, items.count - visibleItems.count),
-            isVisible: !items.isEmpty
+            visibleItems: prioritizedItems,
+            hiddenCount: 0,
+            isVisible: !items.isEmpty,
+            showsScrollContainer: showsScrollContainer,
+            maxListHeight: showsScrollContainer ? 220 : nil
         )
     }
 

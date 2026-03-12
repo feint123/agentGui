@@ -8,7 +8,6 @@ struct AgentLoopPhaseOutcomeApplication {
 enum AgentLoopPhaseOutcomeApplier {
     static func apply(
         phase: AgentLoopPhase,
-        finalizationDecision: FinalizationDecision = .allow,
         loopContext: inout AgentLoopContext,
         messages: inout [MessageParameter.Message],
         accumulatedText: String,
@@ -47,27 +46,8 @@ enum AgentLoopPhaseOutcomeApplier {
             loopContext.continuationInjected()
 
         case .finalizing:
-            switch finalizationDecision {
-            case .allow:
-                // Main-agent code tasks must enter an explicit verification pass
-                // before the loop is allowed to terminate successfully.
-                if verificationEnabled {
-                    loopContext.phase = .verifying
-                }
-            case .retry(let prompt):
-                outcome.projectedTextReset = accumulatedTextBeforeRound
-                var resolvedAssistantObjects = assistantObjects
-                if !currentRoundText.isEmpty {
-                    resolvedAssistantObjects.append(.text(currentRoundText))
-                }
-                if !resolvedAssistantObjects.isEmpty {
-                    messages.append(.init(role: .assistant, content: .list(resolvedAssistantObjects)))
-                }
-                messages.append(.init(role: .user, content: .text(prompt ?? ExecutionGuard.correctionPrompt)))
-                loopContext.retryAfterExecutionGuard()
-            case .fail(let reason):
-                loopContext.phase = .failed
-                loopContext.terminationReason = reason
+            if verificationEnabled {
+                loopContext.phase = .verifying
             }
 
             if loopContext.phase == .finalizing,
