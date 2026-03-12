@@ -155,19 +155,36 @@ final class ClaudeService {
 
     var isConfigured: Bool { service != nil }
 
-    func configure(apiKey: String, baseURL: String = "") {
+    func configure(apiKey: String, baseURL: String = "", settings: AppSettings? = nil) {
         let trimmed = apiKey.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { service = nil; return }
         let basePath = baseURL.trimmingCharacters(in: .whitespaces)
+
+        #if !os(Linux)
+        let httpClient: HTTPClient? = settings.map { ConfigurableHTTPClient(settings: $0) }
+        #else
+        let httpClient: HTTPClient? = nil
+        #endif
+
         if basePath.isEmpty {
-            service = AnthropicServiceFactory.service(apiKey: trimmed, betaHeaders: nil)
+            service = AnthropicServiceFactory.service(
+                apiKey: trimmed,
+                betaHeaders: nil,
+                httpClient: httpClient
+            )
         } else {
-            service = AnthropicServiceFactory.service(apiKey: trimmed, basePath: basePath, betaHeaders: nil, debugEnabled: false)
+            service = AnthropicServiceFactory.service(
+                apiKey: trimmed,
+                basePath: basePath,
+                betaHeaders: nil,
+                httpClient: httpClient,
+                debugEnabled: false
+            )
         }
     }
 
     func applyConnectionSettings(_ settings: AppSettings) {
-        configure(apiKey: settings.apiKey, baseURL: settings.baseURL)
+        configure(apiKey: settings.apiKey, baseURL: settings.baseURL, settings: settings)
         resetBashSessions()
     }
 

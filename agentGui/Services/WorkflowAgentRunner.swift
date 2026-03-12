@@ -154,12 +154,9 @@ struct WorkflowAgentRunner {
                 return round
             },
             parentMessage: nil,
-            onTextAccumulated: { text in
-                let snippet = text.split(separator: "\n", omittingEmptySubsequences: true).last.map(String.init) ?? ""
-                if !snippet.isEmpty {
-                    onAction?(String(snippet.prefix(80)))
-                }
-            },
+            streamProjectionTarget: onAction.map { action in
+                .workflowAction(action)
+            } ?? .none,
             toolInterceptor: artifactInterceptor,
             toolExecutionContext: .workflowWorker
         )

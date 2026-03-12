@@ -7,6 +7,24 @@ import Testing
 @MainActor
 struct AgentLoopBusinessObservabilityTests {
 
+    @Test func businessObservabilityHookMapsRunStartToLoopStartedEvent() async throws {
+        let sink = InMemoryBusinessLogSink()
+        let hook = BusinessObservabilityHook(sink: sink)
+
+        let result = try await hook.perform(
+            stage: .didStartRun,
+            context: .testObservabilityContext(metadata: [
+                "modelId": "claude-test",
+                "maxRounds": 2,
+                "messageCount": 1
+            ])
+        )
+
+        #expect(result == .continue)
+        #expect(sink.events.map(\.event) == [.loopStarted])
+        #expect(sink.events.first?.metadata["modelId"] as? String == "claude-test")
+    }
+
     @Test func runCoreAgentLoopEmitsLifecycleEventsInOrder() async throws {
         let sink = InMemoryBusinessLogSink()
         let claudeService = ClaudeService()
@@ -28,7 +46,7 @@ struct AgentLoopBusinessObservabilityTests {
             maxRounds: 2,
             makeRound: { AgentRound(roundIndex: $0) },
             parentMessage: nil,
-            onTextAccumulated: { _ in }
+            streamProjectionTarget: .none
         )
 
         #expect(result.completedSuccessfully)
@@ -140,4 +158,20 @@ private func decodeStreamEvent(_ json: String) -> MessageStreamResponse {
     decoder.keyDecodingStrategy = .convertFromSnakeCase
     let data = Data(json.utf8)
     return try! decoder.decode(MessageStreamResponse.self, from: data)
+}
+
+private extension AgentLoopHookContext {
+    static func testObservabilityContext(metadata: [String: Any] = [:]) -> AgentLoopHookContext {
+        var context = AgentLoopHookContext(
+            runID: "run-1",
+            sessionID: "session-1",
+            workflowID: nil,
+            executionContext: .mainAgent,
+            modelId: "claude-test",
+            roundIndex: 0,
+            phase: "executing"
+        )
+        context.metadata = metadata
+        return context
+    }
 }

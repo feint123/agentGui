@@ -88,7 +88,7 @@ extension ClaudeService {
                 return round
             },
             parentMessage: nil,
-            onTextAccumulated: { _ in },
+            streamProjectionTarget: .none,
             toolExecutionContext: .subagent
         )
         let output = result.text.isEmpty ? "(subagent produced no output)" : result.text

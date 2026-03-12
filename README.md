@@ -13,6 +13,7 @@
 - **技能系统** - 扩展 AI 能力的自定义技能，兼容 Claude Code 技能格式
 - **长期记忆** - 在项目记忆目录中持久化跨会话的知识
 - **创作记忆** - 面向小说写作的项目级结构化记忆，维护角色、世界规则、时间线和连续性
+- **统一记忆运行时** - 任务记忆与创作记忆统一落到 MemoryRecord / unified store，按任务类型选择不同 Profile 和记忆层
 - **Extended Thinking** - 支持 Claude 3.7+ 的深度推理模式
 - **流式响应** - 实时显示 AI 回复，支持 Markdown 渲染
 - **Timeline 视图** - 可视化展示 Agent 执行过程和工具调用链
@@ -38,6 +39,49 @@ open agentGui.xcodeproj
 xcodebuild -project agentGui.xcodeproj -scheme agentGui build
 ```
 
+## 质量基线
+
+当前推荐至少跑两组 focused gates：
+
+```bash
+# 场景级单元 / 集成验证
+xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=macOS' test \
+    -only-testing:agentGuiTests/QualityFixtureBuilderTests \
+    -only-testing:agentGuiTests/ReleaseScenarioTests
+
+# UI 冒烟回归
+xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=macOS' test \
+    -only-testing:agentGuiUITests/SessionManagementUITests \
+    -only-testing:agentGuiUITests/SettingsUITests \
+    -only-testing:agentGuiUITests/ChatFlowUITests \
+    -only-testing:agentGuiUITests/ToolCallUITests \
+    -only-testing:agentGuiUITests/WorkflowRecoveryUITests
+
+# 或直接执行收敛后的冒烟脚本
+./scripts/run_quality_smoke.sh
+
+# 只跑单元 / 集成场景
+./scripts/run_quality_smoke.sh unit
+
+# 只跑 UI 冒烟
+./scripts/run_quality_smoke.sh ui
+
+# 对 UI 冒烟做 5 次可重复采样，并生成 markdown 报告
+./scripts/sample_quality_baseline.sh ui 5
+
+# 对单元 / 集成冒烟做 5 次可重复采样
+./scripts/sample_quality_baseline.sh unit 5
+```
+
+更完整的测试矩阵和当前性能基线见：
+
+- `docs/quality/test-matrix-2026-03-11.md`
+- `docs/quality/performance-baseline-2026-03-11.md`
+
+VS Code 里也可以直接运行 `Quality Smoke`、`Sample UI Baseline`、`Sample Unit Baseline` tasks。
+
+仓库还提供了 GitHub Actions workflow：`.github/workflows/quality-smoke.yml`。
+
 ## 配置
 
 首次运行时，在「设置」标签页中：
@@ -47,6 +91,7 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui build
 3. 选择要使用的 Claude 模型
 4. 根据需要启用工具和技能
 5. 如需小说写作支持，在「创作记忆」中启用项目级记忆并绑定当前会话
+6. 如需统一记忆读路径与治理层，在「长期记忆」中启用统一记忆运行时和记忆治理
 
 ## 架构
 
@@ -160,6 +205,15 @@ agentGui 通过工具扩展 Claude 的能力：
 - **启用方式**：在设置页打开「启用创作记忆」，然后创建创作项目并把当前会话绑定到该项目
 - **Prompt 注入**：运行时会根据当前请求自动拼装活跃角色、相关规则、最近事件和未解决伏笔，而不是把整个项目全文塞进上下文
 - **与长期记忆的区别**：`memory_write` 面向全局偏好和跨任务经验；创作记忆只保存故事 canon，不写入 `~/.agentgui/memory.md`
+
+### 统一记忆运行时
+
+统一记忆运行时是当前正在迁移中的新读路径，用于把分散的记忆源收敛到一个最小相关切片里，再注入主 Agent loop。
+
+- **当前已完成**：Memory Layer / Kind / Scope 核心模型、Creative/Coding/User Preferences profile、task/session/project unified records、Retrieval Planner、Prompt Assembler、Runtime Coordinator、主 loop 统一 read path、任务记忆 direct unified write path、基础治理规则与设置开关
+- **当前状态**：TaskMemory 主链路已切到 unified store；`TaskMemoryService` / `TaskMemoryStoreAdapter` 已移除。`StoryMemoryService` 和 `memory_write` 仍保留各自既有持久化实现，统一运行时目前负责统一读取、组装和部分写入治理
+- **当前用户可见项**：设置页可以启用统一记忆运行时和治理层；启用后，聊天页会显示运行时已启用；工具调用详情会显示命中的 profiles、layers 和 warnings（若本轮有记录）；若存在运行时快照，还可以直接打开本轮记忆上下文面板，查看入选记录、排除原因、预算明细和占比图表
+- **当前未完成**：后台巩固、归档、TTL、冲突治理面板、完整长期写回编排
 
 当前内置的创作记忆工具包括：
 

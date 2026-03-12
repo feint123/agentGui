@@ -96,18 +96,22 @@ struct ProxyConfiguration: Sendable {
 }
 
 enum ProxyURLSessionFactory {
-    static func makeSession(for url: URL, proxyConfiguration: ProxyConfiguration) -> URLSession {
-        guard proxyConfiguration.normalizedProxyURL != nil,
-              !proxyConfiguration.shouldBypassProxy(for: url),
-              let proxyDictionary = proxyConfiguration.connectionProxyDictionary
-        else {
-            return .shared
+    static func makeSession(
+        for url: URL,
+        proxyConfiguration: ProxyConfiguration,
+        requestTimeout: TimeInterval = 300,
+        resourceTimeout: TimeInterval = 600
+    ) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = resourceTimeout
+
+        if proxyConfiguration.normalizedProxyURL != nil,
+           !proxyConfiguration.shouldBypassProxy(for: url),
+           let proxyDictionary = proxyConfiguration.connectionProxyDictionary {
+            configuration.connectionProxyDictionary = proxyDictionary
         }
 
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.connectionProxyDictionary = proxyDictionary
-        configuration.timeoutIntervalForRequest = 300
-        configuration.timeoutIntervalForResource = 600
         return URLSession(configuration: configuration)
     }
 }

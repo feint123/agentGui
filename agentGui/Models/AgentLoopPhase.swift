@@ -166,7 +166,7 @@ struct AgentLoopContext {
 /// Describes the class of failure event that should trigger failure-driven reflection.
 /// Reflection is only initiated when one of these three events is detected — not on every
 /// successful end_turn.
-enum FailureTrigger {
+enum FailureTrigger: Equatable {
 
     /// A tool execution returned an error (isError == true).
     case toolFailure(toolName: String, errorText: String)

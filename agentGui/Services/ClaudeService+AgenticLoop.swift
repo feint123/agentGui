@@ -7,49 +7,49 @@ import Foundation
 import SwiftAnthropic
 import SwiftData
 
-// MARK: - Pending Tool Use
-
-struct PendingToolUse {
-    let id: String
-    let name: String
-    var partialJson: String = ""
-
-    var parsedInput: MessageResponse.Content.Input {
-        guard let data = partialJson.data(using: .utf8) else { return [:] }
-        return (try? JSONDecoder().decode([String: MessageResponse.Content.DynamicContent].self, from: data)) ?? [:]
-    }
-}
-
-// MARK: - Pending Thinking Block
-
-struct PendingThinking {
-    var content: String = ""
-    var signature: String? = nil
-}
-
-// MARK: - Agentic Loop
-
-// MARK: - Performance Monitor Extensions
-
-private let perfLog = PerformanceMonitor.self
-
 extension ClaudeService {
 
-    func makeStoryMemoryBootstrapForTests(
-        settings: AppSettings,
-        sessionId: String,
-        messages: [MessageParameter.Message],
-        modelContext: ModelContext
-    ) throws -> String? {
-        try buildStoryMemoryBootstrap(
-            settings: settings,
-            sessionId: sessionId,
-            messages: messages,
-            modelContext: modelContext
-        )
+    private var perfLog: PerformanceMonitor.Type { PerformanceMonitor.self }
+
+    private struct PendingThinking {
+        var content: String = ""
+        var signature: String?
     }
 
-    // MARK: Public Entry Point
+    private struct PendingToolUse {
+        let id: String
+        let name: String
+        var partialJson: String = ""
+
+        var parsedInput: MessageResponse.Content.Input {
+            guard let data = partialJson.data(using: .utf8),
+                  let jsonObject = try? JSONSerialization.jsonObject(with: data),
+                  let dictionary = jsonObject as? [String: Any] else {
+                return [:]
+            }
+
+            return dictionary.mapValues(Self.dynamicContent(from:))
+        }
+
+        private static func dynamicContent(from value: Any) -> MessageResponse.Content.DynamicContent {
+            switch value {
+            case let string as String:
+                return .string(string)
+            case let bool as Bool:
+                return .bool(bool)
+            case let int as Int:
+                return .integer(int)
+            case let double as Double:
+                return .double(double)
+            case let array as [Any]:
+                return .array(array.map(dynamicContent(from:)))
+            case let dictionary as [String: Any]:
+                return .dictionary(dictionary.mapValues(dynamicContent(from:)))
+            default:
+                return .string(String(describing: value))
+            }
+        }
+    }
 
     func runAgenticLoop(
         apiMessages: [MessageParameter.Message],
@@ -82,13 +82,7 @@ extension ClaudeService {
             maxRounds: maxRounds,
             makeRound: { AgentRound(roundIndex: $0, message: assistantMessage) },
             parentMessage: assistantMessage,
-            onTextAccumulated: { text in
-                // 测量 UI 更新延迟
-                let uiSpan = perfLog.startSpan("onTextAccumulated", category: "UI", level: .verbose)
-                assistantMessage.textContent = text
-                uiSpan.addMetadata("length", value: text.count)
-                uiSpan.end()
-            },
+            streamProjectionTarget: .message(assistantMessage),
             executionRequirement: executionRequirement
         )
         let saveSpan = perfLog.startSpan("FinalSave", category: "Database")
@@ -106,8 +100,8 @@ extension ClaudeService {
     ///   attaches it to a `Message`, sub-agents attach it to a `ToolCall`.
     /// - `parentMessage`: the `Message` to update on error/truncation; `nil` for
     ///   sub-agents (they use the return value instead).
-    /// - `onTextAccumulated`: called each text delta with the full accumulated text,
-    ///   driving real-time UI for the main agent; sub-agents pass `{ _ in }`.
+    /// - `streamProjectionTarget`: describes how accumulated output should be projected
+    ///   to UI or workflow status consumers without embedding callback logic in the loop.
     ///
     /// Returns the full accumulated text produced across all rounds.
     @discardableResult
@@ -124,7 +118,7 @@ extension ClaudeService {
         maxRounds: Int,
         makeRound: (Int) -> AgentRound,
         parentMessage: Message?,
-        onTextAccumulated: (String) -> Void,
+        streamProjectionTarget: AgentLoopStreamProjectionTarget = .none,
         toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)? = nil,
         executionRequirement: ExecutionRequirement = .none,
         toolExecutionContext: ToolContext = .mainAgent
@@ -132,27 +126,296 @@ extension ClaudeService {
         var accumulatedText = ""
         var loopCtx = AgentLoopContext(phase: .executing)
         var loopMemory = ContextMemory()
-        var lastRound: AgentRound? = nil
         let runID = UUID().uuidString
         var executionEvidence: Set<ExecutionEvidenceKind> = []
         var executionGuardRetryCount = 0
-        var memoryRuntimeProfiles: [String] = []
-        var memoryRuntimeLayers: [String] = []
-        var memoryRuntimeWarnings: [String] = []
-        var memoryRuntimeSnapshotID: String?
+        let hookState = AgentLoopBuiltInHookFactory.State()
+        let bootstrapMessagesSnapshot = messages
 
-        func emitBusinessEvent(_ event: AgentBusinessEvent, metadata: [String: Any] = [:]) {
-            let context = BusinessLogContext(
+        func pendingToolID(from context: AgentLoopHookContext) -> String {
+            (context.metadata["toolUseID"] as? String) ?? UUID().uuidString
+        }
+
+        func roundForToolContext(from context: AgentLoopHookContext, fallback: AgentRound?) -> AgentRound? {
+            (context.metadata["agentRound"] as? AgentRound) ?? fallback
+        }
+
+        let hookFactory = AgentLoopBuiltInHookFactory()
+        let hookDependencies = AgentLoopBuiltInHookFactory.Dependencies(
+            businessLogSink: businessLogSink,
+            memoryBootstrapLoader: { state in
+                if let unifiedContext = try? await self.buildUnifiedMemoryBootstrap(
+                    settings: settings,
+                    session: session,
+                    sessionId: sessionId,
+                    messages: bootstrapMessagesSnapshot,
+                    modelContext: modelContext
+                ) {
+                    state.memoryRuntimeProfiles = unifiedContext.profiles
+                    state.memoryRuntimeLayers = Array(Set(unifiedContext.records.map { $0.layer.rawValue })).sorted()
+                    state.memoryRuntimeWarnings = unifiedContext.warnings
+
+                    if let snapshot = unifiedContext.runtimeSnapshot {
+                        let snapshotStore = MemoryRuntimeSnapshotStore()
+                        try? snapshotStore.save(snapshot)
+                        state.memoryRuntimeSnapshotID = snapshot.id
+                    }
+
+                    guard !unifiedContext.renderedPrompt.isEmpty else {
+                        return nil
+                    }
+
+                    return AgentLoopMessagePatch(
+                        insertions: [
+                            .init(
+                                index: 0,
+                                message: MessageParameter.Message(
+                                    role: .user,
+                                    content: .text("【统一记忆切片】以下是当前任务的统一记忆视图，请优先遵守其中的当前状态、事实、事件与风险：\n\n\(unifiedContext.renderedPrompt)")
+                                )
+                            ),
+                            .init(
+                                index: 1,
+                                message: MessageParameter.Message(
+                                    role: .assistant,
+                                    content: .text("已加载统一记忆切片，将据此继续执行当前任务。")
+                                )
+                            )
+                        ],
+                        metadata: [
+                            "source": "unified",
+                            "recordCount": unifiedContext.records.count,
+                            "warningCount": unifiedContext.warnings.count
+                        ]
+                    )
+                }
+
+                let unifiedStore = UnifiedMemoryFileStoreAdapter()
+                var patch = AgentLoopMessagePatch()
+
+                if !sessionId.isEmpty,
+                   let taskMem = try? self.loadTaskMemory(sessionId: sessionId, store: unifiedStore),
+                   !taskMem.isEmpty,
+                   let tmText = try? self.taskMemoryPromptText(sessionId: sessionId, store: unifiedStore),
+                   !tmText.isEmpty {
+                    patch.insertions.append(
+                        .init(
+                            index: 0,
+                            message: MessageParameter.Message(
+                                role: .user,
+                                content: .text("【任务级持久记忆】这是本任务的已知状态，请优先保留这些结构化状态：\n\n\(tmText)")
+                            )
+                        )
+                    )
+                    patch.insertions.append(
+                        .init(
+                            index: 1,
+                            message: MessageParameter.Message(
+                                role: .assistant,
+                                content: .text("已加载任务级持久记忆，将在后续操作中保持这些状态。")
+                            )
+                        )
+                    )
+                    patch.metadata = [
+                        "source": "task-unified",
+                        "confirmedFactCount": taskMem.confirmedFacts.count,
+                        "failedAttemptCount": taskMem.failedAttempts.count
+                    ]
+                }
+
+                if let storySlice = try? self.buildStoryMemoryBootstrap(
+                    settings: settings,
+                    sessionId: sessionId,
+                    messages: bootstrapMessagesSnapshot,
+                    modelContext: modelContext
+                ),
+                   !storySlice.isEmpty {
+                    let insertionIndex = patch.insertions.isEmpty ? min(bootstrapMessagesSnapshot.count, 2) : 2
+                    patch.insertions.append(
+                        .init(
+                            index: insertionIndex,
+                            message: MessageParameter.Message(
+                                role: .user,
+                                content: .text("【创作记忆切片】以下是当前写作任务的项目级故事记忆，请优先保持人物、事件、伏笔和风格的一致性：\n\n\(storySlice)")
+                            )
+                        )
+                    )
+                    patch.insertions.append(
+                        .init(
+                            index: insertionIndex + 1,
+                            message: MessageParameter.Message(
+                                role: .assistant,
+                                content: .text("已加载创作记忆切片，将据此保持情节连续性与风格一致。")
+                            )
+                        )
+                    )
+                    if patch.metadata.isEmpty {
+                        patch.metadata = [
+                            "source": "story",
+                            "promptLength": storySlice.count
+                        ]
+                    }
+                }
+
+                return patch.insertions.isEmpty ? nil : patch
+            },
+            createToolCallRecord: { context, state in
+                let record = self.makeToolCallRecord(
+                    toolUseId: pendingToolID(from: context),
+                    toolName: context.pendingToolName ?? "unknown",
+                    input: context.toolInput,
+                    message: parentMessage,
+                    agentRound: roundForToolContext(from: context, fallback: state.lastRound),
+                    executionContext: toolExecutionContext
+                )
+                if !state.memoryRuntimeProfiles.isEmpty {
+                    record.memoryRuntimeProfiles = state.memoryRuntimeProfiles
+                }
+                if !state.memoryRuntimeLayers.isEmpty {
+                    record.memoryRuntimeLayers = state.memoryRuntimeLayers
+                }
+                if !state.memoryRuntimeWarnings.isEmpty {
+                    record.memoryRuntimeWarnings = state.memoryRuntimeWarnings
+                }
+                if let memoryRuntimeSnapshotID = state.memoryRuntimeSnapshotID,
+                   !memoryRuntimeSnapshotID.isEmpty {
+                    record.memoryRuntimeSnapshotID = memoryRuntimeSnapshotID
+                }
+                modelContext.insert(record)
+                try? modelContext.save()
+                return record
+            },
+            updateToolCallRecord: { context, _ in
+                guard let record = context.toolCallRecord else { return }
+                record.terminalOutput = context.toolResultText
+                if let status = context.metadata["toolStatus"] as? ToolStatus {
+                    record.status = status
+                }
+                record.endTime = Date()
+                try? modelContext.save()
+            },
+            reflectionResolver: { context, state in
+                let reflection = await self.reflectOnRound(
+                    messages: context.messagesSnapshot,
+                    service: service,
+                    modelId: modelId,
+                    settings: settings,
+                    failureTrigger: context.failureTrigger
+                )
+
+                guard let reflection else {
+                    return AgentLoopReflectionResolution(shouldRetry: false, correctionPrompt: nil)
+                }
+
+                if let round = state.lastRound {
+                    round.reflectionConfidence = reflection.confidence
+                    round.reflectionConcerns = reflection.concerns
+                    round.reflectionSuggestedFixes = reflection.suggestedFixes
+                    round.reflectionShouldRetry = reflection.shouldRetry
+                    try? modelContext.save()
+                }
+
+                if (!reflection.concerns.isEmpty || !reflection.suggestedFixes.isEmpty), !sessionId.isEmpty {
+                    try? self.recordReflectionFailure(
+                        sessionId: sessionId,
+                        trigger: context.failureTrigger,
+                        concerns: reflection.concerns,
+                        suggestedFixes: reflection.suggestedFixes
+                    )
+                }
+
+                let correctionPrompt: String?
+                if reflection.shouldRetry && !reflection.suggestedFixes.isEmpty {
+                    let triggerContext = context.failureTrigger.map { "Triggered by: \($0.description)\n\n" } ?? ""
+                    let fixList = reflection.suggestedFixes
+                        .enumerated()
+                        .map { "\($0.offset + 1). \($0.element)" }
+                        .joined(separator: "\n")
+                    correctionPrompt = """
+                        \(triggerContext)A failure was detected and analysed. \
+                        Please address the following corrections before retrying:\n\(fixList)
+                        """
+                } else {
+                    correctionPrompt = nil
+                }
+
+                return AgentLoopReflectionResolution(
+                    shouldRetry: reflection.shouldRetry,
+                    correctionPrompt: correctionPrompt
+                )
+            }
+        )
+        let hookDispatcher = AgentLoopHookDispatcher(
+            hooks: hookFactory.makeHooks(dependencies: hookDependencies, state: hookState)
+        )
+
+        func dispatchHooks(
+            _ stage: AgentLoopHookStage,
+            metadata: [String: Any] = [:],
+            toolName: String? = nil,
+            projectedText: String? = nil,
+            currentRoundText: String = "",
+            currentRoundThinking: String = "",
+            toolInput: MessageResponse.Content.Input = [:],
+            toolResultText: String = "",
+            toolCallRecord: ToolCall? = nil
+        ) async -> AgentLoopHookDispatchResult {
+            var context = AgentLoopHookContext(
                 runID: runID,
-                sessionID: sessionId.isEmpty ? nil : sessionId,
+                sessionID: sessionId,
+                workflowID: nil,
+                executionContext: toolExecutionContext,
+                modelId: modelId,
                 roundIndex: loopCtx.roundIndex,
                 phase: loopCtx.phase.label
             )
-            BusinessMonitor.emit(event, context: context, metadata: metadata, sink: businessLogSink)
+            context.pendingToolName = toolName
+            context.stopReason = loopCtx.lastStopReason
+            context.failureTrigger = loopCtx.pendingFailureTrigger
+            context.accumulatedText = projectedText ?? accumulatedText
+            context.currentRoundText = currentRoundText.isEmpty
+                ? currentRoundTextForHook(projectedText: projectedText)
+                : currentRoundText
+            context.currentRoundThinking = currentRoundThinking
+            context.messagesSnapshot = messages
+            context.metadata = metadata
+            context.streamProjectionTarget = streamProjectionTarget
+            context.toolInput = toolInput
+            context.toolResultText = toolResultText
+            context.toolCallRecord = toolCallRecord
+            return (try? await hookDispatcher.dispatch(stage, context: context)) ?? AgentLoopHookDispatchResult()
         }
 
-        emitBusinessEvent(
-            .loopStarted,
+        func emitHook(
+            _ stage: AgentLoopHookStage,
+            metadata: [String: Any] = [:],
+            toolName: String? = nil,
+            projectedText: String? = nil,
+            currentRoundText: String = "",
+            currentRoundThinking: String = "",
+            toolInput: MessageResponse.Content.Input = [:],
+            toolResultText: String = "",
+            toolCallRecord: ToolCall? = nil
+        ) async {
+            _ = await dispatchHooks(
+                stage,
+                metadata: metadata,
+                toolName: toolName,
+                projectedText: projectedText,
+                currentRoundText: currentRoundText,
+                currentRoundThinking: currentRoundThinking,
+                toolInput: toolInput,
+                toolResultText: toolResultText,
+                toolCallRecord: toolCallRecord
+            )
+        }
+
+        func currentRoundTextForHook(projectedText: String?) -> String {
+            projectedText ?? accumulatedText
+        }
+
+        await emitHook(
+            .didStartRun,
             metadata: [
                 "modelId": modelId,
                 "maxRounds": maxRounds,
@@ -160,90 +423,28 @@ extension ClaudeService {
             ]
         )
 
-        if let unifiedContext = try? await buildUnifiedMemoryBootstrap(
-            settings: settings,
-            session: session,
-            sessionId: sessionId,
-            messages: messages,
-            modelContext: modelContext
-        ) {
-            memoryRuntimeProfiles = unifiedContext.profiles
-            memoryRuntimeLayers = Array(Set(unifiedContext.records.map { $0.layer.rawValue })).sorted()
-            memoryRuntimeWarnings = unifiedContext.warnings
-
-            if let snapshot = unifiedContext.runtimeSnapshot {
-                let snapshotStore = MemoryRuntimeSnapshotStore()
-                try? snapshotStore.save(snapshot)
-                memoryRuntimeSnapshotID = snapshot.id
+        if let bootstrapResult = try? await hookDispatcher.dispatch(
+            .prepareRun,
+            context: AgentLoopHookContext(
+                runID: runID,
+                sessionID: sessionId,
+                workflowID: nil,
+                executionContext: toolExecutionContext,
+                modelId: modelId,
+                roundIndex: loopCtx.roundIndex,
+                phase: loopCtx.phase.label,
+                messagesSnapshot: messages,
+                metadata: [:],
+                streamProjectionTarget: streamProjectionTarget
+            )
+        ),
+        let patch = bootstrapResult.messagePatch,
+        !patch.insertions.isEmpty {
+            for insertion in patch.insertions.sorted(by: { $0.index < $1.index }) {
+                messages.insert(insertion.message, at: min(insertion.index, messages.count))
             }
-
-            if !unifiedContext.renderedPrompt.isEmpty {
-                emitBusinessEvent(
-                    .memoryBootstrapLoaded,
-                    metadata: [
-                        "source": "unified",
-                        "recordCount": unifiedContext.records.count,
-                        "warningCount": unifiedContext.warnings.count
-                    ]
-                )
-                messages.insert(
-                    MessageParameter.Message(role: .user, content: .text("【统一记忆切片】以下是当前任务的统一记忆视图，请优先遵守其中的当前状态、事实、事件与风险：\n\n\(unifiedContext.renderedPrompt)")),
-                    at: 0
-                )
-                messages.insert(
-                    MessageParameter.Message(role: .assistant, content: .text("已加载统一记忆切片，将据此继续执行当前任务。")),
-                    at: 1
-                )
-            }
-        } else {
-            let unifiedStore = UnifiedMemoryFileStoreAdapter()
-
-            if !sessionId.isEmpty,
-               let taskMem = try? loadTaskMemory(sessionId: sessionId, store: unifiedStore),
-               !taskMem.isEmpty,
-               let tmText = try? taskMemoryPromptText(sessionId: sessionId, store: unifiedStore),
-               !tmText.isEmpty {
-                emitBusinessEvent(
-                    .memoryBootstrapLoaded,
-                    metadata: [
-                        "source": "task-unified",
-                        "confirmedFactCount": taskMem.confirmedFacts.count,
-                        "failedAttemptCount": taskMem.failedAttempts.count
-                    ]
-                )
-                messages.insert(
-                    MessageParameter.Message(role: .user, content: .text("【任务级持久记忆】这是本任务的已知状态，请优先保留这些结构化状态：\n\n\(tmText)")),
-                    at: 0
-                )
-                messages.insert(
-                    MessageParameter.Message(role: .assistant, content: .text("已加载任务级持久记忆，将在后续操作中保持这些状态。")),
-                    at: 1
-                )
-            }
-
-            if let storySlice = try? buildStoryMemoryBootstrap(
-                settings: settings,
-                sessionId: sessionId,
-                messages: messages,
-                modelContext: modelContext
-            ),
-                  !storySlice.isEmpty {
-                emitBusinessEvent(
-                    .memoryBootstrapLoaded,
-                    metadata: [
-                        "source": "story",
-                        "promptLength": storySlice.count
-                    ]
-                )
-                let insertionIndex = min(messages.count, 2)
-                messages.insert(
-                    MessageParameter.Message(role: .user, content: .text("【创作记忆切片】以下是当前写作任务的项目级故事记忆，请优先保持人物、事件、伏笔和风格的一致性：\n\n\(storySlice)")),
-                    at: insertionIndex
-                )
-                messages.insert(
-                    MessageParameter.Message(role: .assistant, content: .text("已加载创作记忆切片，将据此保持情节连续性与风格一致。")),
-                    at: insertionIndex + 1
-                )
+            if !patch.metadata.isEmpty {
+                await emitHook(.didApplyBootstrap, metadata: patch.metadata)
             }
         }
         while loopCtx.shouldContinue && loopCtx.roundIndex < maxRounds {
@@ -254,86 +455,38 @@ extension ClaudeService {
             // loopCtx.transition(stopReason:) cannot overwrite the phase.
             if loopCtx.phase == .reflecting {
                 let trigger = loopCtx.pendingFailureTrigger
-                emitBusinessEvent(
-                    .reflectionStarted,
+                await emitHook(
+                    .willStartReflection,
                     metadata: [
                         "reflectionPass": loopCtx.reflectionCount + 1,
                         "trigger": trigger?.description ?? "none"
                     ]
                 )
-                let reflection = await reflectOnRound(
-                    messages: messages,
-                    service: service,
-                    modelId: modelId,
-                    settings: settings,
-                    failureTrigger: trigger
+                let reflectionHooks = await dispatchHooks(
+                    .processReflection,
+                    metadata: [
+                        "reflectionPass": loopCtx.reflectionCount + 1,
+                        "trigger": trigger?.description ?? "none"
+                    ]
                 )
                 // Consume the failure trigger regardless of reflection outcome
                 loopCtx.pendingFailureTrigger = nil
 
-                // Persist on the most-recent round (already created by the previous iteration)
-                if let ref = reflection {
-                    // Stamp the reflection data onto the last completed round
-                    if let round = lastRound {
-                        round.reflectionConfidence = ref.confidence
-                        round.reflectionConcerns = ref.concerns
-                        round.reflectionSuggestedFixes = ref.suggestedFixes
-                        round.reflectionShouldRetry = ref.shouldRetry
-                        try? modelContext.save()
-                    }
-
-                    // Write failure + diagnosis to unified task memory so subsequent rounds (and
-                    // future sessions) can avoid repeating the same mistake.
-                    if (!ref.concerns.isEmpty || !ref.suggestedFixes.isEmpty), !sessionId.isEmpty {
-                        do {
-                            try recordReflectionFailure(
-                                sessionId: sessionId,
-                                trigger: trigger,
-                                concerns: ref.concerns,
-                                suggestedFixes: ref.suggestedFixes
-                            )
-                        } catch {
-                            emitBusinessEvent(
-                                .reflectionCompleted,
-                                metadata: [
-                                    "confidence": ref.confidence,
-                                    "shouldRetry": ref.shouldRetry,
-                                    "concernCount": ref.concerns.count,
-                                    "suggestedFixCount": ref.suggestedFixes.count,
-                                    "taskMemoryWriteStatus": "failed",
-                                    "taskMemoryWriteError": String(describing: error)
-                                ]
-                            )
-                        }
-                    }
-
-                    // Inject a targeted correction turn only when a retry is warranted
-                    if ref.shouldRetry && !ref.suggestedFixes.isEmpty {
-                        let triggerContext = trigger.map { "Triggered by: \($0.description)\n\n" } ?? ""
-                        let fixList = ref.suggestedFixes
-                            .enumerated()
-                            .map { "\($0.offset + 1). \($0.element)" }
-                            .joined(separator: "\n")
-                        let correctionPrompt = """
-                            \(triggerContext)A failure was detected and analysed. \
-                            Please address the following corrections before retrying:\n\(fixList)
-                            """
+                if let resolution = reflectionHooks.reflectionResolution {
+                    if let correctionPrompt = resolution.correctionPrompt {
                         messages.append(.init(role: .user, content: .text(correctionPrompt)))
                     }
-                        emitBusinessEvent(
-                            .reflectionCompleted,
+                    await emitHook(
+                        .didCompleteReflection,
                             metadata: [
-                                "confidence": ref.confidence,
-                                "shouldRetry": ref.shouldRetry,
-                                "concernCount": ref.concerns.count,
-                                "suggestedFixCount": ref.suggestedFixes.count,
-                                "taskMemoryWriteStatus": sessionId.isEmpty ? "skipped" : "completed"
+                                "shouldRetry": resolution.shouldRetry,
+                                "hasCorrectionPrompt": resolution.correctionPrompt != nil
                             ]
                         )
-                    loopCtx.reflectionComplete(shouldRetry: ref.shouldRetry)
+                    loopCtx.reflectionComplete(shouldRetry: resolution.shouldRetry)
                 } else {
-                        emitBusinessEvent(
-                            .reflectionCompleted,
+                    await emitHook(
+                        .didCompleteReflection,
                             metadata: [
                                 "result": "missing",
                                 "shouldRetry": false
@@ -344,8 +497,8 @@ extension ClaudeService {
                 continue
             }
 
-            emitBusinessEvent(
-                .roundStarted,
+            await emitHook(
+                .willStartRound,
                 metadata: [
                     "messageCount": messages.count,
                     "phase": loopCtx.phase.label,
@@ -397,7 +550,7 @@ extension ClaudeService {
             let streamSpan = perfLog.startSpan("StreamRound_\(roundIdx)", category: "API", level: .normal)
 
             let round = makeRound(roundIdx)
-            lastRound = round
+            hookState.lastRound = round
             modelContext.insert(round)
             try? modelContext.save()
 
@@ -409,14 +562,6 @@ extension ClaudeService {
             var deltaCount = 0
             var lastDeltaLogTime = ContinuousClock.now
             var deltaLogInterval: TimeInterval = 0.5 // 每0.5秒输出一次统计
-
-            // UI 更新节流：每累积约 500 个字符才更新一次
-            var lastUpdateLength = 0
-            let uiUpdateThreshold = 50 // 字符阈值
-
-            // Thinking 更新节流：每累积约 500 个字符才更新一次
-            var lastThinkingUpdateLength = 0
-            let thinkingUpdateThreshold = 200 // thinking 字符阈值
 
             for try await event in stream {
                 // content_block_start — register new block
@@ -438,19 +583,18 @@ extension ClaudeService {
                             currentRoundText += text
                             deltaSpan.addMetadata("bytes", value: text.count)
                             deltaSpan.end()
-
-                            // 节流 round.text 更新：只在文本增长达到阈值时才更新 SwiftData
-                            // 这会触发 SwiftUI 重新计算 agentAnswerText
-                            let currentLength = currentRoundText.count
-                            if currentLength - lastUpdateLength >= uiUpdateThreshold {
-                                round.text = currentRoundText
-                                lastUpdateLength = currentLength
-                                // 同时更新 UI（保持一致性）
-                                let joined = accumulatedText.isEmpty
-                                    ? currentRoundText
-                                    : accumulatedText + "\n\n" + currentRoundText
-                                onTextAccumulated(joined)
-                            }
+                            let joined = accumulatedText.isEmpty
+                                ? currentRoundText
+                                : accumulatedText + "\n\n" + currentRoundText
+                            await emitHook(
+                                .didReceiveTextDelta,
+                                metadata: [
+                                    "length": joined.count,
+                                    "agentRound": round
+                                ],
+                                projectedText: joined,
+                                currentRoundText: currentRoundText
+                            )
 
                             // 统计
                             deltaCount += 1
@@ -459,13 +603,11 @@ extension ClaudeService {
                     case "thinking_delta":
                         if let thinking = delta.thinking {
                             currentRoundThinking.content += thinking
-
-                            // 节流 round.thinkingContent 更新
-                            let currentThinkingLength = currentRoundThinking.content.count
-                            if currentThinkingLength - lastThinkingUpdateLength >= thinkingUpdateThreshold {
-                                round.thinkingContent = currentRoundThinking.content
-                                lastThinkingUpdateLength = currentThinkingLength
-                            }
+                            await emitHook(
+                                .didReceiveThinkingDelta,
+                                metadata: ["agentRound": round],
+                                currentRoundThinking: currentRoundThinking.content
+                            )
                         }
                     case "signature_delta":
                         if let sig = delta.signature {
@@ -476,17 +618,18 @@ extension ClaudeService {
                         // legacy text delta (non-streaming thinking models)
                         if let text = delta.text {
                             currentRoundText += text
-
-                            // 节流 round.text 更新
-                            let currentLength = currentRoundText.count
-                            if currentLength - lastUpdateLength >= uiUpdateThreshold {
-                                round.text = currentRoundText
-                                lastUpdateLength = currentLength
-                                let joined = accumulatedText.isEmpty
-                                    ? currentRoundText
-                                    : accumulatedText + "\n\n" + currentRoundText
-                                onTextAccumulated(joined)
-                            }
+                            let joined = accumulatedText.isEmpty
+                                ? currentRoundText
+                                : accumulatedText + "\n\n" + currentRoundText
+                            await emitHook(
+                                .didReceiveTextDelta,
+                                metadata: [
+                                    "length": joined.count,
+                                    "agentRound": round
+                                ],
+                                projectedText: joined,
+                                currentRoundText: currentRoundText
+                            )
                         }
                         if let json = delta.partialJson, let idx = currentBlockIndex {
                             pendingTools[idx]?.partialJson += json
@@ -510,16 +653,27 @@ extension ClaudeService {
                 accumulatedText += currentRoundText
 
                 // 确保最后一次更新 round.text（无论是否达到阈值）
-                // 这是必须的，否则最后不足阈值的内容不会显示
-                round.text = currentRoundText
-
-                // 确保 UI 也更新到最终状态
-                onTextAccumulated(accumulatedText)
+                await emitHook(
+                    .didReceiveTextDelta,
+                    metadata: [
+                        "length": accumulatedText.count,
+                        "agentRound": round,
+                        "forceProjection": true
+                    ],
+                    projectedText: accumulatedText,
+                    currentRoundText: currentRoundText
+                )
             }
 
-            // 确保最后一次更新 thinkingContent（无论是否达到阈值）
             if !currentRoundThinking.content.isEmpty {
-                round.thinkingContent = currentRoundThinking.content
+                await emitHook(
+                    .didReceiveThinkingDelta,
+                    metadata: [
+                        "agentRound": round,
+                        "forceProjection": true
+                    ],
+                    currentRoundThinking: currentRoundThinking.content
+                )
             }
 
             // Build assistant content objects for this round (for next API call)
@@ -536,8 +690,8 @@ extension ClaudeService {
 
             // Drive state machine transition based on stop_reason
             loopCtx.transition(stopReason: stopReason)
-            emitBusinessEvent(
-                .stopReasonReceived,
+            await emitHook(
+                .didResolveStopReason,
                 metadata: [
                     "stopReason": stopReason ?? "nil",
                     "phase": loopCtx.phase.label,
@@ -546,6 +700,9 @@ extension ClaudeService {
             )
 
             switch loopCtx.phase {
+
+            case .executing:
+                break
 
             case .awaitingToolResults:
                 // Execute all pending tools and feed results back
@@ -560,20 +717,23 @@ extension ClaudeService {
                 var toolResultObjects: [MessageParameter.Message.Content.ContentObject] = []
 
                 for pending in sorted {
-                    emitBusinessEvent(
-                        .toolExecutionStarted,
+                    let input = pending.parsedInput
+                    let willExecuteHooks = await dispatchHooks(
+                        .willExecuteTool,
                         metadata: [
                             "toolName": pending.name,
                             "inputLength": pending.partialJson.count,
-                            "roundIndex": roundIdx
-                        ]
+                            "roundIndex": roundIdx,
+                            "toolUseID": pending.id,
+                            "agentRound": round
+                        ],
+                        toolName: pending.name,
+                        toolInput: input
                     )
                     let toolSpan = perfLog.startSpan("tool_\(pending.name)", category: "Tool", level: .normal)
 
-                    let input = pending.parsedInput
                     assistantObjects.append(.toolUse(pending.id, pending.name, input))
-
-                    let record = makeToolCallRecord(
+                    let record = willExecuteHooks.toolCallRecord ?? makeToolCallRecord(
                         toolUseId: pending.id,
                         toolName: pending.name,
                         input: input,
@@ -581,20 +741,6 @@ extension ClaudeService {
                         agentRound: round,
                         executionContext: toolExecutionContext
                     )
-                    if !memoryRuntimeProfiles.isEmpty {
-                        record.memoryRuntimeProfiles = memoryRuntimeProfiles
-                    }
-                    if !memoryRuntimeLayers.isEmpty {
-                        record.memoryRuntimeLayers = memoryRuntimeLayers
-                    }
-                    if !memoryRuntimeWarnings.isEmpty {
-                        record.memoryRuntimeWarnings = memoryRuntimeWarnings
-                    }
-                    if let memoryRuntimeSnapshotID, !memoryRuntimeSnapshotID.isEmpty {
-                        record.memoryRuntimeSnapshotID = memoryRuntimeSnapshotID
-                    }
-                    modelContext.insert(record)
-                    try? modelContext.save()
 
                     let result: ToolExecutionResult
                     if let interceptor = toolInterceptor,
@@ -720,44 +866,37 @@ extension ClaudeService {
                             }
                         }
                     }
-                    record.terminalOutput = result.text
-                    record.status = result.toolCallStatus
-                    record.endTime = Date()
                     if let evidence = ExecutionGuard.evidenceKind(toolName: pending.name, input: input, result: result) {
                         executionEvidence.insert(evidence)
                         sessionExecutionEvidence[sessionId] = executionEvidence
                     }
-                    try? modelContext.save()
-
-                    // Detect failure events that warrant failure-driven reflection.
-                    // Tool error takes priority; for subagents, inspect the result text for
-                    // reviewer rejection or executor validation failure signals.
-                    if result.isError {
-                        loopCtx.pendingFailureTrigger = .toolFailure(
-                            toolName: pending.name,
-                            errorText: result.text
-                        )
-                    } else if pending.name == "run_subagent" {
-                        let agentName = input["agent_name"]?.stringValue ?? ""
-                        if agentName == "reviewer" && result.text.contains("needs_revision") {
-                            loopCtx.pendingFailureTrigger = .reviewerRejection(feedback: result.text)
-                        } else if agentName == "executor" &&
-                                  (result.text.contains("\"status\": \"failed\"") ||
-                                   result.text.contains("\"status\":\"failed\"")) {
-                            loopCtx.pendingFailureTrigger = .executorValidationFailure(detail: result.text)
-                        }
-                    }
-
-                    emitBusinessEvent(
-                        .toolExecutionFinished,
+                    await emitHook(
+                        .didExecuteTool,
                         metadata: [
                             "toolName": pending.name,
                             "status": result.toolCallStatus.rawValue,
                             "isError": result.isError,
                             "outputLength": result.text.count,
-                            "roundIndex": roundIdx
-                        ]
+                            "roundIndex": roundIdx,
+                            "toolStatus": result.toolCallStatus
+                        ],
+                        toolName: pending.name,
+                        toolInput: input,
+                        toolResultText: result.text,
+                        toolCallRecord: record
                     )
+
+                    let classification = await dispatchHooks(
+                        .classifyFailureTrigger,
+                        metadata: ["isError": result.isError],
+                        toolName: pending.name,
+                        toolInput: input,
+                        toolResultText: result.text,
+                        toolCallRecord: record
+                    )
+                    if let failureTrigger = classification.failureTrigger {
+                        loopCtx.pendingFailureTrigger = failureTrigger
+                    }
 
                     toolResultObjects.append(.toolResult(pending.id, result.text, isError: result.isError ? true : nil))
                     toolResultObjects.append(contentsOf: result.mediaContent)
@@ -774,8 +913,8 @@ extension ClaudeService {
 
             case .continuingTruncatedResponse:
                 // Model hit token limit; inject a continuation turn without replanning
-                emitBusinessEvent(
-                    .continuationInjected,
+                await emitHook(
+                    .prepareContinuation,
                     metadata: [
                         "reason": "max_tokens",
                         "roundIndex": roundIdx
@@ -793,8 +932,8 @@ extension ClaudeService {
 
             case .resumingAfterPause:
                 // Server-side sampling pause; resume by feeding partial response back
-                emitBusinessEvent(
-                    .continuationInjected,
+                await emitHook(
+                    .prepareResumeAfterPause,
                     metadata: [
                         "reason": "pause_turn",
                         "roundIndex": roundIdx
@@ -808,22 +947,36 @@ extension ClaudeService {
                 loopCtx.continuationInjected()
 
             case .finalizing:
-                let guardDecision = ExecutionGuard.resolveFinalization(
-                    requirement: executionRequirement,
-                    evidenceKinds: executionEvidence,
-                    retryCount: executionGuardRetryCount
+                let guardHooks = await dispatchHooks(
+                    .decideFinalization,
+                    metadata: [
+                        "executionRequirement": executionRequirement,
+                        "executionEvidenceKinds": executionEvidence,
+                        "retryCount": executionGuardRetryCount
+                    ]
                 )
-                switch guardDecision {
+                let finalizationDecision = guardHooks.decisions.compactMap { decision -> FinalizationDecision? in
+                    guard case .finalization(let finalizationDecision) = decision else {
+                        return nil
+                    }
+                    return finalizationDecision
+                }.first ?? .allow
+
+                switch finalizationDecision {
                 case .allow:
                     break
-                case .requestExecution(let prompt):
+                case .retry(let prompt):
                     accumulatedText = accumulatedTextBeforeRound
-                    onTextAccumulated(accumulatedText)
+                    await emitHook(
+                        .didReceiveTextDelta,
+                        metadata: ["length": accumulatedText.count],
+                        projectedText: accumulatedText
+                    )
                     if !currentRoundText.isEmpty { assistantObjects.append(.text(currentRoundText)) }
                     if !assistantObjects.isEmpty {
                         messages.append(.init(role: .assistant, content: .list(assistantObjects)))
                     }
-                    messages.append(.init(role: .user, content: .text(prompt)))
+                    messages.append(.init(role: .user, content: .text(prompt ?? ExecutionGuard.correctionPrompt)))
                     executionGuardRetryCount += 1
                     loopCtx.retryAfterExecutionGuard()
                     break
@@ -845,25 +998,24 @@ extension ClaudeService {
                 // else: shouldContinue becomes false, loop exits naturally
 
             case .failed:
-                let reason = loopCtx.terminationReason ?? "stop_reason=\(stopReason ?? "nil")"
-                let errorNote = "\n\n⚠️ Agent loop ended unexpectedly (\(reason))."
-                accumulatedText += errorNote
-                parentMessage?.textContent = (parentMessage?.textContent ?? "") + errorNote
+                break
 
-            default:
+            case .idle, .cancelled, .reflecting:
                 break
             }
 
             // 结束这一轮的性能监控
+            roundSpan.addMetadata("stopReason", value: stopReason ?? "nil")
+            roundSpan.addMetadata("phase", value: loopCtx.phase.label)
+            roundSpan.addMetadata("textBytes", value: currentRoundText.count)
             roundSpan.end()
         }
 
-        // Safety: loop exited because maxRounds was reached (not a natural stop)
         if loopCtx.roundIndex >= maxRounds && loopCtx.shouldContinue {
-            let notice = "\n\n⚠️ Agent loop stopped after reaching the maximum of \(maxRounds) rounds."
+            let notice = "\n\n[Stopped: maximum rounds reached]"
             accumulatedText += notice
             parentMessage?.textContent = (parentMessage?.textContent ?? "") + notice
-            emitBusinessEvent(.loopFailed, metadata: ["terminationReason": "maxRounds"])
+            await emitHook(.didFailRun, metadata: ["terminationReason": "maxRounds"])
             return AgentLoopRunResult(
                 text: accumulatedText,
                 completedSuccessfully: false,
@@ -876,8 +1028,8 @@ extension ClaudeService {
             completedSuccessfully: loopCtx.phase == .finalizing,
             terminationReason: loopCtx.phase == .finalizing ? nil : loopCtx.terminationReason
         )
-        emitBusinessEvent(
-            result.completedSuccessfully ? .loopFinished : .loopFailed,
+        await emitHook(
+            result.completedSuccessfully ? .didFinishRun : .didFailRun,
             metadata: ["terminationReason": result.terminationReason ?? "completed"]
         )
         return result
@@ -990,6 +1142,20 @@ extension ClaudeService {
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init)
             .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    }
+
+    func makeStoryMemoryBootstrapForTests(
+        settings: AppSettings,
+        sessionId: String,
+        messages: [MessageParameter.Message],
+        modelContext: ModelContext
+    ) throws -> String? {
+        try buildStoryMemoryBootstrap(
+            settings: settings,
+            sessionId: sessionId,
+            messages: messages,
+            modelContext: modelContext
+        )
     }
 
     /// Returns true if the model supports Extended Thinking (3.7 Sonnet and all later models)
