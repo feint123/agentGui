@@ -15,7 +15,8 @@ enum AgentLoopPhaseOutcomeApplier {
         accumulatedTextBeforeRound: String,
         currentRoundText: String,
         assistantObjects: [MessageParameter.Message.Content.ContentObject],
-        reflectionEnabled: Bool = false
+        reflectionEnabled: Bool = false,
+        verificationEnabled: Bool = false
     ) -> AgentLoopPhaseOutcomeApplication {
         var outcome = AgentLoopPhaseOutcomeApplication()
 
@@ -48,7 +49,11 @@ enum AgentLoopPhaseOutcomeApplier {
         case .finalizing:
             switch finalizationDecision {
             case .allow:
-                break
+                // Main-agent code tasks must enter an explicit verification pass
+                // before the loop is allowed to terminate successfully.
+                if verificationEnabled {
+                    loopContext.phase = .verifying
+                }
             case .retry(let prompt):
                 outcome.projectedTextReset = accumulatedTextBeforeRound
                 var resolvedAssistantObjects = assistantObjects

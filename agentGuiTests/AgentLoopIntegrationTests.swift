@@ -130,11 +130,124 @@ struct AgentLoopIntegrationTests {
         #expect(snapshot?.latestOutputSnippet?.contains("hello from bash") == true)
     }
 
+    @Test func runCoreAgentLoopInvokesVerifierSubagentBeforeReportingSuccess() async throws {
+        let claudeService = ClaudeService()
+        let modelContext = try makeModelContext()
+        let service = SequencedFakeAnthropicService(streamBatches: [
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-verify","name":"verify_completion"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\\"verified\\\":[\\\"swift test passed\\\"],\\\"not_verified\\\":[],\\\"conclusion\\\":\\\"ready to finish\\\"}"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"candidate complete"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"passed\\":true,\\"summary\\":\\"verification passed\\",\\"verified_items\\":[\\"swift test passed\\"],\\"failed_items\\":[],\\"missing_evidence\\":[],\\"risk_areas\\":[],\\"recommended_next_action\\":\\"finish\\",\\"confidence\\":0.98}"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ]
+        ])
+
+        var messages: [MessageParameter.Message] = [
+            .init(role: .user, content: .text("finish with verification"))
+        ]
+
+        let result = try await claudeService.runCoreAgentLoop(
+            messages: &messages,
+            service: service,
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            settings: .testFixture(),
+            sessionId: "session-verifier",
+            modelContext: modelContext,
+            maxRounds: 5,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none
+        )
+
+        let toolCalls = try modelContext.fetch(FetchDescriptor<ToolCall>())
+        let store = SessionTaskStateStore(modelContext: modelContext)
+        let verification = try #require(store.verification(for: "session-verifier"))
+
+        #expect(result.completedSuccessfully)
+        #expect(toolCalls.contains(where: { $0.subagentAgentName == "verifier" }))
+        #expect(verification.passed == true)
+        #expect(verification.summary == "verification passed")
+    }
+
+    @Test func runCoreAgentLoopCanPassVerificationWithoutVerifyCompletionRecord() async throws {
+        let claudeService = ClaudeService()
+        let modelContext = try makeModelContext()
+        let service = SequencedFakeAnthropicService(streamBatches: [
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"candidate complete without verify tool"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"passed\\":true,\\"summary\\":\\"verification passed without verify_completion\\",\\"verified_items\\":[\\"answer matches task\\"],\\"failed_items\\":[],\\"missing_evidence\\":[],\\"risk_areas\\":[],\\"recommended_next_action\\":\\"finish\\",\\"confidence\\":0.92}"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ]
+        ])
+
+        var messages: [MessageParameter.Message] = [
+            .init(role: .user, content: .text("finish without verify_completion"))
+        ]
+
+        let result = try await claudeService.runCoreAgentLoop(
+            messages: &messages,
+            service: service,
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            settings: .testFixture(),
+            sessionId: "session-verifier-no-tool",
+            modelContext: modelContext,
+            maxRounds: 5,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none,
+            executionRequirement: ExecutionRequirement(requiresExecution: true, confidence: 0.9, reason: "code task")
+        )
+
+        let store = SessionTaskStateStore(modelContext: modelContext)
+        let verification = try #require(store.verification(for: "session-verifier-no-tool"))
+
+        #expect(result.completedSuccessfully)
+        #expect(verification.passed == true)
+        #expect(verification.summary == "verification passed without verify_completion")
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
             for: AppSettings.self,
             Session.self,
+            SessionTaskState.self,
             Message.self,
             ToolCall.self,
             AgentRound.self,

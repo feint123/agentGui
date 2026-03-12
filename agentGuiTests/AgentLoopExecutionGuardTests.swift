@@ -74,6 +74,13 @@ struct AgentLoopExecutionGuardTests {
         #expect(extractText(from: messages.last?.content) == "need terminal evidence")
     }
 
+    @Test func verificationFailureTriggerHasDedicatedEvidenceLabel() {
+        let trigger = FailureTrigger.verificationFailure(detail: "missing execution evidence")
+
+        #expect(trigger.actionLabel == "verification_failure")
+        #expect(trigger.description.contains("missing execution evidence"))
+    }
+
     private func extractText(from content: MessageParameter.Message.Content?) -> String {
         guard let content else { return "" }
         return ClaudeService().extractText(from: content)

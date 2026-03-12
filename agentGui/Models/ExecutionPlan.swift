@@ -118,16 +118,104 @@ struct ExecutionPlan: Codable {
 
 /// Records what the agent explicitly verified (and didn't verify) before finishing.
 /// Written via `verify_completion` just before the task ends.
-struct CompletionVerification: Codable {
+struct CompletionVerification: Codable, Equatable {
+    /// Self-reported claims recorded by the main agent via `verify_completion`.
     var verified: [String]
     var notVerified: [String]
     var conclusion: String?
+
+    /// Assessed fields stamped later by the dedicated verifier subagent.
+    var passed: Bool?
+    var summary: String?
+    var missingEvidence: [String]
+    var riskAreas: [String]
+    var recommendedNextAction: String?
+    var verifierAgent: String?
     var recordedAt: Date
 
-    init(verified: [String], notVerified: [String], conclusion: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case verified
+        case notVerified = "not_verified"
+        case conclusion
+        case passed
+        case summary
+        case missingEvidence = "missing_evidence"
+        case riskAreas = "risk_areas"
+        case recommendedNextAction = "recommended_next_action"
+        case verifierAgent = "verifier_agent"
+        case recordedAt = "recorded_at"
+    }
+
+    init(
+        verified: [String],
+        notVerified: [String],
+        conclusion: String? = nil,
+        passed: Bool? = nil,
+        summary: String? = nil,
+        missingEvidence: [String] = [],
+        riskAreas: [String] = [],
+        recommendedNextAction: String? = nil,
+        verifierAgent: String? = nil,
+        recordedAt: Date = Date()
+    ) {
         self.verified = verified
         self.notVerified = notVerified
         self.conclusion = conclusion
-        self.recordedAt = Date()
+        self.passed = passed
+        self.summary = summary
+        self.missingEvidence = missingEvidence
+        self.riskAreas = riskAreas
+        self.recommendedNextAction = recommendedNextAction
+        self.verifierAgent = verifierAgent
+        self.recordedAt = recordedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        verified = try container.decodeIfPresent([String].self, forKey: .verified) ?? []
+        notVerified = try container.decodeIfPresent([String].self, forKey: .notVerified) ?? []
+        conclusion = try container.decodeIfPresent(String.self, forKey: .conclusion)
+        passed = try container.decodeIfPresent(Bool.self, forKey: .passed)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        missingEvidence = try container.decodeIfPresent([String].self, forKey: .missingEvidence) ?? []
+        riskAreas = try container.decodeIfPresent([String].self, forKey: .riskAreas) ?? []
+        recommendedNextAction = try container.decodeIfPresent(String.self, forKey: .recommendedNextAction)
+        verifierAgent = try container.decodeIfPresent(String.self, forKey: .verifierAgent)
+        recordedAt = try container.decodeIfPresent(Date.self, forKey: .recordedAt) ?? Date()
+    }
+
+    mutating func applyAssessment(_ update: VerificationAssessmentUpdate) {
+        passed = update.passed
+        summary = update.summary
+        missingEvidence = update.missingEvidence
+        riskAreas = update.riskAreas
+        recommendedNextAction = update.recommendedNextAction
+        verifierAgent = update.verifierAgent
+    }
+}
+
+/// Structured verifier assessment merged into the existing completion record.
+struct VerificationAssessmentUpdate: Codable, Equatable {
+    var passed: Bool
+    var summary: String
+    var missingEvidence: [String]
+    var riskAreas: [String]
+    var recommendedNextAction: String?
+    var verifierAgent: String?
+
+    init(
+        passed: Bool,
+        summary: String,
+        missingEvidence: [String] = [],
+        riskAreas: [String] = [],
+        recommendedNextAction: String? = nil,
+        verifierAgent: String? = nil
+    ) {
+        self.passed = passed
+        self.summary = summary
+        self.missingEvidence = missingEvidence
+        self.riskAreas = riskAreas
+        self.recommendedNextAction = recommendedNextAction
+        self.verifierAgent = verifierAgent
     }
 }

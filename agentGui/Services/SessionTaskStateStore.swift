@@ -78,6 +78,24 @@ final class SessionTaskStateStore {
         )
     }
 
+    func updateVerificationAssessment(
+        _ update: VerificationAssessmentUpdate,
+        for sessionId: String
+    ) throws {
+        let state = try upsertTaskState(for: sessionId)
+        var verification = state.verification ?? CompletionVerification(verified: [], notVerified: [])
+        verification.applyAssessment(update)
+        verification.recordedAt = Date()
+        state.verificationJson = try encode(verification)
+        state.updatedAt = Date()
+        try persistenceCoordinator.save(
+            modelContext,
+            domain: .sessionTaskState,
+            userMessage: "验证评估未成功保存",
+            metadata: ["sessionId": sessionId]
+        )
+    }
+
     func todoItems(for sessionId: String) -> [TodoItem] {
         (try? taskState(for: sessionId)?.todoItems) ?? []
     }

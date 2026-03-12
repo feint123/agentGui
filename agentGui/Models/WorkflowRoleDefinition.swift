@@ -129,7 +129,7 @@ extension WorkflowRoleDefinition {
 
     /// All built-in roles — used as the lookup table for run_subagent and workflows.
     static let all: [WorkflowRoleDefinition] = [
-        planner, explorer, coder, reviewer, executor, creative_memory_manager, writer
+        planner, explorer, coder, reviewer, executor, verifier, creative_memory_manager, writer
     ]
 
     static func find(named name: String) -> WorkflowRoleDefinition? {
@@ -182,7 +182,7 @@ extension WorkflowRoleDefinition {
     static let explorer = WorkflowRoleDefinition(
         name: "explorer",
         displayName: "探索者",
-        description: "阅读代码库、文档或网页，搜集并整合信息。只读，不修改文件。",
+        description: "Investigates the codebase, local documentation, and approved web sources to gather the minimum high-value context needed for downstream agents. Operates in a strictly read-only mode, identifies relevant files and symbols, summarizes findings, highlights unknowns and risk areas, and returns structured exploration output without making code or file changes.",
         systemPrompt: """
         You are a versatile research and exploration assistant. Your job is to gather information \
         from local files or the web and deliver a clear, structured answer.
@@ -298,6 +298,34 @@ extension WorkflowRoleDefinition {
         primaryOutputArtifactKind: .reviewReport,
         maxTurnsPerActivation: 8,
         maxActivations: 5
+    )
+
+    // MARK: Verifier
+
+    static let verifier = WorkflowRoleDefinition(
+        name: "verifier",
+        displayName: "验证者",
+        description: "Evaluates whether the main agent's completion claim is actually supported by evidence, test results, and unresolved risks. Operates in read-only mode and returns a structured verification verdict.",
+        systemPrompt: """
+        You are a verification specialist working for the host agent loop.
+
+        Rules:
+        - Do not edit files.
+        - Judge whether the task is actually complete based on the provided claims, evidence, review feedback, and risks.
+        - Return JSON only with the fields: passed, summary, verified_items, failed_items, missing_evidence, risk_areas, recommended_next_action, confidence.
+        """,
+        enableTextEditor: true,
+        enableBash: false,
+        toolGrants: [
+            .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent])
+        ],
+        readableArtifacts: [.plan, .explorationReport, .codePatchSummary, .reviewReport, .testReport],
+        writableArtifacts: [],
+        subscribesTo: [.task, .handoff],
+        defaultOutputMessageKind: .statusUpdate,
+        primaryOutputArtifactKind: nil,
+        maxTurnsPerActivation: 6,
+        maxActivations: 3
     )
 
     // MARK: Executor

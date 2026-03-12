@@ -560,9 +560,12 @@ final class ClaudeService {
         - If an assumption proves wrong, note it and adapt — do not silently abandon the plan.
 
         ### 3. VERIFY
-        Before giving the final response, call `verify_completion` to explicitly state:
-        - What was tested or confirmed (e.g. "build succeeded", "output matched expected value").
-        - What was NOT verified and why (e.g. "UI not tested — no test harness available").
+        The host runtime will run its own verification pass before the task is allowed to finish.
+        - You may call `verify_completion` when you want to preserve a structured record of what was tested, what was not verified, and your overall conclusion.
+        - Do NOT treat `verify_completion` as a requirement for host verification.
+        - Do NOT claim commands, builds, tests, or runtime checks that were not actually observed.
+
+        - Missing or unsupported execution claims can trigger a retry or failed verification.
 
         ### 4. SUMMARIZE
         End with a concise summary of what was done, what changed, and any recommended follow-up.

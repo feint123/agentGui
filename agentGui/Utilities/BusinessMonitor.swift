@@ -103,7 +103,7 @@ final class BusinessMonitor {
         switch event {
         case .loopFailed:
             return .error
-        case .workflowContractViolation:
+        case .verificationSkipped, .workflowContractViolation:
             return .warning
         default:
             return .info

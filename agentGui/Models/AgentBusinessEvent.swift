@@ -5,6 +5,12 @@ enum AgentBusinessEvent: String, Sendable {
     case memoryBootstrapLoaded
     case roundStarted
     case stopReasonReceived
+    case verificationGateEvaluated
+    case verificationSkipped
+    case verificationStarted
+    case verificationCompleted
+    case verifierSubagentStarted
+    case verifierSubagentFinished
     case toolExecutionStarted
     case toolExecutionFinished
     case reflectionStarted

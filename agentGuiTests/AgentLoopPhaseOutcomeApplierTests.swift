@@ -83,6 +83,27 @@ struct AgentLoopPhaseOutcomeApplierTests {
 
         #expect(loopContext.phase == .finalizing)
     }
+
+    @Test func applierTransitionsIntoVerifyingBeforeAllowingCompletion() {
+        var messages: [MessageParameter.Message] = []
+        var loopContext = AgentLoopContext(phase: .finalizing)
+
+        let outcome = AgentLoopPhaseOutcomeApplier.apply(
+            phase: .finalizing,
+            finalizationDecision: .allow,
+            loopContext: &loopContext,
+            messages: &messages,
+            accumulatedText: "done",
+            accumulatedTextBeforeRound: "done",
+            currentRoundText: "",
+            assistantObjects: [],
+            reflectionEnabled: true,
+            verificationEnabled: true
+        )
+
+        #expect(loopContext.phase == .verifying)
+        #expect(outcome.projectedTextReset == nil)
+    }
 }
 
 @MainActor

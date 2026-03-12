@@ -46,4 +46,15 @@ struct BusinessMonitorTests {
         #expect(sink.events.first?.event == .loopStarted)
         #expect(sink.events.first?.metadata["sessionID"] as? String == "session-2")
     }
+
+    @Test func verificationSkippedUsesWarningLevel() {
+        let entry = BusinessMonitor.makeEntry(
+            .verificationSkipped,
+            context: .init(runID: "run-verify", sessionID: "session-verify"),
+            metadata: ["reason": "verification gate disabled"]
+        )
+
+        #expect(entry.level == .warning)
+        #expect(entry.event == .verificationSkipped)
+    }
 }

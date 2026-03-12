@@ -36,15 +36,11 @@ extension ClaudeService {
         guard let task = input["task"]?.stringValue else {
             return .error("missing 'task' parameter", sender: "system")
         }
-        guard let definition = WorkflowRoleDefinition.find(named: agentName) else {
-            let available = WorkflowRoleDefinition.all.map(\.name).joined(separator: ", ")
-            return .error("unknown agent '\(agentName)'. Available: \(available)", sender: "system")
-        }
 
         do {
-            return try await runSubagentLoop(
+            return try await runNamedSubagent(
+                name: agentName,
                 task: task,
-                definition: definition,
                 toolCallRecord: toolCallRecord,
                 service: service,
                 modelId: modelId,
@@ -55,6 +51,33 @@ extension ClaudeService {
         } catch {
             return .error(error.localizedDescription, sender: agentName)
         }
+    }
+
+    func runNamedSubagent(
+        name: String,
+        task: String,
+        toolCallRecord: ToolCall,
+        service: any AnthropicService,
+        modelId: String,
+        settings: AppSettings,
+        sessionId: String,
+        modelContext: ModelContext
+    ) async throws -> AgentMessage {
+        guard let definition = WorkflowRoleDefinition.find(named: name) else {
+            let available = WorkflowRoleDefinition.all.map(\.name).joined(separator: ", ")
+            return .error("unknown agent '\(name)'. Available: \(available)", sender: "system")
+        }
+
+        return try await runSubagentLoop(
+            task: task,
+            definition: definition,
+            toolCallRecord: toolCallRecord,
+            service: service,
+            modelId: modelId,
+            settings: settings,
+            sessionId: sessionId,
+            modelContext: modelContext
+        )
     }
 
     /// 子代理的嵌套 agentic loop — 通过 runCoreAgentLoop 复用主代理的核心流程。

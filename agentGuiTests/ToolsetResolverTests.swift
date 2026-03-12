@@ -38,4 +38,18 @@ struct ToolsetResolverTests {
         #expect(!result.toolIDs.contains("bash"))
         #expect(!result.toolIDs.contains("str_replace_based_edit_tool"))
     }
+
+    @Test func resolverBuildsReadOnlyToolsetForVerifier() throws {
+        let role = try #require(WorkflowRoleDefinition.find(named: "verifier"))
+        let settings = AppSettings()
+        settings.enableTextEditorTool = true
+
+        let result = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
+            .init(context: .subagent, role: role, settings: settings)
+        )
+
+        #expect(result.toolIDs.contains("str_replace_based_edit_tool"))
+        #expect(!result.toolIDs.contains("bash"))
+        #expect(!result.toolIDs.contains("run_subagent"))
+    }
 }

@@ -37,6 +37,9 @@ enum AgentLoopPhase: Equatable {
     /// Model returned `end_turn`; loop is completing gracefully.
     case finalizing
 
+    /// Host runtime is validating the claimed completion before allowing exit.
+    case verifying
+
     /// Model has completed a turn; evaluating output quality before deciding whether to retry.
     case reflecting
 
@@ -52,7 +55,7 @@ enum AgentLoopPhase: Equatable {
     var shouldContinue: Bool {
         switch self {
         case .idle, .executing, .awaitingToolResults,
-             .continuingTruncatedResponse, .resumingAfterPause, .reflecting:
+             .continuingTruncatedResponse, .resumingAfterPause, .verifying, .reflecting:
             return true
         case .finalizing, .failed, .cancelled:
             return false
@@ -73,6 +76,8 @@ enum AgentLoopPhase: Equatable {
             return "resumingAfterPause"
         case .finalizing:
             return "finalizing"
+        case .verifying:
+            return "verifying"
         case .reflecting:
             return "reflecting"
         case .failed:
@@ -145,6 +150,11 @@ struct AgentLoopContext {
         phase = shouldRetry ? .executing : .finalizing
     }
 
+    /// Called after host-side verification completes.
+    mutating func verificationComplete(passed: Bool) {
+        phase = passed ? .finalizing : .reflecting
+    }
+
     /// Called after a continuation or resume turn has been injected.
     mutating func continuationInjected() {
         phase = .executing
@@ -177,6 +187,9 @@ enum FailureTrigger: Equatable {
     /// An executor sub-agent returned a "failed" status for its verification run.
     case executorValidationFailure(detail: String)
 
+    /// A dedicated verifier sub-agent concluded the task is not yet complete.
+    case verificationFailure(detail: String)
+
     // MARK: Derived
 
     /// Human-readable description for prompt injection and logging.
@@ -188,6 +201,8 @@ enum FailureTrigger: Equatable {
             return "Reviewer rejected: \(String(fb.prefix(300)))"
         case .executorValidationFailure(let d):
             return "Executor validation failed: \(String(d.prefix(300)))"
+        case .verificationFailure(let detail):
+            return "Verification failed: \(String(detail.prefix(300)))"
         }
     }
 
@@ -197,6 +212,7 @@ enum FailureTrigger: Equatable {
         case .toolFailure(let name, _):    return "tool:\(name)"
         case .reviewerRejection:           return "reviewer_rejection"
         case .executorValidationFailure:   return "executor_validation_failure"
+        case .verificationFailure:         return "verification_failure"
         }
     }
 }

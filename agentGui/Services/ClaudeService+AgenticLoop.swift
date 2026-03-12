@@ -256,7 +256,6 @@ extension ClaudeService {
             sessionId: sessionId,
             modelContext: modelContext
         ).build()
-
         func dispatchHooks(
             _ stage: AgentLoopHookStage,
             metadata: [String: Any] = [:],
@@ -316,6 +315,16 @@ extension ClaudeService {
                 toolResultText: toolResultText,
                 toolCallRecord: toolCallRecord
             )
+        }
+
+        func emitBusinessEvent(_ event: AgentBusinessEvent, metadata: [String: Any] = [:]) {
+            let context = BusinessLogContext(
+                runID: runID,
+                sessionID: sessionId.isEmpty ? nil : sessionId,
+                roundIndex: loopCtx.roundIndex,
+                phase: loopCtx.phase.label
+            )
+            BusinessMonitor.emit(event, context: context, metadata: metadata, sink: businessLogSink)
         }
 
         func currentRoundTextForHook(projectedText: String?) -> String {
@@ -402,6 +411,45 @@ extension ClaudeService {
                         )
                     loopCtx.reflectionComplete(shouldRetry: false)
                 }
+                continue
+            }
+
+            // Verification is a host-side phase. It runs without another main-model call
+            // and can trigger reflection if the verifier rejects the completion claim.
+            if loopCtx.phase == .verifying {
+                let existingVerification = sessionVerifications[sessionId] ?? SessionTaskStateStore(modelContext: modelContext).verification(for: sessionId)
+                emitBusinessEvent(
+                    .verificationStarted,
+                    metadata: [
+                        "hasVerificationRecord": existingVerification != nil,
+                        "executionEvidenceCount": executionEvidence.count,
+                        "answerLength": accumulatedText.count,
+                        "pendingFailureTrigger": loopCtx.pendingFailureTrigger?.actionLabel ?? "none"
+                    ]
+                )
+                let verificationCoordinator = AgentLoopVerificationCoordinator(
+                    claudeService: self,
+                    service: service,
+                    modelId: modelId,
+                    settings: settings,
+                    sessionId: sessionId,
+                    modelContext: modelContext,
+                    runID: runID,
+                    roundIndex: loopCtx.roundIndex,
+                    parentMessage: parentMessage
+                )
+                let verificationOutcome = try await verificationCoordinator.verify(
+                    currentAnswer: accumulatedText,
+                    executionEvidence: executionEvidence,
+                    existingVerification: existingVerification,
+                    latestFailureTrigger: loopCtx.pendingFailureTrigger
+                )
+                sessionVerifications[sessionId] = verificationOutcome.report
+
+                if let failureTrigger = verificationOutcome.failureTrigger {
+                    loopCtx.pendingFailureTrigger = failureTrigger
+                }
+                loopCtx.verificationComplete(passed: verificationOutcome.passed)
                 continue
             }
 
@@ -708,6 +756,12 @@ extension ClaudeService {
                 )
 
             case .finalizing:
+                let storedVerification = SessionTaskStateStore(modelContext: modelContext).verification(for: sessionId)
+                let verificationEnabled = toolExecutionContext == .mainAgent && (
+                    executionRequirement.requiresExecution ||
+                    sessionVerifications[sessionId] != nil ||
+                    storedVerification != nil
+                )
                 let guardHooks = await dispatchHooks(
                     .decideFinalization,
                     metadata: [
@@ -723,6 +777,33 @@ extension ClaudeService {
                     return finalizationDecision
                 }.first ?? .allow
 
+                emitBusinessEvent(
+                    .verificationGateEvaluated,
+                    metadata: [
+                        "verificationEnabled": verificationEnabled,
+                        "requiresExecution": executionRequirement.requiresExecution,
+                        "executionConfidence": executionRequirement.confidence,
+                        "hasInMemoryVerification": sessionVerifications[sessionId] != nil,
+                        "hasStoredVerification": storedVerification != nil,
+                        "finalizationDecision": String(describing: finalizationDecision),
+                        "toolExecutionContext": toolExecutionContext.rawValue,
+                        "executionEvidenceCount": executionEvidence.count
+                    ]
+                )
+
+                if !verificationEnabled, case .allow = finalizationDecision {
+                    emitBusinessEvent(
+                        .verificationSkipped,
+                        metadata: [
+                            "reason": "verification gate disabled",
+                            "requiresExecution": executionRequirement.requiresExecution,
+                            "hasInMemoryVerification": sessionVerifications[sessionId] != nil,
+                            "hasStoredVerification": storedVerification != nil,
+                            "toolExecutionContext": toolExecutionContext.rawValue
+                        ]
+                    )
+                }
+
                 let phaseOutcome = AgentLoopPhaseOutcomeApplier.apply(
                     phase: .finalizing,
                     finalizationDecision: finalizationDecision,
@@ -732,7 +813,8 @@ extension ClaudeService {
                     accumulatedTextBeforeRound: accumulatedTextBeforeRound,
                     currentRoundText: currentRoundText,
                     assistantObjects: assistantObjects,
-                    reflectionEnabled: settings.enableReflection
+                    reflectionEnabled: settings.enableReflection,
+                    verificationEnabled: verificationEnabled
                 )
 
                 if let projectedTextReset = phaseOutcome.projectedTextReset {
@@ -752,7 +834,7 @@ extension ClaudeService {
             case .failed:
                 break
 
-            case .idle, .cancelled, .reflecting:
+            case .idle, .cancelled, .verifying, .reflecting:
                 break
             }
 

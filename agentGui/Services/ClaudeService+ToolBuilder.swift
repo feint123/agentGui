@@ -145,9 +145,9 @@ extension ClaudeService {
         tools.append(makeEphemeralTool(
             name: "verify_completion",
             description: """
-            Record a completion verification just before finishing a task. \
-            Explicitly state what was tested/confirmed and what was NOT verified. \
-            Call this as the final tool before giving the summary response to the user.
+            Optionally record explicit completion claims for the host verify state to inspect. \
+            Use this when you want to preserve a structured list of what was actually verified, what remains unverified, and the overall conclusion. \
+            Do not claim tests or execution results unless they were actually observed.
             """,
             inputSchema: .init(
                 type: .object,
