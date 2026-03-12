@@ -138,6 +138,40 @@ enum ToolCallDetailPresentation {
             sections.append(.init(label: "执行上下文", text: executionContext, monospaced: false, maxHeight: 80))
         }
 
+        if let payloadRef = toolCall.toolPayloadRef, !payloadRef.isEmpty {
+            sections.append(.init(label: "大载荷引用", text: payloadRef, monospaced: true, maxHeight: 80))
+        }
+
+        if let summary = toolCall.toolResultSummary, !summary.isEmpty {
+            sections.append(.init(label: "结果摘要", text: summary, monospaced: false, maxHeight: 100))
+        }
+
+        if let rawChars = toolCall.toolResultRawChars {
+            sections.append(.init(label: "原始大小", text: "\(rawChars) chars", monospaced: true, maxHeight: 80))
+        }
+
+        if let injectedChars = toolCall.toolResultInjectedChars {
+            sections.append(.init(label: "注入大小", text: "\(injectedChars) chars", monospaced: true, maxHeight: 80))
+        }
+
+        if let rawChars = toolCall.toolResultRawChars,
+           let injectedChars = toolCall.toolResultInjectedChars,
+           rawChars > injectedChars {
+            sections.append(.init(label: "预算节省", text: "节省 \(rawChars - injectedChars) chars", monospaced: true, maxHeight: 80))
+        }
+
+        if let mode = toolCall.toolResultInjectionMode, !mode.isEmpty {
+            sections.append(.init(label: "注入模式", text: mode, monospaced: true, maxHeight: 80))
+        }
+
+        if let readCount = toolCall.toolPayloadReadCount {
+            sections.append(.init(label: "读取次数", text: String(readCount), monospaced: true, maxHeight: 80))
+        }
+
+        if let lastRange = toolCall.toolPayloadLastReadRange, !lastRange.isEmpty {
+            sections.append(.init(label: "最近读取区间", text: lastRange, monospaced: true, maxHeight: 80))
+        }
+
         if let snapshotID = toolCall.memoryRuntimeSnapshotID, !snapshotID.isEmpty {
             sections.append(.init(label: "记忆上下文快照", text: snapshotID, monospaced: true, maxHeight: 80))
         }

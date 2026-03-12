@@ -46,6 +46,10 @@ extension ClaudeService {
             tools.append(definition.makeAnthropicTool())
         }
 
+        if let definition = registry.definition(for: "read_tool_payload") {
+            tools.append(definition.makeAnthropicTool())
+        }
+
         if settings.enableWebSearchTool,
            let definition = registry.definition(for: "web_search") {
             tools.append(definition.makeAnthropicTool())

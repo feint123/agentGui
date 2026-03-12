@@ -30,4 +30,25 @@ struct ToolCallDetailPresentationTests {
         #expect(sections.contains { $0.label == "暴露来源" && $0.text == "context:workflowWorker" })
         #expect(sections.contains { $0.label == "执行上下文" && $0.text == ToolContext.workflowWorker.rawValue })
     }
+
+    @Test func detailSectionsIncludeLargeTextPayloadMetadata() {
+        let toolCall = ToolCall(toolCallId: "tool-3", kind: .fetch)
+        toolCall.toolPayloadRef = "payload_123"
+        toolCall.toolResultSummary = "Fetched long page"
+        toolCall.toolResultRawChars = 12_000
+        toolCall.toolResultInjectedChars = 600
+        toolCall.toolResultInjectionMode = "referenced"
+        toolCall.toolPayloadReadCount = 2
+        toolCall.toolPayloadLastReadRange = "lines:201-260"
+
+        let row = ToolCallRowPresentation.make(for: toolCall)
+        let sections = ToolCallDetailPresentation.sections(for: toolCall, row: row)
+
+        #expect(sections.contains { $0.label == "大载荷引用" && $0.text == "payload_123" })
+        #expect(sections.contains { $0.label == "原始大小" && $0.text == "12000 chars" })
+        #expect(sections.contains { $0.label == "注入大小" && $0.text == "600 chars" })
+        #expect(sections.contains { $0.label == "注入模式" && $0.text == "referenced" })
+        #expect(sections.contains { $0.label == "读取次数" && $0.text == "2" })
+        #expect(sections.contains { $0.label == "最近读取区间" && $0.text == "lines:201-260" })
+    }
 }

@@ -11,6 +11,74 @@ import SwiftData
 
 extension ClaudeService {
 
+    private func wrapLargeTextToolResult(
+        rawText: String,
+        toolName: String,
+        sourceKind: LargeTextPayload.SourceKind,
+        sourceDescriptor: String,
+        settings: AppSettings
+    ) async -> ToolExecutionResult {
+        let detected = ToolExecutionResult.detect(rawText, toolName: toolName)
+        guard !detected.isError else { return detected }
+
+        let decision = toolResultBudgetController.decide(
+            rawText: rawText,
+            sourceKind: sourceKind,
+            roundInjectedChars: 0,
+            reservedResponseTokens: settings.enableExtendedThinking ? max(1024, settings.extendedThinkingBudget / 2) : 4096
+        )
+
+        let payloadRef: String?
+        if decision.shouldPersistPayload {
+            payloadRef = try? await toolPayloadStore.createPayload(
+                text: rawText,
+                sourceKind: sourceKind,
+                sourceDescriptor: sourceDescriptor
+            ).payloadID
+        } else {
+            payloadRef = nil
+        }
+
+        let envelope = ToolResultEnvelope(
+            summary: decision.summary,
+            preview: decision.preview,
+            payloadRef: payloadRef,
+            isTruncated: decision.mode != .inline,
+            estimatedChars: rawText.count,
+            estimatedTokens: ToolResultEnvelope.estimateTokens(for: rawText),
+            retrievalHint: decision.retrievalHint.isEmpty ? nil : decision.retrievalHint,
+            sourceKind: sourceKind,
+            injectionMode: decision.mode,
+            rawCharCount: decision.rawCharCount,
+            injectedCharCount: decision.injectedCharCount
+        )
+
+        let modelText = decision.mode == .inline ? rawText : envelope.renderForModel()
+        return ToolExecutionResult(
+            modelText,
+            status: detected.status,
+            mediaContent: detected.mediaContent,
+            rawOutputText: rawText,
+            envelope: envelope
+        )
+    }
+
+    func wrapLargeTextToolResultForTests(
+        rawText: String,
+        toolName: String,
+        sourceKind: LargeTextPayload.SourceKind,
+        sourceDescriptor: String,
+        settings: AppSettings
+    ) async -> ToolExecutionResult {
+        await wrapLargeTextToolResult(
+            rawText: rawText,
+            toolName: toolName,
+            sourceKind: sourceKind,
+            sourceDescriptor: sourceDescriptor,
+            settings: settings
+        )
+    }
+
     // MARK: - Dispatch
 
     func executeTool(
@@ -23,7 +91,9 @@ extension ClaudeService {
         let sessionId = session.sessionId
         switch name {
         case "str_replace_based_edit_tool", "str_replace_editor":
-            return .detect(await executeTextEditorTool(input: input), toolName: name)
+            let raw = await executeTextEditorTool(input: input)
+            let descriptor = input["path"]?.stringValue ?? name
+            return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .file, sourceDescriptor: descriptor, settings: settings)
         case "bash":
             let wd = effectiveWorkingDirectory(session: session, settings: settings)
             let bashSess = getBashSession(
@@ -31,7 +101,11 @@ extension ClaudeService {
                 workingDirectory: wd,
                 environmentOverrides: settings.proxyConfiguration.bashEnvironmentOverrides
             )
-            return .detect(await executeBashTool(input: input, session: bashSess, workingDirectory: wd, settings: settings), toolName: name)
+            let raw = await executeBashTool(input: input, session: bashSess, workingDirectory: wd, settings: settings)
+            let descriptor = input["command"]?.stringValue ?? name
+            return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .bash, sourceDescriptor: descriptor, settings: settings)
+        case "read_tool_payload":
+            return .detect(await executeReadToolPayload(input: input), toolName: name)
         case "read_skill":
             guard let skillName = input["name"]?.stringValue else {
                 return .missingParameter("name")
@@ -44,11 +118,17 @@ extension ClaudeService {
             return .detect(executeUpdateTodoList(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "web_search":
             if settings.enableOllamaWebSearch && !settings.ollamaAPIKey.isEmpty {
-                return .detect(await executeOllamaWebSearchTool(input: input, apiKey: settings.ollamaAPIKey, settings: settings), toolName: name)
+                let raw = await executeOllamaWebSearchTool(input: input, apiKey: settings.ollamaAPIKey, settings: settings)
+                let descriptor = input["query"]?.stringValue ?? name
+                return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .webSearch, sourceDescriptor: descriptor, settings: settings)
             }
-            return .detect(await executeWebSearchTool(input: input, settings: settings), toolName: name)
+            let raw = await executeWebSearchTool(input: input, settings: settings)
+            let descriptor = input["query"]?.stringValue ?? name
+            return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .webSearch, sourceDescriptor: descriptor, settings: settings)
         case "web_fetch":
-            return .detect(await executeWebFetchTool(input: input, settings: settings), toolName: name)
+            let raw = await executeWebFetchTool(input: input, settings: settings)
+            let descriptor = input["url"]?.stringValue ?? name
+            return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .webFetch, sourceDescriptor: descriptor, settings: settings)
         case "ask_user_question":
             return .detect(await executeAskUserQuestion(input: input), toolName: name)
         case "analyze_image":
@@ -111,14 +191,20 @@ extension ClaudeService {
         let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
         switch name {
         case "str_replace_based_edit_tool", "str_replace_editor":
-            return .detect(await executeTextEditorTool(input: input), toolName: name)
+            let raw = await executeTextEditorTool(input: input)
+            let descriptor = input["path"]?.stringValue ?? name
+            return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .file, sourceDescriptor: descriptor, settings: settings)
         case "bash":
             let bashSess = getBashSession(
                 for: sessionId,
                 workingDirectory: wd,
                 environmentOverrides: settings.proxyConfiguration.bashEnvironmentOverrides
             )
-            return .detect(await executeBashTool(input: input, session: bashSess, workingDirectory: wd, settings: settings), toolName: name)
+            let raw = await executeBashTool(input: input, session: bashSess, workingDirectory: wd, settings: settings)
+            let descriptor = input["command"]?.stringValue ?? name
+            return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .bash, sourceDescriptor: descriptor, settings: settings)
+        case "read_tool_payload":
+            return .detect(await executeReadToolPayload(input: input), toolName: name)
         case "read_skill":
             guard let skillName = input["name"]?.stringValue else {
                 return .missingParameter("name")
@@ -131,11 +217,17 @@ extension ClaudeService {
             return .detect(executeUpdateTodoList(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "web_search":
             if settings.enableOllamaWebSearch && !settings.ollamaAPIKey.isEmpty {
-                return .detect(await executeOllamaWebSearchTool(input: input, apiKey: settings.ollamaAPIKey, settings: settings), toolName: name)
+                let raw = await executeOllamaWebSearchTool(input: input, apiKey: settings.ollamaAPIKey, settings: settings)
+                let descriptor = input["query"]?.stringValue ?? name
+                return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .webSearch, sourceDescriptor: descriptor, settings: settings)
             }
-            return .detect(await executeWebSearchTool(input: input, settings: settings), toolName: name)
+            let raw = await executeWebSearchTool(input: input, settings: settings)
+            let descriptor = input["query"]?.stringValue ?? name
+            return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .webSearch, sourceDescriptor: descriptor, settings: settings)
         case "web_fetch":
-            return .detect(await executeWebFetchTool(input: input, settings: settings), toolName: name)
+            let raw = await executeWebFetchTool(input: input, settings: settings)
+            let descriptor = input["url"]?.stringValue ?? name
+            return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .webFetch, sourceDescriptor: descriptor, settings: settings)
         case "ask_user_question":
             return .detect(await executeAskUserQuestion(input: input), toolName: name)
         case "analyze_image":

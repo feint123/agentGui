@@ -287,7 +287,20 @@ extension ClaudeService {
             },
             updateToolCallRecord: { context, _ in
                 guard let record = context.toolCallRecord else { return }
-                record.terminalOutput = context.toolResultText
+                if let preview = context.metadata["toolResultPreview"] as? String, !preview.isEmpty {
+                    record.terminalOutput = preview
+                } else {
+                    record.terminalOutput = context.toolResultText
+                }
+                record.toolResultSummary = context.metadata["toolResultSummary"] as? String
+                record.toolPayloadRef = context.metadata["toolPayloadRef"] as? String
+                record.toolResultRawChars = context.metadata["toolResultRawChars"] as? Int
+                record.toolResultInjectedChars = context.metadata["toolResultInjectedChars"] as? Int
+                record.toolResultInjectionMode = context.metadata["toolResultInjectionMode"] as? String
+                record.toolPayloadLastReadRange = context.metadata["toolPayloadLastReadRange"] as? String
+                if let payloadReadCount = context.metadata["toolPayloadReadCount"] as? Int {
+                    record.toolPayloadReadCount = payloadReadCount
+                }
                 if let status = context.metadata["toolStatus"] as? ToolStatus {
                     record.status = status
                 }
@@ -878,7 +891,14 @@ extension ClaudeService {
                             "isError": result.isError,
                             "outputLength": result.text.count,
                             "roundIndex": roundIdx,
-                            "toolStatus": result.toolCallStatus
+                            "toolStatus": result.toolCallStatus,
+                            "toolResultSummary": result.envelope?.summary as Any,
+                            "toolResultPreview": result.envelope?.preview ?? result.rawOutputText ?? result.text,
+                            "toolPayloadRef": result.envelope?.payloadRef ?? input["payload_ref"]?.stringValue as Any,
+                            "toolResultRawChars": result.envelope?.rawCharCount ?? result.rawOutputText?.count ?? result.text.count,
+                            "toolResultInjectedChars": result.envelope?.injectedCharCount ?? result.text.count,
+                            "toolResultInjectionMode": result.envelope?.injectionMode.rawValue as Any,
+                            "toolPayloadLastReadRange": payloadReadRangeSummary(from: input) as Any
                         ],
                         toolName: pending.name,
                         toolInput: input,
@@ -1142,6 +1162,19 @@ extension ClaudeService {
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init)
             .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    }
+
+    private func payloadReadRangeSummary(from input: MessageResponse.Content.Input) -> String? {
+        guard input["payload_ref"]?.stringValue != nil else { return nil }
+        if let cursor = input["cursor"]?.stringValue, !cursor.isEmpty {
+            return cursor
+        }
+        let readMode = input["read_mode"]?.stringValue ?? "chunk"
+        if let start = input["start"]?.intValue,
+           let end = input["end"]?.intValue {
+            return "\(readMode):\(start)-\(end)"
+        }
+        return readMode
     }
 
     func makeStoryMemoryBootstrapForTests(

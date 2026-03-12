@@ -26,6 +26,7 @@ struct DefaultToolRegistry: ToolRegistry {
         [
             textEditorDefinition(),
             bashDefinition(),
+            readToolPayloadDefinition(),
             webSearchDefinition(),
             webFetchDefinition(),
             storyMemoryUpsertCharacterDefinition(),
@@ -52,6 +53,7 @@ struct DefaultToolRegistry: ToolRegistry {
                 - str_replace: Replace an exact string in a file: provide old_str and new_str
                 - create: Create or overwrite a file with file_text
                 - insert: Insert new_str after insert_line (0 = prepend)
+                For large files, prefer reading targeted ranges first. If a result references a payload, use read_tool_payload instead of asking for the entire file again.
                 Always use absolute file paths.
                 """
             },
@@ -99,6 +101,8 @@ struct DefaultToolRegistry: ToolRegistry {
                 a subsequent bash call to inspect output. The log file persists until the \
                 session ends or you delete it.
 
+                For large command output, inspect summary and preview first. When a payload_ref is returned, use read_tool_payload to read further chunks instead of re-requesting the entire transcript.
+
                 Use timeout to limit how long to wait for a foreground command (default 300s). \
                 If a command exceeds timeout, partial output is returned and the session restarts.
                 """
@@ -127,6 +131,38 @@ struct DefaultToolRegistry: ToolRegistry {
         )
     }
 
+    private static func readToolPayloadDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "read_tool_payload",
+            displayName: "Read Tool Payload",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            executorKey: "builtin.readToolPayload",
+            descriptionBuilder: { _ in
+                """
+                Read a large tool result incrementally using a payload_ref returned by another tool. \
+                Prefer this over requesting the original tool to print the full result again. \
+                Check summary, preview, and range_summary first, then read only the next relevant chunk.
+                """
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "payload_ref": .init(type: .string, description: "Payload reference returned by a previous tool result."),
+                        "read_mode": .init(type: .string, description: "One of: summary, preview, chars, lines, chunk, head, tail."),
+                        "start": .init(type: .integer, description: "Optional start offset or line number, depending on read_mode."),
+                        "end": .init(type: .integer, description: "Optional end offset or line number, depending on read_mode."),
+                        "cursor": .init(type: .string, description: "Optional cursor returned by a previous payload read."),
+                        "max_chars": .init(type: .integer, description: "Optional max characters to return for chunk or preview reads.")
+                    ],
+                    required: ["payload_ref"]
+                )
+            }
+        )
+    }
+
     private static func webSearchDefinition() -> ToolDefinition {
         ToolDefinition(
             id: "web_search",
@@ -138,7 +174,8 @@ struct DefaultToolRegistry: ToolRegistry {
             descriptionBuilder: { _ in
                 """
                 Search the web using Bing and return a list of relevant results (title, URL, snippet). \
-                Use when you need up-to-date information, facts, or references not in your training data.
+                Use when you need up-to-date information, facts, or references not in your training data. \
+                For large result sets, inspect summary and preview first, then continue with read_tool_payload if a payload_ref is returned.
                 """
             },
             inputSchemaBuilder: { _ in
@@ -166,7 +203,8 @@ struct DefaultToolRegistry: ToolRegistry {
                 """
                 Fetch a webpage and return its cleaned text content. \
                 HTML boilerplate, scripts, styles, and navigation are stripped. \
-                Use after web_search to read the full content of a specific page.
+                Use after web_search to read the full content of a specific page. \
+                For long pages, prefer summary and preview first and use read_tool_payload when the result is returned as a payload reference.
                 """
             },
             inputSchemaBuilder: { _ in

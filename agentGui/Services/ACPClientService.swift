@@ -118,6 +118,12 @@ final class ClaudeService {
     /// Skill service reference for tool dispatch and system prompt
     var skillService: SkillService?
 
+    /// Shared payload store for large tool outputs that should not be injected inline.
+    var toolPayloadStore = ToolPayloadStore()
+
+    /// Shared budget controller used to shape large tool results before they are appended to the model context.
+    var toolResultBudgetController = ToolResultBudgetController()
+
     func makeEphemeralSystemPrompt(_ prompt: String) -> MessageParameter.System? {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

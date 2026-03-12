@@ -66,6 +66,10 @@ extension ClaudeService {
             kind = .other
             let skillName = input["name"]?.stringValue ?? ""
             title = "加载技能: \(skillName)"
+        case "read_tool_payload":
+            kind = .read
+            let payloadRef = input["payload_ref"]?.stringValue ?? ""
+            title = "读取载荷: \(String(payloadRef.prefix(24)))"
         case "ask_user_question":
             kind = .askUser
             title = "提问用户"

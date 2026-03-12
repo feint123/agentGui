@@ -29,8 +29,8 @@ struct ToolCallRowPresentation: Equatable {
             return ToolCallRowPresentation(
                 style: .read,
                 primaryText: toolCall.fileName ?? toolCall.title ?? toolCall.kind.displayName,
-                secondaryText: toolCall.displayPath,
-                tertiaryText: nil,
+                secondaryText: toolCall.toolResultSummary ?? toolCall.displayPath,
+                tertiaryText: toolCall.toolPayloadRef,
                 statusText: toolCall.statusDisplay,
                 detailText: toolCall.terminalOutput,
                 durationText: durationText,
@@ -53,7 +53,7 @@ struct ToolCallRowPresentation: Equatable {
             return ToolCallRowPresentation(
                 style: .execute,
                 primaryText: toolCall.title ?? toolCall.kind.displayName,
-                secondaryText: managedExecutionSummary(for: toolCall, status: managedStatus),
+                secondaryText: toolCall.toolResultSummary ?? managedExecutionSummary(for: toolCall, status: managedStatus),
                 tertiaryText: managedTertiaryText(for: toolCall, status: managedStatus),
                 statusText: managedStatus.map(terminalStatusText(for:)) ?? toolCall.statusDisplay,
                 detailText: toolCall.terminalOutput,
@@ -64,8 +64,8 @@ struct ToolCallRowPresentation: Equatable {
             return ToolCallRowPresentation(
                 style: .search,
                 primaryText: toolCall.title ?? toolCall.kind.displayName,
-                secondaryText: summaryLine(from: toolCall.terminalOutput),
-                tertiaryText: nil,
+                secondaryText: toolCall.toolResultSummary ?? summaryLine(from: toolCall.terminalOutput),
+                tertiaryText: toolCall.toolPayloadRef,
                 statusText: toolCall.statusDisplay,
                 detailText: toolCall.terminalOutput,
                 durationText: durationText,
@@ -75,8 +75,8 @@ struct ToolCallRowPresentation: Equatable {
             return ToolCallRowPresentation(
                 style: .fetch,
                 primaryText: toolCall.title ?? toolCall.kind.displayName,
-                secondaryText: summaryLine(from: toolCall.terminalOutput),
-                tertiaryText: toolCall.filePath,
+                secondaryText: toolCall.toolResultSummary ?? summaryLine(from: toolCall.terminalOutput),
+                tertiaryText: toolCall.toolPayloadRef ?? toolCall.filePath,
                 statusText: toolCall.statusDisplay,
                 detailText: toolCall.terminalOutput,
                 durationText: durationText,
@@ -110,8 +110,8 @@ struct ToolCallRowPresentation: Equatable {
             return ToolCallRowPresentation(
                 style: .other,
                 primaryText: toolCall.title ?? toolCall.kind.displayName,
-                secondaryText: summaryLine(from: toolCall.terminalOutput),
-                tertiaryText: toolCall.displayPath,
+                secondaryText: toolCall.toolResultSummary ?? summaryLine(from: toolCall.terminalOutput),
+                tertiaryText: toolCall.toolPayloadRef ?? toolCall.displayPath,
                 statusText: toolCall.statusDisplay,
                 detailText: toolCall.terminalOutput,
                 durationText: durationText,
@@ -160,6 +160,10 @@ struct ToolCallRowPresentation: Equatable {
     ) -> String? {
         if let promptSummary = toolCall.terminalPromptSummary, !promptSummary.isEmpty {
             return promptSummary
+        }
+
+        if let payloadRef = toolCall.toolPayloadRef, !payloadRef.isEmpty {
+            return payloadRef
         }
 
         if status == .runningBackground {

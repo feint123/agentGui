@@ -34,6 +34,27 @@ final class ToolCall {
     /// 终端输出
     var terminalOutput: String?
 
+    /// Structured summary for large text results.
+    var toolResultSummary: String?
+
+    /// Payload reference when the tool result is stored out-of-band.
+    var toolPayloadRef: String?
+
+    /// Raw character count before budget shaping.
+    var toolResultRawChars: Int?
+
+    /// Character count injected back into the model context.
+    var toolResultInjectedChars: Int?
+
+    /// Total number of times a payload was read through read_tool_payload.
+    var toolPayloadReadCount: Int?
+
+    /// Injection mode raw value: inline | preview | referenced.
+    var toolResultInjectionMode: String?
+
+    /// Last read range or cursor used when reading a payload.
+    var toolPayloadLastReadRange: String?
+
     /// Unified tool definition ID used to construct this tool schema
     var toolDefinitionID: String?
 
@@ -136,6 +157,13 @@ final class ToolCall {
         self.filePath = nil
         self.diffContent = nil
         self.terminalOutput = nil
+        self.toolResultSummary = nil
+        self.toolPayloadRef = nil
+        self.toolResultRawChars = nil
+        self.toolResultInjectedChars = nil
+        self.toolPayloadReadCount = nil
+        self.toolResultInjectionMode = nil
+        self.toolPayloadLastReadRange = nil
         self.toolDefinitionID = nil
         self.toolSchemaVersion = nil
         self.toolExposureSource = nil

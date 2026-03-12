@@ -51,6 +51,20 @@ struct BashToolCallPresentationTests {
         #expect(badges.map(\.text) == ["交互任务", "等待输入", "已自动回复 y"])
     }
 
+    @Test func rowUsesStructuredSummaryWhenLargePayloadMetadataExists() async throws {
+        let tool = ToolCall(toolCallId: "exec-large", kind: .execute)
+        tool.title = "xcodebuild test"
+        tool.status = .success
+        tool.toolResultSummary = "bash result: test log summarized"
+        tool.toolPayloadRef = "payload_abc"
+        tool.terminalOutput = "preview tail"
+
+        let row = ToolCallRowPresentation.make(for: tool)
+
+        #expect(row.secondaryText == "bash result: test log summarized")
+        #expect(row.tertiaryText == "payload_abc")
+    }
+
     private func encodedAgentActions(_ events: [TerminalTaskEvent]) throws -> String {
         let data = try JSONEncoder().encode(events)
         return String(decoding: data, as: UTF8.self)
