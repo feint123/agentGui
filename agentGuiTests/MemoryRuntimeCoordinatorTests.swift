@@ -18,7 +18,6 @@ struct MemoryRuntimeCoordinatorTests {
         ))
 
         let coordinator = MemoryRuntimeCoordinator(
-            storyRecordsProvider: { _ in [] },
             unifiedRecordsProvider: { request in
                 (try? store.records(for: request)) ?? []
             },
@@ -45,7 +44,6 @@ struct MemoryRuntimeCoordinatorTests {
     @Test func coordinatorPersistsRecordedOutcomeIntoUnifiedStore() async throws {
         let baseDirectory = try makeTemporaryDirectory()
         let coordinator = MemoryRuntimeCoordinator(
-            storyRecordsProvider: { _ in [] },
             unifiedRecordsProvider: { _ in [] },
             unifiedStoreBaseDirectory: baseDirectory
         )
@@ -82,7 +80,6 @@ struct MemoryRuntimeCoordinatorTests {
     @Test func coordinatorSchedulesConsolidationAndPersistsCandidates() async throws {
         let baseDirectory = try makeTemporaryDirectory()
         let coordinator = MemoryRuntimeCoordinator(
-            storyRecordsProvider: { _ in [] },
             unifiedRecordsProvider: { _ in [] },
             unifiedStoreBaseDirectory: baseDirectory
         )
@@ -154,7 +151,7 @@ struct MemoryRuntimeCoordinatorTests {
             )
         ]
 
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: records, storyRecords: [])
+        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: records)
         let request = MemoryRuntimeRequest(
             sessionId: "s1",
             threadId: "t1",
@@ -177,7 +174,7 @@ struct MemoryRuntimeCoordinatorTests {
     }
 
     @Test func emptyUnifiedMemorySliceStillProducesInspectableSnapshot() async throws {
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [], storyRecords: [])
+        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [])
         let request = MemoryRuntimeRequest(
             sessionId: "s1",
             threadId: "t1",

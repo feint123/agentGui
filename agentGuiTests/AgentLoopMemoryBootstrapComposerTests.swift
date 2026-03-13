@@ -19,7 +19,6 @@ struct AgentLoopMemoryBootstrapComposerTests {
                 },
                 loadTaskMemory: { nil },
                 loadTaskMemoryPromptText: { nil },
-                loadStorySlice: { nil },
                 saveRuntimeSnapshot: { $0.id }
             )
         )
@@ -43,7 +42,6 @@ struct AgentLoopMemoryBootstrapComposerTests {
                 loadUnifiedContext: { nil },
                 loadTaskMemory: { taskMemory },
                 loadTaskMemoryPromptText: { "## Confirmed Facts\n- Repo root is agentGui" },
-                loadStorySlice: { nil },
                 saveRuntimeSnapshot: { _ in nil }
             )
         )
@@ -56,7 +54,7 @@ struct AgentLoopMemoryBootstrapComposerTests {
         #expect(composition.patch?.metadata["failedAttemptCount"] as? Int == 1)
     }
 
-    @Test func composerAppendsStoryBootstrapAfterTaskBootstrap() async throws {
+    @Test func composerKeepsTaskBootstrapOrderingStable() async throws {
         var taskMemory = TaskMemory(sessionId: "session-1")
         taskMemory.confirmedFacts = ["fact"]
 
@@ -65,14 +63,13 @@ struct AgentLoopMemoryBootstrapComposerTests {
                 loadUnifiedContext: { nil },
                 loadTaskMemory: { taskMemory },
                 loadTaskMemoryPromptText: { "task prompt" },
-                loadStorySlice: { "story prompt" },
                 saveRuntimeSnapshot: { _ in nil }
             )
         )
 
         let composition = try await composer.compose(bootstrapMessageCount: 5)
 
-        #expect(composition.patch?.insertions.map(\.index) == [0, 1, 2, 3])
+        #expect(composition.patch?.insertions.map(\.index) == [0, 1])
     }
 
     @Test func composerReturnsNoPatchWhenAllSourcesAreEmpty() async throws {
@@ -81,7 +78,6 @@ struct AgentLoopMemoryBootstrapComposerTests {
                 loadUnifiedContext: { nil },
                 loadTaskMemory: { nil },
                 loadTaskMemoryPromptText: { nil },
-                loadStorySlice: { nil },
                 saveRuntimeSnapshot: { _ in nil }
             )
         )

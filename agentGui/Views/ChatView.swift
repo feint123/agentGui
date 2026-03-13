@@ -27,7 +27,6 @@ struct ChatView: View {
 
     @Query var allMessages: [Message]
     @Query(sort: \Session.updatedAt, order: .reverse) var allSessions: [Session]
-    @Query(sort: \WritingProject.updatedAt, order: .reverse) var allWritingProjects: [WritingProject]
 
     @State var inputText = ""
     @State var errorMessage: String?
@@ -56,7 +55,6 @@ struct ChatView: View {
     @State var mentionQuery: String? = nil
     @State var mentionCandidates: [URL] = []
     @State var mentionWorkingDir: String = ""
-    @State var showStoryProjectBrowser = false
 
     // MARK: - Slash Command
     @State var slashQuery: String? = nil
@@ -169,22 +167,9 @@ struct ChatView: View {
                 withAnimation(.easeInOut(duration: 0.2)) { showWorkflowPanel = true }
             }
         }
-        .sheet(isPresented: $showStoryProjectBrowser) {
-            StoryProjectListView(session: session)
-                .frame(minWidth: 900, minHeight: 620)
-        }
         .task(id: session.sessionId) {
             try? runtimeRecoveryService.refresh(from: modelContext)
         }
-    }
-
-    var storyMemoryEnabled: Bool {
-        AppSettings.getOrCreate(in: modelContext).enableStoryMemory
-    }
-
-    var activeStoryProject: WritingProject? {
-        guard let projectId = UUID(uuidString: session.activeWritingProjectId) else { return nil }
-        return allWritingProjects.first(where: { $0.id == projectId })
     }
 
     var unifiedMemoryRuntimeEnabled: Bool {

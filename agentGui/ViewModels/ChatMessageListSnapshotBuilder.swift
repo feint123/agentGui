@@ -145,10 +145,6 @@ struct ToolCallFingerprint: Hashable {
     let subagentTask: String?
     let subagentResultKind: String?
     let subagentMessageMetadata: [MetadataPair]
-    let storyMemoryTaskType: String?
-    let storyMemoryStatus: String?
-    let storyMemoryRiskSummary: String?
-    let storyMemoryFallbackNote: String?
     let memoryRuntimeProfiles: [String]
     let memoryRuntimeLayers: [String]
     let memoryRuntimeWarnings: [String]
@@ -182,10 +178,6 @@ struct ToolCallFingerprint: Hashable {
         self.subagentMessageMetadata = (toolCall.subagentMessageMetadata ?? [:])
             .map { MetadataPair(key: $0.key, value: $0.value) }
             .sorted { lhs, rhs in lhs.key < rhs.key }
-        self.storyMemoryTaskType = toolCall.storyMemoryTaskType
-        self.storyMemoryStatus = toolCall.storyMemoryStatus
-        self.storyMemoryRiskSummary = toolCall.storyMemoryRiskSummary
-        self.storyMemoryFallbackNote = toolCall.storyMemoryFallbackNote
         self.memoryRuntimeProfiles = toolCall.memoryRuntimeProfiles ?? []
         self.memoryRuntimeLayers = toolCall.memoryRuntimeLayers ?? []
         self.memoryRuntimeWarnings = toolCall.memoryRuntimeWarnings ?? []

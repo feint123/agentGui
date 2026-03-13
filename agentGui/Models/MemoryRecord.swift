@@ -9,7 +9,6 @@ struct MemoryRecord: Equatable, Sendable, Identifiable {
     enum Source: Equatable, Sendable {
         case tool(name: String)
         case taskMemory
-        case storyMemory
         case userInput
         case system(name: String)
     }

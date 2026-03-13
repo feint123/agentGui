@@ -69,7 +69,6 @@ struct SessionArchive: Codable, Equatable {
     var isActive: Bool
     var workingDirectory: String
     var planJson: String
-    var activeWritingProjectId: String
 }
 
 struct MessageArchive: Codable, Equatable {

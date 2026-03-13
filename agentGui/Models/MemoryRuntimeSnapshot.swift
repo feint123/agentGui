@@ -108,8 +108,6 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
             return "tool:\(name)"
         case .taskMemory:
             return "taskMemory"
-        case .storyMemory:
-            return "storyMemory"
         case .userInput:
             return "userInput"
         case .system(let name):

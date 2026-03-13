@@ -26,7 +26,6 @@ struct ExecutionRequirementTests {
         #expect(ExecutionGuard.evidenceKind(toolName: "str_replace_based_edit_tool", input: [:], result: .success("edited")) == .builtinTool)
         #expect(ExecutionGuard.evidenceKind(toolName: "web_fetch", input: [:], result: .success("content")) == .builtinTool)
         #expect(ExecutionGuard.evidenceKind(toolName: "memory_write", input: [:], result: .success("stored")) == .builtinTool)
-        #expect(ExecutionGuard.evidenceKind(toolName: "story_memory_upsert_character", input: [:], result: .success("saved")) == .builtinTool)
         #expect(ExecutionGuard.evidenceKind(toolName: "start_workflow", input: [:], result: .failure("Error: failed")) == nil)
         #expect(ExecutionGuard.evidenceKind(toolName: "verify_completion", input: [:], result: .success("ok")) == nil)
         #expect(ExecutionGuard.evidenceKind(toolName: "update_todo_list", input: [:], result: .success("ok")) == nil)

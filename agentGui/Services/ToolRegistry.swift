@@ -37,9 +37,6 @@ struct DefaultToolRegistry: ToolRegistry {
             lspDiagnosticsToolDefinition(),
             lspListServersToolDefinition(),
             lspServerStatusToolDefinition(),
-            storyMemoryUpsertCharacterDefinition(),
-            storyMemoryQueryDefinition(),
-            storyMemoryVerifyContinuityDefinition(),
             emitWorkflowArtifactDefinition(),
             runSubagentDefinition(),
             startWorkflowDefinition()
@@ -477,100 +474,6 @@ struct DefaultToolRegistry: ToolRegistry {
                         "task": .init(type: .string, description: "Self-contained task description including all context the workflow agents need.")
                     ],
                     required: ["workflow_id", "task"]
-                )
-            }
-        )
-    }
-
-    private static func storyMemoryUpsertCharacterDefinition() -> ToolDefinition {
-        ToolDefinition(
-            id: "story_memory_upsert_character",
-            displayName: "Story Memory Upsert Character",
-            category: .memory,
-            schemaVersion: 1,
-            supportedContexts: [.subagent, .workflowWorker],
-            executorKey: "builtin.storyMemory.upsertCharacter",
-            descriptionBuilder: { _ in
-                "Create or update a character profile in the active writing project."
-            },
-            inputSchemaBuilder: { _ in
-                .init(
-                    type: .object,
-                    properties: [
-                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
-                        "name": .init(type: .string, description: "Character name"),
-                        "summary": .init(type: .string, description: "Short character summary"),
-                        "traits": .init(type: .array, description: "Optional list of character traits (strings)"),
-                        "goals": .init(type: .array, description: "Optional list of current goals (strings)"),
-                        "speech_style": .init(type: .string, description: "Dialogue and voice notes"),
-                        "relationships": .init(type: .object, description: "Optional map of character name to relationship note"),
-                        "arc_stage": .init(type: .string, description: "Current arc stage"),
-                        "last_seen_chapter": .init(type: .integer, description: "Most recent chapter the character appeared in"),
-                        "last_known_location": .init(type: .string, description: "Most recent known location")
-                    ],
-                    required: ["name"]
-                )
-            }
-        )
-    }
-
-    private static func storyMemoryQueryDefinition() -> ToolDefinition {
-        ToolDefinition(
-            id: "story_memory_query",
-            displayName: "Story Memory Query",
-            category: .memory,
-            schemaVersion: 1,
-            supportedContexts: [.subagent, .workflowWorker],
-            executorKey: "builtin.storyMemory.query",
-            descriptionBuilder: { _ in
-                "Query the active writing project for structured story memory entities."
-            },
-            inputSchemaBuilder: { _ in
-                .init(
-                    type: .object,
-                    properties: [
-                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
-                        "query_kind": .init(type: .string, description: "One of: characters | events | foreshadows | chapters | scenes | world_rules | locations | style | continuity_issues"),
-                        "names": .init(type: .array, description: "For characters: list of character names (strings)"),
-                        "involving": .init(type: .array, description: "For events: list of character names used to filter participants (strings)"),
-                        "up_to_chapter": .init(type: .integer, description: "For foreshadows: include items introduced up to this chapter"),
-                        "limit": .init(type: .integer, description: "For events: maximum number of results to return"),
-                        "chapter_number": .init(type: .integer, description: "For scenes: optional chapter number filter"),
-                        "resolution_status": .init(type: .string, description: "For continuity issues: optional status filter")
-                    ],
-                    required: ["query_kind"]
-                )
-            }
-        )
-    }
-
-    private static func storyMemoryVerifyContinuityDefinition() -> ToolDefinition {
-        ToolDefinition(
-            id: "story_memory_verify_continuity",
-            displayName: "Story Memory Verify Continuity",
-            category: .memory,
-            schemaVersion: 1,
-            supportedContexts: [.subagent, .workflowWorker],
-            executorKey: "builtin.storyMemory.verifyContinuity",
-            descriptionBuilder: { _ in
-                "Check a draft scene against recent story memory for continuity risks."
-            },
-            inputSchemaBuilder: { _ in
-                .init(
-                    type: .object,
-                    properties: [
-                        "project_id": .init(type: .string, description: "Optional UUID string. If omitted, use the session-attached writing project."),
-                        "chapter_number": .init(type: .integer, description: "Draft chapter number"),
-                        "scene_index": .init(type: .integer, description: "Draft scene index"),
-                        "title": .init(type: .string, description: "Draft scene title"),
-                        "summary": .init(type: .string, description: "Draft scene summary"),
-                        "location_name": .init(type: .string, description: "Draft scene location"),
-                        "pov_character_name": .init(type: .string, description: "POV character name"),
-                        "character_names": .init(type: .array, description: "Characters present in the scene (strings)"),
-                        "referenced_foreshadow_tags": .init(type: .array, description: "Foreshadow tags referenced in the draft (strings)"),
-                        "text": .init(type: .string, description: "Draft scene text or excerpt")
-                    ],
-                    required: ["chapter_number", "scene_index", "title"]
                 )
             }
         )

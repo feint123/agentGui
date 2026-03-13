@@ -85,12 +85,6 @@ struct DefaultToolsetResolver: ToolsetResolver {
             return ["web_search", "web_fetch"]
         case .shell:
             return ["bash"]
-        case .storyMemory:
-            return [
-                "story_memory_query",
-                "story_memory_verify_continuity",
-                "story_memory_upsert_character"
-            ]
         case .workflowArtifact:
             return []
         }
@@ -119,8 +113,6 @@ struct DefaultToolsetResolver: ToolsetResolver {
             return settings.enableWebSearchTool
         case "web_fetch":
             return settings.enableWebFetchTool
-        case "story_memory_query", "story_memory_verify_continuity", "story_memory_upsert_character":
-            return settings.enableStoryMemory
         case "lsp_definition", "lsp_references", "lsp_hover", "lsp_document_symbols", "lsp_workspace_symbols", "lsp_diagnostics", "lsp_list_servers", "lsp_server_status":
             return settings.enableLSPTools
         default:

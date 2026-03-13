@@ -132,8 +132,7 @@ private extension AgentLoopToolExecutionCoordinator.Dependencies {
             )
         },
         startForegroundBashObservation: @escaping (BashToolRequest, ToolCall) async -> Task<Void, Never>? = { _, _ in nil },
-        finishBashObservation: @escaping (BashToolRequest, ToolCall, ToolExecutionResult) async -> Void = { _, _, _ in },
-        populateStoryMemoryAuditFields: @escaping (ToolCall, AgentMessage) -> Void = { _, _ in }
+        finishBashObservation: @escaping (BashToolRequest, ToolCall, ToolExecutionResult) async -> Void = { _, _, _ in }
     ) -> AgentLoopToolExecutionCoordinator.Dependencies {
         .init(
             runSubagent: runSubagent,
@@ -141,8 +140,7 @@ private extension AgentLoopToolExecutionCoordinator.Dependencies {
             executeTool: executeTool,
             normalizeBashRequest: normalizeBashRequest,
             startForegroundBashObservation: startForegroundBashObservation,
-            finishBashObservation: finishBashObservation,
-            populateStoryMemoryAuditFields: populateStoryMemoryAuditFields
+            finishBashObservation: finishBashObservation
         )
     }
 }

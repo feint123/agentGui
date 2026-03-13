@@ -162,37 +162,6 @@ extension ClaudeService {
         return try await runner.run(messages: &messages)
     }
 
-    func buildStoryMemoryBootstrap(
-        settings: AppSettings,
-        sessionId: String,
-        messages: [MessageParameter.Message],
-        modelContext: ModelContext
-    ) throws -> String? {
-        guard settings.enableStoryMemory, !sessionId.isEmpty else { return nil }
-
-        let descriptor = FetchDescriptor<Session>(predicate: #Predicate { $0.sessionId == sessionId })
-        guard let session = try modelContext.fetch(descriptor).first,
-              !session.activeWritingProjectId.isEmpty else {
-            return nil
-        }
-
-        let currentRequest = messages.reversed()
-            .first(where: { $0.role == "user" })
-            .map { extractText(from: $0.content) } ?? ""
-
-        let delegationService = StoryMemoryDelegationService(modelContext: modelContext)
-        let taskType = delegationService.classifyTask(userRequest: currentRequest)
-        guard taskType != .resolveProjectBinding else {
-            return nil
-        }
-
-        let assembler = StoryMemoryPromptAssembler(
-            modelContext: modelContext,
-            retrievalService: StoryMemoryRetrievalService(modelContext: modelContext)
-        )
-        return try assembler.buildWritingSlice(settings: settings, session: session, currentRequest: currentRequest)
-    }
-
     @MainActor
     func buildUnifiedMemoryBootstrap(
         settings: AppSettings,
@@ -215,13 +184,7 @@ extension ClaudeService {
             .first(where: { $0.role == "user" })
             .map { extractText(from: $0.content) } ?? ""
 
-        let projectId = resolvedSession?.activeWritingProjectId
-        let taskKind: MemoryTaskKind = {
-            if settings.enableStoryMemory, let projectId, !projectId.isEmpty {
-                return .creativeWriting
-            }
-            return .coding
-        }()
+        let taskKind: MemoryTaskKind = .coding
 
         let workspaceRoot: String?
         if let sessionDirectory = resolvedSession?.workingDirectory, !sessionDirectory.isEmpty {
@@ -238,26 +201,14 @@ extension ClaudeService {
             workflowRunId: nil,
             userRequest: currentRequest,
             taskKind: taskKind,
-            projectId: projectId?.isEmpty == false ? projectId : nil,
+            projectId: nil,
             workspaceRoot: workspaceRoot,
-            contextBudget: max(settings.storyMemoryPromptBudget * 1000, 4000)
+            contextBudget: max(settings.unifiedMemoryContextBudget * 1000, 4000)
         )
 
         let coordinator = MemoryRuntimeCoordinator(modelContext: modelContext)
         let context = try await coordinator.prepareContext(for: request)
         return context
-    }
-
-    func populateStoryMemoryAuditFields(record: ToolCall, from agentMessage: AgentMessage) {
-                guard case .structured(let json) = agentMessage.content,
-                            let response = ModelResponseJSONExtractor.decodeIfPresent(StoryMemoryDelegationResponse.self, from: json) else {
-            return
-        }
-
-        record.storyMemoryTaskType = response.taskType.rawValue
-        record.storyMemoryStatus = response.status.rawValue
-        record.storyMemoryRiskSummary = response.risks.first?.message
-        record.storyMemoryFallbackNote = response.fallbackNote
     }
 
     func payloadReadRangeSummary(from input: MessageResponse.Content.Input) -> String? {
@@ -271,20 +222,6 @@ extension ClaudeService {
             return "\(readMode):\(start)-\(end)"
         }
         return readMode
-    }
-
-    func makeStoryMemoryBootstrapForTests(
-        settings: AppSettings,
-        sessionId: String,
-        messages: [MessageParameter.Message],
-        modelContext: ModelContext
-    ) throws -> String? {
-        try buildStoryMemoryBootstrap(
-            settings: settings,
-            sessionId: sessionId,
-            messages: messages,
-            modelContext: modelContext
-        )
     }
 
     /// Returns true if the model supports Extended Thinking (3.7 Sonnet and all later models)

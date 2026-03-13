@@ -11,7 +11,6 @@ enum ToolGroupID: String, Codable, Sendable {
     case readWriteEditor
     case web
     case shell
-    case storyMemory
     case workflowArtifact
 }
 

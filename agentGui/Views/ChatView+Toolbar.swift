@@ -17,17 +17,6 @@ extension ChatView {
         }
 
         ToolbarItem(placement: .primaryAction) {
-            if storyMemoryEnabled {
-                Button {
-                    showStoryProjectBrowser = true
-                } label: {
-                    Label(activeStoryProject?.title ?? "创作记忆", systemImage: activeStoryProject == nil ? "books.vertical" : "book.fill")
-                }
-                .help(activeStoryProject == nil ? "打开创作项目浏览器" : "当前项目：\(activeStoryProject?.title ?? "")")
-            }
-        }
-
-        ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button("清除对话") { clearMessages() }
                 Divider()

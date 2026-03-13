@@ -9,9 +9,25 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
     enum StoredSourceKind: String, Codable, Sendable {
         case tool
         case taskMemory
-        case storyMemory
         case userInput
         case system
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let rawValue = try container.decode(String.self)
+            switch rawValue {
+            case "tool":
+                self = .tool
+            case "taskMemory", "storyMemory":
+                self = .taskMemory
+            case "userInput":
+                self = .userInput
+            case "system":
+                self = .system
+            default:
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported source kind: \(rawValue)")
+            }
+        }
     }
 
     var id: String
@@ -63,9 +79,6 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
         case .taskMemory:
             sourceKind = .taskMemory
             sourceName = nil
-        case .storyMemory:
-            sourceKind = .storyMemory
-            sourceName = nil
         case .userInput:
             sourceKind = .userInput
             sourceName = nil
@@ -103,8 +116,6 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
             source = .tool(name: sourceName ?? "unknown")
         case .taskMemory:
             source = .taskMemory
-        case .storyMemory:
-            source = .storyMemory
         case .userInput:
             source = .userInput
         case .system:

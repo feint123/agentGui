@@ -197,12 +197,7 @@ extension ClaudeService {
             sessionForDecision = nil
         }
 
-        let domainProfile: String
-        if let sessionForDecision, !sessionForDecision.activeWritingProjectId.isEmpty {
-            domainProfile = "creative-writing"
-        } else {
-            domainProfile = "user-preferences"
-        }
+        let domainProfile = "user-preferences"
 
         let verificationStatus: MemoryRecord.VerificationStatus = inferredVerificationStatus(for: content, domainProfile: domainProfile)
         let confidence = inferredConfidence(for: content, domainProfile: domainProfile)

@@ -36,9 +36,6 @@ final class Session {
     /// same persistent record.  Use the computed `plan` property to decode it.
     var planJson: String = ""
 
-    /// Optional project-scoped story memory binding for writing sessions.
-    var activeWritingProjectId: String = ""
-
     /// 关联的消息
     @Relationship(deleteRule: .cascade, inverse: \Message.session)
     var messages: [Message] = []

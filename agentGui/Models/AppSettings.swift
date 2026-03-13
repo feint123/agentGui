@@ -87,18 +87,6 @@ final class AppSettings {
     /// 反思置信度阈值（低于此值时触发重试，0.5–1.0）
     var reflectionConfidenceThreshold: Double = 0.7
 
-    /// 启用项目级创作记忆运行时
-    var enableStoryMemory: Bool = false
-
-    /// 是否在写作流程中自动抽取剧情事件和角色状态
-    var storyMemoryAutoExtract: Bool = true
-
-    /// 每次 prompt 组装最多包含多少个 story memory slice
-    var storyMemoryPromptBudget: Int = 6
-
-    /// 当前创作记忆项目绑定模式：manual / session / auto
-    var storyMemoryProjectMode: String = "auto"
-
     /// 启用统一记忆运行时读取路径
     var enableUnifiedMemoryRuntime: Bool = false
 
@@ -152,10 +140,6 @@ final class AppSettings {
         self.networkProxyBypassList = ""
         self.enableReflection = false
         self.reflectionConfidenceThreshold = 0.7
-        self.enableStoryMemory = false
-        self.storyMemoryAutoExtract = true
-        self.storyMemoryPromptBudget = 6
-        self.storyMemoryProjectMode = "auto"
         self.enableUnifiedMemoryRuntime = false
         self.unifiedMemoryContextBudget = 8
         self.enableMemoryGovernance = true

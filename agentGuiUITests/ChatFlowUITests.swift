@@ -13,17 +13,19 @@ final class ChatFlowUITests: UITestBase {
     @MainActor
     func testTodoCardAppearsAboveComposerAndYieldsToSlashPopup() throws {
         launchApp(arguments: [
+            "-com.agentgui.test.preloadMessages", "false",
             "-com.agentgui.test.todoFixtureMode", "basic"
         ])
 
-        XCTAssertTrue(app.staticTexts["任务列表"].waitForExistence(timeout: 2), app.debugDescription)
+        XCTAssertTrue(app.buttons["任务列表"].waitForExistence(timeout: 2), app.debugDescription)
         XCTAssertTrue(app.staticTexts["1/3"].waitForExistence(timeout: 2), app.debugDescription)
 
         launchApp(arguments: [
+            "-com.agentgui.test.preloadMessages", "false",
             "-com.agentgui.test.todoFixtureMode", "basic",
             "-com.agentgui.test.initialComposerText", "/"
         ])
 
-        XCTAssertTrue(app.staticTexts["任务列表"].waitForNonExistence(timeout: 2), app.debugDescription)
+        XCTAssertTrue(app.buttons["任务列表"].waitForNonExistence(timeout: 2), app.debugDescription)
     }
 }

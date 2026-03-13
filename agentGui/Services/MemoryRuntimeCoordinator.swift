@@ -5,7 +5,6 @@ import SwiftData
 final class MemoryRuntimeCoordinator {
     private let profileRegistry: MemoryDomainProfileRegistry
     private let retrievalPlanner: MemoryRetrievalPlanner
-    private let storyRecordsProvider: (String) -> [MemoryRecord]
     private let unifiedRecordsProvider: (MemoryRuntimeRequest) -> [MemoryRecord]
     private let unifiedStoreBaseDirectory: URL
     private let backgroundWriteQueue: MemoryBackgroundWriteQueue
@@ -17,7 +16,6 @@ final class MemoryRuntimeCoordinator {
     init(
         profileRegistry: MemoryDomainProfileRegistry = MemoryDomainProfileRegistry(),
         retrievalPlanner: MemoryRetrievalPlanner = MemoryRetrievalPlanner(),
-        storyRecordsProvider: @escaping (String) -> [MemoryRecord],
         unifiedRecordsProvider: @escaping (MemoryRuntimeRequest) -> [MemoryRecord] = { _ in [] },
         unifiedStoreBaseDirectory: URL = ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory),
         backgroundWriteQueue: MemoryBackgroundWriteQueue? = nil,
@@ -28,7 +26,6 @@ final class MemoryRuntimeCoordinator {
     ) {
         self.profileRegistry = profileRegistry
         self.retrievalPlanner = retrievalPlanner
-        self.storyRecordsProvider = storyRecordsProvider
         self.unifiedRecordsProvider = unifiedRecordsProvider
         self.unifiedStoreBaseDirectory = unifiedStoreBaseDirectory
         self.backgroundWriteQueue = backgroundWriteQueue ?? MemoryBackgroundWriteQueue(storeBaseDirectory: unifiedStoreBaseDirectory)
@@ -42,13 +39,6 @@ final class MemoryRuntimeCoordinator {
         let unifiedStoreDirectory = ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory)
         let unifiedStore = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreDirectory)
         self.init(
-            storyRecordsProvider: { projectId in
-                guard let uuid = UUID(uuidString: projectId) else { return [] }
-                let adapter = StoryMemoryStoreAdapter(modelContext: modelContext)
-                let semantic = (try? adapter.semanticRecords(projectId: uuid)) ?? []
-                let episodic = (try? adapter.episodicRecords(projectId: uuid)) ?? []
-                return semantic + episodic
-            },
             unifiedRecordsProvider: { request in
                 (try? unifiedStore.records(for: request)) ?? []
             },
@@ -64,9 +54,6 @@ final class MemoryRuntimeCoordinator {
         if records.contains(where: { $0.layer == .working }) == false,
            let workingRecord = synthesizedWorkingRecord(for: request) {
             records.append(workingRecord)
-        }
-        if let projectId = request.projectId {
-            records.append(contentsOf: storyRecordsProvider(projectId))
         }
 
         let filtered = filterAndBudget(records: records, with: plan)
@@ -307,9 +294,8 @@ final class MemoryRuntimeCoordinator {
 }
 
 extension MemoryRuntimeCoordinator {
-    static func makeForTests(unifiedRecords: [MemoryRecord], storyRecords: [MemoryRecord]) -> MemoryRuntimeCoordinator {
+    static func makeForTests(unifiedRecords: [MemoryRecord]) -> MemoryRuntimeCoordinator {
         MemoryRuntimeCoordinator(
-            storyRecordsProvider: { _ in storyRecords },
             unifiedRecordsProvider: { _ in unifiedRecords }
         )
     }

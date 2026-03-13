@@ -106,18 +106,6 @@ final class ToolCall {
     /// AgentMessage 携带的元数据键值对（轮次数、耗时等）（kind == .subagent 时使用）
     var subagentMessageMetadata: [String: String]?
 
-    /// 子代理相关的记忆审计任务类型（如有附带记忆审计元数据时使用）
-    var storyMemoryTaskType: String?
-
-    /// 创作记忆委托结果状态（ready / projectNotBound / failed ...）
-    var storyMemoryStatus: String?
-
-    /// 创作记忆委托的风险摘要
-    var storyMemoryRiskSummary: String?
-
-    /// 创作记忆委托的 fallback 说明
-    var storyMemoryFallbackNote: String?
-
     /// Unified memory runtime profiles active when this tool call was created
     var memoryRuntimeProfiles: [String]?
 
@@ -177,10 +165,6 @@ final class ToolCall {
         self.endTime = nil
         self.message = message
         self.agentRound = agentRound
-        self.storyMemoryTaskType = nil
-        self.storyMemoryStatus = nil
-        self.storyMemoryRiskSummary = nil
-        self.storyMemoryFallbackNote = nil
         self.memoryRuntimeProfiles = nil
         self.memoryRuntimeLayers = nil
         self.memoryRuntimeWarnings = nil

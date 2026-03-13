@@ -108,7 +108,6 @@ struct MemoryGovernedWriteRoutingTests {
         backgroundQueue: MemoryBackgroundWriteQueue? = nil
     ) -> MemoryRuntimeCoordinator {
         MemoryRuntimeCoordinator(
-            storyRecordsProvider: { _ in [] },
             unifiedRecordsProvider: { _ in [] },
             unifiedStoreBaseDirectory: baseDirectory,
             backgroundWriteQueue: backgroundQueue,

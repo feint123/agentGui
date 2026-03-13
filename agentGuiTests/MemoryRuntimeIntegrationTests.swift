@@ -6,8 +6,7 @@ import Testing
 struct MemoryRuntimeIntegrationTests {
     @Test func codingRequestProducesSingleUnifiedMemorySlice() async throws {
         let coordinator = MemoryRuntimeCoordinator.makeForTests(
-            unifiedRecords: [MemoryRecord.fixture(layer: .task, kind: .working, title: "Known task fact")],
-            storyRecords: []
+            unifiedRecords: [MemoryRecord.fixture(layer: .task, kind: .working, title: "Known task fact")]
         )
 
         let request = MemoryRuntimeRequest(
@@ -29,8 +28,7 @@ struct MemoryRuntimeIntegrationTests {
         let baseDirectory = try makeTemporaryDirectory()
         let store = MemoryRuntimeSnapshotStore(baseDirectory: baseDirectory)
         let coordinator = MemoryRuntimeCoordinator.makeForTests(
-            unifiedRecords: [MemoryRecord.fixture(id: "task-1", layer: .task, scope: .session(id: "s1"), title: "Known failure")],
-            storyRecords: []
+            unifiedRecords: [MemoryRecord.fixture(id: "task-1", layer: .task, scope: .session(id: "s1"), title: "Known failure")]
         )
 
         let context = try await coordinator.prepareContext(for: .init(
@@ -57,8 +55,7 @@ struct MemoryRuntimeIntegrationTests {
 
     @Test func prepareContextSynthesizesWorkingMemoryWhenNoWorkingRecordsExist() async throws {
         let coordinator = MemoryRuntimeCoordinator.makeForTests(
-            unifiedRecords: [MemoryRecord.fixture(id: "semantic-1", layer: .semantic, kind: .semantic, title: "North tower curfew")],
-            storyRecords: []
+            unifiedRecords: [MemoryRecord.fixture(id: "semantic-1", layer: .semantic, kind: .semantic, title: "North tower curfew")]
         )
 
         let context = try await coordinator.prepareContext(for: .init(

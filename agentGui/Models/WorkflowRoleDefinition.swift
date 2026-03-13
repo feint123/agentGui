@@ -29,7 +29,6 @@ struct WorkflowRoleDefinition: Sendable {
     let enableBash: Bool
     let enableWebSearch: Bool
     let enableWebFetch: Bool
-    let enableStoryMemoryTools: Bool
     let toolGrants: [ToolGrant]
 
     // MARK: Artifact Permissions
@@ -72,7 +71,6 @@ struct WorkflowRoleDefinition: Sendable {
         enableBash: Bool = false,
         enableWebSearch: Bool = false,
         enableWebFetch: Bool = false,
-        enableStoryMemoryTools: Bool = false,
         toolGrants: [ToolGrant] = [],
         readableArtifacts: Set<WorkflowArtifactKind> = [],
         writableArtifacts: Set<WorkflowArtifactKind> = [],
@@ -90,7 +88,6 @@ struct WorkflowRoleDefinition: Sendable {
         self.enableBash = enableBash
         self.enableWebSearch = enableWebSearch
         self.enableWebFetch = enableWebFetch
-        self.enableStoryMemoryTools = enableStoryMemoryTools
         self.toolGrants = toolGrants
         self.readableArtifacts = readableArtifacts
         self.writableArtifacts = writableArtifacts

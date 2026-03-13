@@ -73,19 +73,19 @@ struct AgentMessageFlowPresentationTests {
         #expect(toolCall.fileName == "ChatView.swift")
     }
 
-    @Test func subagentRowSurfacesAuditSummaryWhenMemoryFieldsExist() async throws {
-        let tool = ToolCall(toolCallId: "subagent-memory", kind: .subagent)
+    @Test func subagentRowUsesTaskAndResultKindPresentation() async throws {
+        let tool = ToolCall(toolCallId: "subagent-worker", kind: .subagent)
         tool.subagentAgentName = "worker"
-        tool.storyMemoryTaskType = "verifyContinuity"
-        tool.storyMemoryStatus = "ready"
-        tool.storyMemoryRiskSummary = "顾沉突然离开王都将与上一章冲突"
+        tool.subagentTask = "收集实现证据"
+        tool.subagentResultKind = "verification_report"
         tool.status = .success
 
         let row = ToolCallRowPresentation.make(for: tool)
 
         #expect(row.style == .subagent)
-        #expect(row.secondaryText == "顾沉突然离开王都将与上一章冲突")
-        #expect(row.tertiaryText == "verifyContinuity · ready")
+        #expect(row.primaryText == "worker")
+        #expect(row.secondaryText == "收集实现证据")
+        #expect(row.tertiaryText == "verification_report")
     }
 
     @Test func editToolUsesChangeSummaryRowPresentation() async throws {

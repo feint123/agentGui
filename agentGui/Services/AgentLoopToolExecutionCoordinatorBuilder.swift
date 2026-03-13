@@ -55,9 +55,6 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                         record: record,
                         result: result
                     )
-                },
-                populateStoryMemoryAuditFields: { record, agentMessage in
-                    claudeService.populateStoryMemoryAuditFields(record: record, from: agentMessage)
                 }
             )
         )

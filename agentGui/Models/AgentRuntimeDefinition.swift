@@ -28,7 +28,6 @@ struct AgentRuntimeDefinition: Sendable, Equatable {
             enableBash: toolGrants.contains { $0.toolGroupID == .shell || $0.toolID == "bash" },
             enableWebSearch: toolGrants.contains { $0.toolGroupID == .web || $0.toolID == "web_search" },
             enableWebFetch: toolGrants.contains { $0.toolGroupID == .web || $0.toolID == "web_fetch" },
-            enableStoryMemoryTools: toolGrants.contains { $0.toolGroupID == .storyMemory },
             toolGrants: toolGrants,
             readableArtifacts: readableArtifacts,
             writableArtifacts: writableArtifacts,
@@ -118,8 +117,6 @@ extension AgentRuntimeDefinition {
             return .init(toolGroupID: .web, allowedContexts: [.subagent, .workflowWorker])
         case "shell":
             return .init(toolGroupID: .shell, allowedContexts: [.subagent, .workflowWorker])
-        case "story_memory":
-            return .init(toolGroupID: .storyMemory, allowedContexts: [.subagent, .workflowWorker])
         default:
             throw AgentValidationError.unknownToolGroup(toolGroupName)
         }

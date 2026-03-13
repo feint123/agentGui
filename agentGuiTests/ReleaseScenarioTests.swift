@@ -42,24 +42,35 @@ struct ReleaseScenarioTests {
         #expect(row.tertiaryText == "waiting for tests")
     }
 
-    @Test func storyMemoryScenarioHitsBoundProjectContext() async throws {
-        let harness = try InMemoryAppHarness.makeStoryMemoryScenario()
-
+    @Test func creativeWritingRuntimeCanUseUnifiedRecordsWithoutStoryProjectFixture() async throws {
+        let coordinator = MemoryRuntimeCoordinator.makeForTests(
+            unifiedRecords: [
+                MemoryRecord.fixture(
+                    layer: .semantic,
+                    kind: .semantic,
+                    domainProfile: "creative-writing",
+                    scope: .session(id: "story-session"),
+                    title: "林澈",
+                    summary: "调查者仍在北塔",
+                    source: .taskMemory,
+                    retentionPolicy: .sessionBound
+                )
+            ]
+        )
         let request = MemoryRuntimeRequest(
-            sessionId: harness.session.sessionId,
+            sessionId: "story-session",
             threadId: "story-thread",
             workflowRunId: nil,
             userRequest: "Continue the chapter with Lin Che and keep the curfew rule consistent",
             taskKind: MemoryTaskKind.creativeWriting,
-            projectId: harness.projectID,
+            projectId: nil,
             workspaceRoot: nil,
             contextBudget: 4000
         )
-        let context = try await harness.memoryRuntimeCoordinator.prepareContext(for: request)
+        let context = try await coordinator.prepareContext(for: request)
 
         #expect(context.records.contains {
-            $0.scope == .project(id: harness.projectID) &&
-            ($0.title == "林澈" || $0.title == "北塔夜禁")
+            $0.scope == .session(id: "story-session") && $0.title == "林澈"
         })
     }
 

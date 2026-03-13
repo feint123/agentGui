@@ -25,7 +25,7 @@ struct InMemoryAppHarness {
         ])
         let settings = AppSettings.testFixture(apiKey: "sk-ant-ui-test")
         let fixture = QualityFixtureBuilder.recoveryScenario()
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [], storyRecords: [])
+        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [])
 
         context.insert(settings)
         context.insert(fixture.session)
@@ -53,7 +53,7 @@ struct InMemoryAppHarness {
         let context = ModelContext(container)
         let settings = AppSettings.testFixture(apiKey: "sk-ant-release-test")
         let session = Session.fixture(title: "Configured Settings")
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [], storyRecords: [])
+        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [])
 
         context.insert(settings)
         context.insert(session)
@@ -78,7 +78,7 @@ struct InMemoryAppHarness {
         let session = Session.fixture(sessionId: "release-session", title: "UI Test Session")
         let userMessage = Message.userFixture(text: "Run the release checks", session: session)
         let agentMessage = Message.agentFixture(text: "Release checklist prepared.", session: session)
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [], storyRecords: [])
+        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [])
 
         context.insert(settings)
         context.insert(session)
@@ -138,37 +138,6 @@ struct InMemoryAppHarness {
         return harness
     }
 
-    static func makeStoryMemoryScenario() throws -> InMemoryAppHarness {
-        let container = try makeContainer()
-        let context = ModelContext(container)
-        let settings = AppSettings.testFixture(apiKey: "sk-ant-release-test")
-        let session = Session.fixture(sessionId: "story-session", title: "Story Session")
-        context.insert(settings)
-        context.insert(session)
-        try context.save()
-
-        let storyService = StoryMemoryService(modelContext: context)
-        let project = try storyService.createProject(title: "北塔之冬", synopsis: "夜禁之城")
-        try storyService.attachProject(to: session, projectId: project.id)
-        _ = try storyService.upsertCharacter(projectId: project.id, payload: StoryCharacterDraft(name: "林澈"))
-        _ = try storyService.upsertWorldRule(projectId: project.id, payload: StoryWorldRuleDraft(title: "北塔夜禁", detail: "夜禁后不得公开通行"))
-
-        let adapter = StoryMemoryStoreAdapter(modelContext: context)
-        let storyRecords = try adapter.semanticRecords(projectId: project.id) + adapter.episodicRecords(projectId: project.id)
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [], storyRecords: storyRecords)
-
-        return InMemoryAppHarness(
-            container: container,
-            context: context,
-            settings: settings,
-            session: session,
-            runtimeRecoveryService: RuntimeRecoveryService(),
-            launchOptions: TestLaunchOptions(arguments: ["-com.agentgui.test.mode", "true"]),
-            memoryRuntimeCoordinator: coordinator,
-            projectID: project.id.uuidString
-        )
-    }
-
     private static func makeContainer() throws -> ModelContainer {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         return try ModelContainer(
@@ -180,16 +149,6 @@ struct InMemoryAppHarness {
             RecoverySnapshot.self,
             WorkflowInstance.self,
             SessionTaskState.self,
-            WritingProject.self,
-            StoryCharacterProfile.self,
-            StoryWorldRule.self,
-            StoryLocationProfile.self,
-            StoryStyleProfile.self,
-            StoryChapterRecord.self,
-            StorySceneRecord.self,
-            StoryTimelineEvent.self,
-            StoryForeshadowItem.self,
-            StoryContinuityIssue.self,
             configurations: configuration
         )
     }

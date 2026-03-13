@@ -80,7 +80,6 @@ final class BackupArchiveService {
             session.isActive = archive.isActive
             session.workingDirectory = archive.workingDirectory
             session.planJson = archive.planJson
-            session.activeWritingProjectId = archive.activeWritingProjectId
             if session.modelContext == nil {
                 modelContext.insert(session)
             }
@@ -186,8 +185,7 @@ final class BackupArchiveService {
                     updatedAt: $0.updatedAt,
                     isActive: $0.isActive,
                     workingDirectory: $0.workingDirectory,
-                    planJson: $0.planJson,
-                    activeWritingProjectId: $0.activeWritingProjectId
+                    planJson: $0.planJson
                 )
             }
 

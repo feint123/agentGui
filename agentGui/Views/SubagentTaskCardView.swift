@@ -183,28 +183,6 @@ struct SubagentTaskCardView: View {
                 }
             }
 
-            if toolCall.storyMemoryTaskType != nil || toolCall.storyMemoryStatus != nil || toolCall.storyMemoryRiskSummary != nil || toolCall.storyMemoryFallbackNote != nil {
-                labeledBlock(label: "记忆审计") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let taskType = toolCall.storyMemoryTaskType, let status = toolCall.storyMemoryStatus {
-                            Text("\(taskType) · \(status)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        if let risk = toolCall.storyMemoryRiskSummary, !risk.isEmpty {
-                            Text(risk)
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
-                        }
-                        if let fallback = toolCall.storyMemoryFallbackNote, !fallback.isEmpty {
-                            Text(fallback)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                }
-            }
-
             // Full timeline
             if !sortedRounds.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {

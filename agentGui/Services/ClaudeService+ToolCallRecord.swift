@@ -90,45 +90,6 @@ extension ClaudeService {
             kind = .fetch
             let fetchUrl = input["url"]?.stringValue ?? ""
             title = "获取: \(String(fetchUrl.prefix(60)))"
-        case "story_memory_create_project":
-            kind = .other
-            title = "创建故事项目"
-        case "story_memory_attach_project":
-            kind = .other
-            title = "绑定故事项目"
-        case "story_memory_upsert_character":
-            kind = .other
-            title = "更新角色记忆"
-        case "story_memory_upsert_chapter":
-            kind = .other
-            title = "更新章节记忆"
-        case "story_memory_upsert_scene":
-            kind = .other
-            title = "更新场景记忆"
-        case "story_memory_upsert_world_rule":
-            kind = .other
-            title = "更新世界规则"
-        case "story_memory_upsert_location":
-            kind = .other
-            title = "更新地点档案"
-        case "story_memory_upsert_foreshadow":
-            kind = .other
-            title = "更新伏笔"
-        case "story_memory_upsert_style_profile":
-            kind = .other
-            title = "更新风格档案"
-        case "story_memory_update_continuity_issue":
-            kind = .other
-            title = "更新连续性问题"
-        case "story_memory_append_event":
-            kind = .other
-            title = "追加剧情事件"
-        case "story_memory_query":
-            kind = .other
-            title = "查询故事记忆"
-        case "story_memory_verify_continuity":
-            kind = .other
-            title = "检查连续性"
         default:
             kind = .other
             title = toolName

@@ -14,7 +14,6 @@ struct AgentLoopToolExecutionCoordinator {
         let normalizeBashRequest: (MessageResponse.Content.Input) throws -> BashToolRequest
         let startForegroundBashObservation: (BashToolRequest, ToolCall) async -> Task<Void, Never>?
         let finishBashObservation: (BashToolRequest, ToolCall, ToolExecutionResult) async -> Void
-        let populateStoryMemoryAuditFields: (ToolCall, AgentMessage) -> Void
     }
 
     let dependencies: Dependencies
@@ -38,7 +37,6 @@ struct AgentLoopToolExecutionCoordinator {
             if !agentMessage.metadata.isEmpty {
                 record.subagentMessageMetadata = agentMessage.metadata
             }
-            dependencies.populateStoryMemoryAuditFields(record, agentMessage)
             return AgentLoopToolExecutionOutcome(result: agentMessage.toExecutionResult(), record: record)
         }
 

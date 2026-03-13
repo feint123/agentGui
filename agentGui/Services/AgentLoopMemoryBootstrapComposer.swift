@@ -14,7 +14,6 @@ struct AgentLoopMemoryBootstrapComposer {
         var loadUnifiedContext: () async throws -> MemoryRuntimeContext?
         var loadTaskMemory: () throws -> TaskMemory?
         var loadTaskMemoryPromptText: () throws -> String?
-        var loadStorySlice: () throws -> String?
         var saveRuntimeSnapshot: (MemoryRuntimeSnapshot) throws -> String?
     }
 
@@ -91,35 +90,6 @@ struct AgentLoopMemoryBootstrapComposer {
                 "confirmedFactCount": taskMemory.confirmedFacts.count,
                 "failedAttemptCount": taskMemory.failedAttempts.count
             ]
-        }
-
-        if let storySlice = try dependencies.loadStorySlice(),
-           !storySlice.isEmpty {
-            let insertionIndex = patch.insertions.isEmpty ? min(bootstrapMessageCount, 2) : 2
-            patch.insertions.append(
-                .init(
-                    index: insertionIndex,
-                    message: MessageParameter.Message(
-                        role: .user,
-                        content: .text("【创作记忆切片】以下是当前写作任务的项目级故事记忆，请优先保持人物、事件、伏笔和风格的一致性：\n\n\(storySlice)")
-                    )
-                )
-            )
-            patch.insertions.append(
-                .init(
-                    index: insertionIndex + 1,
-                    message: MessageParameter.Message(
-                        role: .assistant,
-                        content: .text("已加载创作记忆切片，将据此保持情节连续性与风格一致。")
-                    )
-                )
-            )
-            if patch.metadata.isEmpty {
-                patch.metadata = [
-                    "source": "story",
-                    "promptLength": storySlice.count
-                ]
-            }
         }
 
         return AgentLoopMemoryBootstrapComposition(

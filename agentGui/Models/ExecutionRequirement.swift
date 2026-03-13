@@ -198,20 +198,7 @@ enum ExecutionGuard {
         "ask_user_question",
         "analyze_image",
         "read_pdf",
-        "memory_write",
-        "story_memory_create_project",
-        "story_memory_attach_project",
-        "story_memory_upsert_character",
-        "story_memory_upsert_chapter",
-        "story_memory_upsert_scene",
-        "story_memory_upsert_world_rule",
-        "story_memory_upsert_location",
-        "story_memory_upsert_foreshadow",
-        "story_memory_upsert_style_profile",
-        "story_memory_update_continuity_issue",
-        "story_memory_append_event",
-        "story_memory_query",
-        "story_memory_verify_continuity"
+        "memory_write"
     ]
 
     private static let toolBackedVerificationHints: [String] = [

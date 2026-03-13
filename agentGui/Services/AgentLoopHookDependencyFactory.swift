@@ -53,14 +53,6 @@ struct AgentLoopHookDependencyFactory {
                     guard !runtime.sessionId.isEmpty else { return nil }
                     return try claudeService.taskMemoryPromptText(sessionId: runtime.sessionId, store: unifiedStore)
                 },
-                loadStorySlice: {
-                    try claudeService.buildStoryMemoryBootstrap(
-                        settings: runtime.settings,
-                        sessionId: runtime.sessionId,
-                        messages: bootstrapMessagesSnapshot,
-                        modelContext: runtime.modelContext
-                    )
-                },
                 saveRuntimeSnapshot: { snapshot in
                     let snapshotStore = MemoryRuntimeSnapshotStore()
                     try snapshotStore.save(snapshot)

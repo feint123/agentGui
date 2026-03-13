@@ -422,8 +422,6 @@ struct SettingsView: View {
             } footer: {
                 Text("每次 end_turn 后触发一次额外 API 调用，让模型为自己的输出打分。置信度低于阈值时自动重试并修正问题。")
             }
-
-            StoryMemorySettingsSection(settings: settings)
         }
     }
 
@@ -546,7 +544,7 @@ struct SettingsView: View {
         } header: {
             Text("长期记忆")
         } footer: {
-            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。统一记忆运行时用于把 TaskMemory / StoryMemory 组装成单一读视图，治理层用于限制低置信度写入。")
+            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。统一记忆运行时用于把 TaskMemory 与统一存储记录组装成单一读视图，治理层用于限制低置信度写入。")
         }
     }
 
