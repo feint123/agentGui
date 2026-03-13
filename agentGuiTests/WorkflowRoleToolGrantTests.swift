@@ -37,17 +37,21 @@ struct WorkflowRoleToolGrantTests {
         #expect(result.toolIDs.contains("bash"))
     }
 
-    @Test func verifierRoleResolvesReadOnlyEditorWithoutShell() throws {
+    @Test func verifierRoleResolvesVerificationToolset() throws {
         let role = try #require(WorkflowRoleDefinition.find(named: "verifier"))
         let settings = AppSettings()
         settings.enableTextEditorTool = true
         settings.enableBashTool = true
+        settings.enableWebSearchTool = true
+        settings.enableWebFetchTool = true
 
         let result = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
             .init(context: .subagent, role: role, settings: settings)
         )
 
         #expect(result.toolIDs.contains("str_replace_based_edit_tool"))
-        #expect(!result.toolIDs.contains("bash"))
+        #expect(result.toolIDs.contains("bash"))
+        #expect(result.toolIDs.contains("web_search"))
+        #expect(result.toolIDs.contains("web_fetch"))
     }
 }

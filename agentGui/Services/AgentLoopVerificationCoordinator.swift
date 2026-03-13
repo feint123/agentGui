@@ -154,9 +154,7 @@ struct AgentLoopVerificationCoordinator {
         verification: CompletionVerification,
         latestFailureTrigger: FailureTrigger?
     ) -> String {
-        let evidenceText = executionEvidence.isEmpty
-            ? "none"
-            : executionEvidence.map(\.rawValue).sorted().joined(separator: ", ")
+        let evidenceText = buildExecutionEvidenceText(executionEvidence: executionEvidence)
         let verifiedText = verification.verified.isEmpty
             ? "- none"
             : verification.verified.map { "- \($0)" }.joined(separator: "\n")
@@ -174,7 +172,7 @@ struct AgentLoopVerificationCoordinator {
         Execution evidence (tools actually invoked):
         \(evidenceText)
 
-        Structured verification record (from verify_completion call, if any):
+        Structured verification record, if any. If none exists, derive verification directly from observed execution evidence:
         - Verified: \(verifiedText)
         - Not verified: \(notVerifiedText)
         - Conclusion: \(verification.conclusion ?? "none")
@@ -194,6 +192,174 @@ struct AgentLoopVerificationCoordinator {
           "confidence": 0.0
         }
         """
+    }
+
+    private func buildExecutionEvidenceText(executionEvidence: Set<ExecutionEvidenceKind>) -> String {
+        let descriptor = FetchDescriptor<Message>(
+            predicate: #Predicate { $0.session?.sessionId == sessionId }
+        )
+        let rootToolCalls = ((try? modelContext.fetch(descriptor)) ?? [])
+            .flatMap(\.toolCalls)
+            .sorted { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
+        return Self.buildExecutionEvidenceText(
+            executionEvidence: executionEvidence,
+            toolCalls: rootToolCalls
+        )
+    }
+
+    static func buildExecutionEvidenceTextForTests(
+        executionEvidence: Set<ExecutionEvidenceKind>,
+        toolCalls: [ToolCall]
+    ) -> String {
+        buildExecutionEvidenceText(executionEvidence: executionEvidence, toolCalls: toolCalls)
+    }
+
+    private static func buildExecutionEvidenceText(
+        executionEvidence: Set<ExecutionEvidenceKind>,
+        toolCalls: [ToolCall]
+    ) -> String {
+        let signalText = executionEvidence.isEmpty
+            ? "none"
+            : executionEvidence.map(\.rawValue).sorted().joined(separator: ", ")
+        let entries = toolCalls.map(makeEvidenceEntry(from:))
+        let renderedEntries = entries.flatMap { renderEvidenceEntry($0, depth: 0) }
+
+        var lines = [
+            "High-level signals: \(signalText)",
+            "Observed tool activity:"
+        ]
+        if renderedEntries.isEmpty {
+            lines.append("- none")
+        } else {
+            lines.append(contentsOf: renderedEntries)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func makeEvidenceEntry(from toolCall: ToolCall) -> VerificationEvidenceEntry {
+        let headline: String
+        if toolCall.kind == .subagent {
+            headline = "subagent: \(toolCall.subagentAgentName ?? toolCall.title ?? toolCall.kind.rawValue)"
+        } else {
+            headline = "\(toolCall.kind.rawValue): \(toolCall.title ?? toolCall.kind.displayName)"
+        }
+
+        var details: [VerificationEvidenceDetail] = []
+
+        if let filePath = trimmed(toolCall.filePath) {
+            details.append(.init(label: "path", value: filePath))
+        }
+        if let command = commandText(from: toolCall) {
+            details.append(.init(label: "command", value: command))
+        }
+        if let target = targetText(from: toolCall) {
+            details.append(.init(label: "target", value: target))
+        }
+        if let task = trimmed(toolCall.subagentTask) {
+            details.append(.init(label: "task", value: task))
+        }
+        if let resultKind = trimmed(toolCall.subagentResultKind) {
+            details.append(.init(label: "result", value: resultKind))
+        }
+        if let status = trimmed(toolCall.terminalTaskStatus) ?? statusText(from: toolCall), !status.isEmpty {
+            details.append(.init(label: "status", value: status))
+        }
+        if let summary = trimmed(toolCall.toolResultSummary) {
+            details.append(.init(label: "summary", value: summary))
+        }
+        if let output = firstUsefulLine(in: toolCall.terminalOutput) {
+            details.append(.init(label: "output", value: output))
+        }
+        if let payloadRef = trimmed(toolCall.toolPayloadRef) {
+            details.append(.init(label: "payload_ref", value: payloadRef))
+        }
+
+        let childEntries = nestedToolCalls(from: toolCall)
+            .map(makeEvidenceEntry(from:))
+
+        return VerificationEvidenceEntry(
+            headline: headline,
+            details: uniqued(details),
+            children: childEntries
+        )
+    }
+
+    private static func nestedToolCalls(from toolCall: ToolCall) -> [ToolCall] {
+        toolCall.subagentRounds
+            .sorted { $0.roundIndex < $1.roundIndex }
+            .flatMap { round in
+                round.toolCalls.sorted { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
+            }
+    }
+
+    private static func renderEvidenceEntry(_ entry: VerificationEvidenceEntry, depth: Int) -> [String] {
+        let indent = String(repeating: "  ", count: depth)
+        var lines = ["\(indent)- \(entry.headline)"]
+        for detail in entry.details {
+            lines.append("\(indent)  \(detail.label): \(detail.value)")
+        }
+        for child in entry.children {
+            lines.append(contentsOf: renderEvidenceEntry(child, depth: depth + 1))
+        }
+        return lines
+    }
+
+    private static func commandText(from toolCall: ToolCall) -> String? {
+        if let promptSummary = trimmed(toolCall.terminalPromptSummary) {
+            return promptSummary
+        }
+        guard toolCall.kind == .execute else { return nil }
+        return trimmed(toolCall.title)
+    }
+
+    private static func targetText(from toolCall: ToolCall) -> String? {
+        guard let title = trimmed(toolCall.title) else { return nil }
+        if toolCall.kind == .fetch, title.hasPrefix("获取: ") {
+            return String(title.dropFirst(4))
+        }
+        if toolCall.kind == .search, title.hasPrefix("搜索: ") {
+            return String(title.dropFirst(4))
+        }
+        return nil
+    }
+
+    private static func statusText(from toolCall: ToolCall) -> String? {
+        switch toolCall.status {
+        case .success:
+            return "success"
+        case .failed:
+            return "failed"
+        case .cancelled:
+            return "cancelled"
+        case .inProgress:
+            return nil
+        }
+    }
+
+    private static func firstUsefulLine(in text: String?) -> String? {
+        guard let text = trimmed(text) else { return nil }
+        return text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+    }
+
+    private static func trimmed(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private static func uniqued(_ details: [VerificationEvidenceDetail]) -> [VerificationEvidenceDetail] {
+        var seen = Set<String>()
+        var result: [VerificationEvidenceDetail] = []
+        for detail in details {
+            let key = "\(detail.label)::\(detail.value)"
+            if seen.insert(key).inserted {
+                result.append(detail)
+            }
+        }
+        return result
     }
 
     private func parseVerifierPayload(from text: String) -> VerifierPayload? {
@@ -289,6 +455,17 @@ struct AgentLoopVerificationCoordinator {
 
         return nil
     }
+}
+
+private struct VerificationEvidenceEntry: Equatable {
+    let headline: String
+    let details: [VerificationEvidenceDetail]
+    let children: [VerificationEvidenceEntry]
+}
+
+private struct VerificationEvidenceDetail: Equatable {
+    let label: String
+    let value: String
 }
 
 struct VerifierPayload: Codable {

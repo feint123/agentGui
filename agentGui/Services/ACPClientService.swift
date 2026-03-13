@@ -424,14 +424,16 @@ final class ClaudeService {
         explicitlyActivatedSkills: [ExplicitlyActivatedSkill] = [],
         workingDirectory: String,
         settings: AppSettings,
-        session: Session?
+        session: Session?,
+        runtimeContextOverride: SystemPromptRuntimeContext? = nil
     ) -> String {
         buildSystemPrompt(
             skills: skills,
             explicitlyActivatedSkills: explicitlyActivatedSkills,
             workingDirectory: workingDirectory,
             settings: settings,
-            sessionOverride: session
+            sessionOverride: session,
+            runtimeContextOverride: runtimeContextOverride
         )
     }
 
@@ -447,18 +449,23 @@ final class ClaudeService {
         explicitlyActivatedSkills: [ExplicitlyActivatedSkill] = [],
         workingDirectory: String,
         settings: AppSettings,
-        sessionOverride: Session? = nil
+        sessionOverride: Session? = nil,
+        runtimeContextOverride: SystemPromptRuntimeContext? = nil
     ) -> String {
         var parts: [String] = []
+        let runtimeContext = runtimeContextOverride
+            ?? SystemPromptRuntimeContext.live(
+                workingDirectory: workingDirectory,
+                settings: settings,
+                session: sessionOverride
+            )
+
+        parts.append(runtimeContext.promptSection)
 
         // Long-term memory — read from ~/.agentgui/memory.md on every call so it's always fresh
         let memory = ConfigDirectoryManager.shared.readMemory()
         if !memory.isEmpty {
             parts.append("## Long-term Memory\n\(memory)")
-        }
-
-        if !workingDirectory.isEmpty {
-            parts.append("## Working Directory\nThe current working directory for all file and bash tool operations is: \(workingDirectory)")
         }
 
         if !skills.isEmpty {
@@ -613,6 +620,84 @@ final class ClaudeService {
 struct ExplicitlyActivatedSkill: Hashable {
     let skill: Skill
     let content: String
+}
+
+struct SystemPromptRuntimeContext: Equatable {
+    let currentDateTimeText: String
+    let timezoneIdentifier: String
+    let localeIdentifier: String
+    let operatingSystemText: String
+    let hostName: String
+    let workingDirectory: String
+    let workingDirectorySource: String
+    let proxySummary: String?
+
+    static func live(
+        workingDirectory: String,
+        settings: AppSettings,
+        session: Session?
+    ) -> SystemPromptRuntimeContext {
+        let now = Date()
+        let timezone = TimeZone.current
+        let locale = Locale.current
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = timezone
+        formatter.formatOptions = [.withInternetDateTime, .withColonSeparatorInTimeZone]
+
+        let resolvedWorkingDirectory = workingDirectory.isEmpty
+            ? FileManager.default.homeDirectoryForCurrentUser.path
+            : workingDirectory
+
+        let workingDirectorySource: String
+        if let session, !session.workingDirectory.isEmpty {
+            workingDirectorySource = "session-bound working directory"
+        } else if !settings.workingDirectory.isEmpty {
+            workingDirectorySource = "global default working directory"
+        } else {
+            workingDirectorySource = "home directory fallback"
+        }
+
+        let proxySummary: String?
+        if settings.proxyConfiguration.isEnabled,
+           let proxyURL = settings.proxyConfiguration.normalizedProxyURL {
+            let bypass = settings.proxyConfiguration.bypassList.isEmpty
+                ? "none"
+                : settings.proxyConfiguration.bypassList.joined(separator: ", ")
+            proxySummary = "enabled via \(proxyURL); bypass: \(bypass)"
+        } else {
+            proxySummary = nil
+        }
+
+        return SystemPromptRuntimeContext(
+            currentDateTimeText: formatter.string(from: now),
+            timezoneIdentifier: timezone.identifier,
+            localeIdentifier: locale.identifier,
+            operatingSystemText: ProcessInfo.processInfo.operatingSystemVersionString,
+            hostName: ProcessInfo.processInfo.hostName,
+            workingDirectory: resolvedWorkingDirectory,
+            workingDirectorySource: workingDirectorySource,
+            proxySummary: proxySummary
+        )
+    }
+
+    var promptSection: String {
+        var lines = [
+            "## Runtime Environment",
+            "- Current date/time: \(currentDateTimeText)",
+            "- Time zone: \(timezoneIdentifier)",
+            "- Locale: \(localeIdentifier)",
+            "- Operating system: \(operatingSystemText)",
+            "- Host: \(hostName)",
+            "- Working directory: \(workingDirectory) (source: \(workingDirectorySource))",
+            "- Reality constraints: You are running inside a macOS app. Use the actual current date, OS, locale, and working directory above when reasoning about commands, files, timestamps, or environment-sensitive behavior. Do not assume a different platform or stale date."
+        ]
+
+        if let proxySummary {
+            lines.append("- Network proxy: \(proxySummary)")
+        }
+
+        return lines.joined(separator: "\n")
+    }
 }
 
 struct TurnSkillContext: Hashable {

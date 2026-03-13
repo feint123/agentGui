@@ -11,6 +11,21 @@ struct AgentDefinitionLoaderTests {
         #expect(documents.map(\.name).sorted() == ["explore", "verifier", "worker"])
     }
 
+    @Test func verifierDocumentDescribesStepByStepEvidenceDrivenVerification() throws {
+        let loader = AgentDefinitionLoader()
+        let documents = try loader.loadBuiltInDocuments(from: Bundle.main)
+        let verifier = try #require(documents.first(where: { $0.name == "verifier" }))
+
+        #expect(verifier.toolGroupNames == ["read_only_editor", "web", "shell"])
+        #expect(verifier.body.contains("Step 1"))
+        #expect(verifier.body.contains("Step 2"))
+        #expect(verifier.body.contains("Step 3"))
+        #expect(verifier.body.contains("read files"))
+        #expect(verifier.body.contains("web"))
+        #expect(verifier.body.contains("shell"))
+        #expect(verifier.body.contains("real evidence"))
+    }
+
     @Test func rejectsUnknownToolGroup() throws {
         let loader = AgentDefinitionLoader()
 

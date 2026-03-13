@@ -37,17 +37,67 @@ struct SlashCommandRequestAssemblyTests {
         #expect(resolution.explicitlyActivatedSkills.map(\.skill.directoryName) == ["brainstorming"])
 
         let settings = AppSettings()
+        let runtimeContext = SystemPromptRuntimeContext(
+            currentDateTimeText: "2026-03-13T10:30:00+08:00",
+            timezoneIdentifier: "Asia/Shanghai",
+            localeIdentifier: "zh_CN",
+            operatingSystemText: "macOS 26.0 (25A100)",
+            hostName: "feint-macbook",
+            workingDirectory: "/tmp/project",
+            workingDirectorySource: "global default working directory",
+            proxySummary: nil
+        )
         let prompt = service.makeSystemPromptForTests(
             skills: resolution.effectiveSkills,
             explicitlyActivatedSkills: resolution.explicitlyActivatedSkills,
             workingDirectory: "/tmp/project",
             settings: settings,
-            session: nil
+            session: nil,
+            runtimeContextOverride: runtimeContext
         )
 
+        #expect(prompt.contains("## Runtime Environment"))
+        #expect(prompt.contains("Current date/time: 2026-03-13T10:30:00+08:00"))
+        #expect(prompt.contains("Time zone: Asia/Shanghai"))
+        #expect(prompt.contains("Locale: zh_CN"))
+        #expect(prompt.contains("Operating system: macOS 26.0 (25A100)"))
+        #expect(prompt.contains("Host: feint-macbook"))
+        #expect(prompt.contains("Working directory: /tmp/project (source: global default working directory)"))
         #expect(prompt.contains("## Explicitly Activated Skills For This Turn"))
         #expect(prompt.contains("brainstorming"))
         #expect(prompt.contains("Use this skill for exploration."))
+    }
+
+    @Test func systemPromptIncludesProxyAndSessionScopedRuntimeFacts() throws {
+        let service = ClaudeService()
+        let settings = AppSettings()
+        settings.enableNetworkProxy = true
+        settings.networkProxyURL = "http://127.0.0.1:7890"
+        settings.networkProxyBypassList = "localhost, example.com"
+
+        let session = Session(title: "Session")
+        session.workingDirectory = "/workspace/feature"
+
+        let prompt = service.makeSystemPromptForTests(
+            skills: [],
+            workingDirectory: session.workingDirectory,
+            settings: settings,
+            session: session,
+            runtimeContextOverride: SystemPromptRuntimeContext(
+                currentDateTimeText: "2026-03-13T11:00:00+08:00",
+                timezoneIdentifier: "Asia/Shanghai",
+                localeIdentifier: "zh_CN",
+                operatingSystemText: "macOS 26.0 (25A100)",
+                hostName: "feint-macbook",
+                workingDirectory: "/workspace/feature",
+                workingDirectorySource: "session-bound working directory",
+                proxySummary: "enabled via http://127.0.0.1:7890; bypass: localhost, example.com"
+            )
+        )
+
+        #expect(prompt.contains("Working directory: /workspace/feature (source: session-bound working directory)"))
+        #expect(prompt.contains("Network proxy: enabled via http://127.0.0.1:7890; bypass: localhost, example.com"))
+        #expect(prompt.contains("Reality constraints:"))
     }
 
     @Test func missingExplicitSkillFailsBeforeSend() throws {

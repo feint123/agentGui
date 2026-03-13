@@ -76,4 +76,70 @@ struct ExecutionRequirementTests {
             )
         ))
     }
+
+    @Test func parseAutoVerificationAssessmentHandlesMarkdownFences() {
+        let raw = """
+        ```json
+        {
+          "shouldAutoVerify": true,
+          "taskRequiresToolExecution": true,
+          "answerClaimsCompletion": true,
+          "confidence": 0.84,
+          "rationale": "The answer claims a file deletion succeeded."
+        }
+        ```
+        """
+
+        let assessment = ExecutionGuard.parseAutoVerificationAssessment(from: raw)
+
+        #expect(assessment?.shouldAutoVerify == true)
+        #expect(assessment?.taskRequiresToolExecution == true)
+        #expect(assessment?.answerClaimsCompletion == true)
+        #expect(assessment?.confidence == 0.84)
+    }
+
+    @Test func autoVerificationDecisionUsesModelConfidenceAndAgreement() {
+        #expect(ExecutionGuard.shouldAutoVerify(
+            AutoVerificationAssessment(
+                shouldAutoVerify: true,
+                taskRequiresToolExecution: true,
+                answerClaimsCompletion: true,
+                confidence: 0.91,
+                rationale: "The request requires deleting a file and the answer claims success."
+            )
+        ))
+        #expect(!ExecutionGuard.shouldAutoVerify(
+            AutoVerificationAssessment(
+                shouldAutoVerify: true,
+                taskRequiresToolExecution: true,
+                answerClaimsCompletion: true,
+                confidence: 0.42,
+                rationale: "Weak signal."
+            )
+        ))
+        #expect(!ExecutionGuard.shouldAutoVerify(
+            AutoVerificationAssessment(
+                shouldAutoVerify: true,
+                taskRequiresToolExecution: false,
+                answerClaimsCompletion: true,
+                confidence: 0.95,
+                rationale: "No real tool-backed task detected."
+            )
+        ))
+    }
+
+    @Test func autoVerificationPrefilterRecognizesToolBackedMutationTasks() {
+        #expect(ExecutionGuard.mayRequireToolBackedVerification(
+            userRequest: "Delete /tmp/demo.txt and tell me when it is gone.",
+            currentAnswer: "Deleted /tmp/demo.txt successfully."
+        ))
+        #expect(ExecutionGuard.mayRequireToolBackedVerification(
+            userRequest: "请删除 workspace 里的旧文件。",
+            currentAnswer: "已经删除完成。"
+        ))
+        #expect(!ExecutionGuard.mayRequireToolBackedVerification(
+            userRequest: "Summarize the README in one sentence.",
+            currentAnswer: "Here is the summary."
+        ))
+    }
 }

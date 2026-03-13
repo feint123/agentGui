@@ -4,7 +4,7 @@ display-name: 执行者
 description: 基于已有目标和上下文实施变更，并返回可核对的结果与验证证据。
 argument-hint: Describe the implementation task, target files, constraints, and required verification.
 tools: [read_write_editor, shell]
-max-turns: 14
+max-turns: 100
 user-invocable: false
 subagent-invocable: true
 output-contract: work_result

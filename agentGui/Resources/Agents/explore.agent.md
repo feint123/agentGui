@@ -4,7 +4,7 @@ display-name: 探索者
 description: 搜索代码、文档和批准的网页来源，返回结构化上下文与风险点。
 argument-hint: Describe what to search for, where to look, and the desired thoroughness.
 tools: [read_only_editor, web]
-max-turns: 10
+max-turns: 50
 user-invocable: false
 subagent-invocable: true
 output-contract: exploration_report

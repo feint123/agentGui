@@ -574,12 +574,34 @@ struct AgentLoopRoundExecutor {
         state: inout AgentLoopRunState,
         messages: inout [MessageParameter.Message]
     ) async {
-        // 旧的 requiresExecution guard 已移除；主 agent 是否进入 verifying 只看现有 verification 记录。
+        // finalization 不增加新的 phase；这里只扩展 verifying gate 的触发条件。
         let storedVerification = SessionTaskStateStore(modelContext: runtime.modelContext).verification(for: runtime.sessionId)
         let inMemoryVerification = sharedState.readVerification(runtime.sessionId)
+        let hasExecutionEvidence = !state.executionEvidence.isEmpty
+        let userTaskText = primaryUserTaskText(from: messages)
+        let autoVerificationAssessment: AutoVerificationAssessment?
+
+        if request.toolExecutionContext == .mainAgent,
+           inMemoryVerification == nil,
+           storedVerification == nil,
+           !hasExecutionEvidence,
+           !userTaskText.isEmpty,
+           !state.accumulatedText.isEmpty {
+            autoVerificationAssessment = await claudeService.assessAutoVerificationNeed(
+                userRequest: userTaskText,
+                currentAnswer: state.accumulatedText,
+                service: request.service,
+                modelId: request.modelId
+            )
+        } else {
+            autoVerificationAssessment = nil
+        }
+
         let verificationEnabled = request.toolExecutionContext == .mainAgent && (
             inMemoryVerification != nil ||
-            storedVerification != nil
+            storedVerification != nil ||
+            hasExecutionEvidence ||
+            ExecutionGuard.shouldAutoVerify(autoVerificationAssessment)
         )
 
         emitter.emitBusinessEvent(
@@ -589,8 +611,12 @@ struct AgentLoopRoundExecutor {
                 "verificationEnabled": verificationEnabled,
                 "hasInMemoryVerification": inMemoryVerification != nil,
                 "hasStoredVerification": storedVerification != nil,
+                "hasExecutionEvidence": hasExecutionEvidence,
                 "toolExecutionContext": request.toolExecutionContext.rawValue,
-                "executionEvidenceCount": state.executionEvidence.count
+                "executionEvidenceCount": state.executionEvidence.count,
+                "autoVerifySuggested": autoVerificationAssessment?.shouldAutoVerify as Any,
+                "autoVerifyConfidence": autoVerificationAssessment?.confidence as Any,
+                "autoVerifyRationale": autoVerificationAssessment?.rationale as Any
             ]
         )
 
@@ -602,7 +628,10 @@ struct AgentLoopRoundExecutor {
                     "reason": "verification gate disabled",
                     "hasInMemoryVerification": inMemoryVerification != nil,
                     "hasStoredVerification": storedVerification != nil,
-                    "toolExecutionContext": request.toolExecutionContext.rawValue
+                    "hasExecutionEvidence": hasExecutionEvidence,
+                    "toolExecutionContext": request.toolExecutionContext.rawValue,
+                    "autoVerifySuggested": autoVerificationAssessment?.shouldAutoVerify as Any,
+                    "autoVerifyConfidence": autoVerificationAssessment?.confidence as Any
                 ]
             )
         }
@@ -631,5 +660,10 @@ struct AgentLoopRoundExecutor {
                 )
             )
         }
+    }
+
+    private func primaryUserTaskText(from messages: [MessageParameter.Message]) -> String {
+        guard let taskMessage = messages.first(where: { $0.role == "user" }) else { return "" }
+        return claudeService.extractText(from: taskMessage.content)
     }
 }

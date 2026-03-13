@@ -119,6 +119,14 @@ struct AgentLoopIntegrationTests {
                 decodeStreamEvent("""
                 {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
                 """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"passed\\":true,\\"summary\\":\\"bash verification passed\\",\\"verified_items\\":[\\"bash output observed\\"],\\"failed_items\\":[],\\"missing_evidence\\":[],\\"risk_areas\\":[],\\"recommended_next_action\\":\\"finish\\",\\"confidence\\":0.97}"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
             ]
         ])
 
@@ -149,6 +157,8 @@ struct AgentLoopIntegrationTests {
         let registry = claudeService.getBashTaskRegistry(for: "session-bash")
         let taskId = try #require(record.terminalTaskId)
         let snapshot = await registry.snapshot(taskId: taskId)
+        let store = SessionTaskStateStore(modelContext: modelContext)
+        let verification = try #require(store.verification(for: "session-bash"))
 
         #expect(result.completedSuccessfully)
         #expect(record.terminalTaskStatus == TerminalTaskStatus.completed.rawValue)
@@ -156,6 +166,8 @@ struct AgentLoopIntegrationTests {
         #expect(record.terminalAgentActionsJSON != nil)
         #expect(snapshot?.status == .completed)
         #expect(snapshot?.latestOutputSnippet?.contains("hello from bash") == true)
+        #expect(verification.passed == true)
+        #expect(verification.summary == "bash verification passed")
     }
 
     @Test func runCoreAgentLoopInvokesVerifierSubagentBeforeReportingSuccess() async throws {
