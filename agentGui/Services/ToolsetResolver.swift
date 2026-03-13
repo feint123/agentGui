@@ -26,7 +26,11 @@ struct DefaultToolsetResolver: ToolsetResolver {
 
     func resolve(_ request: ToolResolutionRequest) -> ToolResolutionResult {
         let grants = request.role?.toolGrants ?? []
-        let toolIDs = expandToolIDs(from: grants, context: request.context)
+        var toolIDs = expandToolIDs(from: grants, context: request.context)
+
+        if request.role == nil, request.context == .mainAgent {
+            toolIDs.formUnion(mainAgentDefaultToolIDs())
+        }
 
         var resolvedDefinitions: [ToolDefinition] = []
         var excludedToolIDs: Set<String> = []
@@ -92,6 +96,19 @@ struct DefaultToolsetResolver: ToolsetResolver {
         }
     }
 
+    private func mainAgentDefaultToolIDs() -> Set<String> {
+        [
+            "lsp_definition",
+            "lsp_references",
+            "lsp_hover",
+            "lsp_document_symbols",
+            "lsp_workspace_symbols",
+            "lsp_diagnostics",
+            "lsp_list_servers",
+            "lsp_server_status"
+        ]
+    }
+
     private func isEnabled(_ toolID: String, settings: AppSettings) -> Bool {
         switch toolID {
         case "str_replace_based_edit_tool":
@@ -104,6 +121,8 @@ struct DefaultToolsetResolver: ToolsetResolver {
             return settings.enableWebFetchTool
         case "story_memory_query", "story_memory_verify_continuity", "story_memory_upsert_character":
             return settings.enableStoryMemory
+        case "lsp_definition", "lsp_references", "lsp_hover", "lsp_document_symbols", "lsp_workspace_symbols", "lsp_diagnostics", "lsp_list_servers", "lsp_server_status":
+            return settings.enableLSPTools
         default:
             return true
         }

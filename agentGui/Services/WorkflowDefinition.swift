@@ -32,6 +32,9 @@ struct WorkflowWorkspaceContext: Sendable {
     var selectedFilePath: String? = nil
     var selectedText: String? = nil
     var availableSkills: [WorkflowSkillInfo] = []
+    var lspServerID: String? = nil
+    var lspServerStateSummary: String? = nil
+    var lspDiagnosticsSummary: String? = nil
 
     static let empty = WorkflowWorkspaceContext()
 }

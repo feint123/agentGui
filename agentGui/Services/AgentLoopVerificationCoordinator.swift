@@ -201,22 +201,38 @@ struct AgentLoopVerificationCoordinator {
         let rootToolCalls = ((try? modelContext.fetch(descriptor)) ?? [])
             .flatMap(\.toolCalls)
             .sorted { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
+        let lspPromptContext = buildLSPPromptContext()
         return Self.buildExecutionEvidenceText(
             executionEvidence: executionEvidence,
-            toolCalls: rootToolCalls
+            toolCalls: rootToolCalls,
+            lspServerID: lspPromptContext.serverID,
+            lspServerStateSummary: lspPromptContext.serverStateSummary,
+            diagnosticsSnapshot: lspPromptContext.diagnosticsSnapshot
         )
     }
 
     static func buildExecutionEvidenceTextForTests(
         executionEvidence: Set<ExecutionEvidenceKind>,
-        toolCalls: [ToolCall]
+        toolCalls: [ToolCall],
+        lspServerID: String? = nil,
+        lspServerStateSummary: String? = nil,
+        diagnosticsSnapshot: LSPDiagnosticsSnapshot? = nil
     ) -> String {
-        buildExecutionEvidenceText(executionEvidence: executionEvidence, toolCalls: toolCalls)
+        buildExecutionEvidenceText(
+            executionEvidence: executionEvidence,
+            toolCalls: toolCalls,
+            lspServerID: lspServerID,
+            lspServerStateSummary: lspServerStateSummary,
+            diagnosticsSnapshot: diagnosticsSnapshot
+        )
     }
 
     private static func buildExecutionEvidenceText(
         executionEvidence: Set<ExecutionEvidenceKind>,
-        toolCalls: [ToolCall]
+        toolCalls: [ToolCall],
+        lspServerID: String? = nil,
+        lspServerStateSummary: String? = nil,
+        diagnosticsSnapshot: LSPDiagnosticsSnapshot? = nil
     ) -> String {
         let signalText = executionEvidence.isEmpty
             ? "none"
@@ -234,7 +250,68 @@ struct AgentLoopVerificationCoordinator {
         } else {
             lines.append(contentsOf: renderedEntries)
         }
+
+        if lspServerID != nil || lspServerStateSummary != nil || diagnosticsSnapshot != nil {
+            lines.append(contentsOf: renderLSPPromptSummary(
+                serverID: lspServerID,
+                serverStateSummary: lspServerStateSummary,
+                diagnosticsSnapshot: diagnosticsSnapshot
+            ))
+        }
         return lines.joined(separator: "\n")
+    }
+
+    private func buildLSPPromptContext() -> (serverID: String?, serverStateSummary: String?, diagnosticsSnapshot: LSPDiagnosticsSnapshot?) {
+        let workspaceContext = claudeService.currentWorkspaceContext
+        guard settings.enableLSPTools,
+              !workspaceContext.workingDirectory.isEmpty,
+              let filePath = workspaceContext.selectedFilePath,
+              let registry = try? LSPServerRegistry(settings: settings) else {
+            return (nil, nil, nil)
+        }
+
+        let resolver = LSPWorkspaceResolver()
+        guard let binding = resolver.resolve(
+            filePath: filePath,
+            workingDirectory: workspaceContext.workingDirectory,
+            registry: registry,
+            settings: settings
+        ) else {
+            return (nil, nil, nil)
+        }
+
+        let uri = URL(fileURLWithPath: filePath).absoluteString
+        return (
+            binding.serverID,
+            claudeService.lspServerManager?.state(for: workspaceContext.workingDirectory, serverID: binding.serverID)?.summaryText,
+            claudeService.lspServerManager?.diagnosticsStore.snapshot(for: workspaceContext.workingDirectory, uri: uri)
+        )
+    }
+
+    private static func renderLSPPromptSummary(
+        serverID: String?,
+        serverStateSummary: String?,
+        diagnosticsSnapshot: LSPDiagnosticsSnapshot?
+    ) -> [String] {
+        var lines = ["LSP context:"]
+        lines.append("- LSP server: \(serverID ?? "none")")
+        lines.append("- LSP state: \(serverStateSummary ?? "none")")
+
+        guard let diagnosticsSnapshot else {
+            lines.append("- Diagnostics: none")
+            return lines
+        }
+
+        let severityCounts = Dictionary(grouping: diagnosticsSnapshot.diagnostics, by: \.severity)
+            .map { "\($0.key.rawValue)=\($0.value.count)" }
+            .sorted()
+            .joined(separator: ", ")
+        let preview = diagnosticsSnapshot.diagnostics.prefix(3).map(\.message).joined(separator: " | ")
+        lines.append("- Diagnostics: \(diagnosticsSnapshot.diagnostics.count) total [\(severityCounts)]")
+        if !preview.isEmpty {
+            lines.append("- Diagnostics preview: \(preview)")
+        }
+        return lines
     }
 
     private static func makeEvidenceEntry(from toolCall: ToolCall) -> VerificationEvidenceEntry {
@@ -453,93 +530,7 @@ struct AgentLoopVerificationCoordinator {
     }
 
     static func parseVerifierPayloadForTests(from text: String) -> VerifierPayload? {
-        let candidates = verifierJSONCandidates(from: text)
-        for candidate in candidates {
-            guard let data = candidate.data(using: .utf8) else { continue }
-            if let payload = try? JSONDecoder().decode(VerifierPayload.self, from: data) {
-                return payload
-            }
-        }
-        return nil
-    }
-
-    private static func verifierJSONCandidates(from text: String) -> [String] {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        var candidates: [String] = []
-
-        if !trimmed.isEmpty {
-            candidates.append(trimmed)
-        }
-
-        let unfenced = stripMarkdownFences(trimmed)
-        if !unfenced.isEmpty, unfenced != trimmed {
-            candidates.append(unfenced)
-        }
-
-        if let extracted = extractFirstJSONObject(from: trimmed), !extracted.isEmpty {
-            candidates.append(extracted)
-        }
-
-        if let extractedFromUnfenced = extractFirstJSONObject(from: unfenced), !extractedFromUnfenced.isEmpty {
-            candidates.append(extractedFromUnfenced)
-        }
-
-        return Array(NSOrderedSet(array: candidates)) as? [String] ?? candidates
-    }
-
-    private static func stripMarkdownFences(_ text: String) -> String {
-        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if result.hasPrefix("```") {
-            if let newline = result.firstIndex(of: "\n") {
-                result = String(result[result.index(after: newline)...])
-            }
-            if result.hasSuffix("```") {
-                result = String(result.dropLast(3))
-            }
-        }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func extractFirstJSONObject(from text: String) -> String? {
-        guard let startIndex = text.firstIndex(of: "{") else { return nil }
-
-        var depth = 0
-        var isInsideString = false
-        var isEscaping = false
-
-        for index in text[startIndex...].indices {
-            let character = text[index]
-
-            if isEscaping {
-                isEscaping = false
-                continue
-            }
-
-            if character == "\\" {
-                isEscaping = true
-                continue
-            }
-
-            if character == "\"" {
-                isInsideString.toggle()
-                continue
-            }
-
-            if isInsideString {
-                continue
-            }
-
-            if character == "{" {
-                depth += 1
-            } else if character == "}" {
-                depth -= 1
-                if depth == 0 {
-                    return String(text[startIndex...index])
-                }
-            }
-        }
-
-        return nil
+        ModelResponseJSONExtractor.decodeIfPresent(VerifierPayload.self, from: text)
     }
 }
 

@@ -267,17 +267,7 @@ extension ClaudeService {
     }
 
     private func parseMemoryJSON(_ raw: String) -> ContextMemory? {
-        // Strip optional markdown code fences (```json ... ```)
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("```") {
-            let lines = text.components(separatedBy: "\n")
-            text = lines.dropFirst().joined(separator: "\n")
-            if text.hasSuffix("```") { text = String(text.dropLast(3)) }
-        }
-        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard let data = text.data(using: .utf8),
-              let parsed = try? JSONDecoder().decode(MemoryJSON.self, from: data) else {
+        guard let parsed = ModelResponseJSONExtractor.decodeIfPresent(MemoryJSON.self, from: raw) else {
             print("Context compression: JSON parse failed, raw=\(raw.prefix(400))")
             return nil
         }
@@ -376,16 +366,7 @@ extension ClaudeService {
     }
 
     private func parseTaskMemoryJSON(_ raw: String) -> TaskMemory? {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("```") {
-            let lines = text.components(separatedBy: "\n")
-            text = lines.dropFirst().joined(separator: "\n")
-            if text.hasSuffix("```") { text = String(text.dropLast(3)) }
-        }
-        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard let data = text.data(using: .utf8),
-              let parsed = try? JSONDecoder().decode(TaskMemoryJSON.self, from: data) else {
+        guard let parsed = ModelResponseJSONExtractor.decodeIfPresent(TaskMemoryJSON.self, from: raw) else {
             print("Task memory: JSON parse failed, raw=\(raw.prefix(400))")
             return nil
         }

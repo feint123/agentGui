@@ -249,9 +249,8 @@ extension ClaudeService {
     }
 
     func populateStoryMemoryAuditFields(record: ToolCall, from agentMessage: AgentMessage) {
-        guard case .structured(let json) = agentMessage.content,
-              let data = json.data(using: .utf8),
-              let response = try? JSONDecoder().decode(StoryMemoryDelegationResponse.self, from: data) else {
+                guard case .structured(let json) = agentMessage.content,
+                            let response = ModelResponseJSONExtractor.decodeIfPresent(StoryMemoryDelegationResponse.self, from: json) else {
             return
         }
 

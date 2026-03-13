@@ -6,22 +6,7 @@ enum VerificationEvidenceSupport {
     nonisolated static let autoVerificationThreshold = 0.68
 
     static func parseClaimAssessment(from text: String) -> ExecutionClaimAssessment? {
-        let cleaned = stripMarkdownFences(text)
-        guard let data = cleaned.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(ExecutionClaimAssessment.self, from: data)
-    }
-
-    private static func stripMarkdownFences(_ text: String) -> String {
-        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if result.hasPrefix("```") {
-            if let newline = result.firstIndex(of: "\n") {
-                result = String(result[result.index(after: newline)...])
-            }
-            if result.hasSuffix("```") {
-                result = String(result.dropLast(3))
-            }
-        }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        ModelResponseJSONExtractor.decodeIfPresent(ExecutionClaimAssessment.self, from: text)
     }
 }
 
@@ -186,9 +171,7 @@ enum ExecutionGuard {
     }
 
     static func parseAutoVerificationAssessment(from text: String) -> AutoVerificationAssessment? {
-        let trimmed = stripMarkdownFences(text)
-        guard let data = trimmed.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(AutoVerificationAssessment.self, from: data)
+        ModelResponseJSONExtractor.decodeIfPresent(AutoVerificationAssessment.self, from: text)
     }
 
     static func shouldAutoVerify(_ assessment: AutoVerificationAssessment?) -> Bool {
@@ -207,20 +190,6 @@ enum ExecutionGuard {
         let combined = (userRequest + "\n" + currentAnswer).lowercased()
         return toolBackedVerificationHints.contains { combined.contains($0) }
     }
-
-    private static func stripMarkdownFences(_ text: String) -> String {
-        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if result.hasPrefix("```") {
-            if let newline = result.firstIndex(of: "\n") {
-                result = String(result[result.index(after: newline)...])
-            }
-            if result.hasSuffix("```") {
-                result = String(result.dropLast(3))
-            }
-        }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private static let builtinExecutionToolNames: Set<String> = [
         "str_replace_based_edit_tool",
         "str_replace_editor",

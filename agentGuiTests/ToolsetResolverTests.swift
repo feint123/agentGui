@@ -56,4 +56,18 @@ struct ToolsetResolverTests {
         #expect(result.toolIDs.contains("web_fetch"))
         #expect(!result.toolIDs.contains("run_subagent"))
     }
+
+    @Test func resolverExcludesLSPToolsWhenDisabledForMainAgent() throws {
+        let settings = AppSettings()
+        settings.enableLSPTools = false
+
+        let result = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
+            .init(context: .mainAgent, role: nil, settings: settings)
+        )
+
+        #expect(!result.toolIDs.contains("lsp_definition"))
+        #expect(!result.toolIDs.contains("lsp_diagnostics"))
+        #expect(result.excludedToolIDs.contains("lsp_definition"))
+        #expect(result.excludedToolIDs.contains("lsp_server_status"))
+    }
 }

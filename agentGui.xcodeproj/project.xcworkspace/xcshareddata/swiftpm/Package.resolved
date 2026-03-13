@@ -1,5 +1,5 @@
 {
-  "originHash" : "08ebb2df04e42ff3674edda708f126a3b52a8fbdb78785849f97c17e4d2a9525",
+  "originHash" : "9c28bad4c5b5c13dd84caf3e10f9ae0b78a9c22d2a29f70268d69b0082a292dd",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -20,39 +20,12 @@
       }
     },
     {
-      "identity" : "coretextswift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/krzyzanowskim/CoreTextSwift",
-      "state" : {
-        "revision" : "833177201d6421e6322296f39fce6ff6ae52618a",
-        "version" : "0.2.0"
-      }
-    },
-    {
       "identity" : "dagre-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/lukilabs/dagre-swift",
       "state" : {
         "revision" : "92efb78b73a8b665ee74bacfb0f1f5b17bbe1b38",
         "version" : "0.1.0"
-      }
-    },
-    {
-      "identity" : "sttextkitplus",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/krzyzanowskim/STTextKitPlus",
-      "state" : {
-        "revision" : "2ee74906f4d753458eeaa9a2f6d4538aacb86a1d",
-        "version" : "0.3.0"
-      }
-    },
-    {
-      "identity" : "sttextview",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/krzyzanowskim/STTextView.git",
-      "state" : {
-        "revision" : "041b1716756b4416aaaafa1022db4cefc9c42ccc",
-        "version" : "2.3.5"
       }
     },
     {

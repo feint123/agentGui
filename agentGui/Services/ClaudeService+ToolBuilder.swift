@@ -60,6 +60,24 @@ extension ClaudeService {
             tools.append(definition.makeAnthropicTool())
         }
 
+        if settings.enableLSPTools {
+            let lspToolIDs = [
+                "lsp_definition",
+                "lsp_references",
+                "lsp_hover",
+                "lsp_document_symbols",
+                "lsp_workspace_symbols",
+                "lsp_diagnostics",
+                "lsp_list_servers",
+                "lsp_server_status"
+            ]
+            for toolID in lspToolIDs {
+                if let definition = registry.definition(for: toolID) {
+                    tools.append(definition.makeAnthropicTool())
+                }
+            }
+        }
+
         if !enabledSkills.isEmpty {
             tools.append(makeEphemeralTool(
                 name: "read_skill",

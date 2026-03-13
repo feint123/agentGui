@@ -51,6 +51,21 @@ final class AppSettings {
     /// 启用 Web Fetch 工具（获取网页内容）
     var enableWebFetchTool: Bool
 
+    /// 启用通用 LSP 语义工具
+    var enableLSPTools: Bool = false
+
+    /// 是否自动启动匹配到的语言服务器
+    var autoStartLSPServers: Bool = true
+
+    /// LSP 默认路由策略：automatic / manualBinding / disabled
+    var lspDefaultRoutingMode: String = "automatic"
+
+    /// 用户自定义 LSP server profiles 的 JSON 数组
+    var lspCustomServerProfilesJSON: String = "[]"
+
+    /// 手动绑定 workspace 到 server profile 的 JSON 数组
+    var lspManualWorkspaceBindingsJSON: String = "[]"
+
     /// Ollama API Key（用于 Ollama Web Search）
     var ollamaAPIKey: String = ""   
 
@@ -126,6 +141,10 @@ final class AppSettings {
         self.enabledSkillNamesJSON = "[]"
         self.enableWebSearchTool = false
         self.enableWebFetchTool = false
+        self.enableLSPTools = false
+        self.autoStartLSPServers = true
+        self.lspDefaultRoutingMode = "automatic"
+        self.lspCustomServerProfilesJSON = "[]"
         self.ollamaAPIKey = ""
         self.enableOllamaWebSearch = false
         self.enableNetworkProxy = false
@@ -146,6 +165,7 @@ final class AppSettings {
         self.enableMemoryTTLSweep = true
         self.memoryBackgroundSchedulerIntervalSeconds = 30
         self.memoryTTLSweepIntervalSeconds = 300
+        self.lspManualWorkspaceBindingsJSON = "[]"
     }
 }
 
@@ -159,6 +179,40 @@ extension AppSettings {
         set {
             enabledSkillNamesJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]"
         }
+    }
+
+    var lspCustomServerProfiles: [LSPServerDefinition] {
+        get {
+            guard let data = lspCustomServerProfilesJSON.data(using: .utf8),
+                  let profiles = try? JSONDecoder().decode([LSPServerDefinition].self, from: data) else {
+                return []
+            }
+            return profiles
+        }
+        set {
+            lspCustomServerProfilesJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]"
+        }
+    }
+
+    var lspCustomServerProfilesValidationError: String? {
+        let trimmed = lspCustomServerProfilesJSON.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        guard let data = trimmed.data(using: .utf8) else {
+            return "自定义 LSP profile JSON 不是有效的 UTF-8 文本。"
+        }
+
+        do {
+            _ = try JSONDecoder().decode([LSPServerDefinition].self, from: data)
+            return nil
+        } catch {
+            return "自定义 LSP profile JSON 无法解析：\(error.localizedDescription)"
+        }
+    }
+
+    var isLSPAutoStartEffective: Bool {
+        enableLSPTools && autoStartLSPServers
     }
 }
 

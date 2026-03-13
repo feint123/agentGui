@@ -73,12 +73,21 @@ extension ChatView {
         try? modelContext.save()
 
         let modelId = settings.selectedModel
+        let selectedFilePath: String?
+        if showFileContext || showSelectionContext {
+            selectedFilePath = workspaceState.selectedFile?.standardizedFileURL.path
+        } else {
+            selectedFilePath = nil
+        }
+        let selectedText = showSelectionContext ? workspaceState.editorSelectedText : nil
 
         do {
             try await claudeService.sendMessage(
                 text: auditedText,
                 session: session,
                 modelId: modelId,
+                selectedFilePath: selectedFilePath,
+                selectedText: selectedText,
                 directives: activeInputDirectives,
                 modelContext: modelContext
             )

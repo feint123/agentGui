@@ -581,9 +581,6 @@ enum StoryMemoryJSONCodec {
     }
 
     static func decode<T: Decodable>(_ type: T.Type, from string: String, fallback: T) -> T {
-        guard let data = string.data(using: .utf8), let value = try? JSONDecoder().decode(type, from: data) else {
-            return fallback
-        }
-        return value
+        ModelResponseJSONExtractor.decodeIfPresent(type, from: string) ?? fallback
     }
 }

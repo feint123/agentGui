@@ -29,6 +29,14 @@ struct DefaultToolRegistry: ToolRegistry {
             readToolPayloadDefinition(),
             webSearchDefinition(),
             webFetchDefinition(),
+            lspDefinitionToolDefinition(),
+            lspReferencesToolDefinition(),
+            lspHoverToolDefinition(),
+            lspDocumentSymbolsToolDefinition(),
+            lspWorkspaceSymbolsToolDefinition(),
+            lspDiagnosticsToolDefinition(),
+            lspListServersToolDefinition(),
+            lspServerStatusToolDefinition(),
             storyMemoryUpsertCharacterDefinition(),
             storyMemoryQueryDefinition(),
             storyMemoryVerifyContinuityDefinition(),
@@ -254,6 +262,178 @@ struct DefaultToolRegistry: ToolRegistry {
                         "task": .init(type: .string, description: "Detailed, self-contained task description for the subagent.")
                     ],
                     required: ["agent_name", "task"]
+                )
+            }
+        )
+    }
+
+    private static func lspDefinitionToolDefinition() -> ToolDefinition {
+        lspLocationToolDefinition(
+            id: "lsp_definition",
+            displayName: "LSP Definition",
+            executorKey: "lsp.definition",
+            description: "Query an active language server for the definition location of a symbol at a given position."
+        )
+    }
+
+    private static func lspReferencesToolDefinition() -> ToolDefinition {
+        lspLocationToolDefinition(
+            id: "lsp_references",
+            displayName: "LSP References",
+            executorKey: "lsp.references",
+            description: "Query an active language server for symbol references at a given position."
+        )
+    }
+
+    private static func lspHoverToolDefinition() -> ToolDefinition {
+        lspLocationToolDefinition(
+            id: "lsp_hover",
+            displayName: "LSP Hover",
+            executorKey: "lsp.hover",
+            description: "Query hover information from an active language server at a given position."
+        )
+    }
+
+    private static func lspDocumentSymbolsToolDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "lsp_document_symbols",
+            displayName: "LSP Document Symbols",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            executorKey: "lsp.documentSymbols",
+            descriptionBuilder: { _ in
+                "List document symbols from an active language server session for a file."
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "workspace_root": .init(type: .string, description: "Workspace root bound to the language server session."),
+                        "server_id": .init(type: .string, description: "Language server profile ID."),
+                        "uri": .init(type: .string, description: "Document URI, for example file:///repo/src/app.ts")
+                    ],
+                    required: ["workspace_root", "server_id", "uri"]
+                )
+            }
+        )
+    }
+
+    private static func lspWorkspaceSymbolsToolDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "lsp_workspace_symbols",
+            displayName: "LSP Workspace Symbols",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            executorKey: "lsp.workspaceSymbols",
+            descriptionBuilder: { _ in
+                "Search workspace symbols using an active language server session."
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "workspace_root": .init(type: .string, description: "Workspace root bound to the language server session."),
+                        "server_id": .init(type: .string, description: "Language server profile ID."),
+                        "query": .init(type: .string, description: "Search query string.")
+                    ],
+                    required: ["workspace_root", "server_id", "query"]
+                )
+            }
+        )
+    }
+
+    private static func lspDiagnosticsToolDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "lsp_diagnostics",
+            displayName: "LSP Diagnostics",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            executorKey: "lsp.diagnostics",
+            descriptionBuilder: { _ in
+                "Read the latest cached diagnostics for a document from the LSP diagnostics store."
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "workspace_root": .init(type: .string, description: "Workspace root bound to the language server session."),
+                        "uri": .init(type: .string, description: "Document URI, for example file:///repo/src/app.ts")
+                    ],
+                    required: ["workspace_root", "uri"]
+                )
+            }
+        )
+    }
+
+    private static func lspListServersToolDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "lsp_list_servers",
+            displayName: "LSP List Servers",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            executorKey: "lsp.listServers",
+            descriptionBuilder: { _ in
+                "List the configured built-in and custom language server profiles."
+            },
+            inputSchemaBuilder: { _ in
+                .init(type: .object, properties: [:], required: [])
+            }
+        )
+    }
+
+    private static func lspServerStatusToolDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "lsp_server_status",
+            displayName: "LSP Server Status",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            executorKey: "lsp.serverStatus",
+            descriptionBuilder: { _ in
+                "Read runtime status for a language server session bound to a workspace."
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "workspace_root": .init(type: .string, description: "Workspace root bound to the language server session."),
+                        "server_id": .init(type: .string, description: "Language server profile ID.")
+                    ],
+                    required: ["workspace_root", "server_id"]
+                )
+            }
+        )
+    }
+
+    private static func lspLocationToolDefinition(
+        id: String,
+        displayName: String,
+        executorKey: String,
+        description: String
+    ) -> ToolDefinition {
+        ToolDefinition(
+            id: id,
+            displayName: displayName,
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            executorKey: executorKey,
+            descriptionBuilder: { _ in description },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "workspace_root": .init(type: .string, description: "Workspace root bound to the language server session."),
+                        "server_id": .init(type: .string, description: "Language server profile ID."),
+                        "uri": .init(type: .string, description: "Document URI, for example file:///repo/src/app.ts"),
+                        "line": .init(type: .integer, description: "Zero-based line number."),
+                        "character": .init(type: .integer, description: "Zero-based character offset.")
+                    ],
+                    required: ["workspace_root", "server_id", "uri", "line", "character"]
                 )
             }
         )

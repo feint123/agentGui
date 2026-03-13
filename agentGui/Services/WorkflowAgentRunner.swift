@@ -36,6 +36,10 @@ struct WorkflowAgentRunner {
         return tools
     }
 
+    static func buildLSPWorkspaceContextTextForTests(_ workspaceContext: WorkflowWorkspaceContext) -> String? {
+        buildLSPWorkspaceContextText(workspaceContext)
+    }
+
     // MARK: - Run
 
     func run(
@@ -253,6 +257,9 @@ struct WorkflowAgentRunner {
                 parts.append("**Editor Selection** (\(text.count) chars):")
                 parts.append("```\n\(preview)\n```")
             }
+            if let lspContextText = Self.buildLSPWorkspaceContextText(ws) {
+                parts.append(lspContextText)
+            }
         }
         if !ws.availableSkills.isEmpty {
             parts.append("\n## Available Skills")
@@ -336,6 +343,20 @@ struct WorkflowAgentRunner {
             task: parts.joined(separator: "\n"),
             contractViolations: violations
         )
+    }
+
+    private static func buildLSPWorkspaceContextText(_ workspaceContext: WorkflowWorkspaceContext) -> String? {
+        guard workspaceContext.selectedFilePath != nil || workspaceContext.selectedText?.isEmpty == false else {
+            return nil
+        }
+
+        return """
+
+        ## LSP Context
+        LSP Server: \(workspaceContext.lspServerID ?? "none")
+        LSP State: \(workspaceContext.lspServerStateSummary ?? "none")
+        Diagnostics: \(workspaceContext.lspDiagnosticsSummary ?? "none")
+        """
     }
 
     private func renderArtifact(_ artifact: WorkflowArtifact, headingPrefix: String) -> String {

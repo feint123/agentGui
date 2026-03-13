@@ -129,6 +129,8 @@ extension ClaudeService {
             let raw = await executeWebFetchTool(input: input, settings: settings)
             let descriptor = input["url"]?.stringValue ?? name
             return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .webFetch, sourceDescriptor: descriptor, settings: settings)
+        case "lsp_definition", "lsp_references", "lsp_hover", "lsp_document_symbols", "lsp_workspace_symbols", "lsp_diagnostics", "lsp_list_servers", "lsp_server_status":
+            return .detect(await executeLSPTool(name: name, input: input, settings: settings), toolName: name)
         case "ask_user_question":
             return .detect(await executeAskUserQuestion(input: input), toolName: name)
         case "analyze_image":
@@ -228,6 +230,8 @@ extension ClaudeService {
             let raw = await executeWebFetchTool(input: input, settings: settings)
             let descriptor = input["url"]?.stringValue ?? name
             return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .webFetch, sourceDescriptor: descriptor, settings: settings)
+        case "lsp_definition", "lsp_references", "lsp_hover", "lsp_document_symbols", "lsp_workspace_symbols", "lsp_diagnostics", "lsp_list_servers", "lsp_server_status":
+            return .detect(await executeLSPTool(name: name, input: input, settings: settings), toolName: name)
         case "ask_user_question":
             return .detect(await executeAskUserQuestion(input: input), toolName: name)
         case "analyze_image":
@@ -269,5 +273,205 @@ extension ClaudeService {
         default:
             return .unknownTool(name)
         }
+    }
+
+    private func executeLSPTool(
+        name: String,
+        input: MessageResponse.Content.Input,
+        settings: AppSettings
+    ) async -> String {
+        guard settings.enableLSPTools else {
+            return "Error: LSP tools are disabled in settings"
+        }
+
+        guard let facade = makeLSPToolFacade(settings: settings) else {
+            return "Error: unable to configure LSP tools"
+        }
+
+        switch name {
+        case "lsp_list_servers":
+            return facade.listServers()
+        case "lsp_server_status":
+            guard let workspaceRoot = input["workspace_root"]?.stringValue else {
+                return "Error: missing parameter 'workspace_root'"
+            }
+            guard let serverID = input["server_id"]?.stringValue else {
+                return "Error: missing parameter 'server_id'"
+            }
+            return facade.serverStatus(workspaceRoot: workspaceRoot, serverID: serverID)
+        case "lsp_diagnostics":
+            guard let workspaceRoot = input["workspace_root"]?.stringValue else {
+                return "Error: missing parameter 'workspace_root'"
+            }
+            guard let uri = input["uri"]?.stringValue else {
+                return "Error: missing parameter 'uri'"
+            }
+            return facade.diagnostics(workspaceRoot: workspaceRoot, uri: uri)
+        case "lsp_definition", "lsp_references", "lsp_hover":
+            guard let workspaceRoot = input["workspace_root"]?.stringValue else {
+                return "Error: missing parameter 'workspace_root'"
+            }
+            guard let serverID = input["server_id"]?.stringValue else {
+                return "Error: missing parameter 'server_id'"
+            }
+            guard let uri = input["uri"]?.stringValue else {
+                return "Error: missing parameter 'uri'"
+            }
+            guard let line = input["line"]?.intValue else {
+                return "Error: missing parameter 'line'"
+            }
+            guard let character = input["character"]?.intValue else {
+                return "Error: missing parameter 'character'"
+            }
+
+            if let startError = await ensureLSPToolSessionIfNeeded(
+                workspaceRoot: workspaceRoot,
+                serverID: serverID,
+                settings: settings
+            ) {
+                return startError
+            }
+
+            switch name {
+            case "lsp_definition":
+                return (try? await facade.definition(workspaceRoot: workspaceRoot, serverID: serverID, uri: uri, line: line, character: character))
+                    ?? "Error: LSP definition request failed"
+            case "lsp_references":
+                return (try? await facade.references(workspaceRoot: workspaceRoot, serverID: serverID, uri: uri, line: line, character: character))
+                    ?? "Error: LSP references request failed"
+            default:
+                return (try? await facade.hover(workspaceRoot: workspaceRoot, serverID: serverID, uri: uri, line: line, character: character))
+                    ?? "Error: LSP hover request failed"
+            }
+        case "lsp_document_symbols":
+            guard let workspaceRoot = input["workspace_root"]?.stringValue else {
+                return "Error: missing parameter 'workspace_root'"
+            }
+            guard let serverID = input["server_id"]?.stringValue else {
+                return "Error: missing parameter 'server_id'"
+            }
+            guard let uri = input["uri"]?.stringValue else {
+                return "Error: missing parameter 'uri'"
+            }
+            if let startError = await ensureLSPToolSessionIfNeeded(
+                workspaceRoot: workspaceRoot,
+                serverID: serverID,
+                settings: settings
+            ) {
+                return startError
+            }
+            return facade.documentSymbols(workspaceRoot: workspaceRoot, serverID: serverID, uri: uri)
+        case "lsp_workspace_symbols":
+            guard let workspaceRoot = input["workspace_root"]?.stringValue else {
+                return "Error: missing parameter 'workspace_root'"
+            }
+            guard let serverID = input["server_id"]?.stringValue else {
+                return "Error: missing parameter 'server_id'"
+            }
+            guard let query = input["query"]?.stringValue else {
+                return "Error: missing parameter 'query'"
+            }
+            if let startError = await ensureLSPToolSessionIfNeeded(
+                workspaceRoot: workspaceRoot,
+                serverID: serverID,
+                settings: settings
+            ) {
+                return startError
+            }
+            return facade.workspaceSymbols(workspaceRoot: workspaceRoot, serverID: serverID, query: query)
+        default:
+            return "Error: unsupported LSP tool '\(name)'"
+        }
+    }
+
+    func ensureLSPServerStartedIfNeeded(
+        workspaceRoot: String,
+        serverID: String,
+        settings: AppSettings
+    ) async throws -> Bool {
+        guard settings.isLSPAutoStartEffective,
+              let manager = lspServerManager else {
+            return false
+        }
+
+        if manager.state(for: workspaceRoot, serverID: serverID) != nil {
+            return false
+        }
+
+        _ = try await manager.startSession(workspaceRoot: workspaceRoot, serverID: serverID)
+        return true
+    }
+
+    func autoStartLSPServerForSelectedFileIfNeeded(
+        workingDirectory: String,
+        selectedFilePath: String?,
+        settings: AppSettings
+    ) async {
+        guard settings.isLSPAutoStartEffective,
+              !workingDirectory.isEmpty,
+              let selectedFilePath,
+              let registry = try? LSPServerRegistry(settings: settings) else {
+            return
+        }
+
+        let resolver = LSPWorkspaceResolver()
+        guard let binding = resolver.resolve(
+            filePath: selectedFilePath,
+            workingDirectory: workingDirectory,
+            registry: registry,
+            settings: settings
+        ) else {
+            return
+        }
+
+        _ = try? await ensureLSPServerStartedIfNeeded(
+            workspaceRoot: binding.workspaceRoot,
+            serverID: binding.serverID,
+            settings: settings
+        )
+    }
+
+    private func ensureLSPToolSessionIfNeeded(
+        workspaceRoot: String,
+        serverID: String,
+        settings: AppSettings
+    ) async -> String? {
+        do {
+            _ = try await ensureLSPServerStartedIfNeeded(
+                workspaceRoot: workspaceRoot,
+                serverID: serverID,
+                settings: settings
+            )
+            return nil
+        } catch {
+            return "Error: unable to start LSP server '\(serverID)': \(error.localizedDescription)"
+        }
+    }
+
+    private func makeLSPToolFacade(settings: AppSettings) -> LSPToolFacade? {
+        guard let registry = try? LSPServerRegistry(settings: settings) else {
+            return nil
+        }
+
+        if lspServerManager == nil {
+            let diagnosticsStore = LSPDiagnosticsStore()
+            lspServerManager = LSPServerManager(
+                registry: registry,
+                diagnosticsStore: diagnosticsStore,
+                makeClient: {
+                    LSPClient(
+                        transport: LSPJSONRPCTransport(),
+                        documentStore: LSPDocumentStore(),
+                        diagnosticsStore: diagnosticsStore,
+                        adapter: GenericLSPServerAdapter()
+                    )
+                },
+                makeSupervisor: {
+                    LSPProcessSupervisor(processLauncher: ProcessLSPProcessLauncher())
+                }
+            )
+        }
+
+        return LSPToolFacade(registry: registry, serverManager: lspServerManager)
     }
 }

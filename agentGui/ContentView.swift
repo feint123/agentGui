@@ -298,6 +298,59 @@ struct SettingsView: View {
                     userMessage: "Web Fetch 设置未成功保存",
                     set: { settings.enableWebFetchTool = $0 }
                 ))
+
+                Toggle("启用 LSP 工具（语义代码检索）", isOn: persistedSettingsBinding(
+                    get: { settings.enableLSPTools },
+                    userMessage: "LSP 工具设置未成功保存",
+                    set: { settings.enableLSPTools = $0 }
+                ))
+
+                Toggle("自动启动匹配到的语言服务器", isOn: persistedSettingsBinding(
+                    get: { settings.autoStartLSPServers },
+                    userMessage: "LSP 自动启动设置未成功保存",
+                    set: { settings.autoStartLSPServers = $0 }
+                ))
+                .disabled(!settings.enableLSPTools)
+
+                if settings.enableLSPTools {
+                    Picker("默认路由策略", selection: persistedSettingsBinding(
+                        get: { settings.lspDefaultRoutingMode },
+                        userMessage: "LSP 路由策略未成功保存",
+                        set: { settings.lspDefaultRoutingMode = $0 }
+                    )) {
+                        Text("自动识别").tag("automatic")
+                        Text("手动绑定优先").tag("manualBinding")
+                        Text("禁用路由").tag("disabled")
+                    }
+
+                    LabeledContent("内建 Profiles") {
+                        Text(lspBuiltInProfilesSummary(settings: settings))
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("自定义 Profile JSON")
+                            .font(.subheadline)
+
+                        TextEditor(text: persistedSettingsBinding(
+                            get: { settings.lspCustomServerProfilesJSON },
+                            userMessage: "LSP 自定义 profile 未成功保存",
+                            set: { settings.lspCustomServerProfilesJSON = $0 }
+                        ))
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 120, maxHeight: 220)
+                        .scrollContentBackground(.hidden)
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .cornerRadius(6)
+
+                        if let validationError = settings.lspCustomServerProfilesValidationError {
+                            Text(validationError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
             } header: {
                 Text("工具")
             } footer: {
@@ -608,6 +661,20 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+
+    private func lspBuiltInProfilesSummary(settings: AppSettings) -> String {
+        guard let registry = try? LSPServerRegistry(settings: settings) else {
+            return "内建 profile 不可用"
+        }
+
+        return registry
+            .allDefinitions()
+            .map { definition in
+                let languages = definition.supportedLanguageIDs.joined(separator: ", ")
+                return "\(definition.displayName) (\(languages))"
+            }
+            .joined(separator: "\n")
     }
 }
 

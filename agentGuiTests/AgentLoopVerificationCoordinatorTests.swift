@@ -118,6 +118,50 @@ struct AgentLoopVerificationCoordinatorTests {
         #expect(evidenceText.contains("target: https://example.com/docs"))
     }
 
+    @Test func verifierEvidenceTextIncludesLSPDiagnosticsSummary() {
+        let diagnostics = LSPDiagnosticsSnapshot(
+            workspaceRoot: "/workspace",
+            uri: "file:///workspace/AppView.swift",
+            diagnostics: [
+                .init(message: "Type mismatch on return value", severity: .error),
+                .init(message: "Unused binding 'temp'", severity: .warning)
+            ]
+        )
+
+        let evidenceText = AgentLoopVerificationCoordinator.buildExecutionEvidenceTextForTests(
+            executionEvidence: [.builtinTool],
+            toolCalls: [],
+            lspServerID: "typescript-language-server",
+            lspServerStateSummary: "running (pid: 42)",
+            diagnosticsSnapshot: diagnostics
+        )
+
+        #expect(evidenceText.contains("LSP server: typescript-language-server"))
+        #expect(evidenceText.contains("LSP state: running (pid: 42)"))
+        #expect(evidenceText.contains("Diagnostics: 2 total"))
+        #expect(evidenceText.contains("error=1"))
+        #expect(evidenceText.contains("warning=1"))
+        #expect(evidenceText.contains("Type mismatch on return value"))
+    }
+
+    @Test func workflowTaskIncludesLSPContextAndExplicitDiagnosticsNone() {
+        let workspaceContext = WorkflowWorkspaceContext(
+            workingDirectory: "/workspace",
+            selectedFilePath: "/workspace/AppView.swift",
+            selectedText: nil,
+            availableSkills: [],
+            lspServerID: "typescript-language-server",
+            lspServerStateSummary: "running (pid: 42)",
+            lspDiagnosticsSummary: nil
+        )
+
+        let text = WorkflowAgentRunner.buildLSPWorkspaceContextTextForTests(workspaceContext)
+
+        #expect(text?.contains("LSP Server: typescript-language-server") == true)
+        #expect(text?.contains("LSP State: running (pid: 42)") == true)
+        #expect(text?.contains("Diagnostics: none") == true)
+    }
+
     @Test func verifierEvidenceTextExpandsNestedSubagentToolActivity() {
         let nestedEdit = ToolCall(toolCallId: "nested-edit", kind: .edit)
         nestedEdit.filePath = "/workspace/Feature.swift"

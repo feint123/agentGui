@@ -29,6 +29,7 @@ struct WorkspacePanelView: View {
     // MARK: - Environment
 
     @Environment(WorkspaceState.self) private var workspaceState
+    @Environment(ClaudeService.self) private var claudeService
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
     @Environment(PersistenceCoordinator.self) private var persistenceCoordinator
     @Environment(\.modelContext) private var modelContext
@@ -53,6 +54,9 @@ struct WorkspacePanelView: View {
                 .opacity(0.4)
             treeContent
                 .frame(maxHeight: .infinity, alignment: .top)
+            Divider()
+                .opacity(0.4)
+            lspStatusFooter
         }
         .accessibilityIdentifier("panel.workspace")
         .onAppear {
@@ -149,6 +153,53 @@ struct WorkspacePanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var lspStatusFooter: some View {
+        let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
+        let status = claudeService.makeWorkspacePanelLSPStatus(
+            workingDirectory: currentDirectory?.path ?? "",
+            selectedFilePath: workspaceState.selectedFile?.standardizedFileURL.path,
+            settings: settings
+        )
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("LSP")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(status.stateText)
+                    .font(.caption)
+                    .foregroundStyle(lspStateColor(status.stateText))
+                    .lineLimit(1)
+            }
+
+            if let fileName = status.selectedFileName {
+                Text(fileName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            HStack(spacing: 8) {
+                Label(status.serverID ?? "未绑定", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                lspCountChip(title: "错误", count: status.errorCount, color: .red)
+                lspCountChip(title: "警告", count: status.warningCount, color: .orange)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.bar)
+        .accessibilityIdentifier("workspace.lspStatusFooter")
+    }
+
     // MARK: - Actions
 
     private func chooseDirectory() {
@@ -213,6 +264,34 @@ struct WorkspacePanelView: View {
         let filePath = fileURL.standardizedFileURL.path
         guard filePath.hasPrefix(rootPath + "/") else { return fileURL.lastPathComponent }
         return String(filePath.dropFirst(rootPath.count + 1))
+    }
+
+    private func lspStateColor(_ stateText: String) -> Color {
+        let normalized = stateText.lowercased()
+        if normalized.contains("running") {
+            return .green
+        }
+        if normalized.contains("failed") || normalized.contains("crashed") || normalized.contains("无匹配") {
+            return .red
+        }
+        if normalized.contains("禁用") || normalized.contains("未启动") || normalized.contains("选择文件") {
+            return .secondary
+        }
+        return .secondary
+    }
+
+    private func lspCountChip(title: String, count: Int, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text("\(title) \(count)")
+                .font(.caption2)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.10), in: Capsule())
     }
 }
 

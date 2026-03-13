@@ -132,13 +132,11 @@ extension AgentMessage {
         recipient: String = "main",
         metadata: [String: String] = [:]
     ) -> AgentMessage {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
-           let data = trimmed.data(using: .utf8),
-           (try? JSONSerialization.jsonObject(with: data)) != nil {
+        if let structured = ModelResponseJSONExtractor.jsonCandidates(from: text).first,
+           ModelResponseJSONExtractor.containsJSONObjectOrArray(in: text) {
             return AgentMessage(
                 sender: sender, recipient: recipient,
-                content: .structured(trimmed), metadata: metadata
+                content: .structured(structured), metadata: metadata
             )
         }
         return AgentMessage(

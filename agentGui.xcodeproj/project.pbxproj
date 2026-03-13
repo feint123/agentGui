@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		1222AEDB2F5B4A3500A4A73D /* (null) in Frameworks */ = {isa = PBXBuildFile; };
 		12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */ = {isa = PBXBuildFile; productRef = 12266AFA2F59CDD700450C6E /* SwiftAnthropic */; };
-		12C1E4032F5C50E600D96078 /* STTextView in Frameworks */ = {isa = PBXBuildFile; productRef = 12C1E4022F5C50E600D96078 /* STTextView */; };
 		12DF952F2F5BC7F600258995 /* BeautifulMermaid in Frameworks */ = {isa = PBXBuildFile; productRef = 1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */; };
 /* End PBXBuildFile section */
 
@@ -60,7 +59,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				12DF952F2F5BC7F600258995 /* BeautifulMermaid in Frameworks */,
-				12C1E4032F5C50E600D96078 /* STTextView in Frameworks */,
 				12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */,
 				1222AEDB2F5B4A3500A4A73D /* (null) in Frameworks */,
 			);
@@ -125,7 +123,6 @@
 			packageProductDependencies = (
 				1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */,
 				12266AFA2F59CDD700450C6E /* SwiftAnthropic */,
-				12C1E4022F5C50E600D96078 /* STTextView */,
 			);
 			productName = agentGui;
 			productReference = 12D6F8342F3ACA8200B21E2D /* agentGui.app */;
@@ -212,7 +209,6 @@
 			packageReferences = (
 				12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */,
 				1222AED92F5B4A3500A4A73D /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */,
-				12C1E4012F5C50E600D96078 /* XCRemoteSwiftPackageReference "STTextView" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 12D6F8352F3ACA8200B21E2D /* Products */;
@@ -656,14 +652,6 @@
 				minimumVersion = 2.2.1;
 			};
 		};
-		12C1E4012F5C50E600D96078 /* XCRemoteSwiftPackageReference "STTextView" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/krzyzanowskim/STTextView.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.3.5;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -676,11 +664,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */;
 			productName = SwiftAnthropic;
-		};
-		12C1E4022F5C50E600D96078 /* STTextView */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 12C1E4012F5C50E600D96078 /* XCRemoteSwiftPackageReference "STTextView" */;
-			productName = STTextView;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

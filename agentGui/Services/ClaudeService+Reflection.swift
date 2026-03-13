@@ -118,19 +118,25 @@ extension ClaudeService {
     // MARK: - JSON Parsing
 
     private func parseReflection(from text: String, threshold: Double) -> Reflection? {
-        // Strip optional markdown fences the model may add despite instructions
-        let cleaned = stripMarkdownFences(text)
-        guard let data = cleaned.data(using: .utf8) else { return nil }
+        ReflectionJSONDecoder.parse(text: text, threshold: threshold)
+    }
+}
 
-        struct RawReflection: Decodable {
-            let confidence: Double
-            let concerns: [String]
-            let suggestedFixes: [String]
-            let shouldRetry: Bool
-        }
+enum ReflectionJSONDecoder {
+    struct RawReflection: Decodable {
+        let confidence: Double
+        let concerns: [String]
+        let suggestedFixes: [String]
+        let shouldRetry: Bool
+    }
 
+    static func parse(text: String, threshold: Double) -> Reflection? {
         do {
-            let raw = try JSONDecoder().decode(RawReflection.self, from: data)
+            let raw = try ModelResponseJSONExtractor.decode(
+                RawReflection.self,
+                from: text,
+                salvage: salvageRawReflection(from:)
+            )
             let clampedConfidence = max(0.0, min(1.0, raw.confidence))
             return Reflection(
                 confidence: clampedConfidence,
@@ -144,19 +150,135 @@ extension ClaudeService {
         }
     }
 
-    private func stripMarkdownFences(_ text: String) -> String {
-        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if result.hasPrefix("```") {
-            // Remove opening fence (```json or ```)
-            if let newline = result.firstIndex(of: "\n") {
-                result = String(result[result.index(after: newline)...])
-            }
-            // Remove closing fence
-            if result.hasSuffix("```") {
-                result = String(result.dropLast(3))
-            }
-            result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func salvageRawReflection(from text: String) -> RawReflection? {
+        guard let confidence = extractDoubleField(named: "confidence", from: text),
+              let concerns = extractStringArrayField(named: "concerns", from: text),
+              let suggestedFixes = extractStringArrayField(named: "suggestedFixes", from: text),
+              let shouldRetry = extractBoolField(named: "shouldRetry", from: text) else {
+            return nil
         }
-        return result
+
+        return RawReflection(
+            confidence: confidence,
+            concerns: concerns,
+            suggestedFixes: suggestedFixes,
+            shouldRetry: shouldRetry
+        )
+    }
+
+    private static func extractDoubleField(named field: String, from text: String) -> Double? {
+        let pattern = #"\"\#(field)\"\s*:\s*(-?\d+(?:\.\d+)?)"#
+        return firstCapture(matching: pattern, in: text).flatMap(Double.init)
+    }
+
+    private static func extractBoolField(named field: String, from text: String) -> Bool? {
+        let pattern = #"\"\#(field)\"\s*:\s*(true|false)"#
+        return firstCapture(matching: pattern, in: text).flatMap(Bool.init)
+    }
+
+    private static func extractStringArrayField(named field: String, from text: String) -> [String]? {
+        let source = ModelResponseJSONExtractor.stripMarkdownFences(text)
+        let fieldToken = "\"\(field)\""
+        guard let fieldRange = source.range(of: fieldToken),
+              let arrayStart = source[fieldRange.upperBound...].firstIndex(of: "[") else {
+            return nil
+        }
+
+        let characters = Array(source[arrayStart...])
+        var index = 1
+        var items: [String] = []
+        var depth = 1
+
+        while index < characters.count {
+            let character = characters[index]
+
+            if character == "[" {
+                depth += 1
+                index += 1
+                continue
+            }
+
+            if character == "]" {
+                depth -= 1
+                if depth == 0 {
+                    return items
+                }
+                index += 1
+                continue
+            }
+
+            if character == "\"" {
+                guard let token = readQuotedToken(from: characters, startIndex: index) else {
+                    return items.isEmpty ? nil : items
+                }
+
+                let nextSignificant = firstNonWhitespace(in: characters, startingAt: token.nextIndex)
+                if depth == 1, nextSignificant == ":" {
+                    return items.isEmpty ? nil : items
+                }
+
+                items.append(token.value)
+                index = token.nextIndex
+                continue
+            }
+
+            index += 1
+        }
+
+        return items.isEmpty ? nil : items
+    }
+
+    private static func readQuotedToken(from characters: [Character], startIndex: Int) -> (value: String, nextIndex: Int)? {
+        var index = startIndex + 1
+        var value = ""
+        var isEscaping = false
+
+        while index < characters.count {
+            let character = characters[index]
+
+            if isEscaping {
+                value.append(character)
+                isEscaping = false
+                index += 1
+                continue
+            }
+
+            if character == "\\" {
+                isEscaping = true
+                index += 1
+                continue
+            }
+
+            if character == "\"" {
+                return (value, index + 1)
+            }
+
+            value.append(character)
+            index += 1
+        }
+
+        return nil
+    }
+
+    private static func firstNonWhitespace(in characters: [Character], startingAt index: Int) -> Character? {
+        var currentIndex = index
+        while currentIndex < characters.count {
+            let character = characters[currentIndex]
+            if !character.isWhitespace {
+                return character
+            }
+            currentIndex += 1
+        }
+        return nil
+    }
+
+    private static func firstCapture(matching pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              let captureRange = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+        return String(text[captureRange])
     }
 }

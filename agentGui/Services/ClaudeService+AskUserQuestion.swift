@@ -6,6 +6,52 @@
 import Foundation
 import SwiftAnthropic
 
+struct AskUserQuestionOption: Decodable {
+    let label: String
+    let description: String
+}
+
+struct AskUserQuestion: Decodable {
+    let question: String
+    let header: String
+    let options: [AskUserQuestionOption]
+    let multiSelect: Bool
+}
+
+final class AskUserQuestionRequest: Identifiable {
+    let id = UUID()
+    let questions: [AskUserQuestion]
+    private let continuation: CheckedContinuation<String, Never>
+    private var resolved = false
+
+    init(questions: [AskUserQuestion], continuation: CheckedContinuation<String, Never>) {
+        self.questions = questions
+        self.continuation = continuation
+    }
+
+    func submit(selections: [[String]]) {
+        guard !resolved else { return }
+        resolved = true
+        let answers = zip(questions, selections).map { question, selected in
+            [
+                "question": question.question,
+                "header": question.header,
+                "selected": selected
+            ] as [String: Any]
+        }
+        let payload: [String: Any] = ["answers": answers]
+        let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])) ?? Data()
+        let result = String(data: data, encoding: .utf8) ?? "{\"answers\":[]}"
+        continuation.resume(returning: result)
+    }
+
+    func cancel() {
+        guard !resolved else { return }
+        resolved = true
+        continuation.resume(returning: "{\"answers\":[]}")
+    }
+}
+
 extension ClaudeService {
 
     // MARK: - Ask User Question
