@@ -88,6 +88,40 @@ struct AgentMessageFlowPresentationTests {
         #expect(row.tertiaryText == "verification_report")
     }
 
+    @Test func verifierSubagentRowShowsPassedVerdict() async throws {
+        let tool = ToolCall(toolCallId: "subagent-verifier", kind: .subagent)
+        tool.subagentAgentName = "verifier"
+        tool.subagentTask = "验证实现结果"
+        tool.subagentResultKind = "verification_report"
+        tool.subagentMessageMetadata = [
+            "verificationPassed": "true",
+            "verificationSummary": "verification passed"
+        ]
+        tool.status = .success
+
+        let row = ToolCallRowPresentation.make(for: tool)
+
+        #expect(row.secondaryText == "验证通过")
+        #expect(row.tertiaryText == "verification passed")
+    }
+
+    @Test func verifierSubagentRowShowsFailedVerdict() async throws {
+        let tool = ToolCall(toolCallId: "subagent-verifier", kind: .subagent)
+        tool.subagentAgentName = "verifier"
+        tool.subagentTask = "验证实现结果"
+        tool.subagentResultKind = "verification_report"
+        tool.subagentMessageMetadata = [
+            "verificationPassed": "false",
+            "verificationSummary": "missing runtime evidence"
+        ]
+        tool.status = .success
+
+        let row = ToolCallRowPresentation.make(for: tool)
+
+        #expect(row.secondaryText == "验证失败")
+        #expect(row.tertiaryText == "missing runtime evidence")
+    }
+
     @Test func editToolUsesChangeSummaryRowPresentation() async throws {
         let tool = AgentMessageFlowFixture.makeEditToolCall()
 

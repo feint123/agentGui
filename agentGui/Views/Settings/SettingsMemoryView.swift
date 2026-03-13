@@ -48,6 +48,36 @@ struct SettingsMemoryView: View {
                     set: { settings.enableMemoryGovernance = $0 }
                 ))
 
+                Toggle("启用 Admission V2", isOn: store.persistedSettingsBinding(
+                    get: { settings.enableAdmissionV2 },
+                    userMessage: "Admission V2 设置未成功保存",
+                    set: { settings.enableAdmissionV2 = $0 }
+                ))
+
+                Toggle("启用 Goal-conditioned Retrieval", isOn: store.persistedSettingsBinding(
+                    get: { settings.enableGoalConditionedRetrieval },
+                    userMessage: "Goal-conditioned Retrieval 设置未成功保存",
+                    set: { settings.enableGoalConditionedRetrieval = $0 }
+                ))
+
+                Toggle("启用 Bridge Expansion", isOn: store.persistedSettingsBinding(
+                    get: { settings.enableBridgeExpansion },
+                    userMessage: "Bridge Expansion 设置未成功保存",
+                    set: { settings.enableBridgeExpansion = $0 }
+                ))
+
+                Toggle("启用 Lifecycle Manager", isOn: store.persistedSettingsBinding(
+                    get: { settings.enableLifecycleManager },
+                    userMessage: "Lifecycle Manager 设置未成功保存",
+                    set: { settings.enableLifecycleManager = $0 }
+                ))
+
+                Toggle("启用 Experience Distillation", isOn: store.persistedSettingsBinding(
+                    get: { settings.enableExperienceDistillation },
+                    userMessage: "Experience Distillation 设置未成功保存",
+                    set: { settings.enableExperienceDistillation = $0 }
+                ))
+
                 Toggle("启用统一写路径", isOn: store.persistedSettingsBinding(
                     get: { settings.enableUnifiedMemoryWritePath },
                     userMessage: "统一写路径设置未成功保存",
@@ -135,7 +165,7 @@ struct SettingsMemoryView: View {
         } header: {
             Text("长期记忆")
         } footer: {
-            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。统一记忆运行时用于把 TaskMemory 与统一存储记录组装成单一读视图，治理层用于限制低置信度写入。")
+            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。统一记忆运行时用于把 TaskMemory 与统一存储记录组装成单一读视图，治理层用于限制低置信度写入。下方开关用于逐步 rollout admission v2、goal-conditioned retrieval、bridge expansion、lifecycle manager 和 experience distillation。")
         }
     }
 

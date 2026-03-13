@@ -94,11 +94,13 @@ struct ToolCallRowPresentation: Equatable {
                 isExpanded: isExpanded
             )
         case .subagent:
+            let verifierVerdict = toolCall.verifierVerdictText
+            let verifierSummary = toolCall.verifierSummary
             return ToolCallRowPresentation(
                 style: .subagent,
                 primaryText: toolCall.subagentAgentName ?? toolCall.title ?? toolCall.kind.displayName,
-                secondaryText: toolCall.subagentTask,
-                tertiaryText: toolCall.subagentResultKind,
+                secondaryText: verifierVerdict ?? toolCall.subagentTask,
+                tertiaryText: verifierSummary ?? toolCall.subagentResultKind,
                 statusText: toolCall.statusDisplay,
                 detailText: nil,
                 durationText: durationText,

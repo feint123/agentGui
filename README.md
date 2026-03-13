@@ -91,6 +91,7 @@ VS Code 里也可以直接运行 `Quality Smoke`、`Sample UI Baseline`、`Sampl
 2. 在“工具”中启用 Bash、Web Search、Web Fetch 和 LSP
 3. 在“智能”中调整 Extended Thinking 与反思阈值
 4. 在“记忆”中启用统一记忆运行时、治理层和长期记忆编辑器
+    记忆设置页还提供 Admission V2、Goal-conditioned Retrieval、Bridge Expansion、Lifecycle Manager、Experience Distillation 的独立 rollout 开关
 5. 在“通用”中调整主题与查看版本、连接状态
 6. 如需小说写作支持，继续在主窗口的相关工作流中启用创作记忆并绑定当前会话
 
@@ -131,6 +132,7 @@ flowchart TB
 - **思考支持**：Claude 3.7+ 的 Extended Thinking 内容单独显示
 - **上下文压缩**：当使用率超过 75% 时自动压缩历史消息
 - **Token 监控**：实时追踪输入/输出 token 数量和成本
+- **记忆控制面**：统一记忆运行时现在支持可解释 admission、goal-conditioned retrieval、bridge-aware expansion、experience distillation 和 working-set lifecycle，并可通过设置开关逐步启用
 
 ### 子代理系统
 

@@ -3,32 +3,35 @@ import SwiftData
 import SwiftAnthropic
 
 struct MemoryGovernanceService {
-    func evaluate(_ candidate: MemoryCandidate) -> MemoryGovernanceDecision {
-        if candidate.domainProfile == "coding-task",
-           candidate.layer == .task,
-           candidate.kind == .working,
-           candidate.verificationStatus == .verified,
-           candidate.confidence >= 0.95 {
-            return .acceptHotPath
-        }
+    private let policy: MemoryAdmissionPolicy
+    private let featureExtractor: MemoryAdmissionFeatureExtractor
+    private let businessLogSink: BusinessLogSink?
 
-        if candidate.domainProfile == "creative-writing",
-           candidate.layer == .semantic,
-           candidate.kind == .semantic,
-           candidate.verificationStatus != .verified,
-           candidate.confidence < 0.6 {
-            return .needsUserConfirmation
-        }
+    init(
+        policy: MemoryAdmissionPolicy = DefaultMemoryAdmissionPolicy(),
+        featureExtractor: MemoryAdmissionFeatureExtractor = MemoryAdmissionFeatureExtractor(),
+        businessLogSink: BusinessLogSink? = nil
+    ) {
+        self.policy = policy
+        self.featureExtractor = featureExtractor
+        self.businessLogSink = businessLogSink
+    }
 
-        if candidate.confidence >= 0.7 {
-            return .acceptBackground
-        }
-
-        if candidate.confidence >= 0.5 {
-            return .archiveOnly
-        }
-
-        return .reject
+    func evaluate(_ candidate: MemoryCandidate) -> MemoryGovernanceEvaluation {
+        let features = featureExtractor.extract(from: candidate)
+        let evaluation = policy.evaluate(candidate: candidate, features: features)
+        MemoryBusinessLogger.emit(
+            .memoryWriteEvaluated,
+            candidate: candidate,
+            metadata: [
+                "route": evaluation.route.rawValue,
+                "futureUtility": features.futureUtility,
+                "taskRelevance": features.taskRelevance,
+                "driftRisk": features.driftRisk
+            ],
+            sink: businessLogSink
+        )
+        return evaluation
     }
 
     func route(
@@ -37,26 +40,27 @@ struct MemoryGovernanceService {
         backgroundQueue: MemoryBackgroundWriteQueue,
         confirmationStore: MemoryConfirmationStore
     ) async throws -> MemoryGovernedWriteResult {
-        let decision = evaluate(candidate)
-        let record = candidate.asMemoryRecord()
+        let evaluation = evaluate(candidate)
+        let record = candidate.asMemoryRecord(admissionExplanation: evaluation.explanation)
         let conflicts = detectConflicts(for: candidate, store: store)
+        let result: MemoryGovernedWriteResult
 
-        switch decision {
+        switch evaluation.route {
         case .acceptHotPath:
-            let result: MemoryWriteResult
+            let writeResult: MemoryWriteResult
             if let conflict = conflicts.first {
-                result = try store.replace(recordID: conflict.existingRecordID, with: record)
+                writeResult = try store.replace(recordID: conflict.existingRecordID, with: record)
             } else {
-                result = try store.persist(record: record)
+                writeResult = try store.persist(record: record)
             }
-            return .hotPath(result)
+            result = .hotPath(writeResult)
         case .acceptBackground:
             await backgroundQueue.enqueue(record)
-            return .backgroundQueued(recordID: record.id)
+            result = .backgroundQueued(recordID: record.id)
         case .archiveOnly:
             let archivedRecord = record.replacing(retentionPolicy: .archiveOnly, updatedAt: Date())
-            let result = try store.persist(record: archivedRecord)
-            return .archived(MemoryWriteResult(record: result.record, action: .archived(reason: .governance)))
+            let writeResult = try store.persist(record: archivedRecord)
+            result = .archived(MemoryWriteResult(record: writeResult.record, action: .archived(reason: .governance)))
         case .needsUserConfirmation:
             let confirmation = MemoryConfirmationCandidate(
                 candidateID: candidate.id,
@@ -68,10 +72,22 @@ struct MemoryGovernanceService {
                 reason: "Speculative memory requires user confirmation before persistence."
             )
             try confirmationStore.append(confirmation)
-            return .confirmationRequired(confirmation)
+            result = .confirmationRequired(confirmation)
         case .reject:
-            return .rejected(reason: "Memory governance rejected this candidate due to low confidence.")
+            result = .rejected(reason: "Memory governance rejected this candidate due to low confidence.")
         }
+
+        MemoryBusinessLogger.emit(
+            .memoryWriteRouted,
+            candidate: candidate,
+            metadata: [
+                "route": evaluation.route.rawValue,
+                "conflictCount": conflicts.count,
+                "result": describe(result)
+            ],
+            sink: businessLogSink
+        )
+        return result
     }
 
     func detectConflicts(for candidate: MemoryCandidate, store: UnifiedMemoryFileStoreAdapter) -> [MemoryConflict] {
@@ -80,8 +96,28 @@ struct MemoryGovernanceService {
     }
 }
 
+private extension MemoryGovernanceService {
+    func describe(_ result: MemoryGovernedWriteResult) -> String {
+        switch result {
+        case .hotPath:
+            return "hotPath"
+        case .backgroundQueued:
+            return "backgroundQueued"
+        case .archived:
+            return "archived"
+        case .confirmationRequired:
+            return "confirmationRequired"
+        case .rejected:
+            return "rejected"
+        }
+    }
+}
+
 extension MemoryCandidate {
-    func asMemoryRecord(source: MemoryRecord.Source = .system(name: "memory-governance")) -> MemoryRecord {
+    func asMemoryRecord(
+        source: MemoryRecord.Source = .system(name: "memory-governance"),
+        admissionExplanation: MemoryAdmissionExplanation? = nil
+    ) -> MemoryRecord {
         MemoryRecord(
             id: id,
             layer: layer,
@@ -100,7 +136,8 @@ extension MemoryCandidate {
             updatedAt: Date(),
             lastAccessedAt: nil,
             supersededBy: nil,
-            tags: tags
+            tags: tags,
+            admissionExplanation: admissionExplanation
         )
     }
 }

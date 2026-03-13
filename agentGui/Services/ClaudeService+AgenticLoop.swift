@@ -170,6 +170,7 @@ extension ClaudeService {
         messages: [MessageParameter.Message],
         modelContext: ModelContext
     ) async throws -> MemoryRuntimeContext? {
+        guard settings.enableUnifiedMemoryRuntime else { return nil }
         guard !sessionId.isEmpty else { return nil }
 
         let resolvedSession: Session?

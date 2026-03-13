@@ -38,7 +38,9 @@ enum ToolCallDetailPresentation {
             baseSections = searchSections(for: row)
         case .askUser:
             baseSections = askUserSections(for: row)
-        case .subagent, .other:
+        case .subagent:
+            baseSections = subagentSections(for: toolCall, row: row)
+        case .other:
             baseSections = fallbackSections(for: row)
         }
 
@@ -112,6 +114,26 @@ enum ToolCallDetailPresentation {
     private static func askUserSections(for row: ToolCallRowPresentation) -> [ToolCallDetailSection] {
         guard let output = row.detailText, !output.isEmpty else { return [] }
         return [.init(label: "回答记录", text: output, monospaced: false, maxHeight: 160)]
+    }
+
+    private static func subagentSections(for toolCall: ToolCall, row: ToolCallRowPresentation) -> [ToolCallDetailSection] {
+        var sections: [ToolCallDetailSection] = []
+        if let task = toolCall.subagentTask, !task.isEmpty {
+            sections.append(.init(label: "任务", text: task, monospaced: false, maxHeight: 100))
+        }
+        if let verdict = toolCall.verifierVerdictText {
+            sections.append(.init(label: "验证结果", text: verdict, monospaced: false, maxHeight: 80))
+        }
+        if let summary = toolCall.verifierSummary {
+            sections.append(.init(label: "验证摘要", text: summary, monospaced: false, maxHeight: 120))
+        }
+        if let resultKind = toolCall.subagentResultKind, !resultKind.isEmpty {
+            sections.append(.init(label: "结果类型", text: resultKind, monospaced: true, maxHeight: 80))
+        }
+        if sections.isEmpty {
+            return fallbackSections(for: row)
+        }
+        return sections
     }
 
     private static func fallbackSections(for row: ToolCallRowPresentation) -> [ToolCallDetailSection] {

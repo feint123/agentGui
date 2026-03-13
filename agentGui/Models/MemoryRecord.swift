@@ -55,6 +55,57 @@ struct MemoryRecord: Equatable, Sendable, Identifiable {
     var lastAccessedAt: Date?
     var supersededBy: String?
     var tags: [String]
+    // Evidence anchors let long-term memories point back to concrete runtime artifacts.
+    var evidenceAnchors: [MemoryEvidenceAnchor]
+    // Admission explanation captures why a record was admitted, archived, or deferred.
+    var admissionExplanation: MemoryAdmissionExplanation?
+    var lifecycleTier: MemoryLifecycleTier
+
+    init(
+        id: String,
+        layer: MemoryLayer,
+        kind: MemoryKind,
+        domainProfile: String,
+        scope: MemoryScope,
+        title: String,
+        summary: String,
+        payload: Payload,
+        source: Source,
+        sourceRefs: [SourceRef],
+        confidence: Double,
+        verificationStatus: VerificationStatus,
+        retentionPolicy: RetentionPolicy,
+        createdAt: Date,
+        updatedAt: Date,
+        lastAccessedAt: Date? = nil,
+        supersededBy: String? = nil,
+        tags: [String] = [],
+        evidenceAnchors: [MemoryEvidenceAnchor] = [],
+        admissionExplanation: MemoryAdmissionExplanation? = nil,
+        lifecycleTier: MemoryLifecycleTier = .warm
+    ) {
+        self.id = id
+        self.layer = layer
+        self.kind = kind
+        self.domainProfile = domainProfile
+        self.scope = scope
+        self.title = title
+        self.summary = summary
+        self.payload = payload
+        self.source = source
+        self.sourceRefs = sourceRefs
+        self.confidence = confidence
+        self.verificationStatus = verificationStatus
+        self.retentionPolicy = retentionPolicy
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.lastAccessedAt = lastAccessedAt
+        self.supersededBy = supersededBy
+        self.tags = tags
+        self.evidenceAnchors = evidenceAnchors
+        self.admissionExplanation = admissionExplanation
+        self.lifecycleTier = lifecycleTier
+    }
 }
 
 extension MemoryRecord {
@@ -76,7 +127,10 @@ extension MemoryRecord {
         updatedAt: Date = Date(timeIntervalSince1970: 0),
         lastAccessedAt: Date? = nil,
         supersededBy: String? = nil,
-        tags: [String] = []
+        tags: [String] = [],
+        evidenceAnchors: [MemoryEvidenceAnchor] = [],
+        admissionExplanation: MemoryAdmissionExplanation? = nil,
+        lifecycleTier: MemoryLifecycleTier = .warm
     ) -> MemoryRecord {
         MemoryRecord(
             id: id,
@@ -96,13 +150,24 @@ extension MemoryRecord {
             updatedAt: updatedAt,
             lastAccessedAt: lastAccessedAt,
             supersededBy: supersededBy,
-            tags: tags
+            tags: tags,
+            evidenceAnchors: evidenceAnchors,
+            admissionExplanation: admissionExplanation,
+            lifecycleTier: lifecycleTier
         )
     }
 }
 
 extension MemoryRecord {
-    func replacing(lastAccessedAt: Date? = nil, supersededBy: String? = nil, retentionPolicy: RetentionPolicy? = nil, updatedAt: Date? = nil) -> MemoryRecord {
+    func replacing(
+        lastAccessedAt: Date? = nil,
+        supersededBy: String? = nil,
+        retentionPolicy: RetentionPolicy? = nil,
+        updatedAt: Date? = nil,
+        evidenceAnchors: [MemoryEvidenceAnchor]? = nil,
+        admissionExplanation: MemoryAdmissionExplanation? = nil,
+        lifecycleTier: MemoryLifecycleTier? = nil
+    ) -> MemoryRecord {
         MemoryRecord(
             id: id,
             layer: layer,
@@ -121,7 +186,10 @@ extension MemoryRecord {
             updatedAt: updatedAt ?? self.updatedAt,
             lastAccessedAt: lastAccessedAt ?? self.lastAccessedAt,
             supersededBy: supersededBy ?? self.supersededBy,
-            tags: tags
+            tags: tags,
+            evidenceAnchors: evidenceAnchors ?? self.evidenceAnchors,
+            admissionExplanation: admissionExplanation ?? self.admissionExplanation,
+            lifecycleTier: lifecycleTier ?? self.lifecycleTier
         )
     }
 }

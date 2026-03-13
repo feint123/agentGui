@@ -1,6 +1,17 @@
 import Foundation
 
 struct MemoryConsolidationEngine {
+    private let experienceDistiller: MemoryExperienceDistillationService
+    private let procedureInductor: MemoryProcedureInductionService
+
+    init(
+        experienceDistiller: MemoryExperienceDistillationService = MemoryExperienceDistillationService(),
+        procedureInductor: MemoryProcedureInductionService = MemoryProcedureInductionService()
+    ) {
+        self.experienceDistiller = experienceDistiller
+        self.procedureInductor = procedureInductor
+    }
+
     func consolidate(_ outcome: MemoryRuntimeOutcome) async throws -> [MemoryCandidate] {
         let request = outcome.request
         let profiles = MemoryDomainProfileRegistry().profiles(for: request)
@@ -65,7 +76,9 @@ struct MemoryConsolidationEngine {
             }
         }
 
-        return deduplicated(candidates)
+        let distilled = experienceDistiller.distill(from: outcome)
+        let procedures = procedureInductor.induce(from: outcome)
+        return deduplicated(candidates + distilled + procedures)
     }
 
     private func consolidateCreative(outcome: MemoryRuntimeOutcome, profiles: [MemoryDomainProfile]) -> [MemoryCandidate] {

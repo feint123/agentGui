@@ -51,4 +51,20 @@ struct ToolCallDetailPresentationTests {
         #expect(sections.contains { $0.label == "读取次数" && $0.text == "2" })
         #expect(sections.contains { $0.label == "最近读取区间" && $0.text == "lines:201-260" })
     }
+
+    @Test func verifierSubagentDetailSectionsIncludeVerificationVerdict() {
+        let toolCall = ToolCall(toolCallId: "tool-4", kind: .subagent)
+        toolCall.subagentAgentName = "verifier"
+        toolCall.subagentTask = "验证实现结果"
+        toolCall.subagentMessageMetadata = [
+            "verificationPassed": "false",
+            "verificationSummary": "missing runtime evidence"
+        ]
+
+        let row = ToolCallRowPresentation.make(for: toolCall)
+        let sections = ToolCallDetailPresentation.sections(for: toolCall, row: row)
+
+        #expect(sections.contains { $0.label == "验证结果" && $0.text == "验证失败" })
+        #expect(sections.contains { $0.label == "验证摘要" && $0.text == "missing runtime evidence" })
+    }
 }

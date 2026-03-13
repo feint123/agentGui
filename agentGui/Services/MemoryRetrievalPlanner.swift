@@ -2,8 +2,14 @@ import Foundation
 
 struct MemoryRetrievalPlanner {
     func makePlan(request: MemoryRuntimeRequest, profiles: [MemoryDomainProfile]) -> MemoryRetrievalPlan {
+        let defaultIntent = MemoryRetrievalIntentClassifier().classify(request: request)
+        return makePlan(request: request, profiles: profiles, intent: defaultIntent)
+    }
+
+    func makePlan(request: MemoryRuntimeRequest, profiles: [MemoryDomainProfile], intent: MemoryRetrievalIntent) -> MemoryRetrievalPlan {
         let orderedLayers: [MemoryLayer]
         let itemBudgetByLayer: [MemoryLayer: Int]
+        let objectBudgetByType: [MemoryRetrievalObjectType: Int]
 
         switch request.taskKind {
         case .creativeWriting:
@@ -17,9 +23,12 @@ struct MemoryRetrievalPlanner {
             itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 2, .semantic: 3], contextBudget: request.contextBudget)
         }
 
+        objectBudgetByType = objectBudgets(for: intent, contextBudget: request.contextBudget)
+
         return MemoryRetrievalPlan(
             orderedLayers: orderedLayers,
             itemBudgetByLayer: itemBudgetByLayer,
+            objectBudgetByType: objectBudgetByType,
             profileIDs: profiles.map(\.id),
             includeArchived: false
         )
@@ -35,6 +44,22 @@ struct MemoryRetrievalPlanner {
             result[layer] = max((normalizedBudget * weight) / totalWeight, 1)
         }
 
+        return result
+    }
+
+    private func objectBudgets(for intent: MemoryRetrievalIntent, contextBudget: Int) -> [MemoryRetrievalObjectType: Int] {
+        let normalizedBudget = max(contextBudget / 2000, 2)
+        var result: [MemoryRetrievalObjectType: Int] = [:]
+        for objectType in intent.neededObjectTypes {
+            switch objectType {
+            case .procedure where intent.phase == .verification || intent.phase == .recovery:
+                result[objectType] = max(normalizedBudget, 1)
+            case .fact:
+                result[objectType] = max(normalizedBudget, 1)
+            default:
+                result[objectType] = 1
+            }
+        }
         return result
     }
 }

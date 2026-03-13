@@ -37,4 +37,25 @@ struct MemoryRetrievalPlannerTests {
         let plan = planner.makePlan(request: request, profiles: [.userPreferences()])
         #expect(plan.includeArchived == false)
     }
+
+    @Test func retrievalPlannerBudgetsByIntentNotOnlyTaskKind() async throws {
+        let planner = MemoryRetrievalPlanner()
+        let request = MemoryRuntimeRequest(
+            sessionId: "s1",
+            threadId: "t1",
+            workflowRunId: nil,
+            userRequest: "Fix failing SwiftUI snapshot test",
+            taskKind: .coding,
+            projectId: nil,
+            workspaceRoot: "/tmp/repo",
+            contextBudget: 4000
+        )
+        let classifier = MemoryRetrievalIntentClassifier()
+        let intent = classifier.classify(request: request, phaseHint: .verification)
+        let plan = planner.makePlan(request: request, profiles: [MemoryDomainProfile.codingTask()], intent: intent)
+
+        #expect(intent.phase == .verification)
+        #expect(plan.objectBudgetByType[MemoryRetrievalObjectType.procedure, default: 0] >= 1)
+        #expect(plan.objectBudgetByType[MemoryRetrievalObjectType.fact, default: 0] >= 1)
+    }
 }

@@ -12,6 +12,9 @@ final class MemoryRuntimeCoordinator {
     private let consolidationEngine: MemoryConsolidationEngine
     private let promptAssembler: MemoryPromptAssembler
     private let backgroundJobStore: MemoryBackgroundJobStore
+    private let bridgeExpander: MemoryBridgeExpander
+    private let evidenceResolver: MemoryEvidenceResolver
+    private let businessLogSink: BusinessLogSink?
 
     init(
         profileRegistry: MemoryDomainProfileRegistry = MemoryDomainProfileRegistry(),
@@ -22,7 +25,10 @@ final class MemoryRuntimeCoordinator {
         confirmationStore: MemoryConfirmationStore? = nil,
         consolidationEngine: MemoryConsolidationEngine = MemoryConsolidationEngine(),
         promptAssembler: MemoryPromptAssembler = MemoryPromptAssembler(),
-        backgroundJobStore: MemoryBackgroundJobStore? = nil
+        backgroundJobStore: MemoryBackgroundJobStore? = nil,
+        bridgeExpander: MemoryBridgeExpander = MemoryBridgeExpander(),
+        evidenceResolver: MemoryEvidenceResolver = MemoryEvidenceResolver(),
+        businessLogSink: BusinessLogSink? = nil
     ) {
         self.profileRegistry = profileRegistry
         self.retrievalPlanner = retrievalPlanner
@@ -33,6 +39,9 @@ final class MemoryRuntimeCoordinator {
         self.consolidationEngine = consolidationEngine
         self.promptAssembler = promptAssembler
         self.backgroundJobStore = backgroundJobStore ?? MemoryBackgroundJobStore(baseDirectory: unifiedStoreBaseDirectory)
+        self.bridgeExpander = bridgeExpander
+        self.evidenceResolver = evidenceResolver
+        self.businessLogSink = businessLogSink
     }
 
     convenience init(modelContext: ModelContext) {
@@ -47,6 +56,16 @@ final class MemoryRuntimeCoordinator {
     }
 
     func prepareContext(for request: MemoryRuntimeRequest) async throws -> MemoryRuntimeContext {
+        MemoryBusinessLogger.emit(
+            .memoryContextPreparationStarted,
+            request: request,
+            metadata: [
+                "taskKind": request.taskKind.rawValue,
+                "contextBudget": request.contextBudget
+            ],
+            sink: businessLogSink
+        )
+
         let profiles = profileRegistry.profiles(for: request)
         let plan = retrievalPlanner.makePlan(request: request, profiles: profiles)
 
@@ -57,7 +76,12 @@ final class MemoryRuntimeCoordinator {
         }
 
         let filtered = filterAndBudget(records: records, with: plan)
-        let filteredRecords = filtered.selectedRecords
+        let bridgeExpansion = bridgeExpander.expand(selectedRecords: filtered.selectedRecords, candidateRecords: records)
+        let expandedRecords = filtered.selectedRecords + bridgeExpansion.additionalRecords.filter { candidate in
+            filtered.selectedRecords.contains(where: { $0.id == candidate.id }) == false
+        }
+        let filteredRecords = expandedRecords
+        let evidenceResolution = evidenceResolver.resolve(for: filteredRecords)
         let touchedAt = Date()
         let unifiedStore = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreBaseDirectory)
         for record in filteredRecords where records.contains(where: { $0.id == record.id }) {
@@ -79,7 +103,23 @@ final class MemoryRuntimeCoordinator {
             excludedRecords: filtered.excludedRecords,
             candidateCountByLayer: filtered.candidateCountByLayer,
             selectedCountByLayer: filtered.selectedCountByLayer,
+            bridgeExpansions: bridgeExpansion.edges,
+            dereferenceCount: evidenceResolution.dereferenceCount,
             renderedPrompt: renderedPrompt
+        )
+
+        MemoryBusinessLogger.emit(
+            .memoryContextPrepared,
+            request: request,
+            metadata: [
+                "profileCount": profiles.count,
+                "candidateCount": records.count,
+                "selectedCount": filteredRecords.count,
+                "excludedCount": filtered.excludedRecords.count,
+                "bridgeExpansionCount": bridgeExpansion.edges.count,
+                "dereferenceCount": evidenceResolution.dereferenceCount
+            ],
+            sink: businessLogSink
         )
 
         return MemoryRuntimeContext(
@@ -176,10 +216,22 @@ final class MemoryRuntimeCoordinator {
         for record in outcome.records {
             _ = try? store.persist(record: record)
         }
+        MemoryBusinessLogger.emit(
+            .memoryOutcomeRecorded,
+            request: outcome.request,
+            metadata: ["recordCount": outcome.records.count],
+            sink: businessLogSink
+        )
     }
 
     func scheduleConsolidation(for outcome: MemoryRuntimeOutcome) async {
         try? backgroundJobStore.enqueue(.consolidation(outcome: outcome))
+        MemoryBusinessLogger.emit(
+            .memoryConsolidationQueued,
+            request: outcome.request,
+            metadata: ["recordCount": outcome.records.count],
+            sink: businessLogSink
+        )
     }
 
     private func makeSnapshot(
@@ -191,6 +243,8 @@ final class MemoryRuntimeCoordinator {
         excludedRecords: [(MemoryRecord, MemoryRuntimeExclusionReason)],
         candidateCountByLayer: [MemoryLayer: Int],
         selectedCountByLayer: [MemoryLayer: Int],
+        bridgeExpansions: [MemoryBridgeEdge],
+        dereferenceCount: Int,
         renderedPrompt: String
     ) -> MemoryRuntimeSnapshot {
         let selectedSnapshotRecords = selectedRecords.enumerated().map { index, record in
@@ -228,6 +282,8 @@ final class MemoryRuntimeCoordinator {
             ),
             selectedRecords: selectedSnapshotRecords,
             excludedRecords: excludedSnapshotRecords,
+            bridgeExpansions: bridgeExpansions,
+            dereferenceCount: dereferenceCount,
             renderedPrompt: renderedPrompt,
             metrics: MemoryRuntimeSnapshot.makeMetrics(
                 candidateCount: candidateRecords.count,

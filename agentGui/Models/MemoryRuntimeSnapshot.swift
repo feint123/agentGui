@@ -206,6 +206,8 @@ struct MemoryRuntimeSnapshot: Codable, Equatable, Sendable, Identifiable {
     var plan: MemoryRuntimeSnapshotPlanSummary
     var selectedRecords: [MemoryRuntimeSnapshotRecord]
     var excludedRecords: [MemoryRuntimeSnapshotRecord]
+    var bridgeExpansions: [MemoryBridgeEdge]
+    var dereferenceCount: Int
     var renderedPrompt: String
     var metrics: MemoryRuntimeSnapshotMetrics
 }
@@ -233,6 +235,8 @@ extension MemoryRuntimeSnapshot {
         candidateCount: Int = 1,
         selectedRecords: [MemoryRuntimeSnapshotRecord] = [.fixture()],
         excludedRecords: [MemoryRuntimeSnapshotRecord] = [],
+        bridgeExpansions: [MemoryBridgeEdge] = [],
+        dereferenceCount: Int = 0,
         renderedPrompt: String = "## 已验证事实\n- Fixture Record"
     ) -> MemoryRuntimeSnapshot {
         let selectedCount = selectedRecords.count
@@ -273,6 +277,8 @@ extension MemoryRuntimeSnapshot {
             ),
             selectedRecords: selectedRecords,
             excludedRecords: excludedRecords,
+            bridgeExpansions: bridgeExpansions,
+            dereferenceCount: dereferenceCount,
             renderedPrompt: renderedPrompt,
             metrics: metrics
         )

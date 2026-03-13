@@ -10,13 +10,19 @@ final class MemoryBackgroundScheduler {
     private let confirmationStore: MemoryConfirmationStore
     private let retentionService: MemoryRetentionService
     private let consolidationEngine: MemoryConsolidationEngine
+    private let experienceDistiller: MemoryExperienceDistillationService
+    private let procedureInductor: MemoryProcedureInductionService
+    private let businessLogSink: BusinessLogSink?
     private var loopTask: Task<Void, Never>?
 
     init(
         baseDirectory: URL = ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory),
         governanceService: MemoryGovernanceService = MemoryGovernanceService(),
         retentionService: MemoryRetentionService = MemoryRetentionService(),
-        consolidationEngine: MemoryConsolidationEngine = MemoryConsolidationEngine()
+        consolidationEngine: MemoryConsolidationEngine = MemoryConsolidationEngine(),
+        experienceDistiller: MemoryExperienceDistillationService = MemoryExperienceDistillationService(),
+        procedureInductor: MemoryProcedureInductionService = MemoryProcedureInductionService(),
+        businessLogSink: BusinessLogSink? = nil
     ) {
         self.baseDirectory = baseDirectory
         self.jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
@@ -26,6 +32,9 @@ final class MemoryBackgroundScheduler {
         self.confirmationStore = MemoryConfirmationStore(baseDirectory: baseDirectory)
         self.retentionService = retentionService
         self.consolidationEngine = consolidationEngine
+        self.experienceDistiller = experienceDistiller
+        self.procedureInductor = procedureInductor
+        self.businessLogSink = businessLogSink
     }
 
     func start(intervalSeconds: Int) {
@@ -58,12 +67,56 @@ final class MemoryBackgroundScheduler {
             }
 
             do {
+                MemoryBusinessLogger.emit(.memoryBackgroundJobStarted, job: job, sink: businessLogSink)
                 try jobStore.markRunning(jobID: job.id)
                 try await process(job)
                 try jobStore.markCompleted(jobID: job.id)
             } catch {
                 try? jobStore.markFailed(jobID: job.id, summary: error.localizedDescription)
+                let failedJob = MemoryBackgroundJob(
+                    id: job.id,
+                    type: job.type,
+                    status: .failed,
+                    scopeNamespace: job.scopeNamespace,
+                    createdAt: job.createdAt,
+                    lastRunAt: job.lastRunAt,
+                    completedAt: job.completedAt,
+                    failureSummary: error.localizedDescription,
+                    attemptCount: job.attemptCount,
+                    record: job.record,
+                    request: job.request,
+                    outcomeRecords: job.outcomeRecords,
+                    notes: job.notes,
+                    ttlSweepAsOf: job.ttlSweepAsOf,
+                    ttlSeconds: job.ttlSeconds
+                )
+                MemoryBusinessLogger.emit(
+                    .memoryBackgroundJobFailed,
+                    job: failedJob,
+                    metadata: ["error": error.localizedDescription],
+                    sink: businessLogSink
+                )
+                continue
             }
+
+            let completedJob = MemoryBackgroundJob(
+                id: job.id,
+                type: job.type,
+                status: .completed,
+                scopeNamespace: job.scopeNamespace,
+                createdAt: job.createdAt,
+                lastRunAt: job.lastRunAt,
+                completedAt: Date(),
+                failureSummary: nil,
+                attemptCount: job.attemptCount,
+                record: job.record,
+                request: job.request,
+                outcomeRecords: job.outcomeRecords,
+                notes: job.notes,
+                ttlSweepAsOf: job.ttlSweepAsOf,
+                ttlSeconds: job.ttlSeconds
+            )
+            MemoryBusinessLogger.emit(.memoryBackgroundJobFinished, job: completedJob, sink: businessLogSink)
         }
     }
 
@@ -85,6 +138,25 @@ final class MemoryBackgroundScheduler {
                     backgroundQueue: backgroundWriteQueue,
                     confirmationStore: confirmationStore
                 )
+            }
+
+        case .experienceDistillation:
+            let outcome = try job.toOutcome()
+            for candidate in experienceDistiller.distill(from: outcome) {
+                _ = try await governanceService.route(candidate, store: unifiedStore, backgroundQueue: backgroundWriteQueue, confirmationStore: confirmationStore)
+            }
+
+        case .procedureInduction:
+            let outcome = try job.toOutcome()
+            for candidate in procedureInductor.induce(from: outcome) {
+                _ = try await governanceService.route(candidate, store: unifiedStore, backgroundQueue: backgroundWriteQueue, confirmationStore: confirmationStore)
+            }
+
+        case .workingSetRebalance:
+            let records = try unifiedStore.allRecords(includeArchived: true)
+            let rebalance = MemoryLifecycleManager().rebalance(records: records)
+            for record in rebalance.updatedRecords {
+                _ = try unifiedStore.persist(record: record)
             }
 
         case .ttlSweep:

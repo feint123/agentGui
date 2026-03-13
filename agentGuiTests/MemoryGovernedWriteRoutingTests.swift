@@ -27,6 +27,7 @@ struct MemoryGovernedWriteRoutingTests {
         let records = try store.records(for: .session(id: "routing-session"), includeArchived: true)
         #expect(writeResult.record.id == candidate.id)
         #expect(records.contains { $0.id == candidate.id })
+        #expect(records.first(where: { $0.id == candidate.id })?.admissionExplanation?.score.route == .hotPath)
     }
 
     @Test func backgroundWriteQueuesAndEventuallyPersists() async throws {

@@ -21,4 +21,16 @@ struct MemoryRuntimeSnapshotViewModelTests {
         #expect(viewModel.chartItems.contains { $0.label == "semantic" && $0.value == 10 })
         #expect(viewModel.selectedSummary.selectedCount == 3)
     }
+
+    @Test func viewModelExposesBridgeAndDereferenceMetrics() throws {
+        let snapshot = MemoryRuntimeSnapshot.fixture(
+            bridgeExpansions: [MemoryBridgeEdge(sourceRecordID: "r1", targetRecordID: "r2", relationship: "recovery-path")],
+            dereferenceCount: 2
+        )
+
+        let viewModel = MemoryRuntimeSnapshotViewModel(snapshot: snapshot)
+
+        #expect(viewModel.bridgeExpansionCount == 1)
+        #expect(viewModel.dereferenceCount == 2)
+    }
 }

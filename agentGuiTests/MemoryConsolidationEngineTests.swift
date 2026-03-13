@@ -87,4 +87,59 @@ struct MemoryConsolidationEngineTests {
         #expect(!candidates.contains { $0.layer == .semantic && $0.title == "顾沉爱上林澈" })
         #expect(candidates.contains { $0.layer == .episodic && $0.title == "北塔夜巡" })
     }
+
+    @Test func consolidationEngineDistillsStrategyRecoveryAndProcedureRecords() async throws {
+        let outcome = MemoryRuntimeOutcome(
+            request: MemoryRuntimeRequest(
+                sessionId: "s1",
+                threadId: "t1",
+                workflowRunId: nil,
+                userRequest: "Fix build",
+                taskKind: .coding,
+                projectId: nil,
+                workspaceRoot: "/tmp/repo",
+                contextBudget: 4000
+            ),
+            records: [
+                MemoryRecord.fixture(
+                    id: "verified-fact",
+                    layer: .working,
+                    kind: .working,
+                    scope: .session(id: "s1"),
+                    title: "Build uses xcodebuild",
+                    verificationStatus: .verified,
+                    tags: ["confirmed-fact"]
+                ),
+                MemoryRecord.fixture(
+                    id: "failure-1",
+                    layer: .task,
+                    kind: .working,
+                    scope: .session(id: "s1"),
+                    title: "Attempt 1",
+                    summary: "Scheme missing",
+                    verificationStatus: .failed,
+                    tags: ["failed-attempt"]
+                ),
+                MemoryRecord.fixture(
+                    id: "failure-2",
+                    layer: .task,
+                    kind: .working,
+                    scope: .session(id: "s1"),
+                    title: "Attempt 2",
+                    summary: "Scheme missing",
+                    verificationStatus: .failed,
+                    tags: ["failed-attempt"]
+                )
+            ]
+        )
+
+        let candidates = try await MemoryConsolidationEngine(
+            experienceDistiller: MemoryExperienceDistillationService(),
+            procedureInductor: MemoryProcedureInductionService()
+        ).consolidate(outcome)
+
+        #expect(candidates.contains { $0.tags.contains("strategy-tip") })
+        #expect(candidates.contains { $0.tags.contains("recovery-tip") })
+        #expect(candidates.contains { $0.tags.contains("procedure") })
+    }
 }

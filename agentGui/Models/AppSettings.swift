@@ -96,6 +96,21 @@ final class AppSettings {
     /// 是否启用统一记忆治理层
     var enableMemoryGovernance: Bool = true
 
+    /// Admission V2：基于 feature vector 的准入评分
+    var enableAdmissionV2: Bool = false
+
+    /// Goal-conditioned retrieval intent
+    var enableGoalConditionedRetrieval: Bool = false
+
+    /// Bridge-aware expansion and evidence dereference
+    var enableBridgeExpansion: Bool = false
+
+    /// Working-set lifecycle manager
+    var enableLifecycleManager: Bool = false
+
+    /// Experience / procedure distillation jobs
+    var enableExperienceDistillation: Bool = false
+
     /// 是否启用统一写路径
     var enableUnifiedMemoryWritePath: Bool = true
 
@@ -143,6 +158,11 @@ final class AppSettings {
         self.enableUnifiedMemoryRuntime = false
         self.unifiedMemoryContextBudget = 8
         self.enableMemoryGovernance = true
+        self.enableAdmissionV2 = false
+        self.enableGoalConditionedRetrieval = false
+        self.enableBridgeExpansion = false
+        self.enableLifecycleManager = false
+        self.enableExperienceDistillation = false
         self.enableUnifiedMemoryWritePath = true
         self.enableBackgroundMemoryConsolidation = true
         self.memoryConfirmationThreshold = 0.6

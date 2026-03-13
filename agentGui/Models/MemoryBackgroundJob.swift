@@ -39,6 +39,9 @@ struct MemoryBackgroundJob: Codable, Equatable, Sendable, Identifiable {
     enum JobType: String, Codable, Equatable, Sendable {
         case backgroundWrite
         case consolidation
+        case experienceDistillation
+        case procedureInduction
+        case workingSetRebalance
         case ttlSweep
     }
 
@@ -125,6 +128,26 @@ extension MemoryBackgroundJob {
             type: .ttlSweep,
             ttlSweepAsOf: asOf,
             ttlSeconds: ttl
+        )
+    }
+
+    static func experienceDistillation(outcome: MemoryRuntimeOutcome) -> MemoryBackgroundJob {
+        MemoryBackgroundJob(
+            type: .experienceDistillation,
+            scopeNamespace: MemoryScope.session(id: outcome.request.sessionId).namespace,
+            request: MemoryBackgroundRuntimeRequestSnapshot(request: outcome.request),
+            outcomeRecords: outcome.records.map(UnifiedMemoryStoredRecord.init(record:)),
+            notes: outcome.notes
+        )
+    }
+
+    static func procedureInduction(outcome: MemoryRuntimeOutcome) -> MemoryBackgroundJob {
+        MemoryBackgroundJob(
+            type: .procedureInduction,
+            scopeNamespace: MemoryScope.session(id: outcome.request.sessionId).namespace,
+            request: MemoryBackgroundRuntimeRequestSnapshot(request: outcome.request),
+            outcomeRecords: outcome.records.map(UnifiedMemoryStoredRecord.init(record:)),
+            notes: outcome.notes
         )
     }
 

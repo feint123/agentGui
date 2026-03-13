@@ -31,6 +31,8 @@ struct MemoryRuntimeSnapshotPanel: View {
                 summaryRow("Selected", value: "\(viewModel.selectedSummary.selectedCount)")
                 summaryRow("Excluded", value: "\(viewModel.selectedSummary.excludedCount)")
                 summaryRow("Estimated Chars", value: "\(viewModel.selectedSummary.totalEstimatedPromptChars)")
+                summaryRow("Bridge Expansions", value: "\(viewModel.bridgeExpansionCount)")
+                summaryRow("Dereferences", value: "\(viewModel.dereferenceCount)")
             }
         }
     }

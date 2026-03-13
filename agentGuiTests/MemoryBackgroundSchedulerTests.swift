@@ -84,6 +84,73 @@ struct MemoryBackgroundSchedulerTests {
         #expect(report.revalidationCount >= 0)
     }
 
+    @Test func schedulerConsumesExperienceDistillationJobs() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
+        let scheduler = MemoryBackgroundScheduler(baseDirectory: baseDirectory)
+
+        let outcome = MemoryRuntimeOutcome(
+            request: MemoryRuntimeRequest(
+                sessionId: "s1",
+                threadId: "t1",
+                workflowRunId: nil,
+                userRequest: "Fix build",
+                taskKind: .coding,
+                projectId: nil,
+                workspaceRoot: "/tmp/repo",
+                contextBudget: 4000
+            ),
+            records: [
+                MemoryRecord.fixture(
+                    id: "failure-1",
+                    layer: .task,
+                    kind: .working,
+                    scope: .session(id: "s1"),
+                    title: "Attempt 1",
+                    summary: "Scheme missing",
+                    verificationStatus: .failed,
+                    tags: ["failed-attempt"]
+                ),
+                MemoryRecord.fixture(
+                    id: "failure-2",
+                    layer: .task,
+                    kind: .working,
+                    scope: .session(id: "s1"),
+                    title: "Attempt 2",
+                    summary: "Scheme missing",
+                    verificationStatus: .failed,
+                    tags: ["failed-attempt"]
+                )
+            ]
+        )
+
+        try jobStore.enqueue(.experienceDistillation(outcome: outcome))
+        await scheduler.runOnce()
+
+        let jobs = try jobStore.allJobs()
+        #expect(jobs.allSatisfy { $0.status == .completed })
+
+        let records = try UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+            .records(for: .session(id: "s1"), includeArchived: true)
+        #expect(records.contains { $0.tags.contains("recovery-tip") })
+    }
+
+    @Test func schedulerEmitsBackgroundJobLifecycleLogs() async throws {
+        let sink = InMemoryBusinessLogSink()
+        let baseDirectory = try makeTemporaryDirectory()
+        let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
+        let scheduler = MemoryBackgroundScheduler(baseDirectory: baseDirectory, businessLogSink: sink)
+
+        try jobStore.enqueue(.ttlSweep(asOf: Date(timeIntervalSince1970: 10_000), ttl: 60))
+        await scheduler.runOnce()
+
+        #expect(sink.events.contains { $0.event == .memoryBackgroundJobStarted })
+        #expect(sink.events.contains { entry in
+            entry.event == .memoryBackgroundJobFinished &&
+            (entry.metadata["jobType"] as? String) == "ttlSweep"
+        })
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

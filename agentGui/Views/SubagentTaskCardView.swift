@@ -37,6 +37,14 @@ struct SubagentTaskCardView: View {
         toolCall.subagentAgentName ?? "子代理"
     }
 
+    private var verifierVerdictText: String? {
+        toolCall.verifierVerdictText
+    }
+
+    private var verifierSummary: String? {
+        toolCall.verifierSummary
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -94,6 +102,15 @@ struct SubagentTaskCardView: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if let verdict = verifierVerdictText {
+                    Text(verdict)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(toolCall.verifierPassed == true ? .green : .red)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background((toolCall.verifierPassed == true ? Color.green : Color.red).opacity(0.12))
+                        .clipShape(Capsule())
+                }
                 if let kind = toolCall.subagentResultKind, kind == "structured" {
                     Text("JSON")
                         .font(.system(size: 9, weight: .semibold))
@@ -151,6 +168,24 @@ struct SubagentTaskCardView: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                         .lineLimit(6)
+                }
+            }
+
+            if let verdict = verifierVerdictText {
+                labeledBlock(label: "验证结果") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(verdict)
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(toolCall.verifierPassed == true ? .green : .red)
+                        if let verifierSummary, !verifierSummary.isEmpty {
+                            Text(verifierSummary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .lineLimit(4)
+                        }
+                    }
                 }
             }
 

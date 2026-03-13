@@ -218,17 +218,20 @@ enum MemoryStoreError: Error, Equatable, Sendable {
 struct MemoryRetrievalPlan: Equatable, Sendable {
     var orderedLayers: [MemoryLayer]
     var itemBudgetByLayer: [MemoryLayer: Int]
+    var objectBudgetByType: [MemoryRetrievalObjectType: Int]
     var profileIDs: [String]
     var includeArchived: Bool
 
     init(
         orderedLayers: [MemoryLayer],
         itemBudgetByLayer: [MemoryLayer: Int],
+        objectBudgetByType: [MemoryRetrievalObjectType: Int] = [:],
         profileIDs: [String],
         includeArchived: Bool = false
     ) {
         self.orderedLayers = orderedLayers
         self.itemBudgetByLayer = itemBudgetByLayer
+        self.objectBudgetByType = objectBudgetByType
         self.profileIDs = profileIDs
         self.includeArchived = includeArchived
     }

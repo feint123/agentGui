@@ -85,12 +85,8 @@ struct AgentLoopVerificationCoordinator {
         )
 
         record.subagentResultKind = agentMessage.content.kindLabel
-        if !agentMessage.metadata.isEmpty {
-            record.subagentMessageMetadata = agentMessage.metadata
-        }
         record.status = agentMessage.isError ? .failed : .success
         record.endTime = Date()
-        try? modelContext.save()
         BusinessMonitor.emit(
             .verifierSubagentFinished,
             context: logContext,
@@ -117,6 +113,10 @@ struct AgentLoopVerificationCoordinator {
             recommendedNextAction: payload?.recommendedNextAction,
             verifierAgent: "verifier"
         )
+        var metadata = agentMessage.metadata
+        metadata["verificationPassed"] = derivedPassed ? "true" : "false"
+        record.subagentMessageMetadata = metadata.isEmpty ? nil : metadata
+        try? modelContext.save()
         try store.updateVerificationAssessment(update, for: sessionId)
         BusinessMonitor.emit(
             .verificationCompleted,

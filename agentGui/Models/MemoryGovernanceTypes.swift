@@ -79,6 +79,28 @@ enum MemoryGovernanceDecision: String, Equatable, Sendable {
     case archiveOnly
 }
 
+struct MemoryGovernanceEvaluation: Equatable, Sendable {
+    var route: MemoryGovernanceDecision
+    var explanation: MemoryAdmissionExplanation?
+}
+
+extension MemoryGovernanceDecision {
+    var scoreRoute: MemoryAdmissionScore.Route {
+        switch self {
+        case .acceptHotPath:
+            return .hotPath
+        case .acceptBackground:
+            return .background
+        case .needsUserConfirmation:
+            return .confirmation
+        case .reject:
+            return .reject
+        case .archiveOnly:
+            return .archiveOnly
+        }
+    }
+}
+
 enum MemoryGovernedWriteResult: Equatable, Sendable {
     case hotPath(MemoryWriteResult)
     case backgroundQueued(recordID: String)

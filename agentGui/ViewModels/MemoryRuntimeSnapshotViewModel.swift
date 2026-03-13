@@ -122,4 +122,12 @@ final class MemoryRuntimeSnapshotViewModel {
             )
         }
     }
+
+    var bridgeExpansionCount: Int {
+        snapshot.bridgeExpansions.count
+    }
+
+    var dereferenceCount: Int {
+        snapshot.dereferenceCount
+    }
 }

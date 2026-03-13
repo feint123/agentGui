@@ -218,6 +218,37 @@ extension ToolCall {
         guard let path = filePath else { return nil }
         return (path as NSString).lastPathComponent
     }
+
+    var isVerifierSubagent: Bool {
+        kind == .subagent && subagentAgentName == "verifier"
+    }
+
+    var verifierPassed: Bool? {
+        guard let raw = subagentMessageMetadata?["verificationPassed"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return nil
+        }
+        switch raw {
+        case "true":
+            return true
+        case "false":
+            return false
+        default:
+            return nil
+        }
+    }
+
+    var verifierSummary: String? {
+        guard let summary = subagentMessageMetadata?["verificationSummary"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !summary.isEmpty else {
+            return nil
+        }
+        return summary
+    }
+
+    var verifierVerdictText: String? {
+        guard let verifierPassed else { return nil }
+        return verifierPassed ? "验证通过" : "验证失败"
+    }
 }
 
 // MARK: - Factory Methods

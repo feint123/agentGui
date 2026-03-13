@@ -12,6 +12,7 @@ struct MemoryManagementPanel: View {
                 sweepSection
                 breakdownSection(title: "Scope 统计", items: viewModel.scopeSummaries)
                 breakdownSection(title: "Layer 统计", items: viewModel.layerSummaries)
+                recordRowsSection
 
                 GroupBox("待确认写入") {
                     MemoryConfirmationList(
@@ -114,6 +115,39 @@ struct MemoryManagementPanel: View {
                 } else {
                     ForEach(items) { item in
                         summaryRow(item.label, value: item.count)
+                    }
+                }
+            }
+        }
+    }
+
+    private var recordRowsSection: some View {
+        GroupBox("记录明细") {
+            VStack(alignment: .leading, spacing: 8) {
+                if viewModel.recordRows.isEmpty {
+                    Text("暂无数据")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(viewModel.recordRows.prefix(8)) { row in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(row.title)
+                                    .font(.caption)
+                                Spacer()
+                                Text(row.lifecycleTierLabel)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text("\(row.layerLabel) · \(row.scopeLabel) · evidence \(row.evidenceCount)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            if !row.admissionExplanationSummary.isEmpty {
+                                Text(row.admissionExplanationSummary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
                     }
                 }
             }

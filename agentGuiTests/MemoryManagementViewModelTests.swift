@@ -108,6 +108,42 @@ struct MemoryManagementViewModelTests {
         #expect(viewModel.pendingConfirmationCount == 0)
     }
 
+    @Test func memoryManagementViewModelExposesTierAndAdmissionExplanation() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+        _ = try store.persist(record: MemoryRecord.fixture(
+            id: "explained-record",
+            layer: .task,
+            kind: .working,
+            scope: .session(id: "s1"),
+            title: "Build fix",
+            evidenceAnchors: [
+                MemoryEvidenceAnchor(kind: .toolCall, identifier: "tool-1", summary: "Ran xcodebuild")
+            ],
+            admissionExplanation: MemoryAdmissionExplanation(
+                score: MemoryAdmissionScore(total: 0.9, route: .hotPath),
+                featureVector: MemoryAdmissionFeatureVector(
+                    futureUtility: 0.8,
+                    factualConfidence: 1,
+                    novelty: 0.6,
+                    temporalRecency: 1,
+                    taskRelevance: 1,
+                    verificationSupport: 1,
+                    privacyRisk: 0,
+                    driftRisk: 0.1
+                ),
+                reasons: ["verified build evidence"]
+            ),
+            lifecycleTier: .hot
+        ))
+
+        let viewModel = MemoryManagementViewModel(store: store)
+        try viewModel.reload()
+
+        #expect(viewModel.recordRows.contains { $0.lifecycleTierLabel == "Hot" })
+        #expect(viewModel.recordRows.contains { $0.admissionExplanationSummary.contains("verified") })
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

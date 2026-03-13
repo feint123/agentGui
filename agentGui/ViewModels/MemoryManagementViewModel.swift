@@ -10,6 +10,16 @@ final class MemoryManagementViewModel {
         let count: Int
     }
 
+    struct RecordRow: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let scopeLabel: String
+        let layerLabel: String
+        let lifecycleTierLabel: String
+        let evidenceCount: Int
+        let admissionExplanationSummary: String
+    }
+
     private let store: UnifiedMemoryFileStoreAdapter
     private let confirmationStore: MemoryConfirmationStore
     private let confirmationWorkflowService: MemoryConfirmationWorkflowService
@@ -25,6 +35,7 @@ final class MemoryManagementViewModel {
     var conflictRecords: [MemoryRecord] = []
     var pendingConfirmations: [MemoryConfirmationCandidate] = []
     var latestSweepReport: MemorySweepReport?
+    var recordRows: [RecordRow] = []
 
     init(
         store: UnifiedMemoryFileStoreAdapter = UnifiedMemoryFileStoreAdapter(),
@@ -63,6 +74,20 @@ final class MemoryManagementViewModel {
             .map { CountSummary(id: $0.key, label: $0.key, count: $0.value.count) }
             .sorted { $0.label < $1.label }
         layerSummaries = layerCounts
+
+        recordRows = allRecords
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .map { record in
+                RecordRow(
+                    id: record.id,
+                    title: record.title,
+                    scopeLabel: record.scope.namespace,
+                    layerLabel: record.layer.rawValue,
+                    lifecycleTierLabel: displayLabel(for: record.lifecycleTier),
+                    evidenceCount: record.evidenceAnchors.count,
+                    admissionExplanationSummary: record.admissionExplanation?.reasons.joined(separator: "; ") ?? ""
+                )
+            }
     }
 
     func approve(candidateID: String) async throws {
@@ -81,5 +106,18 @@ final class MemoryManagementViewModel {
             try backgroundJobStore.saveLatestSweepReport(latestSweepReport)
         }
         try reload()
+    }
+
+    private func displayLabel(for tier: MemoryLifecycleTier) -> String {
+        switch tier {
+        case .hot:
+            return "Hot"
+        case .warm:
+            return "Warm"
+        case .cold:
+            return "Cold"
+        case .archive:
+            return "Archive"
+        }
     }
 }

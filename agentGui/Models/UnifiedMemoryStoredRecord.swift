@@ -51,6 +51,9 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
     var lastAccessedAt: Date?
     var supersededBy: String?
     var tags: [String]
+    var evidenceAnchors: [MemoryEvidenceAnchor]
+    var admissionExplanation: MemoryAdmissionExplanation?
+    var lifecycleTier: MemoryLifecycleTier
 
     init(record: MemoryRecord) {
         id = record.id
@@ -96,6 +99,9 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
         lastAccessedAt = record.lastAccessedAt
         supersededBy = record.supersededBy
         tags = record.tags
+        evidenceAnchors = record.evidenceAnchors
+        admissionExplanation = record.admissionExplanation
+        lifecycleTier = record.lifecycleTier
     }
 
     func toMemoryRecord() throws -> MemoryRecord {
@@ -140,7 +146,10 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
             updatedAt: updatedAt,
             lastAccessedAt: lastAccessedAt,
             supersededBy: supersededBy,
-            tags: tags
+            tags: tags,
+            evidenceAnchors: evidenceAnchors,
+            admissionExplanation: admissionExplanation,
+            lifecycleTier: lifecycleTier
         )
     }
 }

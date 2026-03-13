@@ -194,6 +194,88 @@ struct MemoryRuntimeCoordinatorTests {
         #expect(snapshot.request.contextBudget == 4000)
     }
 
+    @Test func coordinatorExpandsBridgesAndCapturesDereferenceTrace() async throws {
+        let records = [
+            MemoryRecord.fixture(
+                id: "failure-1",
+                layer: .task,
+                kind: .working,
+                scope: .session(id: "s1"),
+                title: "xcodebuild scheme failure",
+                summary: "Scheme missing",
+                verificationStatus: .verified,
+                tags: ["failed-attempt"],
+                evidenceAnchors: [
+                    MemoryEvidenceAnchor(kind: .toolCall, identifier: "tool-1", summary: "Ran xcodebuild test")
+                ]
+            ),
+            MemoryRecord.fixture(
+                id: "recovery-1",
+                layer: .task,
+                kind: .working,
+                scope: .session(id: "s1"),
+                title: "Re-run with shared scheme",
+                summary: "Mark scheme as shared before xcodebuild",
+                verificationStatus: .verified,
+                tags: ["recovery-tip"]
+            )
+        ]
+
+        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: records)
+        let request = MemoryRuntimeRequest(
+            sessionId: "s1",
+            threadId: "t1",
+            workflowRunId: nil,
+            userRequest: "Fix xcodebuild scheme failure",
+            taskKind: .coding,
+            projectId: nil,
+            workspaceRoot: "/tmp/repo",
+            contextBudget: 4000
+        )
+
+        let context = try await coordinator.prepareContext(for: request)
+        let snapshot = try #require(context.runtimeSnapshot)
+
+        #expect(snapshot.selectedRecords.contains { $0.recordID == "failure-1" })
+        #expect(snapshot.bridgeExpansions.contains { $0.sourceRecordID == "failure-1" && $0.targetRecordID == "recovery-1" })
+        #expect(snapshot.dereferenceCount > 0)
+    }
+
+    @Test func coordinatorEmitsStructuredLogsForPrepareContext() async throws {
+        let sink = InMemoryBusinessLogSink()
+        let coordinator = MemoryRuntimeCoordinator(
+            unifiedRecordsProvider: { _ in [
+                MemoryRecord.fixture(
+                    id: "task-1",
+                    layer: .task,
+                    kind: .working,
+                    scope: .session(id: "s1"),
+                    title: "Known failure",
+                    verificationStatus: .verified
+                )
+            ] },
+            businessLogSink: sink
+        )
+
+        _ = try await coordinator.prepareContext(for: MemoryRuntimeRequest(
+            sessionId: "s1",
+            threadId: "t1",
+            workflowRunId: nil,
+            userRequest: "Fix build",
+            taskKind: .coding,
+            projectId: nil,
+            workspaceRoot: "/tmp/repo",
+            contextBudget: 4000
+        ))
+
+        #expect(sink.events.contains { $0.event == .memoryContextPreparationStarted })
+        #expect(sink.events.contains { entry in
+            entry.event == .memoryContextPrepared &&
+            (entry.metadata["selectedCount"] as? Int ?? 0) >= 1 &&
+            (entry.metadata["sessionID"] as? String) == "s1"
+        })
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

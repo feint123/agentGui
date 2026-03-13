@@ -33,7 +33,12 @@ extension ClaudeService {
             let role: MessageParameter.Message.Role = msg.direction == .user ? .user : .assistant
             apiMessages.append(MessageParameter.Message(role: role, content: .text(content)))
         }
-        apiMessages.append(MessageParameter.Message(role: .user, content: .text(text)))
+        let lastPersistedMessageMatchesCurrentTurn = sortedMessages.last.map {
+            $0.direction == .user && $0.textContent == text
+        } ?? false
+        if !lastPersistedMessageMatchesCurrentTurn {
+            apiMessages.append(MessageParameter.Message(role: .user, content: .text(text)))
+        }
 
         let isFirstMessage = session.title == "新对话" || session.title.isEmpty
 

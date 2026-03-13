@@ -8,12 +8,30 @@ struct UnifiedMemoryFileStoreAdapterTests {
         let baseDirectory = try makeTemporaryDirectory()
         let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
         let scope = MemoryScope.session(id: "session-store")
+        let explanation = MemoryAdmissionExplanation(
+            score: MemoryAdmissionScore(total: 0.88, route: .background),
+            featureVector: MemoryAdmissionFeatureVector(
+                futureUtility: 0.7,
+                factualConfidence: 0.9,
+                novelty: 0.8,
+                temporalRecency: 0.6,
+                taskRelevance: 0.95,
+                verificationSupport: 1,
+                privacyRisk: 0.0,
+                driftRisk: 0.05
+            ),
+            reasons: ["recent verified task context"]
+        )
         let record = MemoryRecord.fixture(
             id: "record-a",
             layer: .task,
             kind: .working,
             scope: scope,
-            title: "Build failure"
+            title: "Build failure",
+            evidenceAnchors: [
+                MemoryEvidenceAnchor(kind: .toolCall, identifier: "tool-1", summary: "Ran build")
+            ],
+            admissionExplanation: explanation
         )
 
         _ = try store.persist(record: record)
@@ -22,6 +40,8 @@ struct UnifiedMemoryFileStoreAdapterTests {
         #expect(records.count == 1)
         #expect(records.first?.id == record.id)
         #expect(records.first?.layer == .task)
+        #expect(records.first?.evidenceAnchors.first?.identifier == "tool-1")
+        #expect(records.first?.admissionExplanation?.reasons == ["recent verified task context"])
     }
 
     @Test func fileStoreHidesArchivedRecordsByDefaultAndSupportsReplaceAndTouch() async throws {

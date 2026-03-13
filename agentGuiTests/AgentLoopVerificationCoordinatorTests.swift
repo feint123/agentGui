@@ -1,4 +1,5 @@
 import Foundation
+import SwiftAnthropic
 import SwiftData
 import Testing
 @testable import agentGui
@@ -85,6 +86,45 @@ struct AgentLoopVerificationCoordinatorTests {
         #expect(payload?.passed == false)
         #expect(payload?.summary == "missing runtime evidence")
         #expect(payload?.missingEvidence == ["manual runtime check not observed"])
+    }
+
+    @Test func verifierToolMetadataCapturesPassedAndSummary() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let session = Session(title: "Verifier")
+        context.insert(session)
+        let parent = Message.agentMessage(text: "done", session: session)
+        context.insert(parent)
+
+        let claudeService = ClaudeService()
+        let sinkService = VerificationFakeAnthropicService.singleTextResponse(
+            "{\"passed\":true,\"summary\":\"verification passed\",\"verified_items\":[\"swift test passed\"],\"failed_items\":[],\"missing_evidence\":[],\"risk_areas\":[],\"recommended_next_action\":\"finish\",\"confidence\":0.98}"
+        )
+        let settings = AppSettings()
+        context.insert(settings)
+
+        let coordinator = AgentLoopVerificationCoordinator(
+            claudeService: claudeService,
+            service: sinkService,
+            modelId: "test-model",
+            settings: settings,
+            sessionId: session.sessionId,
+            modelContext: context,
+            runID: "run-1",
+            roundIndex: 1,
+            parentMessage: parent
+        )
+
+        _ = try await coordinator.verify(
+            currentAnswer: "finished",
+            executionEvidence: Set([ExecutionEvidenceKind.builtinTool]),
+            existingVerification: CompletionVerification(verified: ["swift test passed"], notVerified: []),
+            latestFailureTrigger: Optional<FailureTrigger>.none
+        )
+
+        let toolCall = try #require(parent.toolCalls.first)
+        #expect(toolCall.subagentMessageMetadata?["verificationPassed"] == "true")
+        #expect(toolCall.subagentMessageMetadata?["verificationSummary"] == "verification passed")
     }
 
     @Test func verifierEvidenceTextIncludesRichToolDetails() {
@@ -328,4 +368,63 @@ struct AgentLoopVerificationCoordinatorTests {
         toolCall.status = .success
         return toolCall
     }
+}
+
+private final class VerificationFakeAnthropicService: AnthropicService {
+    let httpClient: HTTPClient
+    let decoder: JSONDecoder
+    private let streamEvents: [MessageStreamResponse]
+
+    init(streamEvents: [MessageStreamResponse]) {
+        self.httpClient = URLSessionHTTPClientAdapter()
+        self.decoder = JSONDecoder()
+        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
+        self.streamEvents = streamEvents
+    }
+
+    static func singleTextResponse(_ text: String) -> VerificationFakeAnthropicService {
+        VerificationFakeAnthropicService(streamEvents: [
+            decodeVerificationStreamEvent("""
+            {"type":"content_block_delta","delta":{"type":"text_delta","text":\"
+            """ + text.replacingOccurrences(of: "\"", with: "\\\"") + """
+            \"}}
+            """),
+            decodeVerificationStreamEvent("""
+            {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+            """)
+        ])
+    }
+
+    func createMessage(_ parameter: MessageParameter) async throws -> MessageResponse { throw VerificationFakeError.unused }
+
+    func streamMessage(_ parameter: MessageParameter) async throws -> AsyncThrowingStream<MessageStreamResponse, Error> {
+        return AsyncThrowingStream { continuation in
+            for event in streamEvents {
+                continuation.yield(event)
+            }
+            continuation.finish()
+        }
+    }
+
+    func countTokens(parameter: MessageTokenCountParameter) async throws -> MessageInputTokens { throw VerificationFakeError.unused }
+    func createTextCompletion(_ parameter: TextCompletionParameter) async throws -> TextCompletionResponse { throw VerificationFakeError.unused }
+    func createStreamTextCompletion(_ parameter: TextCompletionParameter) async throws -> AsyncThrowingStream<TextCompletionStreamResponse, Error> { throw VerificationFakeError.unused }
+    func createSkill(_ parameter: SkillCreateParameter) async throws -> SkillResponse { throw VerificationFakeError.unused }
+    func listSkills(parameter: ListSkillsParameter?) async throws -> ListSkillsResponse { throw VerificationFakeError.unused }
+    func retrieveSkill(skillId: String) async throws -> SkillResponse { throw VerificationFakeError.unused }
+    func deleteSkill(skillId: String) async throws { throw VerificationFakeError.unused }
+    func createSkillVersion(skillId: String, _ parameter: SkillVersionCreateParameter) async throws -> SkillVersionResponse { throw VerificationFakeError.unused }
+    func listSkillVersions(skillId: String, parameter: ListSkillVersionsParameter?) async throws -> ListSkillVersionsResponse { throw VerificationFakeError.unused }
+    func retrieveSkillVersion(skillId: String, version: String) async throws -> SkillVersionResponse { throw VerificationFakeError.unused }
+    func deleteSkillVersion(skillId: String, version: String) async throws { throw VerificationFakeError.unused }
+}
+
+private enum VerificationFakeError: Error {
+    case unused
+}
+
+private func decodeVerificationStreamEvent(_ json: String) -> MessageStreamResponse {
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    return try! decoder.decode(MessageStreamResponse.self, from: Data(json.utf8))
 }

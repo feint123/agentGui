@@ -1,4 +1,6 @@
 import Foundation
+import SwiftAnthropic
+import SwiftData
 import Testing
 @testable import agentGui
 
@@ -74,6 +76,36 @@ struct MemoryRuntimeIntegrationTests {
             $0.tags.contains("runtime-working") &&
             $0.summary.contains("Continue the chapter")
         })
+    }
+
+    @Test func unifiedBootstrapRespectsFeatureFlag() async throws {
+        let service = ClaudeService()
+        let settings = AppSettings.testFixture()
+        settings.enableUnifiedMemoryRuntime = false
+
+        let context = try await service.buildUnifiedMemoryBootstrap(
+            settings: settings,
+            session: nil,
+            sessionId: "s1",
+            messages: [MessageParameter.Message(role: .user, content: .text("Fix build"))],
+            modelContext: try makeModelContext()
+        )
+
+        #expect(context == nil)
+    }
+
+    private func makeModelContext() throws -> ModelContext {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(
+            for: AppSettings.self,
+            Session.self,
+            SessionTaskState.self,
+            Message.self,
+            ToolCall.self,
+            AgentRound.self,
+            configurations: config
+        )
+        return ModelContext(container)
     }
 
     private func makeTemporaryDirectory() throws -> URL {

@@ -86,6 +86,38 @@ struct MemoryRetentionServiceTests {
         #expect(queue.map(\.id).sorted() == ["partial", "unverified"])
     }
 
+    @Test func retentionSweepAlsoRebalancesLifecycleTiers() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+        _ = try store.persist(record: MemoryRecord.fixture(
+            id: "hot-record",
+            layer: .task,
+            kind: .working,
+            scope: .session(id: "s1"),
+            title: "Hot record",
+            verificationStatus: .verified,
+            updatedAt: Date(timeIntervalSince1970: 1_000),
+            lastAccessedAt: Date(timeIntervalSince1970: 1_000)
+        ))
+        _ = try store.persist(record: MemoryRecord.fixture(
+            id: "cold-record",
+            layer: .semantic,
+            kind: .semantic,
+            scope: .session(id: "s1"),
+            title: "Cold record",
+            verificationStatus: .unverified,
+            updatedAt: Date(timeIntervalSince1970: 10),
+            lastAccessedAt: Date(timeIntervalSince1970: 10)
+        ))
+
+        let report = try MemoryRetentionService().sweep(store: store, asOf: Date(timeIntervalSince1970: 10_000), ttl: 100_000)
+        let records = try store.records(for: .session(id: "s1"), includeArchived: true)
+
+        #expect(report.archivedCount == 0)
+        #expect(records.contains { $0.id == "hot-record" && $0.lifecycleTier == .hot })
+        #expect(records.contains { $0.id == "cold-record" && $0.lifecycleTier == .cold })
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

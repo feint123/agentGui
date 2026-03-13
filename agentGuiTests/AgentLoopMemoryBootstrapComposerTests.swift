@@ -14,7 +14,11 @@ struct AgentLoopMemoryBootstrapComposerTests {
                         records: [MemoryRecord.fixture(layer: .task)],
                         warnings: ["warn"],
                         renderedPrompt: "Unified prompt",
-                        runtimeSnapshot: .fixture(id: "snapshot-1")
+                        runtimeSnapshot: .fixture(
+                            id: "snapshot-1",
+                            bridgeExpansions: [MemoryBridgeEdge(sourceRecordID: "r1", targetRecordID: "r2", relationship: "recovery-path")],
+                            dereferenceCount: 2
+                        )
                     )
                 },
                 loadTaskMemory: { nil },
@@ -30,6 +34,8 @@ struct AgentLoopMemoryBootstrapComposerTests {
         #expect(composition.runtimeLayers == [MemoryLayer.task.rawValue])
         #expect(composition.runtimeWarnings == ["warn"])
         #expect(composition.runtimeSnapshotID == "snapshot-1")
+        #expect(composition.runtimeBridgeExpansionCount == 1)
+        #expect(composition.runtimeDereferenceCount == 2)
     }
 
     @Test func composerBuildsTaskMemoryFallbackWhenUnifiedContextIsMissing() async throws {

@@ -235,10 +235,6 @@ struct AgentLoopRoundExecutor {
 
             switch delta {
             case .text(let text):
-                let deltaSpan = perfLog.startSpan("text_delta", category: "Stream", level: .verbose)
-                deltaSpan.addMetadata("bytes", value: text.count)
-                deltaSpan.end()
-
                 // projectedText 需要体现“历史累计 + 当前轮已流出文本”，UI 才能在流式阶段保持连续视图。
                 let joined = state.accumulatedText.isEmpty
                     ? snapshot.text
