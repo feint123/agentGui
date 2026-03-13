@@ -221,7 +221,8 @@ struct AgentLoopVerificationCoordinator {
         let signalText = executionEvidence.isEmpty
             ? "none"
             : executionEvidence.map(\.rawValue).sorted().joined(separator: ", ")
-        let entries = toolCalls.map(makeEvidenceEntry(from:))
+        // Keep the verifier prompt focused by ranking concrete evidence before rendering it.
+        let entries = prioritizeEvidenceEntries(toolCalls.map(makeEvidenceEntry(from:)))
         let renderedEntries = entries.flatMap { renderEvidenceEntry($0, depth: 0) }
 
         var lines = [
@@ -274,14 +275,51 @@ struct AgentLoopVerificationCoordinator {
             details.append(.init(label: "payload_ref", value: payloadRef))
         }
 
-        let childEntries = nestedToolCalls(from: toolCall)
-            .map(makeEvidenceEntry(from:))
+        let childEntries = prioritizeEvidenceEntries(
+            nestedToolCalls(from: toolCall)
+                .map(makeEvidenceEntry(from:))
+        )
 
         return VerificationEvidenceEntry(
             headline: headline,
             details: uniqued(details),
-            children: childEntries
+            children: childEntries,
+            timestamp: toolCall.startTime,
+            riskScore: riskScore(for: toolCall),
+            isSummary: false
         )
+    }
+
+    private static func prioritizeEvidenceEntries(
+        _ entries: [VerificationEvidenceEntry],
+        limit: Int = 3
+    ) -> [VerificationEvidenceEntry] {
+        guard entries.count > limit else { return entries }
+
+        // Higher-risk evidence stays visible first; recency breaks ties so the verifier sees
+        // the latest concrete actions before older, lower-signal activity.
+        let sorted = entries.sorted { lhs, rhs in
+            if lhs.riskScore != rhs.riskScore {
+                return lhs.riskScore > rhs.riskScore
+            }
+            return (lhs.timestamp ?? .distantPast) > (rhs.timestamp ?? .distantPast)
+        }
+
+        let kept = Array(sorted.prefix(limit))
+        let omittedCount = max(0, sorted.count - kept.count)
+        guard omittedCount > 0 else { return kept }
+
+        // Preserve the fact that more evidence exists without flooding the verifier prompt.
+        return kept + [
+            VerificationEvidenceEntry(
+                headline: "omitted \(omittedCount) older/lower-priority evidence entries",
+                details: [],
+                children: [],
+                timestamp: nil,
+                riskScore: Int.min,
+                isSummary: true
+            )
+        ]
     }
 
     private static func nestedToolCalls(from toolCall: ToolCall) -> [ToolCall] {
@@ -295,6 +333,9 @@ struct AgentLoopVerificationCoordinator {
     private static func renderEvidenceEntry(_ entry: VerificationEvidenceEntry, depth: Int) -> [String] {
         let indent = String(repeating: "  ", count: depth)
         var lines = ["\(indent)- \(entry.headline)"]
+        if entry.isSummary {
+            return lines
+        }
         for detail in entry.details {
             lines.append("\(indent)  \(detail.label): \(detail.value)")
         }
@@ -334,6 +375,51 @@ struct AgentLoopVerificationCoordinator {
         case .inProgress:
             return nil
         }
+    }
+
+    private static func riskScore(for toolCall: ToolCall) -> Int {
+        var score = 0
+
+        // Failures and mutating/command-execution tools are the most important verification signals.
+        switch toolCall.status {
+        case .failed:
+            score += 100
+        case .cancelled:
+            score += 80
+        case .success:
+            score += 10
+        case .inProgress:
+            score += 20
+        }
+
+        switch toolCall.kind {
+        case .execute:
+            score += 70
+        case .edit, .delete:
+            score += 60
+        case .subagent:
+            score += 50
+        case .fetch:
+            score += 35
+        case .search:
+            score += 25
+        case .read:
+            score += 15
+        case .plan, .todo, .askUser, .switchMode, .think, .other:
+            score += 20
+        }
+
+        if toolCall.filePath != nil {
+            score += 5
+        }
+        if toolCall.terminalPromptSummary != nil {
+            score += 5
+        }
+        if !toolCall.subagentRounds.isEmpty {
+            score += 10
+        }
+
+        return score
     }
 
     private static func firstUsefulLine(in text: String?) -> String? {
@@ -461,6 +547,9 @@ private struct VerificationEvidenceEntry: Equatable {
     let headline: String
     let details: [VerificationEvidenceDetail]
     let children: [VerificationEvidenceEntry]
+    let timestamp: Date?
+    let riskScore: Int
+    let isSummary: Bool
 }
 
 private struct VerificationEvidenceDetail: Equatable {

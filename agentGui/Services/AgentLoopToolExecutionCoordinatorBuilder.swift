@@ -159,4 +159,13 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
             .map(String.init)
             .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
     }
+
+    /// Mirrors the production terminal summary heuristic so focused tests can assert it directly.
+    static func extractTerminalSummaryForTests(from text: String?) -> String? {
+        guard let text else { return nil }
+        return text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    }
 }
