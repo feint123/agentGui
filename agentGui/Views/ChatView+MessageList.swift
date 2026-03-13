@@ -63,14 +63,42 @@ extension ChatView {
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     }
                 }
+
+                Color.clear
+                    .frame(height: 8)
+                    .id(ChatMessageListAutoScrollPolicy.bottomAnchorID)
+                    .accessibilityHidden(true)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .onAppear {
+                        isMessageListPinnedToBottom = true
+                    }
+                    .onDisappear {
+                        if !isProgrammaticMessageListScrollInFlight {
+                            isMessageListPinnedToBottom = false
+                        }
+                    }
             }
             .listStyle(.plain)
             .accessibilityIdentifier("chat.messageList")
             .task(id: projectionTrigger) {
                 rebuildMessageListSnapshot(for: projectionTrigger)
             }
+            .onChange(of: allMessages.last?.id) { _, _ in
+                guard let last = allMessages.last else { return }
+                if ChatMessageListAutoScrollPolicy.shouldScrollOnMessageAppend(
+                    lastMessageIsUser: last.isUserMessage,
+                    isPinnedToBottom: isMessageListPinnedToBottom
+                ) {
+                    scrollToBottom(proxy: proxy)
+                }
+            }
             .onChange(of: allMessages.last?.textContent) { _, _ in
-                if claudeService.isStreaming {
+                if ChatMessageListAutoScrollPolicy.shouldScrollForStreaming(
+                    isStreaming: claudeService.isStreaming,
+                    isPinnedToBottom: isMessageListPinnedToBottom
+                ) {
                     scrollToBottom(proxy: proxy)
                 }
             }
@@ -78,10 +106,12 @@ extension ChatView {
     }
 
     func scrollToBottom(proxy: ScrollViewProxy) {
+        isProgrammaticMessageListScrollInFlight = true
         withAnimation(.easeOut(duration: 0.2)) {
-            if let last = allMessages.last {
-                proxy.scrollTo(last.id, anchor: .bottom)
-            }
+            proxy.scrollTo(ChatMessageListAutoScrollPolicy.bottomAnchorID, anchor: .bottom)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            isProgrammaticMessageListScrollInFlight = false
         }
     }
 

@@ -41,6 +41,8 @@ struct ChatView: View {
     @State var isDeletingAllSessions = false
     @State var messageListSnapshot = ChatMessageListSnapshot.empty
     @State var messageListProjectionTrigger: ChatMessageListProjectionTrigger?
+    @State var isMessageListPinnedToBottom = true
+    @State var isProgrammaticMessageListScrollInFlight = false
 
     // MARK: - Workflow
     @State var showWorkflowPanel = false
