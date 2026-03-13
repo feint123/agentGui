@@ -394,8 +394,14 @@ extension ClaudeService {
             return false
         }
 
-        if manager.state(for: workspaceRoot, serverID: serverID) != nil {
-            return false
+        if let state = manager.state(for: workspaceRoot, serverID: serverID) {
+            switch state {
+            case .crashed, .failedToLaunch, .stopped:
+                _ = try await manager.recoverSessionIfNeeded(workspaceRoot: workspaceRoot, serverID: serverID)
+                return true
+            case .idle, .starting, .running:
+                return false
+            }
         }
 
         _ = try await manager.startSession(workspaceRoot: workspaceRoot, serverID: serverID)
@@ -407,26 +413,25 @@ extension ClaudeService {
         selectedFilePath: String?,
         settings: AppSettings
     ) async {
-        guard settings.isLSPAutoStartEffective,
-              !workingDirectory.isEmpty,
-              let selectedFilePath,
-              let registry = try? LSPServerRegistry(settings: settings) else {
-            return
-        }
-
-        let resolver = LSPWorkspaceResolver()
-        guard let binding = resolver.resolve(
-            filePath: selectedFilePath,
+        _ = try? await ensureWorkspaceLSPState(
             workingDirectory: workingDirectory,
-            registry: registry,
+            selectedFilePath: selectedFilePath,
             settings: settings
-        ) else {
-            return
+        )
+    }
+
+    func ensureWorkspaceLSPState(
+        workingDirectory: String,
+        selectedFilePath: String?,
+        settings: AppSettings
+    ) async throws -> LSPWorkspaceBootstrapResult {
+        guard let coordinator = makeLSPWorkspaceCoordinator(settings: settings) else {
+            return .empty
         }
 
-        _ = try? await ensureLSPServerStartedIfNeeded(
-            workspaceRoot: binding.workspaceRoot,
-            serverID: binding.serverID,
+        return try await coordinator.bootstrapWorkspace(
+            workingDirectory: workingDirectory,
+            selectedFilePath: selectedFilePath,
             settings: settings
         )
     }
@@ -453,6 +458,26 @@ extension ClaudeService {
             return nil
         }
 
+        _ = makeOrReuseLSPServerManager(registry: registry)
+
+        return LSPToolFacade(registry: registry, serverManager: lspServerManager)
+    }
+
+    func makeLSPWorkspaceCoordinator(settings: AppSettings) -> LSPWorkspaceCoordinator? {
+        guard let registry = try? LSPServerRegistry(settings: settings),
+              let manager = makeOrReuseLSPServerManager(registry: registry) else {
+            return nil
+        }
+
+        return LSPWorkspaceCoordinator(
+            registry: registry,
+            serverManager: manager,
+            fileIndexer: LSPProjectFileIndexer()
+        )
+    }
+
+    @discardableResult
+    private func makeOrReuseLSPServerManager(registry: LSPServerRegistry) -> LSPServerManager? {
         if lspServerManager == nil {
             let diagnosticsStore = LSPDiagnosticsStore()
             lspServerManager = LSPServerManager(
@@ -472,6 +497,6 @@ extension ClaudeService {
             )
         }
 
-        return LSPToolFacade(registry: registry, serverManager: lspServerManager)
+        return lspServerManager
     }
 }

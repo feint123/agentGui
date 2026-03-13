@@ -40,6 +40,7 @@ struct WorkspacePanelView: View {
     @State private var currentDirectory: URL?
     @State private var isLoading = false
     @State private var refreshCoordinator = WorkspaceTreeRefreshCoordinator()
+    @State private var showsLSPDiagnosticsPopover = false
 
     // MARK: - Body
 
@@ -62,12 +63,17 @@ struct WorkspacePanelView: View {
         .onAppear {
             configureRefreshCoordinator()
             loadFromWorkspaceState()
+            triggerWorkspaceLSPBootstrap()
         }
         .onDisappear {
             refreshCoordinator.setDirectory(nil)
         }
         .onChange(of: workspaceState.selectedSession?.persistentModelID) { _, _ in
             loadFromWorkspaceState()
+            triggerWorkspaceLSPBootstrap()
+        }
+        .onChange(of: workspaceState.selectedFile) { _, _ in
+            triggerWorkspaceLSPBootstrap()
         }
     }
 
@@ -154,6 +160,7 @@ struct WorkspacePanelView: View {
     }
 
     private var lspStatusFooter: some View {
+        let _ = claudeService.lspPresentationRevision
         let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
         let status = claudeService.makeWorkspacePanelLSPStatus(
             workingDirectory: currentDirectory?.path ?? "",
@@ -190,8 +197,22 @@ struct WorkspacePanelView: View {
             }
 
             HStack(spacing: 8) {
-                lspCountChip(title: "错误", count: status.errorCount, color: .red)
-                lspCountChip(title: "警告", count: status.warningCount, color: .orange)
+                Button {
+                    showsLSPDiagnosticsPopover.toggle()
+                } label: {
+                    lspCountChip(title: "错误", count: status.errorCount, color: .red)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showsLSPDiagnosticsPopover, arrowEdge: .bottom) {
+                    LSPDiagnosticsPopoverView(status: status)
+                }
+
+                Button {
+                    showsLSPDiagnosticsPopover.toggle()
+                } label: {
+                    lspCountChip(title: "警告", count: status.warningCount, color: .orange)
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 12)
@@ -228,6 +249,19 @@ struct WorkspacePanelView: View {
         currentDirectory = url.standardizedFileURL
         refreshCoordinator.setDirectory(currentDirectory)
         Task { await gitPanelViewModel.refresh(for: url, workspaceState: workspaceState) }
+    }
+
+    private func triggerWorkspaceLSPBootstrap() {
+        let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
+        let workingDirectory = currentDirectory?.path ?? workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
+        let selectedFilePath = workspaceState.selectedFile?.standardizedFileURL.path
+        Task {
+            _ = try? await claudeService.ensureWorkspaceLSPState(
+                workingDirectory: workingDirectory,
+                selectedFilePath: selectedFilePath,
+                settings: settings
+            )
+        }
     }
 
     private func loadFromWorkspaceState() {

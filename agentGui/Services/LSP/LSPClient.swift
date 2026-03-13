@@ -11,8 +11,10 @@ final class LSPClient {
     private let documentStore: LSPDocumentStore
     private let diagnosticsStore: LSPDiagnosticsStore
     private let adapter: any LSPServerAdapter
+    private var notificationWorkspaceRoot: String?
 
     private(set) var capabilities: LSPServerCapabilityHints?
+    var onDocumentLifecycleEvent: ((String, LSPDocumentSnapshot?) -> Void)?
 
     init(
         transport: LSPJSONRPCTransport,
@@ -44,6 +46,7 @@ final class LSPClient {
     }
 
     func initializeSession(server: LSPServerDefinition, workspaceRoot: String) async throws -> LSPServerCapabilityHints {
+        configureNotificationHandling(workspaceRoot: workspaceRoot)
         let hintedCapabilities = try await adapter.initialize(server: server, workspaceRoot: workspaceRoot)
         let result = try await transport.sendRequest(
             method: "initialize",
@@ -58,16 +61,59 @@ final class LSPClient {
 
     @discardableResult
     func openDocument(uri: String, languageID: String, text: String) -> LSPDocumentSnapshot {
-        documentStore.openDocument(uri: uri, languageID: languageID, text: text)
+        let snapshot = documentStore.openDocument(uri: uri, languageID: languageID, text: text)
+        try? transport.sendNotification(
+            method: "textDocument/didOpen",
+            params: [
+                "textDocument": [
+                    "uri": uri,
+                    "languageId": languageID,
+                    "version": snapshot.version,
+                    "text": text
+                ]
+            ]
+        )
+        onDocumentLifecycleEvent?("open:\(uri)", snapshot)
+        return snapshot
     }
 
     @discardableResult
     func updateDocument(uri: String, text: String) -> LSPDocumentSnapshot? {
-        documentStore.updateDocument(uri: uri, text: text)
+        guard let snapshot = documentStore.updateDocument(uri: uri, text: text) else { return nil }
+        try? transport.sendNotification(
+            method: "textDocument/didChange",
+            params: [
+                "textDocument": [
+                    "uri": uri,
+                    "version": snapshot.version
+                ],
+                "contentChanges": [
+                    ["text": text]
+                ]
+            ]
+        )
+        onDocumentLifecycleEvent?("change:\(uri)", snapshot)
+        return snapshot
     }
 
     func closeDocument(uri: String) {
+        try? transport.sendNotification(
+            method: "textDocument/didClose",
+            params: [
+                "textDocument": [
+                    "uri": uri
+                ]
+            ]
+        )
         documentStore.closeDocument(uri: uri)
+        onDocumentLifecycleEvent?("close:\(uri)", nil)
+    }
+
+    func configureNotificationHandling(workspaceRoot: String) {
+        notificationWorkspaceRoot = workspaceRoot
+        transport.notificationPayloadHandler = { [weak self] method, params in
+            self?.handleNotification(method: method, params: params)
+        }
     }
 
     func definition(uri: String, line: Int, character: Int) async throws -> LSPSymbolLocation? {
@@ -240,5 +286,49 @@ final class LSPClient {
             return number.intValue
         }
         return nil
+    }
+
+    private func handleNotification(method: String, params: [String: Any]?) {
+        guard method == "textDocument/publishDiagnostics",
+              let workspaceRoot = notificationWorkspaceRoot,
+              let params,
+              let uri = params["uri"] as? String else {
+            return
+        }
+
+        let diagnostics = (params["diagnostics"] as? [[String: Any]] ?? []).compactMap(parseDiagnostic(from:))
+        publishDiagnostics(workspaceRoot: workspaceRoot, uri: uri, diagnostics: diagnostics)
+    }
+
+    private func parseDiagnostic(from object: [String: Any]) -> LSPDiagnostic? {
+        guard let message = object["message"] as? String else {
+            return nil
+        }
+
+        let severity: LSPDiagnosticSeverity
+        switch number(from: object["severity"]) {
+        case 1:
+            severity = .error
+        case 2:
+            severity = .warning
+        case 3:
+            severity = .information
+        case 4:
+            severity = .hint
+        default:
+            severity = .information
+        }
+
+        let source = object["source"] as? String
+        let range = object["range"] as? [String: Any]
+        let start = range?["start"] as? [String: Any]
+
+        return LSPDiagnostic(
+            message: message,
+            severity: severity,
+            source: source,
+            line: number(from: start?["line"]),
+            character: number(from: start?["character"])
+        )
     }
 }

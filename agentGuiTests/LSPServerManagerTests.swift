@@ -73,11 +73,77 @@ struct LSPServerManagerTests {
         #expect(harness.stopCallCount == 1)
         #expect(manager.activeSessionCount == 1)
     }
+
+    @Test func syncDocumentDelegatesToClientDocumentLifecycle() async throws {
+        let harness = LSPServerManagerHarness()
+        let manager = harness.makeManager()
+
+        _ = try await manager.startSession(workspaceRoot: "/repo", serverID: "typescript-language-server")
+        manager.syncDocument(
+            workspaceRoot: "/repo",
+            serverID: "typescript-language-server",
+            uri: "file:///repo/src/app.ts",
+            languageID: "typescript",
+            text: "const x = 1"
+        )
+        manager.syncDocument(
+            workspaceRoot: "/repo",
+            serverID: "typescript-language-server",
+            uri: "file:///repo/src/app.ts",
+            languageID: "typescript",
+            text: "const x = 2"
+        )
+        manager.closeDocument(
+            workspaceRoot: "/repo",
+            serverID: "typescript-language-server",
+            uri: "file:///repo/src/app.ts"
+        )
+
+        #expect(harness.lastClientDocumentSnapshot == nil)
+        #expect(harness.documentLifecycleEvents == [
+            "open:file:///repo/src/app.ts",
+            "change:file:///repo/src/app.ts",
+            "close:file:///repo/src/app.ts"
+        ])
+    }
+
+    @Test func managerEmitsPresentationRefreshWhenStateOrDiagnosticsChange() async throws {
+        let harness = LSPServerManagerHarness()
+        let manager = harness.makeManager()
+        var refreshCount = 0
+        manager.onPresentationStateDidChange = {
+            refreshCount += 1
+        }
+
+        _ = try await manager.startSession(workspaceRoot: "/repo", serverID: "typescript-language-server")
+        manager.publishDiagnostics(
+            workspaceRoot: "/repo",
+            serverID: "typescript-language-server",
+            uri: "file:///repo/src/app.ts",
+            diagnostics: [.init(message: "Type mismatch", severity: .error)]
+        )
+        manager.syncDocument(
+            workspaceRoot: "/repo",
+            serverID: "typescript-language-server",
+            uri: "file:///repo/src/app.ts",
+            languageID: "typescript",
+            text: "const x = 2"
+        )
+        manager.closeDocument(
+            workspaceRoot: "/repo",
+            serverID: "typescript-language-server",
+            uri: "file:///repo/src/app.ts"
+        )
+
+        #expect(refreshCount >= 4)
+    }
 }
 
 @MainActor
 private final class LSPServerManagerHarness {
     private(set) var stopCallCount = 0
+    private(set) var documentLifecycleEvents: [String] = []
+    private(set) var lastClientDocumentSnapshot: LSPDocumentSnapshot?
 
     func makeManager() -> LSPServerManager {
         let settings = AppSettings.testFixture()
@@ -88,12 +154,17 @@ private final class LSPServerManagerHarness {
             registry: registry,
             diagnosticsStore: diagnosticsStore,
             makeClient: {
-                LSPClient(
+                let client = LSPClient(
                     transport: LSPJSONRPCTransport(),
                     documentStore: LSPDocumentStore(),
                     diagnosticsStore: diagnosticsStore,
                     adapter: FakeLSPServerAdapter()
                 )
+                client.onDocumentLifecycleEvent = { [weak self] event, snapshot in
+                    self?.documentLifecycleEvents.append(event)
+                    self?.lastClientDocumentSnapshot = snapshot
+                }
+                return client
             },
             makeSupervisor: {
                 LSPProcessSupervisor(

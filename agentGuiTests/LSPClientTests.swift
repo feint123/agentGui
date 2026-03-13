@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import agentGui
 
+@MainActor
 struct LSPClientTests {
 
     @Test func initializeSessionSendsInitializeRequestThenInitializedNotification() async throws {
@@ -136,6 +137,69 @@ struct LSPClientTests {
 
         #expect(result == "```ts\nconst answer: number\n```")
     }
+
+    @Test func openUpdateAndCloseDocumentSendLifecycleNotifications() async throws {
+        let transport = LSPJSONRPCTransport()
+        let client = LSPClient(
+            transport: transport,
+            documentStore: LSPDocumentStore(),
+            diagnosticsStore: LSPDiagnosticsStore(),
+            adapter: GenericLSPServerAdapter()
+        )
+        let harness = LSPTransportHarness(transport: transport)
+
+        _ = client.openDocument(uri: "file:///repo/src/app.ts", languageID: "typescript", text: "const x = 1")
+        _ = client.updateDocument(uri: "file:///repo/src/app.ts", text: "const x = 2")
+        client.closeDocument(uri: "file:///repo/src/app.ts")
+
+        #expect(harness.notifications == [
+            "textDocument/didOpen",
+            "textDocument/didChange",
+            "textDocument/didClose"
+        ])
+    }
+
+    @Test func publishDiagnosticsNotificationUpdatesDiagnosticsStore() throws {
+        let transport = LSPJSONRPCTransport()
+        let diagnosticsStore = LSPDiagnosticsStore()
+        let client = LSPClient(
+            transport: transport,
+            documentStore: LSPDocumentStore(),
+            diagnosticsStore: diagnosticsStore,
+            adapter: GenericLSPServerAdapter()
+        )
+        let harness = LSPTransportHarness(transport: transport)
+
+        client.configureNotificationHandling(workspaceRoot: "/repo")
+        try harness.injectNotification(
+            method: "textDocument/publishDiagnostics",
+            params: [
+                "uri": "file:///repo/src/app.ts",
+                "diagnostics": [
+                    [
+                        "message": "Type mismatch",
+                        "severity": 1,
+                        "source": "tsserver",
+                        "range": [
+                            "start": ["line": 3, "character": 7],
+                            "end": ["line": 3, "character": 9]
+                        ]
+                    ],
+                    [
+                        "message": "Unused variable",
+                        "severity": 2
+                    ]
+                ]
+            ]
+        )
+
+        let snapshot = try #require(diagnosticsStore.snapshot(for: "/repo", uri: "file:///repo/src/app.ts"))
+        #expect(snapshot.diagnostics.map(\.message) == ["Type mismatch", "Unused variable"])
+        #expect(snapshot.diagnostics.map(\.severity) == [.error, .warning])
+        #expect(snapshot.diagnostics.first?.source == "tsserver")
+        #expect(snapshot.diagnostics.first?.line == 3)
+        #expect(snapshot.diagnostics.first?.character == 7)
+    }
 }
 
 private final class LSPTransportHarness {
@@ -158,6 +222,16 @@ private final class LSPTransportHarness {
 
     func onRequest(method: String, responder: @escaping (Request) -> Any) {
         responders[method] = responder
+    }
+
+    func injectNotification(method: String, params: [String: Any]) throws {
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params
+        ]
+        let framed = try transport.makeOutgoingData(jsonObject: payload)
+        _ = try transport.receive(framed)
     }
 
     private func handleOutgoing(data: Data) {

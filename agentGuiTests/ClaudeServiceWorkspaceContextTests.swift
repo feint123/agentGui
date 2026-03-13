@@ -23,6 +23,68 @@ struct ClaudeServiceWorkspaceContextTests {
         #expect(service.lspServerManager?.state(for: "/repo", serverID: "typescript-language-server")?.summaryText.contains("running") == true)
     }
 
+    @Test func ensureWorkspaceLSPStateBootstrapsProjectWithoutSelectedFile() async throws {
+        let service = ClaudeService()
+        let harness = ClaudeServiceWorkspaceContextHarness()
+        let settings = AppSettings.testFixture()
+        settings.enableLSPTools = true
+        settings.autoStartLSPServers = true
+        service.lspServerManager = harness.makeManager(settings: settings)
+
+        let workspaceRoot = try makeWorkspace(files: [
+            "src/app.ts": "const answer: number = 42\n",
+            "tools/script.py": "print('hi')\n"
+        ])
+
+        let result = try await service.ensureWorkspaceLSPState(
+            workingDirectory: workspaceRoot.path,
+            selectedFilePath: nil,
+            settings: settings
+        )
+
+        #expect(Set(result.startedServerIDs) == ["typescript-language-server", "python-lsp"])
+    }
+
+    @Test func ensureWorkspaceLSPStateUsesSelectedFileAsFallback() async throws {
+        let service = ClaudeService()
+        let harness = ClaudeServiceWorkspaceContextHarness()
+        let settings = AppSettings.testFixture()
+        settings.enableLSPTools = true
+        settings.autoStartLSPServers = true
+        service.lspServerManager = harness.makeManager(settings: settings)
+
+        let result = try await service.ensureWorkspaceLSPState(
+            workingDirectory: "/repo",
+            selectedFilePath: "/repo/src/app.ts",
+            settings: settings
+        )
+
+        #expect(result.startedServerIDs == ["typescript-language-server"])
+        #expect(result.indexedFiles["typescript-language-server"] == ["/repo/src/app.ts"])
+    }
+
+    @Test func ensureWorkspaceLSPStateRestartsCrashedSession() async throws {
+        let service = ClaudeService()
+        let harness = ClaudeServiceWorkspaceContextHarness()
+        let settings = AppSettings.testFixture()
+        settings.enableLSPTools = true
+        settings.autoStartLSPServers = true
+        service.lspServerManager = harness.makeManager(settings: settings)
+
+        _ = try await service.lspServerManager?.startSession(workspaceRoot: "/repo", serverID: "typescript-language-server")
+        harness.lastProcess?.terminationHandler?(9)
+        await Task.yield()
+
+        let result = try await service.ensureWorkspaceLSPState(
+            workingDirectory: "/repo",
+            selectedFilePath: "/repo/src/app.ts",
+            settings: settings
+        )
+
+        #expect(result.startedServerIDs == ["typescript-language-server"])
+        #expect(service.lspServerManager?.state(for: "/repo", serverID: "typescript-language-server")?.summaryText.contains("running") == true)
+    }
+
     @Test func workspaceContextCarriesSelectedFileAndSelection() {
         let service = ClaudeService()
         let settings = AppSettings.testFixture()
@@ -123,7 +185,24 @@ struct ClaudeServiceWorkspaceContextTests {
 }
 
 @MainActor
+private func makeWorkspace(files: [String: String]) throws -> URL {
+    let workspaceRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: workspaceRoot, withIntermediateDirectories: true)
+
+    for (relativePath, contents) in files {
+        let fileURL = workspaceRoot.appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
+    return workspaceRoot
+}
+
+@MainActor
 private final class ClaudeServiceWorkspaceContextHarness {
+    private(set) var lastProcess: ClaudeServiceWorkspaceContextProcess?
+
     func makeManager(settings: AppSettings) -> LSPServerManager {
         let registry = try! LSPServerRegistry(settings: settings)
         let diagnosticsStore = LSPDiagnosticsStore()
@@ -140,7 +219,9 @@ private final class ClaudeServiceWorkspaceContextHarness {
                 )
             },
             makeSupervisor: {
-                LSPProcessSupervisor(processLauncher: ClaudeServiceWorkspaceContextLauncher())
+                LSPProcessSupervisor(processLauncher: ClaudeServiceWorkspaceContextLauncher(onCreate: { [weak self] process in
+                    self?.lastProcess = process
+                }))
             }
         )
     }
@@ -153,8 +234,16 @@ private struct ClaudeServiceWorkspaceContextAdapter: LSPServerAdapter {
 }
 
 private final class ClaudeServiceWorkspaceContextLauncher: LSPProcessLaunching {
+    private let onCreate: (ClaudeServiceWorkspaceContextProcess) -> Void
+
+    init(onCreate: @escaping (ClaudeServiceWorkspaceContextProcess) -> Void) {
+        self.onCreate = onCreate
+    }
+
     func makeProcess(command: String, arguments: [String]) throws -> any LSPManagedProcess {
-        ClaudeServiceWorkspaceContextProcess()
+        let process = ClaudeServiceWorkspaceContextProcess()
+        onCreate(process)
+        return process
     }
 }
 

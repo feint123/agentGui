@@ -65,6 +65,7 @@ final class LSPProcessSupervisor {
     private let processLauncher: any LSPProcessLaunching
     private var currentProcess: (any LSPManagedProcess)?
     private var isStopping = false
+    var onStateDidChange: ((LSPProcessState) -> Void)?
 
     private(set) var state: LSPProcessState = .idle
     private(set) var restartCount = 0
@@ -76,7 +77,7 @@ final class LSPProcessSupervisor {
 
     @discardableResult
     func start(command: String, arguments: [String]) async throws -> any LSPManagedProcess {
-        state = .starting
+        updateState(.starting)
         isStopping = false
         record(.info, message: "Launching LSP process: \(renderCommand(command: command, arguments: arguments))")
         let resolvedEnvironment = LSPProcessEnvironmentResolver.resolvedEnvironment()
@@ -106,23 +107,23 @@ final class LSPProcessSupervisor {
                     guard let self else { return }
                     if self.isStopping {
                         self.record(.info, message: "LSP process stopped")
-                        self.state = .stopped
+                        self.updateState(.stopped)
                     } else {
                         self.restartCount += 1
                         self.record(.error, message: "LSP process crashed with status \(status)")
-                        self.state = .crashed(reason: "Process exited with status \(status)", restartCount: self.restartCount)
+                        self.updateState(.crashed(reason: "Process exited with status \(status)", restartCount: self.restartCount))
                     }
                 }
             }
             try process.start()
             currentProcess = process
-            state = .running(processIdentifier: process.processIdentifier)
+            updateState(.running(processIdentifier: process.processIdentifier))
             record(.info, message: "LSP process started with pid \(process.processIdentifier)")
             return process
         } catch {
             let reason = String(describing: error).replacingOccurrences(of: "message(", with: "").replacingOccurrences(of: ")", with: "").replacingOccurrences(of: "\"", with: "")
             record(.error, message: "LSP process launch failed: \(reason)")
-            state = .failedToLaunch(reason: reason)
+            updateState(.failedToLaunch(reason: reason))
             throw error
         }
     }
@@ -132,7 +133,7 @@ final class LSPProcessSupervisor {
         record(.info, message: "Stopping LSP process")
         currentProcess?.stop()
         currentProcess = nil
-        state = .stopped
+        updateState(.stopped)
     }
 
     func record(_ level: LSPRuntimeLogEntry.Level, message: String) {
@@ -162,6 +163,11 @@ final class LSPProcessSupervisor {
             return "<empty>"
         }
         return String(text.prefix(240))
+    }
+
+    private func updateState(_ newState: LSPProcessState) {
+        state = newState
+        onStateDidChange?(newState)
     }
 }
 

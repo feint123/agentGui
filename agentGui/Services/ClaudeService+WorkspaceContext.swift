@@ -11,6 +11,7 @@ struct WorkspacePanelLSPStatusPresentation: Equatable {
     let selectedFileName: String?
     let errorCount: Int
     let warningCount: Int
+    let projectSummary: LSPProjectDiagnosticsSummary?
 }
 
 extension ClaudeService {
@@ -91,7 +92,8 @@ extension ClaudeService {
                 serverID: nil,
                 selectedFileName: fileName,
                 errorCount: 0,
-                warningCount: 0
+                warningCount: 0,
+                projectSummary: nil
             )
         }
 
@@ -101,7 +103,8 @@ extension ClaudeService {
                 serverID: nil,
                 selectedFileName: fileName,
                 errorCount: 0,
-                warningCount: 0
+                warningCount: 0,
+                projectSummary: nil
             )
         }
 
@@ -111,7 +114,8 @@ extension ClaudeService {
                 serverID: nil,
                 selectedFileName: nil,
                 errorCount: 0,
-                warningCount: 0
+                warningCount: 0,
+                projectSummary: lspServerManager?.diagnosticsStore.workspaceSummary(for: workingDirectory)
             )
         }
 
@@ -121,7 +125,8 @@ extension ClaudeService {
                 serverID: nil,
                 selectedFileName: fileName,
                 errorCount: 0,
-                warningCount: 0
+                warningCount: 0,
+                projectSummary: nil
             )
         }
 
@@ -137,12 +142,14 @@ extension ClaudeService {
                 serverID: nil,
                 selectedFileName: fileName,
                 errorCount: 0,
-                warningCount: 0
+                warningCount: 0,
+                projectSummary: lspServerManager?.diagnosticsStore.workspaceSummary(for: workingDirectory)
             )
         }
 
         let uri = URL(fileURLWithPath: selectedFilePath).absoluteString
         let diagnostics = lspServerManager?.diagnosticsStore.snapshot(for: workingDirectory, uri: uri)?.diagnostics ?? []
+        let projectSummary = lspServerManager?.diagnosticsStore.workspaceSummary(for: workingDirectory)
         let errorCount = diagnostics.filter { $0.severity == .error }.count
         let warningCount = diagnostics.filter { $0.severity == .warning }.count
         let stateText = lspServerManager?.state(for: workingDirectory, serverID: binding.serverID)?.summaryText
@@ -152,8 +159,9 @@ extension ClaudeService {
             stateText: stateText,
             serverID: binding.serverID,
             selectedFileName: fileName,
-            errorCount: errorCount,
-            warningCount: warningCount
+            errorCount: projectSummary?.errorCount ?? errorCount,
+            warningCount: projectSummary?.warningCount ?? warningCount,
+            projectSummary: projectSummary
         )
     }
 

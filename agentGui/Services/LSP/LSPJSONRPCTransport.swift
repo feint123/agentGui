@@ -15,6 +15,7 @@ final class LSPJSONRPCTransport {
     }
 
     var notificationHandler: ((String) -> Void)?
+    var notificationPayloadHandler: ((String, [String: Any]?) -> Void)?
     var outgoingDataHandler: ((Data) -> Void)?
 
     private var bufferedData = Data()
@@ -102,7 +103,9 @@ final class LSPJSONRPCTransport {
             }
 
             if let method = object["method"] as? String {
+                let params = object["params"] as? [String: Any]
                 notificationHandler?(method)
+                notificationPayloadHandler?(method, params)
                 messages.append(.notification(method: method))
                 continue
             }

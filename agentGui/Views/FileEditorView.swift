@@ -17,7 +17,9 @@ struct FileEditorView: View {
     // MARK: - Environment
 
     @Environment(WorkspaceState.self) private var workspaceState
+    @Environment(ClaudeService.self) private var claudeService
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
+    @Environment(\.modelContext) private var modelContext
 
     // MARK: - State
 
@@ -58,6 +60,7 @@ struct FileEditorView: View {
         }
         .onChange(of: textContent) { _, newValue in
             hasUnsavedChanges = loadedFileURL != nil && newValue != fileContent
+            syncOpenDocumentToLSPIfNeeded(text: newValue)
         }
         .onChange(of: workspaceState.selectedFile) { _, newURL in
             workspaceState.editorSelection = nil
@@ -65,6 +68,7 @@ struct FileEditorView: View {
             if let url = newURL {
                 openFileRefreshMonitor.watch(url)
                 loadFile(url)
+                triggerWorkspaceLSPBootstrap(for: url)
             } else {
                 openFileRefreshMonitor.watch(nil)
                 clearEditor()
@@ -154,6 +158,7 @@ struct FileEditorView: View {
             if loadedFileURL != url {
                 loadFile(url)
             }
+            triggerWorkspaceLSPBootstrap(for: url)
         }
     }
 
@@ -267,6 +272,18 @@ struct FileEditorView: View {
         hasUnsavedChanges = false
     }
 
+    private func triggerWorkspaceLSPBootstrap(for url: URL) {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let workingDirectory = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
+        Task {
+            _ = try? await claudeService.ensureWorkspaceLSPState(
+                workingDirectory: workingDirectory,
+                selectedFilePath: url.standardizedFileURL.path,
+                settings: settings
+            )
+        }
+    }
+
     private func clearEditor() {
         externalConflictCoordinator.clear()
         textContent = ""
@@ -305,6 +322,40 @@ struct FileEditorView: View {
         case .reload(let url):
             loadFile(url)
         }
+    }
+
+    private func syncOpenDocumentToLSPIfNeeded(text: String) {
+        guard viewerType == .text,
+              let loadedFileURL,
+              text != fileContent else {
+            return
+        }
+
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        guard settings.enableLSPTools,
+              let registry = try? LSPServerRegistry(settings: settings),
+              let manager = claudeService.lspServerManager else {
+            return
+        }
+
+        let workingDirectory = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
+        guard let binding = LSPWorkspaceResolver().resolve(
+            filePath: loadedFileURL.standardizedFileURL.path,
+            workingDirectory: workingDirectory,
+            registry: registry,
+            settings: settings
+        ) else {
+            return
+        }
+
+        let languageID = binding.languageID ?? "plaintext"
+        manager.syncDocument(
+            workspaceRoot: binding.workspaceRoot,
+            serverID: binding.serverID,
+            uri: loadedFileURL.standardizedFileURL.absoluteString,
+            languageID: languageID,
+            text: text
+        )
     }
 }
 

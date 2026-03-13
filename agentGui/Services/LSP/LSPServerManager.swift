@@ -8,6 +8,7 @@ final class LSPServerManager {
     }
 
     let diagnosticsStore: LSPDiagnosticsStore
+    var onPresentationStateDidChange: (() -> Void)?
 
     private let registry: LSPServerRegistry
     private let makeClient: () -> LSPClient
@@ -24,6 +25,9 @@ final class LSPServerManager {
         self.diagnosticsStore = diagnosticsStore
         self.makeClient = makeClient
         self.makeSupervisor = makeSupervisor
+        self.diagnosticsStore.onDidPublish = { [weak self] _ in
+            self?.notifyPresentationStateDidChange()
+        }
     }
 
     var activeSessionCount: Int {
@@ -41,6 +45,9 @@ final class LSPServerManager {
         }
 
         let supervisor = makeSupervisor()
+        supervisor.onStateDidChange = { [weak self] _ in
+            self?.notifyPresentationStateDidChange()
+        }
         let client = makeClient()
         let process = try await supervisor.start(command: definition.launchCommand, arguments: definition.launchArguments)
         client.attach(process: process)
@@ -64,6 +71,7 @@ final class LSPServerManager {
             capabilities: capabilities
         )
         sessions[key] = session
+        notifyPresentationStateDidChange()
         return session.id
     }
 
@@ -72,8 +80,25 @@ final class LSPServerManager {
         if let existing = sessions[key] {
             await existing.supervisor.stop()
             sessions.removeValue(forKey: key)
+            notifyPresentationStateDidChange()
         }
         return try await startSession(workspaceRoot: workspaceRoot, serverID: serverID)
+    }
+
+    @discardableResult
+    func recoverSessionIfNeeded(workspaceRoot: String, serverID: String) async throws -> Bool {
+        let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
+        guard let existing = sessions[key] else {
+            return false
+        }
+
+        switch existing.supervisor.state {
+        case .crashed, .failedToLaunch, .stopped:
+            _ = try await restartServer(workspaceRoot: workspaceRoot, serverID: serverID)
+            return true
+        case .idle, .starting, .running:
+            return false
+        }
     }
 
     func capabilities(for workspaceRoot: String, serverID: String) -> LSPServerCapabilityHints? {
@@ -92,6 +117,33 @@ final class LSPServerManager {
         let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
         guard let session = sessions[key] else { return }
         session.client.publishDiagnostics(workspaceRoot: workspaceRoot, uri: uri, diagnostics: diagnostics)
+    }
+
+    func syncDocument(
+        workspaceRoot: String,
+        serverID: String,
+        uri: String,
+        languageID: String,
+        text: String
+    ) {
+        let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
+        guard let session = sessions[key] else { return }
+
+        if session.client.updateDocument(uri: uri, text: text) == nil {
+            _ = session.client.openDocument(uri: uri, languageID: languageID, text: text)
+        }
+        notifyPresentationStateDidChange()
+    }
+
+    func closeDocument(workspaceRoot: String, serverID: String, uri: String) {
+        let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
+        guard let session = sessions[key] else { return }
+        session.client.closeDocument(uri: uri)
+        notifyPresentationStateDidChange()
+    }
+
+    private func notifyPresentationStateDidChange() {
+        onPresentationStateDidChange?()
     }
 
     func definition(workspaceRoot: String, serverID: String, uri: String, line: Int, character: Int) async throws -> LSPSymbolLocation? {

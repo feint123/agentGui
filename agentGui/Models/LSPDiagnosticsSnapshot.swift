@@ -10,10 +10,22 @@ enum LSPDiagnosticSeverity: String, Codable, Equatable, Sendable {
 struct LSPDiagnostic: Codable, Equatable, Sendable {
     let message: String
     let severity: LSPDiagnosticSeverity
+    let source: String?
+    let line: Int?
+    let character: Int?
 
-    init(message: String, severity: LSPDiagnosticSeverity) {
+    init(
+        message: String,
+        severity: LSPDiagnosticSeverity,
+        source: String? = nil,
+        line: Int? = nil,
+        character: Int? = nil
+    ) {
         self.message = message
         self.severity = severity
+        self.source = source
+        self.line = line
+        self.character = character
     }
 }
 

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import agentGui
 
+@MainActor
 struct LSPJSONRPCTransportTests {
 
     @Test func transportFramesOutgoingMessagesWithContentLengthHeader() throws {

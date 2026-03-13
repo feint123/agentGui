@@ -72,7 +72,14 @@ final class ClaudeService {
     var toolResultBudgetController = ToolResultBudgetController()
 
     /// Lazily configured LSP server manager used by semantic code tools.
-    var lspServerManager: LSPServerManager?
+    var lspServerManager: LSPServerManager? {
+        didSet {
+            bindLSPPresentationObserver()
+        }
+    }
+
+    /// Increments whenever LSP state or diagnostics change so views can refresh derived status.
+    var lspPresentationRevision: Int = 0
 
     func makeEphemeralSystemPrompt(_ prompt: String) -> MessageParameter.System? {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -152,6 +159,12 @@ final class ClaudeService {
             Task {
                 await session.terminate()
             }
+        }
+    }
+
+    private func bindLSPPresentationObserver() {
+        lspServerManager?.onPresentationStateDidChange = { [weak self] in
+            self?.lspPresentationRevision &+= 1
         }
     }
 }
