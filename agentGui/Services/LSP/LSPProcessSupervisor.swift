@@ -3,7 +3,12 @@ import OSLog
 
 struct LSPProcessEnvironmentResolver {
     static func resolvedEnvironment(baseEnvironment: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
-        ShellEnvironmentResolver.resolvedEnvironment(baseEnvironment: baseEnvironment)
+        cachedEnvironment(baseEnvironment: baseEnvironment)
+    }
+
+    static func prepareEnvironment(baseEnvironment: [String: String] = ProcessInfo.processInfo.environment) async -> [String: String] {
+        let loginPath = await prepareLoginShellPath()
+        return environment(baseEnvironment: baseEnvironment, loginPath: loginPath)
     }
 
     static func resolveExecutableURL(command: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
@@ -21,6 +26,56 @@ struct LSPProcessEnvironmentResolver {
         }
         return nil
     }
+
+    private static func cachedEnvironment(baseEnvironment: [String: String]) -> [String: String] {
+        environment(baseEnvironment: baseEnvironment, loginPath: cachedLoginShellPath())
+    }
+
+    private static func environment(baseEnvironment: [String: String], loginPath: String?) -> [String: String] {
+        var environment = baseEnvironment
+        if let loginPath, !loginPath.isEmpty {
+            environment["PATH"] = loginPath
+        }
+        return environment
+    }
+
+    private static func prepareLoginShellPath() async -> String? {
+        if cacheQueue.sync(execute: { hasResolvedLoginShellPath }) {
+            return cachedLoginShellPath()
+        }
+
+        let resolved = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: resolveLoginShellPath())
+            }
+        }
+        cacheQueue.sync {
+            cachedLoginPath = resolved
+            hasResolvedLoginShellPath = true
+        }
+        return resolved
+    }
+
+    private static func resolveLoginShellPath() -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-l", "-c", "[ -f ~/.zshrc ] && source ~/.zshrc 2>/dev/null; echo $PATH"]
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+        try? process.run()
+        process.waitUntilExit()
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func cachedLoginShellPath() -> String? {
+        cacheQueue.sync { cachedLoginPath }
+    }
+
+    private static let cacheQueue = DispatchQueue(label: "com.agentgui.lsp.environment-cache")
+    private static var cachedLoginPath: String?
+    private static var hasResolvedLoginShellPath = false
 }
 
 struct LSPRuntimeLogEntry: Equatable, Sendable {
@@ -80,7 +135,7 @@ final class LSPProcessSupervisor {
         updateState(.starting)
         isStopping = false
         record(.info, message: "Launching LSP process: \(renderCommand(command: command, arguments: arguments))")
-        let resolvedEnvironment = LSPProcessEnvironmentResolver.resolvedEnvironment()
+        let resolvedEnvironment = await LSPProcessEnvironmentResolver.prepareEnvironment()
         if let path = resolvedEnvironment["PATH"] {
             record(.debug, message: "Resolved PATH: \(path)")
         }

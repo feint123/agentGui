@@ -211,18 +211,12 @@ agentGui 通过工具扩展 Claude 的能力：
 统一记忆运行时是当前正在迁移中的新读路径，用于把分散的记忆源收敛到一个最小相关切片里，再注入主 Agent loop。
 
 - **当前已完成**：Memory Layer / Kind / Scope 核心模型、Creative/Coding/User Preferences profile、task/session/project unified records、Retrieval Planner、Prompt Assembler、Runtime Coordinator、主 loop 统一 read path、任务记忆 direct unified write path、基础治理规则与设置开关
-- **当前状态**：TaskMemory 主链路已切到 unified store；`TaskMemoryService` / `TaskMemoryStoreAdapter` 已移除。`StoryMemoryService` 和 `memory_write` 仍保留各自既有持久化实现，统一运行时目前负责统一读取、组装和部分写入治理
+- **当前状态**：TaskMemory 主链路已切到 unified store；`TaskMemoryService` / `TaskMemoryStoreAdapter` 已移除。`memory_write` 通过统一记忆运行时写入与治理，统一运行时目前负责统一读取、组装和部分写入治理
 - **当前用户可见项**：设置页可以启用统一记忆运行时和治理层；启用后，聊天页会显示运行时已启用；工具调用详情会显示命中的 profiles、layers 和 warnings（若本轮有记录）；若存在运行时快照，还可以直接打开本轮记忆上下文面板，查看入选记录、排除原因、预算明细和占比图表
 - **当前未完成**：后台巩固、归档、TTL、冲突治理面板、完整长期写回编排
 
 当前内置的创作记忆工具包括：
 
-- `story_memory_create_project`
-- `story_memory_attach_project`
-- `story_memory_upsert_character`
-- `story_memory_append_event`
-- `story_memory_query`
-- `story_memory_verify_continuity`
 
 ## 项目结构
 

@@ -82,6 +82,60 @@ struct LSPWorkspaceCoordinatorTests {
         #expect(result.indexedFiles["typescript-language-server"] == ["/repo/src/app.ts"])
     }
 
+    @Test func workspaceBootstrapPrewarmsIndexedFilesToPopulateProjectDiagnostics() async throws {
+        let settings = AppSettings.testFixture()
+        settings.enableLSPTools = true
+        settings.autoStartLSPServers = true
+        let registry = try LSPServerRegistry(settings: settings)
+        let harness = LSPWorkspaceCoordinatorHarness(settings: settings)
+        harness.indexer.stubbed = [
+            "typescript-language-server": [
+                "/repo/src/app.ts",
+                "/repo/src/feature.ts"
+            ]
+        ]
+        let coordinator = LSPWorkspaceCoordinator(
+            registry: registry,
+            serverManager: harness.manager,
+            fileIndexer: harness.indexer,
+            fileLoader: harness.fileLoader.load
+        )
+
+        _ = try await coordinator.bootstrapWorkspace(
+            workingDirectory: "/repo",
+            selectedFilePath: nil,
+            settings: settings
+        )
+
+        #expect(harness.fileLoader.loadedPaths == ["/repo/src/app.ts", "/repo/src/feature.ts"])
+        #expect(harness.process?.openedDocuments == [
+            "file:///repo/src/app.ts",
+            "file:///repo/src/feature.ts"
+        ])
+    }
+
+    @Test func workspaceBootstrapIndexesFilesOffMainActor() async throws {
+        let settings = AppSettings.testFixture()
+        settings.enableLSPTools = true
+        settings.autoStartLSPServers = true
+        let registry = try LSPServerRegistry(settings: settings)
+        let harness = LSPWorkspaceCoordinatorHarness(settings: settings)
+        let coordinator = LSPWorkspaceCoordinator(
+            registry: registry,
+            serverManager: harness.manager,
+            fileIndexer: harness.indexer,
+            fileLoader: harness.fileLoader.load
+        )
+
+        _ = try await coordinator.bootstrapWorkspace(
+            workingDirectory: "/repo",
+            selectedFilePath: "/repo/src/app.ts",
+            settings: settings
+        )
+
+        #expect(harness.indexer.lastCallWasOnMainActor == false)
+    }
+
     private func makeWorkspace(files: [String: String]) throws -> URL {
         let workspaceRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -101,10 +155,15 @@ struct LSPWorkspaceCoordinatorTests {
 private final class LSPWorkspaceCoordinatorHarness {
     let manager: LSPServerManager
     let indexer = StubLSPProjectFileIndexer()
+    let fileLoader = StubLSPWorkspaceFileLoader()
+    private let processRecorder: WorkspaceCoordinatorProcessRecorder
+    var process: WorkspaceCoordinatorManagedProcess? { processRecorder.process }
 
     init(settings: AppSettings) {
         let registry = try! LSPServerRegistry(settings: settings)
         let diagnosticsStore = LSPDiagnosticsStore()
+        let processRecorder = WorkspaceCoordinatorProcessRecorder()
+        self.processRecorder = processRecorder
         manager = LSPServerManager(
             registry: registry,
             diagnosticsStore: diagnosticsStore,
@@ -117,20 +176,41 @@ private final class LSPWorkspaceCoordinatorHarness {
                 )
             },
             makeSupervisor: {
-                LSPProcessSupervisor(processLauncher: WorkspaceCoordinatorLauncher())
+                LSPProcessSupervisor(processLauncher: WorkspaceCoordinatorLauncher { process in
+                    processRecorder.process = process
+                })
             }
         )
     }
 }
 
-private final class StubLSPProjectFileIndexer: LSPProjectFileIndexing {
+private final class WorkspaceCoordinatorProcessRecorder {
+    var process: WorkspaceCoordinatorManagedProcess?
+}
+
+private final class StubLSPProjectFileIndexer: LSPProjectFileIndexing, @unchecked Sendable {
     var stubbed: [String: [String]] = [:]
+    private(set) var lastCallWasOnMainActor = true
 
     func indexFiles(in workspaceRoot: String, registry: LSPServerRegistry) -> [String: [String]] {
+        lastCallWasOnMainActor = Thread.isMainThread
         if !stubbed.isEmpty {
             return stubbed
         }
         return LSPProjectFileIndexer().indexFiles(in: workspaceRoot, registry: registry)
+    }
+}
+
+private final class StubLSPWorkspaceFileLoader {
+    var contentsByPath: [String: String] = [
+        "/repo/src/app.ts": "const broken: string = 42\n",
+        "/repo/src/feature.ts": "export const feature = true\n"
+    ]
+    private(set) var loadedPaths: [String] = []
+
+    func load(path: String) async -> String? {
+        loadedPaths.append(path)
+        return contentsByPath[path]
     }
 }
 
@@ -141,8 +221,16 @@ private struct WorkspaceCoordinatorAdapter: LSPServerAdapter {
 }
 
 private final class WorkspaceCoordinatorLauncher: LSPProcessLaunching {
+    private let onProcessCreated: (WorkspaceCoordinatorManagedProcess) -> Void
+
+    init(onProcessCreated: @escaping (WorkspaceCoordinatorManagedProcess) -> Void = { _ in }) {
+        self.onProcessCreated = onProcessCreated
+    }
+
     func makeProcess(command: String, arguments: [String]) throws -> any LSPManagedProcess {
-        WorkspaceCoordinatorManagedProcess()
+        let process = WorkspaceCoordinatorManagedProcess()
+        onProcessCreated(process)
+        return process
     }
 }
 
@@ -151,6 +239,7 @@ private final class WorkspaceCoordinatorManagedProcess: LSPManagedProcess {
     var terminationHandler: ((Int32) -> Void)?
     var standardOutputHandler: ((Data) -> Void)?
     var standardErrorHandler: ((Data) -> Void)?
+    private(set) var openedDocuments: [String] = []
 
     func start() throws {}
 
@@ -159,8 +248,20 @@ private final class WorkspaceCoordinatorManagedProcess: LSPManagedProcess {
             return
         }
         let body = data.suffix(from: separator.upperBound)
-        guard let payload = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-              let id = payload["id"] else {
+        guard let payload = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+            return
+        }
+
+        if payload["id"] == nil,
+           payload["method"] as? String == "textDocument/didOpen",
+           let textDocument = payload["params"] as? [String: Any],
+           let document = textDocument["textDocument"] as? [String: Any],
+           let uri = document["uri"] as? String {
+            openedDocuments.append(uri)
+            return
+        }
+
+        guard let id = payload["id"] else {
             return
         }
 

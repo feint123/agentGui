@@ -1,11 +1,11 @@
 import Foundation
 
-protocol LSPProjectFileIndexing {
-    func indexFiles(in workspaceRoot: String, registry: LSPServerRegistry) -> [String: [String]]
+protocol LSPProjectFileIndexing: Sendable {
+    nonisolated func indexFiles(in workspaceRoot: String, registry: LSPServerRegistry) -> [String: [String]]
 }
 
 struct LSPProjectFileIndexer: LSPProjectFileIndexing {
-    func indexFiles(in workspaceRoot: String, registry: LSPServerRegistry) -> [String: [String]] {
+    nonisolated func indexFiles(in workspaceRoot: String, registry: LSPServerRegistry) -> [String: [String]] {
         let workspaceURL = URL(fileURLWithPath: workspaceRoot, isDirectory: true)
         guard let enumerator = FileManager.default.enumerator(
             at: workspaceURL,
