@@ -53,6 +53,7 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=m
 xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=macOS' test \
     -only-testing:agentGuiUITests/SessionManagementUITests \
     -only-testing:agentGuiUITests/SettingsUITests \
+    -only-testing:agentGuiUITests/SettingsWindowUITests \
     -only-testing:agentGuiUITests/ChatFlowUITests \
     -only-testing:agentGuiUITests/ToolCallUITests \
     -only-testing:agentGuiUITests/WorkflowRecoveryUITests
@@ -84,14 +85,14 @@ VS Code 里也可以直接运行 `Quality Smoke`、`Sample UI Baseline`、`Sampl
 
 ## 配置
 
-首次运行时，在「设置」标签页中：
+首次运行时，通过主窗口右上角的设置按钮或系统菜单中的“设置...”打开独立设置窗口，并按分类完成配置：
 
-1. 配置 Anthropic API Key（从 [console.anthropic.com](https://console.anthropic.com) 获取）
-2. （可选）设置自定义 Base URL 用于兼容代理服务
-3. 选择要使用的 Claude 模型
-4. 根据需要启用工具和技能
-5. 如需小说写作支持，在「创作记忆」中启用项目级记忆并绑定当前会话
-6. 如需统一记忆读路径与治理层，在「长期记忆」中启用统一记忆运行时和记忆治理
+1. 在“连接”中配置 Anthropic API Key、Base URL、模型和代理
+2. 在“工具”中启用 Bash、Web Search、Web Fetch 和 LSP
+3. 在“智能”中调整 Extended Thinking 与反思阈值
+4. 在“记忆”中启用统一记忆运行时、治理层和长期记忆编辑器
+5. 在“通用”中调整主题与查看版本、连接状态
+6. 如需小说写作支持，继续在主窗口的相关工作流中启用创作记忆并绑定当前会话
 
 ## 架构
 

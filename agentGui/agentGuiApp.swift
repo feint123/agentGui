@@ -8,6 +8,19 @@
 import SwiftUI
 import SwiftData
 
+struct SettingsMenuCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("设置...") {
+                openWindow(id: SettingsWindowScene.id)
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+    }
+}
+
 enum PersistenceSchema {
     static let currentVersion = 1
 }
@@ -108,6 +121,21 @@ struct agentGuiApp: App {
                         }
                     }
                 }
+                .environment(PersistenceCoordinator.shared)
+        }
+        .modelContainer(sharedModelContainer)
+        .commands {
+            SettingsMenuCommands()
+        }
+
+        Window("设置", id: SettingsWindowScene.id) {
+            SettingsWindowView()
+                .environment(claudeService)
+                .environment(skillService)
+                .environment(workflowRuntime ?? WorkflowRuntime(claudeService: claudeService))
+                .environment(runtimeRecoveryService)
+                .environment(reliabilityCenterViewModel)
+                .environment(PersistenceCoordinator.shared)
         }
         .modelContainer(sharedModelContainer)
     }

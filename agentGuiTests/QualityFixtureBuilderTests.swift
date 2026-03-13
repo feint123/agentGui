@@ -8,7 +8,7 @@ struct QualityFixtureBuilderTests {
     @Test func parsesKnownUITestArguments() throws {
         let options = TestLaunchOptions(arguments: [
             "-com.agentgui.test.mode", "true",
-            "-com.agentgui.test.initialTab", "settings",
+            "-com.agentgui.test.initialTab", "skills",
             "-com.agentgui.test.preloadApiKey", "true",
             "-com.agentgui.test.preloadMessages", "true",
             "-com.agentgui.test.workflowState", "running",
@@ -16,7 +16,7 @@ struct QualityFixtureBuilderTests {
         ])
 
         #expect(options.isUITestMode)
-        #expect(options.initialTab == .settings)
+        #expect(options.initialTab == .skills)
         #expect(options.preloadAPIKey)
         #expect(options.preloadMessages)
         #expect(options.workflowState == .running)

@@ -1,9 +1,9 @@
 import XCTest
 
-final class SettingsUITests: UITestBase {
+final class SettingsWindowUITests: UITestBase {
 
     @MainActor
-    func testLaunchToSettingsShowsAPIKeyForm() throws {
+    func testOpenSettingsWindowShowsConnectionPage() throws {
         launchApp()
         openSettingsWindow()
 
