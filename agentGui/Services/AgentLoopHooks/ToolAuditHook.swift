@@ -6,6 +6,7 @@ struct ToolAuditHook: AgentLoopHook {
     let kind: AgentLoopHookKind = .mutator
     let isRequired = true
 
+    let sink: BusinessLogSink?
     let createRecord: (AgentLoopHookContext) async throws -> ToolCall
     let updateRecord: (AgentLoopHookContext) async throws -> Void
 
@@ -19,6 +20,9 @@ struct ToolAuditHook: AgentLoopHook {
             return .toolCallRecord(try await createRecord(context))
         case .didExecuteTool:
             try await updateRecord(context)
+            if let record = context.toolCallRecord {
+                ToolExecutionBusinessLogger.emitAudit(record: record, context: context, sink: sink)
+            }
             return .continue
         default:
             return .continue

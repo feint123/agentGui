@@ -31,6 +31,7 @@ struct AgentLoopBuiltInHookFactory {
                 try await dependencies.memoryBootstrapLoader(state)
             },
             ToolAuditHook(
+                sink: dependencies.businessLogSink,
                 createRecord: { context in
                     try await dependencies.createToolCallRecord(context, state)
                 },

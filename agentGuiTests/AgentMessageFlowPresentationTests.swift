@@ -158,7 +158,7 @@ struct AgentMessageFlowPresentationTests {
         #expect(row.tertiaryText == "Listening on http://localhost:3000")
     }
 
-    @Test func managedExecuteDetailSectionsExposeTaskMetadataAndAgentActions() async throws {
+    @Test func managedExecuteDetailSectionsOnlyExposeCoreUserFacingSummary() async throws {
         let tool = ToolCall(toolCallId: "exec-2", kind: .execute)
         tool.title = "npm run dev"
         tool.status = .inProgress
@@ -175,10 +175,9 @@ struct AgentMessageFlowPresentationTests {
         let row = ToolCallRowPresentation.make(for: tool)
         let sections = ToolCallDetailPresentation.sections(for: tool, row: row)
 
-        #expect(sections.map(\.label) == ["命令", "任务状态", "交互摘要", "Agent操作", "输出"])
-        #expect(sections[1].text == "交互任务 · 等待输入 · task-2")
-        #expect(sections[2].text == "Need confirmation to continue")
-        #expect(sections[3].text == "检测到确认提示\n已升级为用户决策")
+        #expect(sections.map(\.label) == ["命令", "当前状态", "结果摘要"])
+        #expect(sections[1].text == "交互任务 · 等待输入\nNeed confirmation to continue")
+        #expect(sections[2].text == "Project scaffold ready")
     }
 }
 
