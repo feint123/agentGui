@@ -116,10 +116,30 @@ enum ToolCallDetailPresentation {
         if let summary = toolCall.verifierSummary {
             sections.append(.init(label: "验证摘要", text: summary, monospaced: false, maxHeight: 120))
         }
+        if let residualRisk = verifierMetadataValue("verificationResidualRisk", toolCall: toolCall) {
+            sections.append(.init(label: "残余风险", text: residualRisk, monospaced: false))
+        }
+        if let nextProbe = verifierMetadataValue("verificationRecommendedProbe", toolCall: toolCall) {
+            sections.append(.init(label: "下一探针", text: nextProbe, monospaced: false, maxHeight: 120))
+        }
+        if let openClaims = verifierMetadataValue("verificationOpenClaimsCount", toolCall: toolCall) {
+            sections.append(.init(label: "未关闭声明", text: openClaims, monospaced: false))
+        }
+        if let contradictedClaims = verifierMetadataValue("verificationContradictedClaimsCount", toolCall: toolCall) {
+            sections.append(.init(label: "已反驳声明", text: contradictedClaims, monospaced: false))
+        }
         if sections.isEmpty {
             return fallbackSections(for: row)
         }
         return sections
+    }
+
+    private static func verifierMetadataValue(_ key: String, toolCall: ToolCall) -> String? {
+        guard let value = toolCall.subagentMessageMetadata?[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private static func fallbackSections(for row: ToolCallRowPresentation) -> [ToolCallDetailSection] {

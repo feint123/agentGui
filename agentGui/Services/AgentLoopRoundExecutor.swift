@@ -146,29 +146,74 @@ struct AgentLoopRoundExecutor {
             existingVerification: existingVerification,
             latestFailureTrigger: state.loopCtx.pendingFailureTrigger
         )
+        state.verificationState = verificationOutcome.verificationState
+        state.hookState.verificationState = verificationOutcome.verificationState
         sharedState.writeVerification(sessionId, verificationOutcome.report)
 
         if let failureTrigger = verificationOutcome.failureTrigger {
             state.loopCtx.pendingFailureTrigger = failureTrigger
         }
-        let verificationObservations = [verificationOutcome.report.summary].compactMap { summary in
+        let verificationObservations = [
+            verificationOutcome.report.summary,
+            verificationOutcome.verificationState.frontier.first?.recommendedProbe,
+            verificationOutcome.verificationState.certificate?.stopReason
+        ].compactMap { summary in
             let trimmed = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
             return (trimmed?.isEmpty == false) ? trimmed : nil
         }
+        let verificationEvents = verificationEvents(
+            for: verificationOutcome.verificationState,
+            sessionId: sessionId,
+            roundIndex: state.loopCtx.roundIndex,
+            passed: verificationOutcome.passed
+        )
         recordEpistemicInputEnvelope(
             sessionId: sessionId,
             roundIndex: state.loopCtx.roundIndex,
             messages: messages,
             toolObservations: verificationObservations,
-            events: [
-                AtomicEpistemicEvent(
-                    kind: .claimResolved,
-                    summary: verificationOutcome.passed ? "verification passed" : "verification failed",
-                    sourceRefs: ["verification:\(sessionId):\(state.loopCtx.roundIndex)"]
-                )
-            ]
+            events: verificationEvents
         )
         state.loopCtx.verificationComplete(passed: verificationOutcome.passed)
+    }
+
+    private func verificationEvents(
+        for verificationState: VerificationState,
+        sessionId: String,
+        roundIndex: Int,
+        passed: Bool
+    ) -> [AtomicEpistemicEvent] {
+        let sourceRef = "verification:\(sessionId):\(roundIndex)"
+        var events = [
+            AtomicEpistemicEvent(
+                kind: .claimResolved,
+                summary: passed ? "verification passed" : "verification failed",
+                sourceRefs: [sourceRef]
+            )
+        ]
+
+        events.append(contentsOf: verificationState.frontier.map {
+            AtomicEpistemicEvent(
+                kind: .claimRaised,
+                summary: $0.openQuestion,
+                sourceRefs: [sourceRef]
+            )
+        })
+        events.append(contentsOf: verificationState.repairQueue.map {
+            AtomicEpistemicEvent(
+                kind: .actionProposed,
+                summary: $0,
+                sourceRefs: [sourceRef]
+            )
+        })
+        events.append(contentsOf: verificationState.certificate?.residualRisks.map {
+            AtomicEpistemicEvent(
+                kind: .observationReceived,
+                summary: $0,
+                sourceRefs: [sourceRef]
+            )
+        } ?? [])
+        return events
     }
 
     func executeStreamingRound(

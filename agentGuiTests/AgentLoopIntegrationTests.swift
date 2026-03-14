@@ -93,7 +93,7 @@ struct AgentLoopIntegrationTests {
         #expect(result.text.contains("outer loop finished"))
         #expect(toolCalls.count == 1)
         #expect(toolCalls.first?.subagentAgentName == "explore")
-        #expect(toolCalls.first?.subagentResultKind == "text")
+        #expect(["text", "structured"].contains(toolCalls.first?.subagentResultKind ?? ""))
         #expect(toolCalls.first?.subagentMessageMetadata?["agent"] == "explore")
     }
 
@@ -201,7 +201,7 @@ struct AgentLoopIntegrationTests {
             ],
             [
                 decodeStreamEvent("""
-                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"passed\\":true,\\"summary\\":\\"verification passed\\",\\"verified_items\\":[\\"swift test passed\\"],\\"failed_items\\":[],\\"missing_evidence\\":[],\\"risk_areas\\":[],\\"recommended_next_action\\":\\"finish\\",\\"confidence\\":0.98}"}}
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"frontier_ranking\\":[],\\"missing_evidence\\":[],\\"residual_risks\\":[],\\"recommended_next_action\\":\\"finish\\"}"}}
                 """),
                 decodeStreamEvent("""
                 {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
@@ -235,7 +235,8 @@ struct AgentLoopIntegrationTests {
         #expect(result.completedSuccessfully)
         #expect(toolCalls.contains(where: { $0.subagentAgentName == "verifier" }))
         #expect(verification.passed == true)
-        #expect(verification.summary == "verification passed")
+        #expect(verification.verificationState?.certificate?.decision == .pass)
+        #expect(verification.verificationState?.certificate?.openClaims.isEmpty == true)
     }
 
     @Test func runCoreAgentLoopDoesNotUseLegacyExecutionRequirementGuard() async throws {

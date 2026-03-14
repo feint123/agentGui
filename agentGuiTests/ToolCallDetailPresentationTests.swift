@@ -89,7 +89,11 @@ struct ToolCallDetailPresentationTests {
         toolCall.subagentTask = "验证实现结果"
         toolCall.subagentMessageMetadata = [
             "verificationPassed": "false",
-            "verificationSummary": "missing runtime evidence"
+            "verificationSummary": "missing runtime evidence",
+            "verificationResidualRisk": "0.72",
+            "verificationRecommendedProbe": "inspect targeted test invocation",
+            "verificationOpenClaimsCount": "2",
+            "verificationContradictedClaimsCount": "1"
         ]
 
         let row = ToolCallRowPresentation.make(for: toolCall)
@@ -97,5 +101,9 @@ struct ToolCallDetailPresentationTests {
 
         #expect(sections.contains { $0.label == "验证结果" && $0.text == "验证失败" })
         #expect(sections.contains { $0.label == "验证摘要" && $0.text == "missing runtime evidence" })
+        #expect(sections.contains { $0.label == "残余风险" && $0.text == "0.72" })
+        #expect(sections.contains { $0.label == "下一探针" && $0.text == "inspect targeted test invocation" })
+        #expect(sections.contains { $0.label == "未关闭声明" && $0.text == "2" })
+        #expect(sections.contains { $0.label == "已反驳声明" && $0.text == "1" })
     }
 }

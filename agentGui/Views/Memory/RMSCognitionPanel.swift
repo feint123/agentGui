@@ -16,6 +16,7 @@ struct RMSCognitionPanel: View {
                 if let snapshot {
                     let viewModel = RMSCognitionPanelViewModel(snapshot: snapshot)
                     heroSection(viewModel: viewModel)
+                    verificationSummarySection(viewModel: viewModel)
                     frontierSection(viewModel: viewModel)
                     counterexampleSection(viewModel: viewModel)
                     constraintSection(viewModel: viewModel)
@@ -78,6 +79,23 @@ struct RMSCognitionPanel: View {
                 }
             }
         }
+    }
+
+    private func verificationSummarySection(viewModel: RMSCognitionPanelViewModel) -> some View {
+        guard let summary = viewModel.verificationSummary else {
+            return AnyView(EmptyView())
+        }
+
+        return AnyView(
+            cognitionSection(title: "Verification Summary", subtitle: "当前验证收敛信号与残余风险") {
+                HStack(spacing: 12) {
+                    cognitionChip(title: "残余风险", value: formattedDecimal(summary.residualRisk), tint: .pink)
+                    cognitionChip(title: "继续验证价值", value: formattedDecimal(summary.expectedValueOfMoreReasoning), tint: .mint)
+                    cognitionChip(title: "前沿数", value: "\(summary.frontierCount)", tint: .orange)
+                    cognitionChip(title: "债务数", value: "\(summary.debtCount)", tint: .yellow)
+                }
+            }
+        )
     }
 
     private func counterexampleSection(viewModel: RMSCognitionPanelViewModel) -> some View {
@@ -194,17 +212,25 @@ struct RMSCognitionPanel: View {
     }
 
     private func cognitionChip(title: String, value: Int, tint: Color) -> some View {
+        cognitionChip(title: title, value: "\(value)", tint: tint)
+    }
+
+    private func cognitionChip(title: String, value: String, tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("\(value)")
+            Text(value)
                 .font(.title3.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(tint)
         }
         .padding(12)
         .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func formattedDecimal(_ value: Double) -> String {
+        String(format: "%.2f", value)
     }
 
     private func diagnosticsRow(_ label: String, value: String) -> some View {
@@ -228,7 +254,7 @@ struct RMSCognitionPanel: View {
 
     private func loadLatestSnapshot() {
         do {
-            snapshot = try snapshotStore.allSnapshots().first
+            snapshot = try snapshotStore.latestSnapshotInMostRecentSession()
             loadError = nil
         } catch {
             loadError = error.localizedDescription

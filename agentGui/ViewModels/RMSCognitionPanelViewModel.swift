@@ -66,6 +66,13 @@ final class RMSCognitionPanelViewModel {
         let retrievalIntentSummary: String
     }
 
+    struct VerificationSummary: Equatable {
+        let residualRisk: Double
+        let expectedValueOfMoreReasoning: Double
+        let frontierCount: Int
+        let debtCount: Int
+    }
+
     let snapshot: MemoryRuntimeSnapshot
 
     init(snapshot: MemoryRuntimeSnapshot) {
@@ -167,6 +174,24 @@ final class RMSCognitionPanelViewModel {
             workingSetCost: snapshot.metrics.workingSetCost,
             dereferenceCount: snapshot.dereferenceCount,
             retrievalIntentSummary: retrievalIntentSummary
+        )
+    }
+
+    var verificationSummary: VerificationSummary? {
+        let residualRisk = snapshot.epistemicState.residualRisk
+        let expectedValue = snapshot.epistemicState.expectedValueOfMoreReasoning
+        let frontierCount = snapshot.epistemicState.frontiers.count
+        let debtCount = snapshot.epistemicState.verificationDebt.count
+
+        guard residualRisk > 0 || expectedValue > 0 || frontierCount > 0 || debtCount > 0 else {
+            return nil
+        }
+
+        return VerificationSummary(
+            residualRisk: residualRisk,
+            expectedValueOfMoreReasoning: expectedValue,
+            frontierCount: frontierCount,
+            debtCount: debtCount
         )
     }
 

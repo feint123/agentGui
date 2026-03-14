@@ -1055,7 +1055,7 @@ span.end()
     D -->|needsUserConfirmation| H[写入 pending-confirmations.json]
     D -->|reject| I[返回拒绝]
 
-    E --> J[MemoryManagementPanel 可见]
+    E --> J[RMSCognitionPanel 可见]
     F --> J
     G --> J
     H --> J
@@ -1082,7 +1082,7 @@ span.end()
 ### 5.7 已实现的管理可见性
 
 - 设置页的“长期记忆”分区已暴露统一写路径、后台巩固、待确认阈值和 TTL sweep 配置。
-- `MemoryManagementPanel` 可展示 scope/layer 统计、归档数量、冲突/替代记录以及待确认写入列表。
+- 旧 `MemoryManagementPanel` 已从产品主路径移除，设置页现在打开 `RMSCognitionPanel`，主视图围绕 frontiers、反例、约束、验证债务、影响轨迹与建议动作展示当前 RMS 认知状态。
 - `ToolCallDetailContentView` 已可显示 unified runtime metadata、后台巩固标记、冲突 record IDs 和待确认 candidate IDs。
 - `ChatView` 在统一记忆运行时启用时会在副标题中显示治理层状态。
         +[Content] mediaContent

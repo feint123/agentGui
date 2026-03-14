@@ -3,8 +3,10 @@ import SwiftAnthropic
 import SwiftData
 
 struct AgentLoopVerificationOutcome: Equatable {
+    let decision: VerificationDecision
     let passed: Bool
     let report: CompletionVerification
+    let verificationState: VerificationState
     let failureTrigger: FailureTrigger?
 }
 
@@ -101,20 +103,36 @@ struct AgentLoopVerificationCoordinator {
         )
 
         let payload = parseVerifierPayload(from: agentMessage.apiText)
-        let failedItems = payload?.failedItems ?? []
-        let missingEvidence = payload?.missingEvidence ?? ["Verifier output could not be parsed"]
-        let derivedPassed = (payload?.passed ?? false) && failedItems.isEmpty && missingEvidence.isEmpty
-        let summary = payload?.summary ?? (agentMessage.isError ? agentMessage.apiText : "Verifier output could not be parsed")
+        let verificationState = buildVerificationState(
+            payload: payload,
+            verification: verification,
+            executionEvidence: executionEvidence,
+            fallbackSummary: agentMessage.isError ? agentMessage.apiText : "Verifier output could not be parsed"
+        )
+        let certificate = verificationState.certificate
+        let failedItems = certificate?.contradictedClaims ?? []
+        let missingEvidence = verificationState.openQuestions.isEmpty ? [] : verificationState.openQuestions
+        let summary = certificate?.stopReason ?? (agentMessage.isError ? agentMessage.apiText : "Verifier output could not be parsed")
+        let decision = certificate?.decision ?? .abstain
+        let derivedPassed = decision == .pass
         let update = VerificationAssessmentUpdate(
             passed: derivedPassed,
             summary: summary,
             missingEvidence: missingEvidence,
-            riskAreas: payload?.riskAreas ?? [],
+            riskAreas: certificate?.residualRisks ?? [],
             recommendedNextAction: payload?.recommendedNextAction,
-            verifierAgent: "verifier"
+            verifierAgent: "verifier",
+            verificationState: verificationState
         )
         var metadata = agentMessage.metadata
         metadata["verificationPassed"] = derivedPassed ? "true" : "false"
+        metadata["verificationSummary"] = summary
+        metadata["verificationResidualRisk"] = String(format: "%.2f", verificationState.riskScore)
+        if let recommendedProbe = verificationState.frontier.first?.recommendedProbe {
+            metadata["verificationRecommendedProbe"] = recommendedProbe
+        }
+        metadata["verificationOpenClaimsCount"] = String(certificate?.openClaims.count ?? 0)
+        metadata["verificationContradictedClaimsCount"] = String(certificate?.contradictedClaims.count ?? 0)
         record.subagentMessageMetadata = metadata.isEmpty ? nil : metadata
         try? modelContext.save()
         try store.updateVerificationAssessment(update, for: sessionId)
@@ -126,7 +144,7 @@ struct AgentLoopVerificationCoordinator {
                 "summary": summary,
                 "failedItemCount": failedItems.count,
                 "missingEvidenceCount": missingEvidence.count,
-                "riskAreaCount": payload?.riskAreas.count ?? 0,
+                "riskAreaCount": certificate?.residualRisks.count ?? 0,
                 "parsedPayload": payload != nil,
                 "rawPreview": String(agentMessage.apiText.prefix(240))
             ],
@@ -142,10 +160,17 @@ struct AgentLoopVerificationCoordinator {
             missingEvidence: update.missingEvidence,
             riskAreas: update.riskAreas,
             recommendedNextAction: update.recommendedNextAction,
-            verifierAgent: update.verifierAgent
+            verifierAgent: update.verifierAgent,
+            verificationState: update.verificationState
         )
         let failureTrigger = derivedPassed ? nil : FailureTrigger.verificationFailure(detail: summary)
-        return AgentLoopVerificationOutcome(passed: derivedPassed, report: report, failureTrigger: failureTrigger)
+        return AgentLoopVerificationOutcome(
+            decision: decision,
+            passed: derivedPassed,
+            report: report,
+            verificationState: verificationState,
+            failureTrigger: failureTrigger
+        )
     }
 
     private func makeVerifierTask(
@@ -179,19 +204,158 @@ struct AgentLoopVerificationCoordinator {
 
         Latest failure trigger (host-detected issue, if any):
         \(latestFailureTrigger?.description ?? "none")
-
-        Return ONLY valid JSON in this schema:
-        {
-          "passed": <true|false>,
-          "summary": "short verdict",
-          "verified_items": ["item"],
-          "failed_items": ["item"],
-          "missing_evidence": ["item"],
-          "risk_areas": ["item"],
-          "recommended_next_action": "finish|reflect|retry_execution|gather_context",
-          "confidence": 0.0
-        }
         """
+    }
+
+    private func buildVerificationState(
+        payload: VerifierPayload?,
+        verification: CompletionVerification,
+        executionEvidence: Set<ExecutionEvidenceKind>,
+        fallbackSummary: String
+    ) -> VerificationState {
+        let claims = buildClaims(from: verification)
+        let evidence = buildEvidence(from: executionEvidence)
+        let frontier = buildFrontier(from: payload, claims: claims)
+        let openQuestions = payload?.missingEvidence ?? (payload == nil ? [fallbackSummary] : [])
+        let residualRisks = payload?.residualRisks ?? payload?.riskAreas ?? []
+        let riskScore = min(1, Double(openQuestions.count) * 0.22 + Double(residualRisks.count) * 0.18 + Double(frontier.count) * 0.20)
+        let supportedClaims = claims.filter { $0.status == .supported }.map(\.text)
+        let contradictedClaims = claims.filter { $0.status == .contradicted }.map(\.text)
+        let openClaims = frontier.map(\.openQuestion)
+
+        let decision: VerificationDecision
+        let stopReason: String
+        if frontier.isEmpty, openQuestions.isEmpty, residualRisks.isEmpty {
+            decision = .pass
+            stopReason = payload?.summary ?? fallbackSummary
+        } else if !openQuestions.isEmpty {
+            decision = .abstain
+            stopReason = payload?.summary ?? openQuestions.joined(separator: "; ")
+        } else if !frontier.isEmpty {
+            decision = .revise
+            stopReason = payload?.summary ?? frontier.map(\.openQuestion).joined(separator: "; ")
+        } else {
+            decision = .fail
+            stopReason = payload?.summary ?? residualRisks.joined(separator: "; ")
+        }
+
+        let certificate = ConvergenceCertificate(
+            decision: decision,
+            supportedClaims: supportedClaims,
+            contradictedClaims: contradictedClaims,
+            openClaims: openClaims,
+            residualRisks: residualRisks,
+            expectedValueOfMoreVerification: decision == .pass ? 0 : max(0.1, riskScore),
+            stopReason: stopReason
+        )
+
+        return VerificationState(
+            riskScore: riskScore,
+            claims: claims,
+            evidence: evidence,
+            frontier: frontier,
+            repairQueue: payload?.recommendedNextAction.map { [$0] } ?? [],
+            openQuestions: openQuestions,
+            certificate: certificate
+        )
+    }
+
+    private func buildClaims(from verification: CompletionVerification) -> [VerificationClaim] {
+        let supported = verification.verified.map { text in
+            VerificationClaim(
+                id: claimID(for: text),
+                text: text,
+                claimType: claimType(for: text),
+                importance: 0.9,
+                verifiability: 0.7,
+                status: .supported,
+                evidenceRefs: []
+            )
+        }
+        let unsupported = verification.notVerified.map { text in
+            VerificationClaim(
+                id: claimID(for: text),
+                text: text,
+                claimType: claimType(for: text),
+                importance: 0.7,
+                verifiability: 0.5,
+                status: .contradicted,
+                evidenceRefs: []
+            )
+        }
+        return supported + unsupported
+    }
+
+    private func buildEvidence(from executionEvidence: Set<ExecutionEvidenceKind>) -> [VerificationEvidence] {
+        executionEvidence.sorted(by: { $0.rawValue < $1.rawValue }).map { evidence in
+            VerificationEvidence(
+                id: "evidence-\(evidence.rawValue)",
+                source: evidence.rawValue,
+                summary: evidence.rawValue,
+                strength: 0.8,
+                sourceRefs: ["execution:\(evidence.rawValue)"]
+            )
+        }
+    }
+
+    private func buildFrontier(from payload: VerifierPayload?, claims: [VerificationClaim]) -> [VerificationFrontierItem] {
+        let ranking = payload?.frontierRanking ?? []
+        if !ranking.isEmpty {
+            return ranking.map { item in
+                let matchedClaim = claims.first { claim in
+                    claim.id == item.claimID || item.reason.localizedCaseInsensitiveContains(claim.text)
+                }
+                let type = matchedClaim?.claimType ?? claimType(for: item.reason)
+                return VerificationFrontierItem(
+                    id: item.claimID,
+                    claimID: matchedClaim?.id ?? item.claimID,
+                    claimType: type,
+                    openQuestion: item.reason,
+                    recommendedProbe: item.recommendedProbe,
+                    riskScore: type == .execution ? 0.9 : 0.7
+                )
+            }
+        }
+
+        return (payload?.missingEvidence ?? []).enumerated().map { index, question in
+            let type = claimType(for: question)
+            return VerificationFrontierItem(
+                id: "frontier-\(index)",
+                claimID: "claim-\(index)",
+                claimType: type,
+                openQuestion: question,
+                recommendedProbe: payload?.recommendedNextAction ?? "gather_context",
+                riskScore: type == .execution ? 0.9 : 0.6
+            )
+        }
+    }
+
+    private func claimID(for text: String) -> String {
+        let normalized = text.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+        return "claim-\(normalized.trimmingCharacters(in: CharacterSet(charactersIn: "-")))"
+    }
+
+    private func claimType(for text: String) -> VerificationClaimType {
+        let lowercased = text.lowercased()
+        if lowercased.contains("pass") || lowercased.contains("build") || lowercased.contains("test") || lowercased.contains("run") || lowercased.contains("execut") {
+            return .execution
+        }
+        if lowercased.contains("file") || lowercased.contains("path") || lowercased.contains("diff") {
+            return .fileState
+        }
+        if lowercased.contains("cover") || lowercased.contains("requirement") {
+            return .coverage
+        }
+        if lowercased.contains("policy") {
+            return .policy
+        }
+        if lowercased.contains("citation") || lowercased.contains("source") {
+            return .citation
+        }
+        if lowercased.contains("fact") || lowercased.contains("docs") || lowercased.contains("api") {
+            return .factual
+        }
+        return .behavioral
     }
 
     private func buildExecutionEvidenceText(executionEvidence: Set<ExecutionEvidenceKind>) -> String {
@@ -549,12 +713,26 @@ private struct VerificationEvidenceDetail: Equatable {
 }
 
 struct VerifierPayload: Codable {
+    struct FrontierRankingItem: Codable, Equatable {
+        let claimID: String
+        let reason: String
+        let recommendedProbe: String
+
+        enum CodingKeys: String, CodingKey {
+            case claimID = "claim_id"
+            case reason
+            case recommendedProbe = "recommended_probe"
+        }
+    }
+
     let passed: Bool
     let summary: String
     let verifiedItems: [String]
     let failedItems: [String]
     let missingEvidence: [String]
     let riskAreas: [String]
+    let residualRisks: [String]
+    let frontierRanking: [FrontierRankingItem]
     let recommendedNextAction: String?
     let confidence: Double?
 
@@ -565,6 +743,8 @@ struct VerifierPayload: Codable {
         case failedItems = "failed_items"
         case missingEvidence = "missing_evidence"
         case riskAreas = "risk_areas"
+        case residualRisks = "residual_risks"
+        case frontierRanking = "frontier_ranking"
         case recommendedNextAction = "recommended_next_action"
         case confidence
     }
@@ -577,6 +757,8 @@ struct VerifierPayload: Codable {
         failedItems = try container.decodeIfPresent([String].self, forKey: .failedItems) ?? []
         missingEvidence = try container.decodeIfPresent([String].self, forKey: .missingEvidence) ?? []
         riskAreas = try container.decodeIfPresent([String].self, forKey: .riskAreas) ?? []
+        residualRisks = try container.decodeIfPresent([String].self, forKey: .residualRisks) ?? []
+        frontierRanking = try container.decodeIfPresent([FrontierRankingItem].self, forKey: .frontierRanking) ?? []
         recommendedNextAction = try container.decodeIfPresent(String.self, forKey: .recommendedNextAction)
         confidence = try container.decodeIfPresent(Double.self, forKey: .confidence)
     }

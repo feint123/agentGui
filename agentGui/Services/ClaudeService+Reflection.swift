@@ -32,7 +32,51 @@ Your job is to analyse the failure, identify root causes, and propose concrete f
 Output only a JSON object — no commentary outside it.
 """
 
-private func reflectionUserPrompt(threshold: Double, failureTrigger: FailureTrigger?) -> String {
+private func verificationReflectionContextText(_ verificationState: VerificationState?) -> String? {
+    guard let verificationState,
+          let certificate = verificationState.certificate else {
+        return nil
+    }
+
+    let openClaims = certificate.openClaims.isEmpty
+        ? "- none"
+        : certificate.openClaims.map { "- \($0)" }.joined(separator: "\n")
+    let residualRisks = certificate.residualRisks.isEmpty
+        ? "- none"
+        : certificate.residualRisks.map { "- \($0)" }.joined(separator: "\n")
+    let repairQueue = verificationState.repairQueue.isEmpty
+        ? "- none"
+        : verificationState.repairQueue.map { "- \($0)" }.joined(separator: "\n")
+    let openQuestions = verificationState.openQuestions.isEmpty
+        ? "- none"
+        : verificationState.openQuestions.map { "- \($0)" }.joined(separator: "\n")
+
+    return """
+    ## Verification Context
+    - decision: \(certificate.decision.rawValue)
+    - residual_risk: \(String(format: "%.2f", verificationState.riskScore))
+    - expected_value_of_more_verification: \(String(format: "%.2f", certificate.expectedValueOfMoreVerification))
+    - stop_reason: \(certificate.stopReason)
+
+    Open claims:
+    \(openClaims)
+
+    Missing evidence:
+    \(openQuestions)
+
+    Residual risks:
+    \(residualRisks)
+
+    Repair queue:
+    \(repairQueue)
+    """
+}
+
+private func reflectionUserPrompt(
+    threshold: Double,
+    failureTrigger: FailureTrigger?,
+    verificationState: VerificationState?
+) -> String {
     let triggerSection: String
     if let trigger = failureTrigger {
         triggerSection = """
@@ -45,8 +89,10 @@ private func reflectionUserPrompt(threshold: Double, failureTrigger: FailureTrig
         triggerSection = "Review the assistant's most recent response in the conversation above."
     }
 
+    let verificationSection = verificationReflectionContextText(verificationState).map { "\n\n\($0)" } ?? ""
+
     return """
-    \(triggerSection)
+    \(triggerSection)\(verificationSection)
 
     Respond ONLY with a valid JSON object in this exact schema:
     {
@@ -84,12 +130,19 @@ extension ClaudeService {
         service: any AnthropicService,
         modelId: String,
         settings: AppSettings,
-        failureTrigger: FailureTrigger? = nil
+        failureTrigger: FailureTrigger? = nil,
+        verificationState: VerificationState? = nil
     ) async -> Reflection? {
         let threshold = settings.reflectionConfidenceThreshold
         let userMsg = MessageParameter.Message(
             role: .user,
-            content: .text(reflectionUserPrompt(threshold: threshold, failureTrigger: failureTrigger))
+            content: .text(
+                reflectionUserPrompt(
+                    threshold: threshold,
+                    failureTrigger: failureTrigger,
+                    verificationState: verificationState
+                )
+            )
         )
         let params = MessageParameter(
             model: .other(modelId),
@@ -119,6 +172,12 @@ extension ClaudeService {
 
     private func parseReflection(from text: String, threshold: Double) -> Reflection? {
         ReflectionJSONDecoder.parse(text: text, threshold: threshold)
+    }
+}
+
+extension ClaudeService {
+    static func makeVerificationReflectionContextTextForTests(_ verificationState: VerificationState?) -> String? {
+        verificationReflectionContextText(verificationState)
     }
 }
 

@@ -31,6 +31,103 @@ struct MemoryRuntimeSnapshotStoreTests {
         #expect(loaded.metrics.countBreakdowns[.layer]?["task"] == 1)
     }
 
+    @Test func storePersistsEachSnapshotAsSeparateFileUnderSnapshotsDirectory() throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = MemoryRuntimeSnapshotStore(baseDirectory: baseDirectory)
+        let snapshot = MemoryRuntimeSnapshot.fixture(id: "snapshot-per-file")
+
+        try store.save(snapshot)
+
+        let snapshotsDirectory = baseDirectory.appending(path: "snapshots", directoryHint: .isDirectory)
+        let snapshotFile = snapshotsDirectory.appending(path: "snapshot-per-file.json")
+
+        #expect(FileManager.default.fileExists(atPath: snapshotsDirectory.path))
+        #expect(FileManager.default.fileExists(atPath: snapshotFile.path))
+        #expect(FileManager.default.fileExists(atPath: baseDirectory.appending(path: "runtime-snapshots.json").path) == false)
+    }
+
+    @Test func storeReadsLegacyAggregateSnapshotFileWhenPerFileStoreIsEmpty() throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let legacyFile = baseDirectory.appending(path: "runtime-snapshots.json")
+        let snapshot = MemoryRuntimeSnapshot.fixture(id: "legacy-snapshot")
+        let encoder = JSONEncoder()
+        let data = try encoder.encode([snapshot])
+
+        try data.write(to: legacyFile, options: .atomic)
+
+        let store = MemoryRuntimeSnapshotStore(baseDirectory: baseDirectory)
+
+        let loaded = try store.snapshot(id: "legacy-snapshot")
+        let snapshots = try store.allSnapshots()
+
+        #expect(loaded?.id == "legacy-snapshot")
+        #expect(snapshots.map(\ .id) == ["legacy-snapshot"])
+    }
+
+    @Test func latestSnapshotInMostRecentSessionReturnsNewestSnapshotWithoutLoadingAllHistoryIntoUI() throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = MemoryRuntimeSnapshotStore(baseDirectory: baseDirectory)
+
+        try store.save(
+            .fixture(
+                id: "older-session-a",
+                sessionId: "session-a",
+                threadId: "thread-a",
+                createdAt: Date(timeIntervalSince1970: 10)
+            )
+        )
+        try store.save(
+            .fixture(
+                id: "newest-session-b",
+                sessionId: "session-b",
+                threadId: "thread-b",
+                createdAt: Date(timeIntervalSince1970: 30)
+            )
+        )
+        try store.save(
+            .fixture(
+                id: "middle-session-b",
+                sessionId: "session-b",
+                threadId: "thread-b",
+                createdAt: Date(timeIntervalSince1970: 20)
+            )
+        )
+
+        let snapshot = try store.latestSnapshotInMostRecentSession()
+
+        #expect(snapshot?.id == "newest-session-b")
+        #expect(snapshot?.sessionId == "session-b")
+    }
+
+    @Test func latestSnapshotInMostRecentSessionFallsBackToLegacyAggregateFile() throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let legacyFile = baseDirectory.appending(path: "runtime-snapshots.json")
+        let encoder = JSONEncoder()
+        let snapshots = [
+            MemoryRuntimeSnapshot.fixture(
+                id: "legacy-older",
+                sessionId: "legacy-session-a",
+                threadId: "thread-a",
+                createdAt: Date(timeIntervalSince1970: 10)
+            ),
+            MemoryRuntimeSnapshot.fixture(
+                id: "legacy-newest",
+                sessionId: "legacy-session-b",
+                threadId: "thread-b",
+                createdAt: Date(timeIntervalSince1970: 30)
+            )
+        ]
+
+        try encoder.encode(snapshots).write(to: legacyFile, options: .atomic)
+
+        let store = MemoryRuntimeSnapshotStore(baseDirectory: baseDirectory)
+
+        let snapshot = try store.latestSnapshotInMostRecentSession()
+
+        #expect(snapshot?.id == "legacy-newest")
+        #expect(snapshot?.sessionId == "legacy-session-b")
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

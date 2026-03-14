@@ -11,7 +11,7 @@
 - `MemoryRuntimeCoordinator.prepareContext(for:)` 会根据 `MemoryRuntimeRequest` 选择 profile、生成 retrieval plan、收集 records、按 layer 做预算裁剪，并输出 `MemoryRuntimeContext`
 - `MemoryPromptAssembler` 会把进入上下文的 records 渲染成 `已验证事实 / 当前推测 / 相关事件 / 风险与待确认项`
 - `ClaudeService+AgenticLoop` 会在工具调用记录中保存 `memoryRuntimeProfiles`、`memoryRuntimeLayers`、`memoryRuntimeWarnings`
-- `MemoryManagementPanel` 可以看到统一存储库的全量统计，例如总记录数、按 scope 统计、按 layer 统计
+- 旧 `MemoryManagementPanel` 曾提供统一存储库全量统计，但该界面已从产品主路径移除，现有产品界面改为 `RMSCognitionPanel`
 
 但当前仍然存在关键观测缺口：
 
@@ -61,7 +61,7 @@
 
 ### 4.2 治理面板展示的是全库，不是本轮切片
 
-当前 `MemoryManagementPanel` 的统计基于 `UnifiedMemoryFileStoreAdapter.allRecords(includeArchived: true)`。这适合做治理运营，但不适合回答以下问题：
+此前 `MemoryManagementPanel` 的统计基于 `UnifiedMemoryFileStoreAdapter.allRecords(includeArchived: true)`。这适合做治理运营，但不适合回答以下问题：
 
 - 本轮从哪些 scope 拉取了候选记录
 - 最终哪些记录进入了 prompt
@@ -241,7 +241,7 @@
 
 - 用户必须能从当前聊天使用链路进入本轮记忆快照
 - 至少提供以下两个入口之一，推荐同时提供：
-  - 工具调用详情中的“记忆上下文快照”入口
+  - 产品内独立的“记忆上下文快照”入口
   - Agent Round / 消息详情中的“本轮注入记忆”入口
 
 交互要求：
@@ -411,7 +411,7 @@ pie showData
 
 满足以下条件时，可视为本需求完成：
 
-- 启用统一记忆后，用户可以在某一轮消息或工具详情中打开“记忆上下文快照”
+- 现阶段产品主路径不再暴露“记忆上下文快照”界面，memory UI 已切换到 `RMSCognitionPanel`
 - 页面可以列出本轮实际注入的具体记录
 - 页面可以区分候选、入选和排除记录
 - 页面可以展示至少两类占比图表，并支持维度切换

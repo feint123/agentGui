@@ -87,4 +87,34 @@ struct RMSCognitionPanelViewModelTests {
         #expect(viewModel.developerDiagnostics.retrievalIntentSummary.contains("verification"))
         #expect(viewModel.showDeveloperDiagnosticsByDefault == false)
     }
+
+    @Test func viewModelExposesVerificationSummaryFromEpistemicState() {
+        let snapshot = MemoryRuntimeSnapshot.fixture(
+            epistemicState: EpistemicState(
+                frontiers: [
+                    FrontierMemory(
+                        frontierId: "f-1",
+                        goal: "Verify completion",
+                        openClaim: "Runtime behavior is still unverified",
+                        uncertaintyType: .unknown,
+                        impactLevel: .high,
+                        suggestedProbe: "run targeted UI check",
+                        stopCondition: "Runtime evidence captured"
+                    )
+                ],
+                verificationDebt: [
+                    VerificationDebt(id: "d-1", claim: "Runtime behavior is still unverified", reason: "No runtime evidence was observed")
+                ],
+                residualRisk: 0.72,
+                expectedValueOfMoreReasoning: 0.41
+            )
+        )
+
+        let viewModel = RMSCognitionPanelViewModel(snapshot: snapshot)
+
+        #expect(viewModel.verificationSummary?.residualRisk == 0.72)
+        #expect(viewModel.verificationSummary?.expectedValueOfMoreReasoning == 0.41)
+        #expect(viewModel.verificationSummary?.frontierCount == 1)
+        #expect(viewModel.verificationSummary?.debtCount == 1)
+    }
 }

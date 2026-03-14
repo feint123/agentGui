@@ -131,6 +131,7 @@ struct CompletionVerification: Codable, Equatable {
     var riskAreas: [String]
     var recommendedNextAction: String?
     var verifierAgent: String?
+    var verificationState: VerificationState?
     var recordedAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -143,6 +144,7 @@ struct CompletionVerification: Codable, Equatable {
         case riskAreas = "risk_areas"
         case recommendedNextAction = "recommended_next_action"
         case verifierAgent = "verifier_agent"
+        case verificationState = "verification_state"
         case recordedAt = "recorded_at"
     }
 
@@ -156,6 +158,7 @@ struct CompletionVerification: Codable, Equatable {
         riskAreas: [String] = [],
         recommendedNextAction: String? = nil,
         verifierAgent: String? = nil,
+        verificationState: VerificationState? = nil,
         recordedAt: Date = Date()
     ) {
         self.verified = verified
@@ -167,6 +170,7 @@ struct CompletionVerification: Codable, Equatable {
         self.riskAreas = riskAreas
         self.recommendedNextAction = recommendedNextAction
         self.verifierAgent = verifierAgent
+        self.verificationState = verificationState
         self.recordedAt = recordedAt
     }
 
@@ -181,6 +185,7 @@ struct CompletionVerification: Codable, Equatable {
         riskAreas = try container.decodeIfPresent([String].self, forKey: .riskAreas) ?? []
         recommendedNextAction = try container.decodeIfPresent(String.self, forKey: .recommendedNextAction)
         verifierAgent = try container.decodeIfPresent(String.self, forKey: .verifierAgent)
+        verificationState = try container.decodeIfPresent(VerificationState.self, forKey: .verificationState)
         recordedAt = try container.decodeIfPresent(Date.self, forKey: .recordedAt) ?? Date()
     }
 
@@ -191,6 +196,7 @@ struct CompletionVerification: Codable, Equatable {
         riskAreas = update.riskAreas
         recommendedNextAction = update.recommendedNextAction
         verifierAgent = update.verifierAgent
+        verificationState = update.verificationState
     }
 }
 
@@ -202,6 +208,7 @@ struct VerificationAssessmentUpdate: Codable, Equatable {
     var riskAreas: [String]
     var recommendedNextAction: String?
     var verifierAgent: String?
+    var verificationState: VerificationState?
 
     init(
         passed: Bool,
@@ -209,7 +216,8 @@ struct VerificationAssessmentUpdate: Codable, Equatable {
         missingEvidence: [String] = [],
         riskAreas: [String] = [],
         recommendedNextAction: String? = nil,
-        verifierAgent: String? = nil
+        verifierAgent: String? = nil,
+        verificationState: VerificationState? = nil
     ) {
         self.passed = passed
         self.summary = summary
@@ -217,5 +225,6 @@ struct VerificationAssessmentUpdate: Codable, Equatable {
         self.riskAreas = riskAreas
         self.recommendedNextAction = recommendedNextAction
         self.verifierAgent = verifierAgent
+        self.verificationState = verificationState
     }
 }

@@ -161,7 +161,8 @@ struct AgentLoopHookDependencyFactory {
             service: request.service,
             modelId: request.modelId,
             settings: runtime.settings,
-            failureTrigger: context.failureTrigger
+            failureTrigger: context.failureTrigger,
+            verificationState: state.verificationState
         )
 
         guard let reflection else {
