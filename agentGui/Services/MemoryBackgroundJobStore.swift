@@ -37,8 +37,22 @@ struct MemoryBackgroundJobStore {
         return try decoder.decode([MemoryBackgroundJob].self, from: data)
     }
 
-    func nextQueuedJob() throws -> MemoryBackgroundJob? {
-        try allJobs().first(where: { $0.status == .queued })
+    func nextQueuedJob(now: Date = Date()) throws -> MemoryBackgroundJob? {
+        try allJobs()
+            .filter { job in
+                guard job.status == .queued else { return false }
+                guard let nextEligibleRunAt = job.nextEligibleRunAt else { return true }
+                return nextEligibleRunAt <= now
+            }
+            .sorted { lhs, rhs in
+                let lhsDate = lhs.nextEligibleRunAt ?? lhs.createdAt
+                let rhsDate = rhs.nextEligibleRunAt ?? rhs.createdAt
+                if lhsDate != rhsDate {
+                    return lhsDate < rhsDate
+                }
+                return lhs.createdAt < rhs.createdAt
+            }
+            .first
     }
 
     func hasPendingJobs(types: Set<MemoryBackgroundJob.JobType>? = nil) throws -> Bool {
@@ -54,6 +68,7 @@ struct MemoryBackgroundJobStore {
             job.lastRunAt = date
             job.attemptCount += 1
             job.failureSummary = nil
+            job.nextEligibleRunAt = nil
         }
     }
 
@@ -63,6 +78,7 @@ struct MemoryBackgroundJobStore {
             job.completedAt = date
             job.lastRunAt = date
             job.failureSummary = nil
+            job.nextEligibleRunAt = nil
         }
     }
 
@@ -71,6 +87,23 @@ struct MemoryBackgroundJobStore {
             job.status = .failed
             job.failureSummary = summary
             job.lastRunAt = date
+            job.lastFailureAt = date
+            job.nextEligibleRunAt = nil
+        }
+    }
+
+    func markRetryableFailure(jobID: String, summary: String, at date: Date = Date(), retryDelay: TimeInterval) throws {
+        try mutate(jobID: jobID) { job in
+            job.failureSummary = summary
+            job.lastRunAt = date
+            job.lastFailureAt = date
+            if job.attemptCount < job.maxAttempts {
+                job.status = .queued
+                job.nextEligibleRunAt = date.addingTimeInterval(retryDelay)
+            } else {
+                job.status = .failed
+                job.nextEligibleRunAt = nil
+            }
         }
     }
 

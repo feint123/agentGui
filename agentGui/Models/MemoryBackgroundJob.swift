@@ -62,6 +62,9 @@ struct MemoryBackgroundJob: Codable, Equatable, Sendable, Identifiable {
     var completedAt: Date?
     var failureSummary: String?
     var attemptCount: Int
+    var nextEligibleRunAt: Date?
+    var maxAttempts: Int
+    var lastFailureAt: Date?
     var record: UnifiedMemoryStoredRecord?
     var request: MemoryBackgroundRuntimeRequestSnapshot?
     var outcomeRecords: [UnifiedMemoryStoredRecord]
@@ -79,6 +82,9 @@ struct MemoryBackgroundJob: Codable, Equatable, Sendable, Identifiable {
         completedAt: Date? = nil,
         failureSummary: String? = nil,
         attemptCount: Int = 0,
+        nextEligibleRunAt: Date? = nil,
+        maxAttempts: Int = 3,
+        lastFailureAt: Date? = nil,
         record: UnifiedMemoryStoredRecord? = nil,
         request: MemoryBackgroundRuntimeRequestSnapshot? = nil,
         outcomeRecords: [UnifiedMemoryStoredRecord] = [],
@@ -95,6 +101,9 @@ struct MemoryBackgroundJob: Codable, Equatable, Sendable, Identifiable {
         self.completedAt = completedAt
         self.failureSummary = failureSummary
         self.attemptCount = attemptCount
+        self.nextEligibleRunAt = nextEligibleRunAt
+        self.maxAttempts = maxAttempts
+        self.lastFailureAt = lastFailureAt
         self.record = record
         self.request = request
         self.outcomeRecords = outcomeRecords
@@ -126,6 +135,7 @@ extension MemoryBackgroundJob {
     static func ttlSweep(asOf: Date = Date(), ttl: TimeInterval) -> MemoryBackgroundJob {
         MemoryBackgroundJob(
             type: .ttlSweep,
+            maxAttempts: 1,
             ttlSweepAsOf: asOf,
             ttlSeconds: ttl
         )

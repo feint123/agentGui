@@ -248,6 +248,9 @@ struct MemoryRuntimeSnapshotMetrics: Codable, Equatable, Sendable {
     var selectedCount: Int
     var excludedCount: Int
     var totalEstimatedPromptChars: Int
+    var postEnforcementPromptChars: Int
+    var trimmedCharCount: Int
+    var trimmedSectionIDs: [String]
     var workingSetCost: Int
     var countBreakdowns: [MemoryRuntimeSnapshotMetricDimension: [String: Int]]
     var estimatedCharBreakdowns: [MemoryRuntimeSnapshotMetricDimension: [String: Int]]
@@ -257,6 +260,9 @@ struct MemoryRuntimeSnapshotMetrics: Codable, Equatable, Sendable {
         case selectedCount
         case excludedCount
         case totalEstimatedPromptChars
+        case postEnforcementPromptChars
+        case trimmedCharCount
+        case trimmedSectionIDs
         case workingSetCost
         case countBreakdowns
         case estimatedCharBreakdowns
@@ -267,6 +273,9 @@ struct MemoryRuntimeSnapshotMetrics: Codable, Equatable, Sendable {
         selectedCount: Int,
         excludedCount: Int,
         totalEstimatedPromptChars: Int,
+        postEnforcementPromptChars: Int,
+        trimmedCharCount: Int,
+        trimmedSectionIDs: [String],
         workingSetCost: Int,
         countBreakdowns: [MemoryRuntimeSnapshotMetricDimension: [String: Int]],
         estimatedCharBreakdowns: [MemoryRuntimeSnapshotMetricDimension: [String: Int]]
@@ -275,6 +284,9 @@ struct MemoryRuntimeSnapshotMetrics: Codable, Equatable, Sendable {
         self.selectedCount = selectedCount
         self.excludedCount = excludedCount
         self.totalEstimatedPromptChars = totalEstimatedPromptChars
+        self.postEnforcementPromptChars = postEnforcementPromptChars
+        self.trimmedCharCount = trimmedCharCount
+        self.trimmedSectionIDs = trimmedSectionIDs
         self.workingSetCost = workingSetCost
         self.countBreakdowns = countBreakdowns
         self.estimatedCharBreakdowns = estimatedCharBreakdowns
@@ -286,6 +298,9 @@ struct MemoryRuntimeSnapshotMetrics: Codable, Equatable, Sendable {
         self.selectedCount = try container.decode(Int.self, forKey: .selectedCount)
         self.excludedCount = try container.decode(Int.self, forKey: .excludedCount)
         self.totalEstimatedPromptChars = try container.decode(Int.self, forKey: .totalEstimatedPromptChars)
+        self.postEnforcementPromptChars = try container.decodeIfPresent(Int.self, forKey: .postEnforcementPromptChars) ?? self.totalEstimatedPromptChars
+        self.trimmedCharCount = try container.decodeIfPresent(Int.self, forKey: .trimmedCharCount) ?? 0
+        self.trimmedSectionIDs = try container.decodeIfPresent([String].self, forKey: .trimmedSectionIDs) ?? []
         self.workingSetCost = try container.decodeIfPresent(Int.self, forKey: .workingSetCost) ?? 0
         self.countBreakdowns = try container.decode([MemoryRuntimeSnapshotMetricDimension: [String: Int]].self, forKey: .countBreakdowns)
         self.estimatedCharBreakdowns = try container.decode([MemoryRuntimeSnapshotMetricDimension: [String: Int]].self, forKey: .estimatedCharBreakdowns)
@@ -305,10 +320,90 @@ struct MemoryRuntimeSnapshot: Codable, Equatable, Sendable, Identifiable {
     var selectedRecords: [MemoryRuntimeSnapshotRecord]
     var excludedRecords: [MemoryRuntimeSnapshotRecord]
     var dereferenceCount: Int
+    var warnings: [String]
     var epistemicState: EpistemicState
     var influenceTrace: MemoryInfluenceTrace
     var renderedPrompt: String
     var metrics: MemoryRuntimeSnapshotMetrics
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sessionId
+        case threadId
+        case workflowRunId
+        case toolCallId
+        case agentRoundId
+        case createdAt
+        case request
+        case plan
+        case selectedRecords
+        case excludedRecords
+        case dereferenceCount
+        case warnings
+        case epistemicState
+        case influenceTrace
+        case renderedPrompt
+        case metrics
+    }
+
+    init(
+        id: String,
+        sessionId: String,
+        threadId: String,
+        workflowRunId: String?,
+        toolCallId: String?,
+        agentRoundId: UUID?,
+        createdAt: Date,
+        request: MemoryRuntimeSnapshotRequestSummary,
+        plan: MemoryRuntimeSnapshotPlanSummary,
+        selectedRecords: [MemoryRuntimeSnapshotRecord],
+        excludedRecords: [MemoryRuntimeSnapshotRecord],
+        dereferenceCount: Int,
+        warnings: [String],
+        epistemicState: EpistemicState,
+        influenceTrace: MemoryInfluenceTrace,
+        renderedPrompt: String,
+        metrics: MemoryRuntimeSnapshotMetrics
+    ) {
+        self.id = id
+        self.sessionId = sessionId
+        self.threadId = threadId
+        self.workflowRunId = workflowRunId
+        self.toolCallId = toolCallId
+        self.agentRoundId = agentRoundId
+        self.createdAt = createdAt
+        self.request = request
+        self.plan = plan
+        self.selectedRecords = selectedRecords
+        self.excludedRecords = excludedRecords
+        self.dereferenceCount = dereferenceCount
+        self.warnings = warnings
+        self.epistemicState = epistemicState.stableSnapshot()
+        self.influenceTrace = influenceTrace
+        self.renderedPrompt = renderedPrompt
+        self.metrics = metrics
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.threadId = try container.decode(String.self, forKey: .threadId)
+        self.workflowRunId = try container.decodeIfPresent(String.self, forKey: .workflowRunId)
+        self.toolCallId = try container.decodeIfPresent(String.self, forKey: .toolCallId)
+        self.agentRoundId = try container.decodeIfPresent(UUID.self, forKey: .agentRoundId)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.request = try container.decode(MemoryRuntimeSnapshotRequestSummary.self, forKey: .request)
+        self.plan = try container.decode(MemoryRuntimeSnapshotPlanSummary.self, forKey: .plan)
+        self.selectedRecords = try container.decode([MemoryRuntimeSnapshotRecord].self, forKey: .selectedRecords)
+        self.excludedRecords = try container.decode([MemoryRuntimeSnapshotRecord].self, forKey: .excludedRecords)
+        self.dereferenceCount = try container.decode(Int.self, forKey: .dereferenceCount)
+        self.warnings = try container.decodeIfPresent([String].self, forKey: .warnings) ?? []
+        self.epistemicState = try container.decode(EpistemicState.self, forKey: .epistemicState)
+        self.influenceTrace = try container.decode(MemoryInfluenceTrace.self, forKey: .influenceTrace)
+        self.renderedPrompt = try container.decode(String.self, forKey: .renderedPrompt)
+        self.metrics = try container.decode(MemoryRuntimeSnapshotMetrics.self, forKey: .metrics)
+    }
 }
 
 extension MemoryRuntimeSnapshot {
@@ -341,12 +436,83 @@ extension MemoryRuntimeSnapshot {
         workingSetCost: Int = 0,
         renderedPrompt: String = "## 已验证事实\n- Fixture Record"
     ) -> MemoryRuntimeSnapshot {
+        fixture(
+            id: id,
+            sessionId: sessionId,
+            threadId: threadId,
+            workflowRunId: workflowRunId,
+            toolCallId: toolCallId,
+            agentRoundId: agentRoundId,
+            createdAt: createdAt,
+            taskKind: taskKind,
+            projectId: projectId,
+            workspaceRoot: workspaceRoot,
+            contextBudget: contextBudget,
+            userRequest: userRequest,
+            profileIDs: profileIDs,
+            orderedLayers: orderedLayers,
+            itemBudgetByLayer: itemBudgetByLayer,
+            candidateScopes: candidateScopes,
+            candidateCountByLayer: candidateCountByLayer,
+            selectedCountByLayer: selectedCountByLayer,
+            candidateCount: candidateCount,
+            selectedRecords: selectedRecords,
+            excludedRecords: excludedRecords,
+            dereferenceCount: dereferenceCount,
+            warnings: [],
+            epistemicState: epistemicState,
+            influenceTrace: influenceTrace,
+            retrievalIntent: retrievalIntent,
+            workingSetCost: workingSetCost,
+            postEnforcementPromptChars: nil,
+            trimmedCharCount: 0,
+            trimmedSectionIDs: [],
+            renderedPrompt: renderedPrompt
+        )
+    }
+
+    static func fixture(
+        id: String = UUID().uuidString,
+        sessionId: String = "s1",
+        threadId: String = "t1",
+        workflowRunId: String? = nil,
+        toolCallId: String? = nil,
+        agentRoundId: UUID? = nil,
+        createdAt: Date = Date(timeIntervalSince1970: 0),
+        taskKind: MemoryTaskKind = .coding,
+        projectId: String? = nil,
+        workspaceRoot: String? = "/tmp/repo",
+        contextBudget: Int = 4000,
+        userRequest: String = "Fix build",
+        profileIDs: [String] = ["coding-task"],
+        orderedLayers: [MemoryLayer] = [.working, .task, .semantic, .episodic, .proceduralArchive],
+        itemBudgetByLayer: [MemoryLayer: Int] = [.task: 1],
+        candidateScopes: [String] = ["user", "session:s1", "thread:t1"],
+        candidateCountByLayer: [MemoryLayer: Int] = [.task: 1],
+        selectedCountByLayer: [MemoryLayer: Int] = [.task: 1],
+        candidateCount: Int = 1,
+        selectedRecords: [MemoryRuntimeSnapshotRecord] = [.fixture()],
+        excludedRecords: [MemoryRuntimeSnapshotRecord] = [],
+        dereferenceCount: Int = 0,
+        warnings: [String] = [],
+        epistemicState: EpistemicState = EpistemicState(),
+        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
+        retrievalIntent: MemoryRetrievalIntent? = nil,
+        workingSetCost: Int = 0,
+        postEnforcementPromptChars: Int? = nil,
+        trimmedCharCount: Int = 0,
+        trimmedSectionIDs: [String] = [],
+        renderedPrompt: String = "## 已验证事实\n- Fixture Record"
+    ) -> MemoryRuntimeSnapshot {
         let selectedCount = selectedRecords.count
         let metrics = MemoryRuntimeSnapshotMetrics(
             candidateCount: candidateCount,
             selectedCount: selectedCount,
             excludedCount: excludedRecords.count,
             totalEstimatedPromptChars: selectedRecords.reduce(0) { $0 + $1.estimatedPromptChars },
+            postEnforcementPromptChars: postEnforcementPromptChars ?? renderedPrompt.count,
+            trimmedCharCount: trimmedCharCount,
+            trimmedSectionIDs: trimmedSectionIDs,
             workingSetCost: workingSetCost,
             countBreakdowns: makeBreakdowns(records: selectedRecords, value: { _ in 1 }),
             estimatedCharBreakdowns: makeBreakdowns(records: selectedRecords, value: { $0.estimatedPromptChars })
@@ -382,6 +548,7 @@ extension MemoryRuntimeSnapshot {
             selectedRecords: selectedRecords,
             excludedRecords: excludedRecords,
             dereferenceCount: dereferenceCount,
+            warnings: warnings,
             epistemicState: epistemicState,
             influenceTrace: influenceTrace,
             renderedPrompt: renderedPrompt,
@@ -394,12 +561,18 @@ extension MemoryRuntimeSnapshot {
         selectedRecords: [MemoryRuntimeSnapshotRecord],
         excludedRecords: [MemoryRuntimeSnapshotRecord],
         dereferenceCount: Int = 0,
+        totalEstimatedPromptChars: Int? = nil,
+        postEnforcementPromptChars: Int? = nil,
+        trimmedCharCount: Int = 0,
+        trimmedSectionIDs: [String] = [],
         includeWorkingSetCost: Bool = false
     ) -> MemoryRuntimeSnapshotMetrics {
-        let totalEstimatedPromptChars = selectedRecords.reduce(0) { $0 + $1.estimatedPromptChars }
+        let selectedRecordPromptChars = selectedRecords.reduce(0) { $0 + $1.estimatedPromptChars }
+        let totalEstimatedPromptChars = max(totalEstimatedPromptChars ?? selectedRecordPromptChars, selectedRecordPromptChars)
+        let postEnforcementPromptChars = postEnforcementPromptChars ?? totalEstimatedPromptChars
         let workingSetCost: Int
         if includeWorkingSetCost {
-            workingSetCost = totalEstimatedPromptChars + (dereferenceCount * 16)
+            workingSetCost = postEnforcementPromptChars + (dereferenceCount * 16)
         } else {
             workingSetCost = 0
         }
@@ -409,6 +582,9 @@ extension MemoryRuntimeSnapshot {
             selectedCount: selectedRecords.count,
             excludedCount: excludedRecords.count,
             totalEstimatedPromptChars: totalEstimatedPromptChars,
+            postEnforcementPromptChars: postEnforcementPromptChars,
+            trimmedCharCount: trimmedCharCount,
+            trimmedSectionIDs: trimmedSectionIDs,
             workingSetCost: workingSetCost,
             countBreakdowns: makeBreakdowns(records: selectedRecords, value: { _ in 1 }),
             estimatedCharBreakdowns: makeBreakdowns(records: selectedRecords, value: { $0.estimatedPromptChars })

@@ -107,35 +107,36 @@ struct AgentLoopMemoryBootstrapComposer {
     }
 
     func renderEpistemicSummary(_ epistemicState: EpistemicState) -> String {
+        let stableState = epistemicState.stableSnapshot()
         var sections: [String] = []
 
-        if !epistemicState.frontiers.isEmpty {
+        if !stableState.frontiers.isEmpty {
             sections.append(
-                "未决前沿:\n" + epistemicState.frontiers.map {
+                "未决前沿:\n" + stableState.frontiers.map {
                     "- \($0.openClaim)\n  suggested_probe: \($0.suggestedProbe)"
                 }.joined(separator: "\n")
             )
         }
 
-        if !epistemicState.activeConstraints.isEmpty {
+        if !stableState.activeConstraints.isEmpty {
             sections.append(
-                "当前约束:\n" + epistemicState.activeConstraints.map {
+                "当前约束:\n" + stableState.activeConstraints.map {
                     "- \($0.summary)"
                 }.joined(separator: "\n")
             )
         }
 
-        if !epistemicState.verificationDebt.isEmpty {
+        if !stableState.verificationDebt.isEmpty {
             sections.append(
-                "验证债务:\n" + epistemicState.verificationDebt.map {
+                "验证债务:\n" + stableState.verificationDebt.map {
                     "- \($0.claim): \($0.reason)"
                 }.joined(separator: "\n")
             )
         }
 
-        if !epistemicState.counterexamples.isEmpty {
+        if !stableState.counterexamples.isEmpty {
             sections.append(
-                "激活反例:\n" + epistemicState.counterexamples.map {
+                "激活反例:\n" + stableState.counterexamples.map {
                     "- \($0.summary) -> \($0.replacementAction)"
                 }.joined(separator: "\n")
             )

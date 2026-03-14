@@ -159,7 +159,7 @@ struct LSPClientTests {
         ])
     }
 
-    @Test func publishDiagnosticsNotificationUpdatesDiagnosticsStore() throws {
+    @Test func publishDiagnosticsNotificationUpdatesDiagnosticsStore() async throws {
         let transport = LSPJSONRPCTransport()
         let diagnosticsStore = LSPDiagnosticsStore()
         let client = LSPClient(
@@ -193,12 +193,57 @@ struct LSPClientTests {
             ]
         )
 
+        for _ in 0..<20 where diagnosticsStore.snapshot(for: "/repo", uri: "file:///repo/src/app.ts") == nil {
+            await Task.yield()
+        }
+
         let snapshot = try #require(diagnosticsStore.snapshot(for: "/repo", uri: "file:///repo/src/app.ts"))
         #expect(snapshot.diagnostics.map(\.message) == ["Type mismatch", "Unused variable"])
         #expect(snapshot.diagnostics.map(\.severity) == [.error, .warning])
         #expect(snapshot.diagnostics.first?.source == "tsserver")
         #expect(snapshot.diagnostics.first?.line == 3)
         #expect(snapshot.diagnostics.first?.character == 7)
+    }
+
+    @Test func backgroundNotificationPublishesDiagnosticsOnMainThread() async throws {
+        let transport = LSPJSONRPCTransport()
+        let diagnosticsStore = LSPDiagnosticsStore()
+        let client = LSPClient(
+            transport: transport,
+            documentStore: LSPDocumentStore(),
+            diagnosticsStore: diagnosticsStore,
+            adapter: GenericLSPServerAdapter()
+        )
+        let harness = LSPTransportHarness(transport: transport)
+        let deliveredOnMainThread = LockedBox<Bool?>(nil)
+
+        diagnosticsStore.onDidPublish = { _ in
+            deliveredOnMainThread.value = Thread.isMainThread
+        }
+
+        client.configureNotificationHandling(workspaceRoot: "/repo")
+
+        let notificationTask = Task.detached {
+            try harness.injectNotification(
+                method: "textDocument/publishDiagnostics",
+                params: [
+                    "uri": "file:///repo/src/app.ts",
+                    "diagnostics": [
+                        [
+                            "message": "Type mismatch",
+                            "severity": 1
+                        ]
+                    ]
+                ]
+            )
+        }
+
+        _ = try await notificationTask.value
+        for _ in 0..<20 where deliveredOnMainThread.value == nil {
+            await Task.yield()
+        }
+
+        #expect(deliveredOnMainThread.value == true)
     }
 }
 
@@ -300,5 +345,27 @@ private struct JSONTestValue {
             return nil
         }
         return JSONTestValue(value)
+    }
+}
+
+private final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Value
+
+    init(_ value: Value) {
+        self.storage = value
+    }
+
+    var value: Value {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            storage = newValue
+            lock.unlock()
+        }
     }
 }

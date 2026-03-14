@@ -64,6 +64,11 @@ final class RMSCognitionPanelViewModel {
         let workingSetCost: Int
         let dereferenceCount: Int
         let retrievalIntentSummary: String
+        let postEnforcementPromptChars: Int
+        let trimmedCharCount: Int
+        let wasFallbackExtractionUsed: Bool
+        let jobBacklogCount: Int
+        let recentFailedJobSummary: String?
     }
 
     struct VerificationSummary: Equatable {
@@ -74,9 +79,17 @@ final class RMSCognitionPanelViewModel {
     }
 
     let snapshot: MemoryRuntimeSnapshot
+    let jobBacklogCount: Int
+    let recentFailedJobSummary: String?
 
-    init(snapshot: MemoryRuntimeSnapshot) {
+    convenience init(snapshot: MemoryRuntimeSnapshot) {
+        self.init(snapshot: snapshot, jobBacklogCount: 0, recentFailedJobSummary: nil)
+    }
+
+    init(snapshot: MemoryRuntimeSnapshot, jobBacklogCount: Int = 0, recentFailedJobSummary: String? = nil) {
         self.snapshot = snapshot
+        self.jobBacklogCount = jobBacklogCount
+        self.recentFailedJobSummary = recentFailedJobSummary
     }
 
     var sectionOrder: [Section] {
@@ -91,7 +104,8 @@ final class RMSCognitionPanelViewModel {
     }
 
     var frontierItems: [FrontierItem] {
-        snapshot.epistemicState.frontiers.map { frontier in
+        let stableState = snapshot.epistemicState.stableSnapshot()
+        return stableState.frontiers.map { frontier in
             FrontierItem(
                 id: frontier.id,
                 goal: frontier.goal,
@@ -104,7 +118,8 @@ final class RMSCognitionPanelViewModel {
     }
 
     var counterexampleItems: [CounterexampleItem] {
-        snapshot.epistemicState.counterexamples.map { counterexample in
+        let stableState = snapshot.epistemicState.stableSnapshot()
+        return stableState.counterexamples.map { counterexample in
             CounterexampleItem(
                 id: counterexample.id,
                 summary: counterexample.summary,
@@ -114,7 +129,8 @@ final class RMSCognitionPanelViewModel {
     }
 
     var constraintItems: [ConstraintItem] {
-        snapshot.epistemicState.activeConstraints.map { constraint in
+        let stableState = snapshot.epistemicState.stableSnapshot()
+        return stableState.activeConstraints.map { constraint in
             ConstraintItem(
                 id: constraint.id,
                 summary: constraint.summary,
@@ -124,7 +140,8 @@ final class RMSCognitionPanelViewModel {
     }
 
     var verificationDebtItems: [VerificationDebtItem] {
-        snapshot.epistemicState.verificationDebt.map { debt in
+        let stableState = snapshot.epistemicState.stableSnapshot()
+        return stableState.verificationDebt.map { debt in
             VerificationDebtItem(id: debt.id, claim: debt.claim, reason: debt.reason)
         }
     }
@@ -164,24 +181,36 @@ final class RMSCognitionPanelViewModel {
     }
 
     var suggestedActionItems: [SuggestedActionItem] {
-        snapshot.epistemicState.candidateActions.map { action in
+        let stableState = snapshot.epistemicState.stableSnapshot()
+        return stableState.candidateActions.map { action in
             SuggestedActionItem(id: action, summary: action)
         }
     }
 
     var developerDiagnostics: DeveloperDiagnostics {
-        DeveloperDiagnostics(
+        let wasFallbackExtractionUsed = snapshot.warnings.contains { warning in
+            let normalized = warning.lowercased()
+            return normalized.contains("fallback") || normalized.contains("fell back")
+        }
+
+        return DeveloperDiagnostics(
             workingSetCost: snapshot.metrics.workingSetCost,
             dereferenceCount: snapshot.dereferenceCount,
-            retrievalIntentSummary: retrievalIntentSummary
+            retrievalIntentSummary: retrievalIntentSummary,
+            postEnforcementPromptChars: snapshot.metrics.postEnforcementPromptChars,
+            trimmedCharCount: snapshot.metrics.trimmedCharCount,
+            wasFallbackExtractionUsed: wasFallbackExtractionUsed,
+            jobBacklogCount: jobBacklogCount,
+            recentFailedJobSummary: recentFailedJobSummary
         )
     }
 
     var verificationSummary: VerificationSummary? {
-        let residualRisk = snapshot.epistemicState.residualRisk
-        let expectedValue = snapshot.epistemicState.expectedValueOfMoreReasoning
-        let frontierCount = snapshot.epistemicState.frontiers.count
-        let debtCount = snapshot.epistemicState.verificationDebt.count
+        let stableState = snapshot.epistemicState.stableSnapshot()
+        let residualRisk = stableState.residualRisk
+        let expectedValue = stableState.expectedValueOfMoreReasoning
+        let frontierCount = stableState.frontiers.count
+        let debtCount = stableState.verificationDebt.count
 
         guard residualRisk > 0 || expectedValue > 0 || frontierCount > 0 || debtCount > 0 else {
             return nil

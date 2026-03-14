@@ -5,6 +5,18 @@ protocol LSPProjectFileIndexing: Sendable {
 }
 
 struct LSPProjectFileIndexer: LSPProjectFileIndexing {
+    private static let excludedDirectoryNames: Set<String> = [
+        ".build",
+        ".tox",
+        "__pypackages__",
+        "build",
+        "dist-packages",
+        "env",
+        "node_modules",
+        "site-packages",
+        "venv"
+    ]
+
     nonisolated func indexFiles(in workspaceRoot: String, registry: LSPServerRegistry) -> [String: [String]] {
         let workspaceURL = URL(fileURLWithPath: workspaceRoot, isDirectory: true)
         guard let enumerator = FileManager.default.enumerator(
@@ -19,11 +31,11 @@ struct LSPProjectFileIndexer: LSPProjectFileIndexing {
         var filesByServerID: [String: [String]] = [:]
 
         for case let fileURL as URL in enumerator {
-            let pathComponents = fileURL.pathComponents
+            let pathComponents = fileURL.pathComponents.map { $0.lowercased() }
             if pathComponents.contains(where: { $0.hasPrefix(".") && $0 != "." && $0 != ".." }) {
                 continue
             }
-            if pathComponents.contains("node_modules") || pathComponents.contains(".build") || pathComponents.contains("build") {
+            if pathComponents.contains(where: Self.excludedDirectoryNames.contains) {
                 continue
             }
 

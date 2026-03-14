@@ -109,16 +109,14 @@ struct agentGuiApp: App {
                     reliabilityCenterViewModel.refresh(using: context)
 
                     if !launchOptions.isUITestMode && settings.enableUnifiedMemoryRuntime && settings.enableBackgroundMemoryConsolidation {
-                        let scheduler = MemoryBackgroundScheduler()
+                        let scheduler = MemoryBackgroundScheduler(
+                            enableTTLSweep: settings.enableMemoryTTLSweep,
+                            ttlSweepIntervalSeconds: settings.memoryTTLSweepIntervalSeconds,
+                            ttlSeconds: TimeInterval(settings.memoryTTLSweepIntervalSeconds),
+                            businessLogSink: claudeService.businessLogSink
+                        )
                         scheduler.start(intervalSeconds: settings.memoryBackgroundSchedulerIntervalSeconds)
                         memoryBackgroundScheduler = scheduler
-
-                        if settings.enableMemoryTTLSweep {
-                            Task {
-                                let jobStore = MemoryBackgroundJobStore()
-                                try? jobStore.enqueue(.ttlSweep(ttl: TimeInterval(settings.memoryTTLSweepIntervalSeconds)))
-                            }
-                        }
                     }
                 }
                 .environment(PersistenceCoordinator.shared)

@@ -277,6 +277,46 @@ struct AgentLoopIntegrationTests {
         #expect(verification.verificationState?.certificate?.openClaims.isEmpty == true)
     }
 
+    @Test func runCoreAgentLoopFinishesWithoutVerifierWhenAutoVerificationIsNotRequired() async throws {
+        let claudeService = ClaudeService()
+        let modelContext = try makeModelContext()
+        let service = SequencedFakeAnthropicService(streamBatches: [
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"plain answer without tool-backed claims"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """),
+            ]
+        ])
+
+        var messages: [MessageParameter.Message] = [
+            .init(role: .user, content: .text("Explain what this setting does"))
+        ]
+
+        let result = try await claudeService.runCoreAgentLoop(
+            messages: &messages,
+            service: service,
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            settings: .testFixture(),
+            sessionId: "session-no-verifier-needed",
+            modelContext: modelContext,
+            maxRounds: 2,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none
+        )
+
+        let store = SessionTaskStateStore(modelContext: modelContext)
+
+        #expect(result.completedSuccessfully)
+        #expect(result.terminationReason == nil)
+        #expect(store.verification(for: "session-no-verifier-needed") == nil)
+    }
+
     @Test func runCoreAgentLoopDoesNotHostInvokeVerifierAfterEndTurn() async throws {
         let claudeService = ClaudeService()
         let modelContext = try makeModelContext()

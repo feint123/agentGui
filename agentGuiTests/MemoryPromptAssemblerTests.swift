@@ -75,4 +75,26 @@ struct MemoryPromptAssemblerTests {
         #expect(text.contains("Build failed"))
         #expect(text.contains("## 风险与待确认项"))
     }
+
+    @Test func budgetEnforcerTrimsLowestPrioritySectionsFirst() async throws {
+        let assembler = MemoryPromptAssembler()
+        let enforcer = MemoryPromptBudgetEnforcer()
+        let context = MemoryRuntimeContext(
+            profiles: ["coding-task"],
+            records: [
+                MemoryRecord.fixture(layer: .task, kind: .working, title: "Known failure", summary: String(repeating: "verified fact ", count: 8), verificationStatus: .verified),
+                MemoryRecord.fixture(layer: .semantic, kind: .semantic, title: "Possible cause", summary: String(repeating: "speculative warning ", count: 8), verificationStatus: .unverified),
+                MemoryRecord.fixture(layer: .episodic, kind: .episodic, title: "Past event", summary: String(repeating: "episodic trail ", count: 8), verificationStatus: .partial)
+            ],
+            warnings: [String(repeating: "user still needs confirmation ", count: 4)]
+        )
+
+        let sections = assembler.sections(for: context)
+        let result = enforcer.enforce(sections: sections, budget: 160)
+
+        #expect(result.renderedPrompt.contains("## 已验证事实"))
+        #expect(result.trimmedSectionIDs.contains("speculative-records"))
+        #expect(result.trimmedSectionIDs.contains("episodic-records"))
+        #expect(result.postEnforcementPromptChars <= 160)
+    }
 }

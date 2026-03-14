@@ -91,4 +91,62 @@ struct EpistemicExtractionPromptBuilderTests {
         #expect(prompt.contains("\"kind\": \"verificationDebt\""))
         #expect(prompt.contains("Use empty arrays when there are no items"))
     }
+
+    @Test func promptBuildersUseStableEpistemicSnapshotBeforeRendering() throws {
+        let state = EpistemicState(
+            frontiers: [
+                FrontierMemory(
+                    frontierId: " f-1 ",
+                    goal: " Fix build ",
+                    openClaim: " Need scheme evidence ",
+                    uncertaintyType: .tooling,
+                    impactLevel: .high,
+                    suggestedProbe: " Run xcodebuild -list ",
+                    stopCondition: " Scheme confirmed "
+                ),
+                FrontierMemory(
+                    frontierId: "f-blank",
+                    goal: "Fix build",
+                    openClaim: "   ",
+                    uncertaintyType: .tooling,
+                    impactLevel: .medium,
+                    suggestedProbe: "Ignore",
+                    stopCondition: "Ignore"
+                )
+            ],
+            activeConstraints: [
+                ConstraintMemory(id: " c-1 ", summary: " Inspect before editing ", scope: .session(id: "s1")),
+                ConstraintMemory(id: "c-blank", summary: "   ", scope: .session(id: "s1"))
+            ],
+            candidateActions: [" Run xcodebuild -list ", "   "],
+            verificationDebt: [
+                VerificationDebt(id: " d-1 ", claim: " Build fix works ", reason: " No direct evidence yet "),
+                VerificationDebt(id: "d-blank", claim: "   ", reason: "ignored")
+            ],
+            counterexamples: [
+                CounterexampleMemory(id: " ce-1 ", summary: " Avoid edit-first loop ", replacementAction: " Inspect first "),
+                CounterexampleMemory(id: "ce-blank", summary: "   ", replacementAction: "ignored")
+            ]
+        )
+
+        let eventPrompt = EpistemicEventExtractionPromptBuilder().build(
+            envelope: EpistemicInputEnvelope(sessionID: "s1", roundIndex: 1),
+            epistemicState: state
+        )
+        let frontierPrompt = FrontierSynthesisPromptBuilder().build(events: [], epistemicState: state)
+        let counterexamplePrompt = CounterexampleExtractionPromptBuilder().build(events: [], epistemicState: state)
+        let debtPrompt = ConstraintDebtExtractionPromptBuilder().build(
+            envelope: EpistemicInputEnvelope(sessionID: "s1", roundIndex: 1),
+            epistemicState: state
+        )
+
+        #expect(eventPrompt.contains("frontiers: Need scheme evidence"))
+        #expect(!eventPrompt.contains(" |  | "))
+        #expect(frontierPrompt.contains("- Run xcodebuild -list"))
+        #expect(!frontierPrompt.contains("-    "))
+        #expect(counterexamplePrompt.contains("- Avoid edit-first loop"))
+        #expect(!counterexamplePrompt.contains("ignored"))
+        #expect(debtPrompt.contains("- Build fix works: No direct evidence yet"))
+        #expect(!debtPrompt.contains("ignored"))
+    }
 }

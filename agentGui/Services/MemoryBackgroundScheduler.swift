@@ -14,6 +14,9 @@ final class MemoryBackgroundScheduler {
     private let tacticKernelDistiller: TacticKernelDistillationService
     private let invalidationService: MemoryInvalidationService
     private let businessLogSink: BusinessLogSink?
+    private let enableTTLSweep: Bool
+    private let ttlSweepIntervalSeconds: Int
+    private let ttlSeconds: TimeInterval
     private var loopTask: Task<Void, Never>?
 
     init(
@@ -24,6 +27,9 @@ final class MemoryBackgroundScheduler {
         counterexampleDistiller: CounterexampleDistillationService = CounterexampleDistillationService(),
         tacticKernelDistiller: TacticKernelDistillationService = TacticKernelDistillationService(),
         invalidationService: MemoryInvalidationService = MemoryInvalidationService(),
+        enableTTLSweep: Bool = false,
+        ttlSweepIntervalSeconds: Int = 300,
+        ttlSeconds: TimeInterval = 300,
         businessLogSink: BusinessLogSink? = nil
     ) {
         self.baseDirectory = baseDirectory
@@ -37,6 +43,9 @@ final class MemoryBackgroundScheduler {
         self.counterexampleDistiller = counterexampleDistiller
         self.tacticKernelDistiller = tacticKernelDistiller
         self.invalidationService = invalidationService
+        self.enableTTLSweep = enableTTLSweep
+        self.ttlSweepIntervalSeconds = ttlSweepIntervalSeconds
+        self.ttlSeconds = ttlSeconds
         self.businessLogSink = businessLogSink
     }
 
@@ -56,11 +65,13 @@ final class MemoryBackgroundScheduler {
         loopTask = nil
     }
 
-    func runOnce() async {
+    func runOnce(now: Date = Date()) async {
+        try? ensurePeriodicTTLSweepScheduled(now: now)
+
         while true {
             let nextJob: MemoryBackgroundJob?
             do {
-                nextJob = try jobStore.nextQueuedJob()
+                nextJob = try jobStore.nextQueuedJob(now: now)
             } catch {
                 return
             }
@@ -71,28 +82,18 @@ final class MemoryBackgroundScheduler {
 
             do {
                 MemoryBusinessLogger.emit(.memoryBackgroundJobStarted, job: job, sink: businessLogSink)
-                try jobStore.markRunning(jobID: job.id)
+                try jobStore.markRunning(jobID: job.id, at: now)
                 try await process(job)
-                try jobStore.markCompleted(jobID: job.id)
+                try jobStore.markCompleted(jobID: job.id, at: now)
             } catch {
-                try? jobStore.markFailed(jobID: job.id, summary: error.localizedDescription)
-                let failedJob = MemoryBackgroundJob(
-                    id: job.id,
-                    type: job.type,
-                    status: .failed,
-                    scopeNamespace: job.scopeNamespace,
-                    createdAt: job.createdAt,
-                    lastRunAt: job.lastRunAt,
-                    completedAt: job.completedAt,
-                    failureSummary: error.localizedDescription,
-                    attemptCount: job.attemptCount,
-                    record: job.record,
-                    request: job.request,
-                    outcomeRecords: job.outcomeRecords,
-                    notes: job.notes,
-                    ttlSweepAsOf: job.ttlSweepAsOf,
-                    ttlSeconds: job.ttlSeconds
+                let retryDelay = retryDelay(for: job)
+                try? jobStore.markRetryableFailure(
+                    jobID: job.id,
+                    summary: error.localizedDescription,
+                    at: now,
+                    retryDelay: retryDelay
                 )
+                let failedJob = (try? jobStore.allJobs().first(where: { $0.id == job.id })) ?? job
                 MemoryBusinessLogger.emit(
                     .memoryBackgroundJobFailed,
                     job: failedJob,
@@ -177,5 +178,24 @@ final class MemoryBackgroundScheduler {
             let report = try retentionService.sweep(store: unifiedStore, asOf: asOf, ttl: ttl)
             try jobStore.saveLatestSweepReport(report)
         }
+    }
+
+    private func ensurePeriodicTTLSweepScheduled(now: Date) throws {
+        guard enableTTLSweep else { return }
+        if try jobStore.hasPendingJobs(types: [.ttlSweep]) {
+            return
+        }
+
+        if let latestSweep = jobStore.latestSweepReport(),
+           now.timeIntervalSince(latestSweep.runAt) < TimeInterval(ttlSweepIntervalSeconds) {
+            return
+        }
+
+        try jobStore.enqueue(.ttlSweep(asOf: now, ttl: ttlSeconds))
+    }
+
+    private func retryDelay(for job: MemoryBackgroundJob) -> TimeInterval {
+        let exponent = max(job.attemptCount - 1, 0)
+        return min(pow(2.0, Double(exponent)) * 30, 600)
     }
 }

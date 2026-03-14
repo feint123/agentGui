@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class LSPDiagnosticsStore {
     var onDidPublish: ((LSPDiagnosticsSnapshot) -> Void)?
 

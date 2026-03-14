@@ -6,6 +6,7 @@ struct MemoryDecisionImpactEvaluator {
         request: MemoryRuntimeRequest,
         epistemicState: EpistemicState
     ) -> MemoryDecisionImpactAssessment {
+        let stableState = epistemicState.stableSnapshot()
         let lowerSummary = candidate.summary.lowercased()
         let lowerTitle = candidate.title.lowercased()
         let lowerRequest = request.userRequest.lowercased()
@@ -15,7 +16,7 @@ struct MemoryDecisionImpactEvaluator {
             lowerSummary: lowerSummary,
             lowerTitle: lowerTitle,
             lowerRequest: lowerRequest,
-            epistemicState: epistemicState
+            epistemicState: stableState
         )
         let transferValue = transferValue(for: candidate, lowerSummary: lowerSummary, lowerTitle: lowerTitle)
         let evidenceValue = evidenceValue(for: candidate)

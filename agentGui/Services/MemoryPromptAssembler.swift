@@ -1,12 +1,26 @@
 import Foundation
 
+struct MemoryPromptSection: Equatable, Sendable, Identifiable {
+    var id: String
+    var text: String
+}
+
 struct MemoryPromptAssembler {
     func render(context: MemoryRuntimeContext) -> String {
-        if hasEpistemicContent(context.epistemicState) {
-            return renderEpistemicContext(context)
+        render(sections: sections(for: context))
+    }
+
+    func render(sections: [MemoryPromptSection]) -> String {
+        sections.map(\.text).joined(separator: "\n\n")
+    }
+
+    func sections(for context: MemoryRuntimeContext) -> [MemoryPromptSection] {
+        let stableState = context.epistemicState.stableSnapshot()
+        if hasEpistemicContent(stableState) {
+            return renderEpistemicSections(context)
         }
 
-        var sections: [String] = []
+        var sections: [MemoryPromptSection] = []
 
         let verifiedFacts = context.records.filter {
             $0.layer != .episodic && $0.verificationStatus == .verified && $0.retentionPolicy != .archiveOnly
@@ -16,67 +30,67 @@ struct MemoryPromptAssembler {
         }
         let episodicRecords = context.records.filter { $0.layer == .episodic }
 
-        sections.append(renderSection(title: "已验证事实", records: verifiedFacts, emptyState: "暂无已验证事实"))
-        sections.append(renderSection(title: "当前推测", records: speculativeRecords, emptyState: "暂无当前推测"))
-        sections.append(renderSection(title: "相关事件", records: episodicRecords, emptyState: "暂无相关事件"))
-        sections.append(renderWarnings(context.warnings, speculativeRecords: speculativeRecords))
+        sections.append(renderSection(id: "verified-facts", title: "已验证事实", records: verifiedFacts, emptyState: "暂无已验证事实"))
+        sections.append(renderSection(id: "speculative-records", title: "当前推测", records: speculativeRecords, emptyState: "暂无当前推测"))
+        sections.append(renderSection(id: "episodic-records", title: "相关事件", records: episodicRecords, emptyState: "暂无相关事件"))
+        sections.append(renderWarnings(id: "warnings", context.warnings, speculativeRecords: speculativeRecords))
 
-        return sections.joined(separator: "\n\n")
+        return sections
     }
 
-    private func renderEpistemicContext(_ context: MemoryRuntimeContext) -> String {
-        var sections: [String] = []
-        let state = context.epistemicState
+    private func renderEpistemicSections(_ context: MemoryRuntimeContext) -> [MemoryPromptSection] {
+        var sections: [MemoryPromptSection] = []
+        let state = context.epistemicState.stableSnapshot()
 
         sections.append(renderFrontiers(state.frontiers))
         sections.append(renderCounterexamples(state.counterexamples))
         sections.append(renderConstraints(state.activeConstraints))
         sections.append(renderVerificationDebt(state.verificationDebt))
         sections.append(renderSupportingFacts(context.records))
-        sections.append(renderWarnings(context.warnings, speculativeRecords: context.records.filter { $0.layer != .episodic && $0.verificationStatus != .verified && $0.retentionPolicy != .archiveOnly }))
+        sections.append(renderWarnings(id: "warnings", context.warnings, speculativeRecords: context.records.filter { $0.layer != .episodic && $0.verificationStatus != .verified && $0.retentionPolicy != .archiveOnly }))
 
-        return sections.joined(separator: "\n\n")
+        return sections
     }
 
-    private func renderFrontiers(_ frontiers: [FrontierMemory]) -> String {
+    private func renderFrontiers(_ frontiers: [FrontierMemory]) -> MemoryPromptSection {
         let body = frontiers.isEmpty
             ? "- 暂无未决前沿"
             : frontiers.map { frontier in
                 "- \(frontier.openClaim)\n  goal: \(frontier.goal)\n  probe: \(frontier.suggestedProbe)\n  stop: \(frontier.stopCondition)"
             }.joined(separator: "\n")
-        return "## 未决前沿\n\(body)"
+        return MemoryPromptSection(id: "frontiers", text: "## 未决前沿\n\(body)")
     }
 
-    private func renderCounterexamples(_ counterexamples: [CounterexampleMemory]) -> String {
+    private func renderCounterexamples(_ counterexamples: [CounterexampleMemory]) -> MemoryPromptSection {
         let body = counterexamples.isEmpty
             ? "- 暂无激活反例"
             : counterexamples.map { counterexample in
                 "- \(counterexample.summary)\n  replacement_action: \(counterexample.replacementAction)"
             }.joined(separator: "\n")
-        return "## 激活反例\n\(body)"
+        return MemoryPromptSection(id: "counterexamples", text: "## 激活反例\n\(body)")
     }
 
-    private func renderConstraints(_ constraints: [ConstraintMemory]) -> String {
+    private func renderConstraints(_ constraints: [ConstraintMemory]) -> MemoryPromptSection {
         let body = constraints.isEmpty
             ? "- 暂无当前约束"
             : constraints.map { "- \($0.summary)" }.joined(separator: "\n")
-        return "## 当前约束\n\(body)"
+        return MemoryPromptSection(id: "constraints", text: "## 当前约束\n\(body)")
     }
 
-    private func renderVerificationDebt(_ verificationDebt: [VerificationDebt]) -> String {
+    private func renderVerificationDebt(_ verificationDebt: [VerificationDebt]) -> MemoryPromptSection {
         let body = verificationDebt.isEmpty
             ? "- 暂无验证债务"
             : verificationDebt.map { debt in
                 "- \(debt.claim)\n  reason: \(debt.reason)"
             }.joined(separator: "\n")
-        return "## 验证债务\n\(body)"
+        return MemoryPromptSection(id: "verification-debt", text: "## 验证债务\n\(body)")
     }
 
-    private func renderSupportingFacts(_ records: [MemoryRecord]) -> String {
+    private func renderSupportingFacts(_ records: [MemoryRecord]) -> MemoryPromptSection {
         let supportingFacts = records.filter {
             $0.layer != .episodic && $0.verificationStatus == .verified && $0.retentionPolicy != .archiveOnly
         }
-        return renderSection(title: "支持性事实", records: supportingFacts, emptyState: "暂无支持性事实")
+        return renderSection(id: "supporting-facts", title: "支持性事实", records: supportingFacts, emptyState: "暂无支持性事实")
     }
 
     private func hasEpistemicContent(_ state: EpistemicState) -> Bool {
@@ -86,7 +100,7 @@ struct MemoryPromptAssembler {
         !state.verificationDebt.isEmpty
     }
 
-    private func renderSection(title: String, records: [MemoryRecord], emptyState: String) -> String {
+    private func renderSection(id: String, title: String, records: [MemoryRecord], emptyState: String) -> MemoryPromptSection {
         let body: String
         if records.isEmpty {
             body = "- \(emptyState)"
@@ -99,16 +113,16 @@ struct MemoryPromptAssembler {
             }.joined(separator: "\n")
         }
 
-        return "## \(title)\n\(body)"
+        return MemoryPromptSection(id: id, text: "## \(title)\n\(body)")
     }
 
-    private func renderWarnings(_ warnings: [String], speculativeRecords: [MemoryRecord]) -> String {
+    private func renderWarnings(id: String, _ warnings: [String], speculativeRecords: [MemoryRecord]) -> MemoryPromptSection {
         let derivedWarnings = speculativeRecords.map { "未验证：\($0.title)" }
         let mergedWarnings = warnings + derivedWarnings
         let body: String = mergedWarnings.isEmpty
             ? "- 暂无风险或待确认项"
             : mergedWarnings.map { "- \($0)" }.joined(separator: "\n")
 
-        return "## 风险与待确认项\n\(body)"
+        return MemoryPromptSection(id: id, text: "## 风险与待确认项\n\(body)")
     }
 }

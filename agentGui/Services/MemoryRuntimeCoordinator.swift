@@ -71,23 +71,32 @@ final class MemoryRuntimeCoordinator {
         )
 
         let profiles = profileRegistry.profiles(for: request)
+        let stableEpistemicState = epistemicState.stableSnapshot()
+        let effectiveEpistemicState = featureConfiguration.enableEpistemicExtraction
+            ? stableEpistemicState
+            : EpistemicState()
+        let retrievalEpistemicState = featureConfiguration.enableRMSRetrieval
+            ? effectiveEpistemicState
+            : EpistemicState()
         let phaseHint: MemoryRetrievalPhase? = featureConfiguration.enableRMSRetrieval && (
-            !epistemicState.frontiers.isEmpty ||
-            !epistemicState.counterexamples.isEmpty ||
-            !epistemicState.verificationDebt.isEmpty
+            !retrievalEpistemicState.frontiers.isEmpty ||
+            !retrievalEpistemicState.counterexamples.isEmpty ||
+            !retrievalEpistemicState.verificationDebt.isEmpty
         ) ? .frontierResolution : nil
         let retrievalIntent = MemoryRetrievalIntentClassifier().classify(
             request: request,
             phaseHint: phaseHint,
-            epistemicState: epistemicState
+            epistemicState: retrievalEpistemicState
         )
         let plan = retrievalPlanner.makePlan(
             request: request,
             profiles: profiles,
             intent: retrievalIntent,
-            epistemicState: epistemicState
+            epistemicState: retrievalEpistemicState
         )
-        let nextInfluenceTrace = augment(influenceTrace: influenceTrace, with: epistemicState, plan: plan)
+        let nextInfluenceTrace = featureConfiguration.enableRMSRetrieval
+            ? augment(influenceTrace: influenceTrace, with: effectiveEpistemicState, plan: plan)
+            : influenceTrace
 
         var records = unifiedRecordsProvider(request)
         if records.contains(where: { $0.layer == .working }) == false,
@@ -108,10 +117,15 @@ final class MemoryRuntimeCoordinator {
             records: filteredRecords,
             writePolicy: mergedWritePolicy(for: profiles, request: request),
             warnings: [],
-            epistemicState: epistemicState,
+            epistemicState: effectiveEpistemicState,
             influenceTrace: nextInfluenceTrace
         )
-        let renderedPrompt = promptAssembler.render(context: baseContext)
+        let promptSections = promptAssembler.sections(for: baseContext)
+        let promptBudgetResult = MemoryPromptBudgetEnforcer().enforce(
+            sections: promptSections,
+            budget: request.contextBudget
+        )
+        let renderedPrompt = promptBudgetResult.renderedPrompt
         let runtimeSnapshot = makeSnapshot(
             request: request,
             plan: plan,
@@ -123,9 +137,10 @@ final class MemoryRuntimeCoordinator {
             candidateCountByLayer: filtered.candidateCountByLayer,
             selectedCountByLayer: filtered.selectedCountByLayer,
             dereferenceCount: evidenceResolution.dereferenceCount,
-            epistemicState: epistemicState,
+            epistemicState: effectiveEpistemicState,
             influenceTrace: nextInfluenceTrace,
-            renderedPrompt: renderedPrompt
+            renderedPrompt: renderedPrompt,
+            promptBudgetResult: promptBudgetResult
         )
 
         MemoryBusinessLogger.emit(
@@ -227,7 +242,8 @@ final class MemoryRuntimeCoordinator {
         with epistemicState: EpistemicState,
         plan: MemoryRetrievalPlan
     ) -> MemoryInfluenceTrace {
-        guard !epistemicState.frontiers.isEmpty else {
+        let stableState = epistemicState.stableSnapshot()
+        guard !stableState.frontiers.isEmpty else {
             return influenceTrace
         }
 
@@ -238,9 +254,9 @@ final class MemoryRuntimeCoordinator {
             plan.objectBudgetByType[.constraint, default: 0],
             plan.objectBudgetByType[.verificationDebt, default: 0]
         ].reduce(0, +)
-        let allocatedPerFrontier = max(budgetPool / max(epistemicState.frontiers.count, 1), 1)
+        let allocatedPerFrontier = max(budgetPool / max(stableState.frontiers.count, 1), 1)
 
-        for frontier in epistemicState.frontiers {
+        for frontier in stableState.frontiers {
             let decision = MemoryInfluenceTrace.FrontierBudgetDecision(
                 frontierID: frontier.id,
                 allocatedBudget: allocatedPerFrontier,
@@ -279,13 +295,18 @@ final class MemoryRuntimeCoordinator {
 
     func scheduleConsolidation(for outcome: MemoryRuntimeOutcome) async {
         try? backgroundJobStore.enqueue(.consolidation(outcome: outcome))
-        try? backgroundJobStore.enqueue(.counterexampleDistillation(outcome: outcome))
-        try? backgroundJobStore.enqueue(.tacticKernelDistillation(outcome: outcome))
-        try? backgroundJobStore.enqueue(.memoryInvalidation(outcome: outcome))
+        if featureConfiguration.enableRMSDistillation {
+            try? backgroundJobStore.enqueue(.counterexampleDistillation(outcome: outcome))
+            try? backgroundJobStore.enqueue(.tacticKernelDistillation(outcome: outcome))
+            try? backgroundJobStore.enqueue(.memoryInvalidation(outcome: outcome))
+        }
         MemoryBusinessLogger.emit(
             .memoryConsolidationQueued,
             request: outcome.request,
-            metadata: ["recordCount": outcome.records.count],
+            metadata: [
+                "recordCount": outcome.records.count,
+                "distillationEnabled": featureConfiguration.enableRMSDistillation
+            ],
             sink: businessLogSink
         )
     }
@@ -303,7 +324,8 @@ final class MemoryRuntimeCoordinator {
         dereferenceCount: Int,
         epistemicState: EpistemicState,
         influenceTrace: MemoryInfluenceTrace,
-        renderedPrompt: String
+        renderedPrompt: String,
+        promptBudgetResult: MemoryPromptBudgetEnforcer.Result
     ) -> MemoryRuntimeSnapshot {
         let selectedSnapshotRecords = selectedRecords.enumerated().map { index, record in
             MemoryRuntimeSnapshotRecord(record: record, promptOrder: index)
@@ -342,6 +364,7 @@ final class MemoryRuntimeCoordinator {
             selectedRecords: selectedSnapshotRecords,
             excludedRecords: excludedSnapshotRecords,
             dereferenceCount: dereferenceCount,
+            warnings: [],
             epistemicState: epistemicState,
             influenceTrace: influenceTrace,
             renderedPrompt: renderedPrompt,
@@ -350,6 +373,10 @@ final class MemoryRuntimeCoordinator {
                 selectedRecords: selectedSnapshotRecords,
                 excludedRecords: excludedSnapshotRecords,
                 dereferenceCount: dereferenceCount,
+                totalEstimatedPromptChars: promptBudgetResult.totalPromptChars,
+                postEnforcementPromptChars: promptBudgetResult.postEnforcementPromptChars,
+                trimmedCharCount: promptBudgetResult.trimmedCharCount,
+                trimmedSectionIDs: promptBudgetResult.trimmedSectionIDs,
                 includeWorkingSetCost: true
             )
         )

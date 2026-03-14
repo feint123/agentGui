@@ -7,10 +7,11 @@ struct MemoryRetrievalIntentClassifier {
         phaseHint: MemoryRetrievalPhase? = nil,
         epistemicState: EpistemicState = EpistemicState()
     ) -> MemoryRetrievalIntent {
-        let phase = phaseHint ?? inferredPhase(from: request.userRequest, epistemicState: epistemicState)
+        let stableState = epistemicState.stableSnapshot()
+        let phase = phaseHint ?? inferredPhase(from: request.userRequest, epistemicState: stableState)
         return MemoryRetrievalIntent(
             phase: phase,
-            neededObjectTypes: objectTypes(for: phase, taskKind: request.taskKind, epistemicState: epistemicState),
+            neededObjectTypes: objectTypes(for: phase, taskKind: request.taskKind, epistemicState: stableState),
             reason: phaseHint == nil ? "derived from request and epistemic frontier" : "explicit phase hint"
         )
     }

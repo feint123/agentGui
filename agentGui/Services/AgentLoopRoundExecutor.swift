@@ -645,8 +645,15 @@ struct AgentLoopRoundExecutor {
             autoVerificationAssessment = nil
         }
 
-        let verificationEnabled = request.toolExecutionContext == .mainAgent &&
-            !state.accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let effectiveVerificationState = state.verificationState
+            ?? inMemoryVerification?.verificationState
+            ?? storedVerification?.verificationState
+        let verificationEnabled = Self.shouldEnableVerificationGate(
+            toolExecutionContext: request.toolExecutionContext,
+            accumulatedText: state.accumulatedText,
+            verificationState: effectiveVerificationState,
+            autoVerificationAssessment: autoVerificationAssessment
+        )
 
         emitter.emitBusinessEvent(
             .verificationGateEvaluated,
@@ -680,24 +687,10 @@ struct AgentLoopRoundExecutor {
             )
         }
 
-        let verificationResolution: VerificationGateResolution?
-        if verificationEnabled {
-            if state.verificationState?.certificate?.decision == .pass {
-                verificationResolution = .clearToFinish
-            } else {
-                let openClaims = state.verificationState?.certificate?.openClaims
-                    ?? state.verificationState?.frontier.map(\.openQuestion)
-                    ?? ["Need direct runtime proof before finishing"]
-                let suggestedProbe = state.verificationState?.frontier.first?.recommendedProbe
-                    ?? "Call run_subagent with verifier before finishing"
-                verificationResolution = .needsMoreEvidence(
-                    openClaims: openClaims,
-                    suggestedProbe: suggestedProbe
-                )
-            }
-        } else {
-            verificationResolution = nil
-        }
+        let verificationResolution = Self.makeVerificationResolution(
+            verificationState: effectiveVerificationState,
+            verificationEnabled: verificationEnabled
+        )
 
         let phaseOutcome = AgentLoopPhaseOutcomeApplier.apply(
             phase: .finalizing,
@@ -729,6 +722,51 @@ struct AgentLoopRoundExecutor {
     private func primaryUserTaskText(from messages: [MessageParameter.Message]) -> String {
         guard let taskMessage = messages.first(where: { $0.role == "user" }) else { return "" }
         return claudeService.extractText(from: taskMessage.content)
+    }
+
+    static func shouldEnableVerificationGate(
+        toolExecutionContext: ToolContext,
+        accumulatedText: String,
+        verificationState: VerificationState?,
+        autoVerificationAssessment: AutoVerificationAssessment?
+    ) -> Bool {
+        guard toolExecutionContext == .mainAgent,
+              !accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+
+        return verificationState != nil || ExecutionGuard.shouldAutoVerify(autoVerificationAssessment)
+    }
+
+    static func makeVerificationResolution(
+        verificationState: VerificationState?,
+        verificationEnabled: Bool
+    ) -> VerificationGateResolution? {
+        guard verificationEnabled else { return nil }
+
+        guard let verificationState else {
+            return .needsMoreEvidence(
+                openClaims: ["Need direct runtime proof before finishing"],
+                suggestedProbe: "Call run_subagent with verifier before finishing"
+            )
+        }
+
+        if verificationState.certificate?.decision == .pass {
+            return .clearToFinish
+        }
+
+        let openClaims = verificationState.certificate?.openClaims
+        let resolvedOpenClaims = openClaims?.isEmpty == false
+            ? openClaims ?? []
+            : (verificationState.frontier.isEmpty
+                ? ["Need direct runtime proof before finishing"]
+                : verificationState.frontier.map(\.openQuestion))
+        let suggestedProbe = verificationState.frontier.first?.recommendedProbe
+            ?? "Call run_subagent with verifier before finishing"
+        return .needsMoreEvidence(
+            openClaims: resolvedOpenClaims,
+            suggestedProbe: suggestedProbe
+        )
     }
 
     private func verifierMetadata(

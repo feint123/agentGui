@@ -171,6 +171,8 @@ struct MemoryRuntimeCoordinatorTests {
         #expect(snapshot.excludedRecords.contains { $0.recordID == "task-2" && $0.exclusionReason == .budgetTrimmed })
         #expect(snapshot.excludedRecords.contains { $0.recordID == "semantic-archive" && $0.exclusionReason == .archived })
         #expect(snapshot.plan.itemBudgetByLayer[.task] == 1)
+        #expect(snapshot.metrics.postEnforcementPromptChars == context.renderedPrompt.count)
+        #expect(snapshot.metrics.totalEstimatedPromptChars >= snapshot.metrics.postEnforcementPromptChars)
     }
 
     @Test func emptyUnifiedMemorySliceStillProducesInspectableSnapshot() async throws {
@@ -366,6 +368,101 @@ struct MemoryRuntimeCoordinatorTests {
         #expect(jobs.contains { $0.type == .tacticKernelDistillation })
         #expect(jobs.contains { $0.type == .memoryInvalidation })
         #expect(jobs.contains { $0.type == .consolidation })
+    }
+
+    @Test func scheduleConsolidationSkipsRMSDistillationJobsWhenDisabled() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let coordinator = MemoryRuntimeCoordinator(
+            featureConfiguration: .init(
+                enableEpistemicExtraction: true,
+                enableRMSRetrieval: true,
+                enableRMSDistillation: false
+            ),
+            unifiedRecordsProvider: { _ in [] },
+            unifiedStoreBaseDirectory: baseDirectory
+        )
+
+        let outcome = MemoryRuntimeOutcome(
+            request: MemoryRuntimeRequest(
+                sessionId: "s1",
+                threadId: "t1",
+                workflowRunId: nil,
+                userRequest: "Fix build",
+                taskKind: .coding,
+                projectId: nil,
+                workspaceRoot: "/tmp/repo",
+                contextBudget: 4000
+            ),
+            records: [
+                MemoryRecord.fixture(
+                    id: "failure-1",
+                    layer: .task,
+                    kind: .working,
+                    scope: .session(id: "s1"),
+                    title: "Attempt 1",
+                    summary: "Edited before confirming scheme",
+                    verificationStatus: .failed,
+                    tags: ["failed-attempt"]
+                )
+            ]
+        )
+
+        await coordinator.scheduleConsolidation(for: outcome)
+
+        let jobs = try MemoryBackgroundJobStore(baseDirectory: baseDirectory).allJobs()
+        #expect(jobs.contains { $0.type == .consolidation })
+        #expect(jobs.contains { $0.type == .counterexampleDistillation } == false)
+        #expect(jobs.contains { $0.type == .tacticKernelDistillation } == false)
+        #expect(jobs.contains { $0.type == .memoryInvalidation } == false)
+    }
+
+    @Test func prepareContextSkipsFrontierAwareRetrievalWhenRMSRetrievalDisabled() async throws {
+        let coordinator = MemoryRuntimeCoordinator(
+            featureConfiguration: .init(
+                enableEpistemicExtraction: true,
+                enableRMSRetrieval: false,
+                enableRMSDistillation: false
+            ),
+            unifiedRecordsProvider: { _ in [
+                MemoryRecord.fixture(
+                    id: "task-1",
+                    layer: .task,
+                    kind: .working,
+                    scope: .session(id: "s1"),
+                    title: "Known failure"
+                )
+            ] }
+        )
+
+        let frontier = FrontierMemory(
+            frontierId: "f-1",
+            goal: "Fix build",
+            openClaim: "Need to confirm shared scheme",
+            uncertaintyType: .tooling,
+            impactLevel: .high,
+            suggestedProbe: "Run xcodebuild -list",
+            stopCondition: "Scheme confirmed"
+        )
+
+        let context = try await coordinator.prepareContext(
+            for: MemoryRuntimeRequest(
+                sessionId: "s1",
+                threadId: "t1",
+                workflowRunId: nil,
+                userRequest: "Fix build",
+                taskKind: .coding,
+                projectId: nil,
+                workspaceRoot: "/tmp/repo",
+                contextBudget: 4000
+            ),
+            epistemicState: EpistemicState(frontiers: [frontier]),
+            influenceTrace: MemoryInfluenceTrace()
+        )
+
+        let snapshot = try #require(context.runtimeSnapshot)
+        #expect(snapshot.plan.retrievalIntent?.phase == .modification)
+        #expect(context.influenceTrace.frontierBudgetDecisions.isEmpty)
+        #expect(snapshot.influenceTrace.frontierBudgetDecisions.isEmpty)
     }
 
     private func makeTemporaryDirectory() throws -> URL {

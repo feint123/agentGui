@@ -196,7 +196,7 @@ struct MemoryRuntimeContext: Equatable, Sendable {
         self.records = records
         self.writePolicy = writePolicy
         self.warnings = warnings
-        self.epistemicState = epistemicState
+        self.epistemicState = epistemicState.stableSnapshot()
         self.influenceTrace = influenceTrace
         self.renderedPrompt = renderedPrompt
         self.runtimeSnapshot = runtimeSnapshot

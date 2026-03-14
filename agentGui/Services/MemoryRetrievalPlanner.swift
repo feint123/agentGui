@@ -2,14 +2,15 @@ import Foundation
 
 struct MemoryRetrievalPlanner {
     func makeRMSPlan(request: MemoryRuntimeRequest, profiles: [MemoryDomainProfile], epistemicState: EpistemicState) -> MemoryRetrievalPlan {
+        let stableState = epistemicState.stableSnapshot()
         let phaseHint: MemoryRetrievalPhase? =
-            (!epistemicState.frontiers.isEmpty ||
-             !epistemicState.counterexamples.isEmpty ||
-             !epistemicState.verificationDebt.isEmpty)
+            (!stableState.frontiers.isEmpty ||
+             !stableState.counterexamples.isEmpty ||
+             !stableState.verificationDebt.isEmpty)
             ? .frontierResolution
             : nil
-        let intent = MemoryRetrievalIntentClassifier().classify(request: request, phaseHint: phaseHint, epistemicState: epistemicState)
-        return makePlan(request: request, profiles: profiles, intent: intent, epistemicState: epistemicState)
+        let intent = MemoryRetrievalIntentClassifier().classify(request: request, phaseHint: phaseHint, epistemicState: stableState)
+        return makePlan(request: request, profiles: profiles, intent: intent, epistemicState: stableState)
     }
 
     func makePlan(request: MemoryRuntimeRequest, profiles: [MemoryDomainProfile]) -> MemoryRetrievalPlan {
@@ -23,10 +24,11 @@ struct MemoryRetrievalPlanner {
         intent: MemoryRetrievalIntent,
         epistemicState: EpistemicState = EpistemicState()
     ) -> MemoryRetrievalPlan {
+        let stableState = epistemicState.stableSnapshot()
         let orderedLayers: [MemoryLayer]
         let itemBudgetByLayer: [MemoryLayer: Int]
         let objectBudgetByType: [MemoryRetrievalObjectType: Int]
-        let highImpactFrontierCount = epistemicState.frontiers.filter { $0.impactLevel == .high || $0.impactLevel == .critical }.count
+        let highImpactFrontierCount = stableState.frontiers.filter { $0.impactLevel == .high || $0.impactLevel == .critical }.count
 
         switch request.taskKind {
         case .creativeWriting:
@@ -39,7 +41,7 @@ struct MemoryRetrievalPlanner {
             itemBudgetByLayer = budgets(
                 for: orderedLayers,
                 weights: intent.phase == .frontierResolution
-                    ? [.task: 4 + highImpactFrontierCount, .working: 3, .proceduralArchive: 3 + min(epistemicState.counterexamples.count, 2), .semantic: 2, .episodic: 1]
+                    ? [.task: 4 + highImpactFrontierCount, .working: 3, .proceduralArchive: 3 + min(stableState.counterexamples.count, 2), .semantic: 2, .episodic: 1]
                     : [.working: 3, .task: 4, .semantic: 3, .episodic: 1, .proceduralArchive: 1],
                 contextBudget: request.contextBudget
             )
@@ -48,7 +50,7 @@ struct MemoryRetrievalPlanner {
             itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 2, .semantic: 3], contextBudget: request.contextBudget)
         }
 
-        objectBudgetByType = objectBudgets(for: intent, contextBudget: request.contextBudget, epistemicState: epistemicState)
+        objectBudgetByType = objectBudgets(for: intent, contextBudget: request.contextBudget, epistemicState: stableState)
 
         return MemoryRetrievalPlan(
             orderedLayers: orderedLayers,
@@ -77,22 +79,23 @@ struct MemoryRetrievalPlanner {
         contextBudget: Int,
         epistemicState: EpistemicState
     ) -> [MemoryRetrievalObjectType: Int] {
+        let stableState = epistemicState.stableSnapshot()
         let normalizedBudget = max(contextBudget / 2000, 2)
         var result: [MemoryRetrievalObjectType: Int] = [:]
-        let extraHighRiskBudget = epistemicState.frontiers.filter { $0.impactLevel == .high || $0.impactLevel == .critical }.count
+        let extraHighRiskBudget = stableState.frontiers.filter { $0.impactLevel == .high || $0.impactLevel == .critical }.count
 
         for objectType in intent.neededObjectTypes {
             switch objectType {
             case .procedure where intent.phase == .verification || intent.phase == .recovery:
                 result[objectType] = max(normalizedBudget + extraHighRiskBudget, 1)
             case .procedure where intent.phase == .frontierResolution:
-                result[objectType] = max(normalizedBudget + max(epistemicState.counterexamples.count, 1), 1)
+                result[objectType] = max(normalizedBudget + max(stableState.counterexamples.count, 1), 1)
             case .counterexample:
                 result[objectType] = max(normalizedBudget + extraHighRiskBudget, 2)
             case .constraint:
-                result[objectType] = max(normalizedBudget + (epistemicState.activeConstraints.isEmpty ? 0 : 1), 1)
+                result[objectType] = max(normalizedBudget + (stableState.activeConstraints.isEmpty ? 0 : 1), 1)
             case .verificationDebt:
-                result[objectType] = max(normalizedBudget + epistemicState.verificationDebt.count, 1)
+                result[objectType] = max(normalizedBudget + stableState.verificationDebt.count, 1)
             case .fact:
                 result[objectType] = max(normalizedBudget, 1)
             default:

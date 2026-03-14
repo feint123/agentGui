@@ -219,7 +219,8 @@ extension ClaudeService {
                 let unifiedStore = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreDirectory)
                 return (try? unifiedStore.records(for: request)) ?? []
             },
-            unifiedStoreBaseDirectory: ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory)
+            unifiedStoreBaseDirectory: ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory),
+            businessLogSink: businessLogSink
         )
         let context = try await resolvedCoordinator.prepareContext(
             for: request,

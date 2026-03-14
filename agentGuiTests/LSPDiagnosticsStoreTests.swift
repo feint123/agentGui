@@ -97,4 +97,53 @@ struct LSPDiagnosticsStoreTests {
         #expect(summary.updatedAt == Date(timeIntervalSince1970: 2_000))
         #expect(summary.recentDiagnostics.map(\.message) == ["Prefer const", "Hint", "Type mismatch", "Unused value"])
     }
+
+    @Test func publishFromDetachedTaskMarshalsBackToMainActor() async throws {
+        let store = LSPDiagnosticsStore()
+        let snapshot = LSPDiagnosticsSnapshot(
+            workspaceRoot: "/repo",
+            uri: "file:///repo/src/app.ts",
+            diagnostics: [.init(message: "Detached", severity: .warning)]
+        )
+
+        let deliveredOnMainActor = LockedBox<Bool?>(nil)
+        store.onDidPublish = { received in
+            deliveredOnMainActor.value = Thread.isMainThread
+            #expect(received == snapshot)
+        }
+
+        let publishTask = Task.detached {
+            await store.publish(snapshot)
+        }
+
+        _ = await publishTask.result
+        for _ in 0..<20 where deliveredOnMainActor.value == nil {
+            await Task.yield()
+        }
+
+        #expect(deliveredOnMainActor.value == true)
+        #expect(store.snapshot(for: "/repo", uri: "file:///repo/src/app.ts") == snapshot)
+    }
+}
+
+private final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Value
+
+    init(_ value: Value) {
+        self.storage = value
+    }
+
+    var value: Value {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            storage = newValue
+            lock.unlock()
+        }
+    }
 }

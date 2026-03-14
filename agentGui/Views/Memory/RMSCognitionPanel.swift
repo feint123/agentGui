@@ -2,19 +2,36 @@ import SwiftUI
 
 struct RMSCognitionPanel: View {
     private let snapshotStore: MemoryRuntimeSnapshotStore
+    private let jobStore: MemoryBackgroundJobStore
+    private let snapshotID: String?
+    private let toolCallID: String?
 
     @State private var snapshot: MemoryRuntimeSnapshot?
     @State private var loadError: String?
+    @State private var jobBacklogCount: Int = 0
+    @State private var recentFailedJobSummary: String?
 
-    init(snapshotStore: MemoryRuntimeSnapshotStore = MemoryRuntimeSnapshotStore()) {
+    init(
+        snapshotStore: MemoryRuntimeSnapshotStore = MemoryRuntimeSnapshotStore(),
+        jobStore: MemoryBackgroundJobStore = MemoryBackgroundJobStore(),
+        snapshotID: String? = nil,
+        toolCallID: String? = nil
+    ) {
         self.snapshotStore = snapshotStore
+        self.jobStore = jobStore
+        self.snapshotID = snapshotID
+        self.toolCallID = toolCallID
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if let snapshot {
-                    let viewModel = RMSCognitionPanelViewModel(snapshot: snapshot)
+                    let viewModel = RMSCognitionPanelViewModel(
+                        snapshot: snapshot,
+                        jobBacklogCount: jobBacklogCount,
+                        recentFailedJobSummary: recentFailedJobSummary
+                    )
                     heroSection(viewModel: viewModel)
                     verificationSummarySection(viewModel: viewModel)
                     frontierSection(viewModel: viewModel)
@@ -170,6 +187,13 @@ struct RMSCognitionPanel: View {
             VStack(alignment: .leading, spacing: 8) {
                 diagnosticsRow("Working-set Cost", value: "\(viewModel.developerDiagnostics.workingSetCost)")
                 diagnosticsRow("Dereferences", value: "\(viewModel.developerDiagnostics.dereferenceCount)")
+                diagnosticsRow("Post-enforcement Prompt", value: "\(viewModel.developerDiagnostics.postEnforcementPromptChars)")
+                diagnosticsRow("Trimmed Chars", value: "\(viewModel.developerDiagnostics.trimmedCharCount)")
+                diagnosticsRow("Fallback Extraction", value: viewModel.developerDiagnostics.wasFallbackExtractionUsed ? "yes" : "no")
+                diagnosticsRow("Job Backlog", value: "\(viewModel.developerDiagnostics.jobBacklogCount)")
+                if let recentFailedJobSummary = viewModel.developerDiagnostics.recentFailedJobSummary, !recentFailedJobSummary.isEmpty {
+                    diagnosticsRow("Recent Failed Job", value: recentFailedJobSummary)
+                }
                 diagnosticsRow("Retrieval Intent", value: viewModel.developerDiagnostics.retrievalIntentSummary)
             }
             .padding(.top, 8)
@@ -254,7 +278,14 @@ struct RMSCognitionPanel: View {
 
     private func loadLatestSnapshot() {
         do {
-            snapshot = try snapshotStore.latestSnapshotInMostRecentSession()
+            snapshot = try snapshotStore.preferredSnapshot(snapshotID: snapshotID, toolCallID: toolCallID)
+            let jobs = try jobStore.allJobs()
+            jobBacklogCount = jobs.filter { $0.status == .queued || $0.status == .running }.count
+            recentFailedJobSummary = jobs
+                .filter { $0.status == .failed }
+                .sorted { ($0.lastFailureAt ?? .distantPast) > ($1.lastFailureAt ?? .distantPast) }
+                .first?
+                .failureSummary
             loadError = nil
         } catch {
             loadError = error.localizedDescription

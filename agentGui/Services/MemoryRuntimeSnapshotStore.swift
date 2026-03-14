@@ -62,6 +62,20 @@ struct MemoryRuntimeSnapshotStore {
         return try loadLegacySnapshots().max(by: { $0.createdAt < $1.createdAt })
     }
 
+    func preferredSnapshot(snapshotID: String?, toolCallID: String?) throws -> MemoryRuntimeSnapshot? {
+        if let snapshotID, !snapshotID.isEmpty,
+           let snapshot = try snapshot(id: snapshotID) {
+            return snapshot
+        }
+
+        if let toolCallID, !toolCallID.isEmpty,
+           let snapshot = try allSnapshots().first(where: { $0.toolCallId == toolCallID }) {
+            return snapshot
+        }
+
+        return try latestSnapshotInMostRecentSession()
+    }
+
     private func loadPerFileSnapshots() throws -> [MemoryRuntimeSnapshot] {
         guard fileManager.fileExists(atPath: snapshotsDirectoryURL.path) else { return [] }
 

@@ -239,6 +239,25 @@ struct MemoryRuntimeIntegrationTests {
         #expect(legacySnapshot.metrics.workingSetCost > 0)
     }
 
+    @Test func unifiedMemoryRuntimeEmitsBusinessLogsOnProductionPath() async throws {
+        let sink = InMemoryBusinessLogSink()
+        let service = ClaudeService()
+        service.businessLogSink = sink
+        let settings = AppSettings.testFixture()
+        settings.enableUnifiedMemoryRuntime = true
+
+        _ = try await service.buildUnifiedMemoryBootstrap(
+            settings: settings,
+            session: nil,
+            sessionId: "s1",
+            messages: [MessageParameter.Message(role: .user, content: .text("Fix build"))],
+            modelContext: try makeModelContext(),
+            coordinator: nil
+        )
+
+        #expect(sink.events.contains { $0.event == .memoryContextPrepared })
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(

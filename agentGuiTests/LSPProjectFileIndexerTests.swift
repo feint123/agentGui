@@ -41,6 +41,23 @@ struct LSPProjectFileIndexerTests {
         #expect(indexed.isEmpty)
     }
 
+    @Test func indexerSkipsPythonVirtualEnvironmentPackages() throws {
+        let workspaceRoot = try makeWorkspace(files: [
+            "src/main.py": "print('app')\n",
+            "venv/lib/python3.13/site-packages/pkg/module.py": "print('dependency')\n",
+            "env/lib/python3.13/site-packages/other/module.py": "print('dependency')\n",
+            "vendor/dist-packages/tool.py": "print('dependency')\n"
+        ])
+        let registry = try LSPServerRegistry(settings: .testFixture())
+        let indexer = LSPProjectFileIndexer()
+
+        let indexed = indexer.indexFiles(in: workspaceRoot.path, registry: registry)
+
+        #expect(indexed["python-lsp"] == [
+            workspaceRoot.appendingPathComponent("src/main.py").path
+        ])
+    }
+
     private func makeWorkspace(files: [String: String]) throws -> URL {
         let workspaceRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

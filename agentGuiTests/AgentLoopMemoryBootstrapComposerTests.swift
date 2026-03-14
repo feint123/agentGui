@@ -83,4 +83,57 @@ struct AgentLoopMemoryBootstrapComposerTests {
 
         #expect(composition.patch == nil)
     }
+
+    @Test func composerRendersStableEpistemicSnapshot() async throws {
+        let composer = AgentLoopMemoryBootstrapComposer(
+            dependencies: .init(
+                loadUnifiedContext: { nil },
+                saveRuntimeSnapshot: { _ in nil }
+            )
+        )
+
+        let summary = composer.renderEpistemicSummary(
+            EpistemicState(
+                frontiers: [
+                    FrontierMemory(
+                        frontierId: " f-1 ",
+                        goal: " Fix build ",
+                        openClaim: " Need scheme evidence ",
+                        uncertaintyType: .tooling,
+                        impactLevel: .high,
+                        suggestedProbe: " Run xcodebuild -list ",
+                        stopCondition: " Scheme confirmed "
+                    ),
+                    FrontierMemory(
+                        frontierId: "f-blank",
+                        goal: "Fix build",
+                        openClaim: "   ",
+                        uncertaintyType: .tooling,
+                        impactLevel: .high,
+                        suggestedProbe: "Ignore",
+                        stopCondition: "Ignore"
+                    )
+                ],
+                activeConstraints: [
+                    ConstraintMemory(id: " c-1 ", summary: " Inspect before editing ", scope: .session(id: "s1")),
+                    ConstraintMemory(id: "c-blank", summary: "   ", scope: .session(id: "s1"))
+                ],
+                verificationDebt: [
+                    VerificationDebt(id: " d-1 ", claim: " Build fix works ", reason: " No direct evidence yet "),
+                    VerificationDebt(id: "d-blank", claim: "   ", reason: "ignored")
+                ],
+                counterexamples: [
+                    CounterexampleMemory(id: " ce-1 ", summary: " Avoid edit-first loop ", replacementAction: " Inspect first "),
+                    CounterexampleMemory(id: "ce-blank", summary: "   ", replacementAction: "ignored")
+                ]
+            )
+        )
+
+        #expect(summary.contains("- Need scheme evidence"))
+        #expect(summary.contains("suggested_probe: Run xcodebuild -list"))
+        #expect(summary.contains("- Inspect before editing"))
+        #expect(summary.contains("- Build fix works: No direct evidence yet"))
+        #expect(summary.contains("- Avoid edit-first loop -> Inspect first"))
+        #expect(!summary.contains("ignored"))
+    }
 }

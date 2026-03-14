@@ -76,3 +76,69 @@ struct EpistemicState: Codable, Equatable, Sendable {
         self.expectedValueOfMoreReasoning = expectedValueOfMoreReasoning
     }
 }
+
+extension EpistemicState {
+    nonisolated func stableSnapshot() -> EpistemicState {
+        let trim: (String) -> String = { value in
+            value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        var snapshot = self
+        snapshot.frontiers = frontiers.compactMap { frontier in
+            let openClaim = trim(frontier.openClaim)
+            guard !openClaim.isEmpty else {
+                return nil
+            }
+
+            var normalized = frontier
+            normalized.frontierId = trim(frontier.frontierId)
+            normalized.goal = trim(frontier.goal)
+            normalized.openClaim = openClaim
+            normalized.suggestedProbe = trim(frontier.suggestedProbe)
+            normalized.stopCondition = trim(frontier.stopCondition)
+            return normalized
+        }
+        snapshot.activeConstraints = activeConstraints.compactMap { constraint in
+            let summary = trim(constraint.summary)
+            guard !summary.isEmpty else {
+                return nil
+            }
+
+            var normalized = constraint
+            normalized.id = trim(constraint.id)
+            normalized.summary = summary
+            return normalized
+        }
+        snapshot.candidateActions = candidateActions
+            .map(trim)
+            .filter { !$0.isEmpty }
+        snapshot.verificationDebt = verificationDebt.compactMap { debt in
+            let claim = trim(debt.claim)
+            guard !claim.isEmpty else {
+                return nil
+            }
+
+            var normalized = debt
+            normalized.id = trim(debt.id)
+            normalized.claim = claim
+            normalized.reason = trim(debt.reason)
+            return normalized
+        }
+        snapshot.activatedMemories = activatedMemories
+            .map(trim)
+            .filter { !$0.isEmpty }
+        snapshot.counterexamples = counterexamples.compactMap { counterexample in
+            let summary = trim(counterexample.summary)
+            guard !summary.isEmpty else {
+                return nil
+            }
+
+            var normalized = counterexample
+            normalized.id = trim(counterexample.id)
+            normalized.summary = summary
+            normalized.replacementAction = trim(counterexample.replacementAction)
+            return normalized
+        }
+        return snapshot
+    }
+}

@@ -128,6 +128,28 @@ struct MemoryRuntimeSnapshotStoreTests {
         #expect(snapshot?.sessionId == "legacy-session-b")
     }
 
+    @Test func preferredSnapshotUsesBoundSnapshotBeforeGlobalLatest() throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = MemoryRuntimeSnapshotStore(baseDirectory: baseDirectory)
+
+        try store.save(.fixture(
+            id: "older-current",
+            sessionId: "s1",
+            toolCallId: "tool-1",
+            createdAt: Date(timeIntervalSince1970: 100)
+        ))
+        try store.save(.fixture(
+            id: "newer-other",
+            sessionId: "s2",
+            toolCallId: "tool-2",
+            createdAt: Date(timeIntervalSince1970: 200)
+        ))
+
+        let snapshot = try store.preferredSnapshot(snapshotID: "older-current", toolCallID: nil)
+
+        #expect(snapshot?.id == "older-current")
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

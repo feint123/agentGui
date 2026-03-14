@@ -91,6 +91,45 @@ struct MemoryBackgroundSchedulerTests {
         #expect(report.revalidationCount >= 0)
     }
 
+    @Test func schedulerRequeuesPeriodicTTLSweepAfterInterval() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let scheduler = MemoryBackgroundScheduler(
+            baseDirectory: baseDirectory,
+            enableTTLSweep: true,
+            ttlSweepIntervalSeconds: 300,
+            ttlSeconds: 60
+        )
+        let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
+
+        await scheduler.runOnce(now: Date(timeIntervalSince1970: 10_000))
+        await scheduler.runOnce(now: Date(timeIntervalSince1970: 10_400))
+
+        #expect(try jobStore.latestSweepReport() != nil)
+        #expect(try jobStore.allJobs().contains { $0.type == .ttlSweep })
+    }
+
+    @Test func failedBackgroundJobMovesToRetryableStateBeforeDeadLetter() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
+        try store.enqueue(
+            MemoryBackgroundJob(
+                type: .consolidation,
+                maxAttempts: 2,
+                request: nil
+            )
+        )
+
+        let scheduler = MemoryBackgroundScheduler(baseDirectory: baseDirectory)
+        await scheduler.runOnce(now: Date(timeIntervalSince1970: 10_000))
+
+        let job = try #require(store.allJobs().first)
+        #expect(job.attemptCount == 1)
+        #expect(job.status == .queued)
+        #expect(job.failureSummary?.isEmpty == false)
+        #expect(job.nextEligibleRunAt != nil)
+        #expect(job.lastFailureAt != nil)
+    }
+
     @Test func schedulerConsumesCounterexampleDistillationJobs() async throws {
         let baseDirectory = try makeTemporaryDirectory()
         let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)

@@ -19,6 +19,13 @@ struct SettingsMemoryView: View {
 
     private var settings: AppSettings { store.settings }
 
+    private var runtimeEffectSummary: String {
+        let extraction = settings.enableEpistemicExtraction ? "Epistemic extraction 已接入 bootstrap 主链路" : "Epistemic extraction 使用 fallback"
+        let retrieval = settings.enableRMSRetrieval ? "RMS retrieval 会启用 frontier-aware 规划" : "RMS retrieval 退回普通检索规划"
+        let distillation = settings.enableRMSDistillation ? "RMS distillation 会排队后台蒸馏 job" : "RMS distillation 不会排队蒸馏 job"
+        return [extraction, retrieval, distillation].joined(separator: "；")
+    }
+
     private var memorySection: some View {
         Section {
             Toggle("启用统一记忆运行时", isOn: store.persistedSettingsBinding(
@@ -168,7 +175,7 @@ struct SettingsMemoryView: View {
         } header: {
             Text("长期记忆")
         } footer: {
-            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。统一记忆运行时用于把统一存储记录和 epistemic objects 组装成单一读视图，治理层用于限制低置信度写入。下方开关用于逐步 rollout epistemic extraction、RMS retrieval 和 RMS distillation。")
+            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。统一记忆运行时用于把统一存储记录和 epistemic objects 组装成单一读视图，治理层用于限制低置信度写入。下方开关用于逐步 rollout epistemic extraction、RMS retrieval 和 RMS distillation。当前生效行为：\(runtimeEffectSummary)。")
         }
     }
 

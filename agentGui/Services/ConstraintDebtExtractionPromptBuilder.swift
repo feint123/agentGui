@@ -2,12 +2,13 @@ import Foundation
 
 struct ConstraintDebtExtractionPromptBuilder {
     func build(envelope: EpistemicInputEnvelope, epistemicState: EpistemicState) -> String {
+        let stableState = epistemicState.stableSnapshot()
         let messageLines = envelope.userAgentMessages.isEmpty
             ? "- none"
             : envelope.userAgentMessages.map { "- \($0)" }.joined(separator: "\n")
-        let debtLines = epistemicState.verificationDebt.isEmpty
+        let debtLines = stableState.verificationDebt.isEmpty
             ? "- none"
-            : epistemicState.verificationDebt.map { "- \($0.claim): \($0.reason)" }.joined(separator: "\n")
+            : stableState.verificationDebt.map { "- \($0.claim): \($0.reason)" }.joined(separator: "\n")
 
         return """
         You are extracting constraints and verification debt from the current run.

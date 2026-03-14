@@ -30,7 +30,7 @@ struct AgentLoopRunState {
         self.loopMemory = loopMemory
         self.executionEvidence = executionEvidence
         self.verificationState = verificationState
-        self.epistemicState = epistemicState
+        self.epistemicState = epistemicState.stableSnapshot()
         self.influenceTrace = influenceTrace
         self.hookState = hookState
     }

@@ -72,18 +72,31 @@ struct RMSCognitionPanelViewModelTests {
     @Test func viewModelExposesDeveloperDiagnosticsAsSecondaryDetails() {
         let snapshot = MemoryRuntimeSnapshot.fixture(
             dereferenceCount: 2,
+            warnings: ["Epistemic extraction fell back to bootstrap heuristics"],
             retrievalIntent: MemoryRetrievalIntent(
                 phase: .verification,
                 neededObjectTypes: [.fact, .procedure],
                 reason: "Verify build fix"
             ),
-            workingSetCost: 128
+            workingSetCost: 128,
+            postEnforcementPromptChars: 96,
+            trimmedCharCount: 24,
+            trimmedSectionIDs: ["episodic-records"]
         )
 
-        let viewModel = RMSCognitionPanelViewModel(snapshot: snapshot)
+        let viewModel = RMSCognitionPanelViewModel(
+            snapshot: snapshot,
+            jobBacklogCount: 3,
+            recentFailedJobSummary: "counterexample distillation failed"
+        )
 
         #expect(viewModel.developerDiagnostics.workingSetCost == 128)
         #expect(viewModel.developerDiagnostics.dereferenceCount == 2)
+        #expect(viewModel.developerDiagnostics.postEnforcementPromptChars == 96)
+        #expect(viewModel.developerDiagnostics.trimmedCharCount == 24)
+        #expect(viewModel.developerDiagnostics.wasFallbackExtractionUsed == true)
+        #expect(viewModel.developerDiagnostics.jobBacklogCount == 3)
+        #expect(viewModel.developerDiagnostics.recentFailedJobSummary == "counterexample distillation failed")
         #expect(viewModel.developerDiagnostics.retrievalIntentSummary.contains("verification"))
         #expect(viewModel.showDeveloperDiagnosticsByDefault == false)
     }

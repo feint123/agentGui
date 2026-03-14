@@ -112,7 +112,9 @@ final class LSPClient {
     func configureNotificationHandling(workspaceRoot: String) {
         notificationWorkspaceRoot = workspaceRoot
         transport.notificationPayloadHandler = { [weak self] method, params in
-            self?.handleNotification(method: method, params: params)
+            Task { @MainActor in
+                self?.handleNotification(method: method, params: params)
+            }
         }
     }
 
