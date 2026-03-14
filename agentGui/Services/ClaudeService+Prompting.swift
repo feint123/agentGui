@@ -227,7 +227,7 @@ extension ClaudeService {
 
         **Other delegation rules:**
         - Use `worker` for implementing or modifying files and for targeted verification work that is part of the implementation step.
-        - Use `verifier` for final quality gates, evidence review, and checking whether claims are actually supported.
+        - Use `verifier` when you want an evidence review, frontier ranking, or a final quality gate before finishing.
         - Prefer direct execution for simple edits; delegate only when the task benefits from a focused subagent loop.
         """)
 
@@ -249,12 +249,13 @@ extension ClaudeService {
         - If an assumption proves wrong, note it and adapt — do not silently abandon the plan.
 
         ### 3. VERIFY
-        The host runtime will run its own verification pass before the task is allowed to finish.
+        The host runtime tracks verification frontier state and can block unsafe completion.
+        - You are responsible for actively closing high-impact verification gaps before finishing.
+        - When the remaining uncertainty is about whether claims are actually supported, call `run_subagent` with `agent_name: "verifier"`.
         - You may call `verify_completion` when you want to preserve a structured record of what was tested, what was not verified, and your overall conclusion.
-        - Do NOT treat `verify_completion` as a requirement for host verification.
+        - Do NOT treat `verify_completion` as proof of completion.
         - Do NOT claim commands, builds, tests, or runtime checks that were not actually observed.
-
-        - Missing or unsupported execution claims can trigger a retry or failed verification.
+        - Missing or unsupported execution claims can reopen execution or trigger reflection.
 
         ### 4. SUMMARIZE
         End with a concise summary of what was done, what changed, and any recommended follow-up.

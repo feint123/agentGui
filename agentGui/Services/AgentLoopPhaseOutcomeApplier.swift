@@ -15,7 +15,8 @@ enum AgentLoopPhaseOutcomeApplier {
         currentRoundText: String,
         assistantObjects: [MessageParameter.Message.Content.ContentObject],
         reflectionEnabled: Bool = false,
-        verificationEnabled: Bool = false
+        verificationEnabled: Bool = false,
+        verificationResolution: VerificationGateResolution? = nil
     ) -> AgentLoopPhaseOutcomeApplication {
         var outcome = AgentLoopPhaseOutcomeApplication()
 
@@ -47,7 +48,22 @@ enum AgentLoopPhaseOutcomeApplier {
 
         case .finalizing:
             if verificationEnabled {
-                loopContext.phase = .verifying
+                switch verificationResolution {
+                case .clearToFinish:
+                    break
+                case .needsMoreEvidence(let openClaims, let suggestedProbe):
+                    let claimLines = openClaims.map { "- \($0)" }.joined(separator: "\n")
+                    let probeLine = suggestedProbe.map { "Suggested next step: \($0)" } ?? "Suggested next step: gather direct evidence before finishing."
+                    let obligation = """
+                    Before you finish, verification is still open:
+                    \(claimLines)
+                    \(probeLine)
+                    """
+                    messages.append(.init(role: .user, content: .text(obligation)))
+                    loopContext.phase = .executing
+                case nil:
+                    loopContext.phase = .executing
+                }
             }
 
             if loopContext.phase == .finalizing,

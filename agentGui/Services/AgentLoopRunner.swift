@@ -45,11 +45,6 @@ struct AgentLoopRunner {
 				continue
 			}
 
-			if state.loopCtx.phase == .verifying {
-				try await roundExecutor.executeVerification(state: &state, messages: messages)
-				continue
-			}
-
 			let outcome = try await roundExecutor.executeStreamingRound(state: &state, messages: &messages)
 			try await roundExecutor.applyPhaseOutcome(outcome: outcome, state: &state, messages: &messages)
 		}

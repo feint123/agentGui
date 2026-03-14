@@ -241,7 +241,7 @@ struct DefaultToolRegistry: ToolRegistry {
                 WHEN TO USE:
                 - Research, codebase discovery, or factual investigation → use "explore"
                 - Implementing or modifying files, with targeted verification when needed → use "worker"
-                - Checking whether claims are actually supported by evidence → use "verifier"
+                - Ranking open verification claims, residual risks, and the next best probe → use "verifier"
 
                 Available agents:
                 \(context.agentListText)

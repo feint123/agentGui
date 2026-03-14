@@ -1,213 +1,13 @@
 import Foundation
-import SwiftAnthropic
-import SwiftData
 
-struct AgentLoopVerificationOutcome: Equatable {
-    let decision: VerificationDecision
-    let passed: Bool
+struct AgentLoopVerificationReduction: Equatable {
     let report: CompletionVerification
     let verificationState: VerificationState
     let failureTrigger: FailureTrigger?
 }
 
-@MainActor
 struct AgentLoopVerificationCoordinator {
-    let claudeService: ClaudeService
-    let service: any AnthropicService
-    let modelId: String
-    let settings: AppSettings
-    let sessionId: String
-    let modelContext: ModelContext
-    let runID: String
-    let roundIndex: Int
-    let parentMessage: Message?
-
-    func verify(
-        currentAnswer: String,
-        executionEvidence: Set<ExecutionEvidenceKind>,
-        existingVerification: CompletionVerification?,
-        latestFailureTrigger: FailureTrigger?
-    ) async throws -> AgentLoopVerificationOutcome {
-        let store = SessionTaskStateStore(modelContext: modelContext)
-        let logContext = BusinessLogContext(
-            runID: runID,
-            sessionID: sessionId,
-            roundIndex: roundIndex,
-            phase: "verifying"
-        )
-        let verification = existingVerification ?? CompletionVerification(
-            verified: [],
-            notVerified: [],
-            conclusion: nil
-        )
-
-        let task = makeVerifierTask(
-            currentAnswer: currentAnswer,
-            executionEvidence: executionEvidence,
-            verification: verification,
-            latestFailureTrigger: latestFailureTrigger
-        )
-        let input: MessageResponse.Content.Input = [
-            "agent_name": .string("verifier"),
-            "task": .string(task)
-        ]
-        BusinessMonitor.emit(
-            .verifierSubagentStarted,
-            context: logContext,
-            metadata: [
-                "agentName": "verifier",
-                "verifiedCount": verification.verified.count,
-                "notVerifiedCount": verification.notVerified.count,
-                "executionEvidenceCount": executionEvidence.count,
-                "hasVerifyCompletionRecord": existingVerification != nil
-            ],
-            sink: claudeService.businessLogSink
-        )
-        let record = claudeService.makeToolCallRecord(
-            toolUseId: "verify-subagent-\(UUID().uuidString)",
-            toolName: "run_subagent",
-            input: input,
-            message: parentMessage,
-            executionContext: .mainAgent
-        )
-        if parentMessage == nil {
-            modelContext.insert(record)
-        }
-        try? modelContext.save()
-
-        let agentMessage = try await claudeService.runNamedSubagent(
-            name: "verifier",
-            task: task,
-            toolCallRecord: record,
-            service: service,
-            modelId: modelId,
-            settings: settings,
-            sessionId: sessionId,
-            modelContext: modelContext
-        )
-
-        record.subagentResultKind = agentMessage.content.kindLabel
-        record.status = agentMessage.isError ? .failed : .success
-        record.endTime = Date()
-        BusinessMonitor.emit(
-            .verifierSubagentFinished,
-            context: logContext,
-            metadata: [
-                "agentName": "verifier",
-                "resultKind": agentMessage.content.kindLabel,
-                "isError": agentMessage.isError,
-                "textLength": agentMessage.apiText.count,
-                "textPreview": String(agentMessage.apiText.prefix(240))
-            ],
-            sink: claudeService.businessLogSink
-        )
-
-        let payload = parseVerifierPayload(from: agentMessage.apiText)
-        let verificationState = buildVerificationState(
-            payload: payload,
-            verification: verification,
-            executionEvidence: executionEvidence,
-            fallbackSummary: agentMessage.isError ? agentMessage.apiText : "Verifier output could not be parsed"
-        )
-        let certificate = verificationState.certificate
-        let failedItems = certificate?.contradictedClaims ?? []
-        let missingEvidence = verificationState.openQuestions.isEmpty ? [] : verificationState.openQuestions
-        let summary = certificate?.stopReason ?? (agentMessage.isError ? agentMessage.apiText : "Verifier output could not be parsed")
-        let decision = certificate?.decision ?? .abstain
-        let derivedPassed = decision == .pass
-        let update = VerificationAssessmentUpdate(
-            passed: derivedPassed,
-            summary: summary,
-            missingEvidence: missingEvidence,
-            riskAreas: certificate?.residualRisks ?? [],
-            recommendedNextAction: payload?.recommendedNextAction,
-            verifierAgent: "verifier",
-            verificationState: verificationState
-        )
-        var metadata = agentMessage.metadata
-        metadata["verificationPassed"] = derivedPassed ? "true" : "false"
-        metadata["verificationSummary"] = summary
-        metadata["verificationResidualRisk"] = String(format: "%.2f", verificationState.riskScore)
-        if let recommendedProbe = verificationState.frontier.first?.recommendedProbe {
-            metadata["verificationRecommendedProbe"] = recommendedProbe
-        }
-        metadata["verificationOpenClaimsCount"] = String(certificate?.openClaims.count ?? 0)
-        metadata["verificationContradictedClaimsCount"] = String(certificate?.contradictedClaims.count ?? 0)
-        record.subagentMessageMetadata = metadata.isEmpty ? nil : metadata
-        try? modelContext.save()
-        try store.updateVerificationAssessment(update, for: sessionId)
-        BusinessMonitor.emit(
-            .verificationCompleted,
-            context: logContext,
-            metadata: [
-                "passed": derivedPassed,
-                "summary": summary,
-                "failedItemCount": failedItems.count,
-                "missingEvidenceCount": missingEvidence.count,
-                "riskAreaCount": certificate?.residualRisks.count ?? 0,
-                "parsedPayload": payload != nil,
-                "rawPreview": String(agentMessage.apiText.prefix(240))
-            ],
-            sink: claudeService.businessLogSink
-        )
-
-        let report = store.verification(for: sessionId) ?? CompletionVerification(
-            verified: verification.verified,
-            notVerified: verification.notVerified,
-            conclusion: verification.conclusion,
-            passed: update.passed,
-            summary: update.summary,
-            missingEvidence: update.missingEvidence,
-            riskAreas: update.riskAreas,
-            recommendedNextAction: update.recommendedNextAction,
-            verifierAgent: update.verifierAgent,
-            verificationState: update.verificationState
-        )
-        let failureTrigger = derivedPassed ? nil : FailureTrigger.verificationFailure(detail: summary)
-        return AgentLoopVerificationOutcome(
-            decision: decision,
-            passed: derivedPassed,
-            report: report,
-            verificationState: verificationState,
-            failureTrigger: failureTrigger
-        )
-    }
-
-    private func makeVerifierTask(
-        currentAnswer: String,
-        executionEvidence: Set<ExecutionEvidenceKind>,
-        verification: CompletionVerification,
-        latestFailureTrigger: FailureTrigger?
-    ) -> String {
-        let evidenceText = buildExecutionEvidenceText(executionEvidence: executionEvidence)
-        let verifiedText = verification.verified.isEmpty
-            ? "- none"
-            : verification.verified.map { "- \($0)" }.joined(separator: "\n")
-        let notVerifiedText = verification.notVerified.isEmpty
-            ? "- none"
-            : verification.notVerified.map { "- \($0)" }.joined(separator: "\n")
-
-        // Keep the verifier task self-contained because the subagent cannot ask follow-ups.
-        return """
-        ## Context
-
-        Current answer / final agent response:
-        \(currentAnswer)
-
-        Execution evidence (tools actually invoked):
-        \(evidenceText)
-
-        Structured verification record, if any. If none exists, derive verification directly from observed execution evidence:
-        - Verified: \(verifiedText)
-        - Not verified: \(notVerifiedText)
-        - Conclusion: \(verification.conclusion ?? "none")
-
-        Latest failure trigger (host-detected issue, if any):
-        \(latestFailureTrigger?.description ?? "none")
-        """
-    }
-
-    private func buildVerificationState(
+    private static func buildVerificationState(
         payload: VerifierPayload?,
         verification: CompletionVerification,
         executionEvidence: Set<ExecutionEvidenceKind>,
@@ -260,7 +60,56 @@ struct AgentLoopVerificationCoordinator {
         )
     }
 
-    private func buildClaims(from verification: CompletionVerification) -> [VerificationClaim] {
+    static func buildVerificationStateForTests(
+        payload: VerifierPayload?,
+        verification: CompletionVerification,
+        executionEvidence: Set<ExecutionEvidenceKind>,
+        fallbackSummary: String
+    ) -> VerificationState {
+        buildVerificationState(
+            payload: payload,
+            verification: verification,
+            executionEvidence: executionEvidence,
+            fallbackSummary: fallbackSummary
+        )
+    }
+
+    static func reduceVerifierResult(
+        rawText: String,
+        existingVerification: CompletionVerification?,
+        executionEvidence: Set<ExecutionEvidenceKind>,
+        verifierAgent: String = "verifier"
+    ) -> AgentLoopVerificationReduction {
+        let verification = existingVerification ?? CompletionVerification(verified: [], notVerified: [])
+        let payload = parseVerifierPayloadForTests(from: rawText)
+        let verificationState = buildVerificationState(
+            payload: payload,
+            verification: verification,
+            executionEvidence: executionEvidence,
+            fallbackSummary: rawText
+        )
+        let certificate = verificationState.certificate
+        let update = VerificationAssessmentUpdate(
+            passed: certificate?.decision == .pass,
+            summary: certificate?.stopReason ?? rawText,
+            missingEvidence: verificationState.openQuestions,
+            riskAreas: certificate?.residualRisks ?? [],
+            recommendedNextAction: payload?.recommendedNextAction,
+            verifierAgent: verifierAgent,
+            verificationState: verificationState
+        )
+        var report = verification
+        report.applyAssessment(update)
+        report.recordedAt = Date()
+        let failureTrigger = update.passed ? nil : FailureTrigger.verificationFailure(detail: update.summary)
+        return AgentLoopVerificationReduction(
+            report: report,
+            verificationState: verificationState,
+            failureTrigger: failureTrigger
+        )
+    }
+
+    private static func buildClaims(from verification: CompletionVerification) -> [VerificationClaim] {
         let supported = verification.verified.map { text in
             VerificationClaim(
                 id: claimID(for: text),
@@ -286,7 +135,7 @@ struct AgentLoopVerificationCoordinator {
         return supported + unsupported
     }
 
-    private func buildEvidence(from executionEvidence: Set<ExecutionEvidenceKind>) -> [VerificationEvidence] {
+    private static func buildEvidence(from executionEvidence: Set<ExecutionEvidenceKind>) -> [VerificationEvidence] {
         executionEvidence.sorted(by: { $0.rawValue < $1.rawValue }).map { evidence in
             VerificationEvidence(
                 id: "evidence-\(evidence.rawValue)",
@@ -298,7 +147,7 @@ struct AgentLoopVerificationCoordinator {
         }
     }
 
-    private func buildFrontier(from payload: VerifierPayload?, claims: [VerificationClaim]) -> [VerificationFrontierItem] {
+    private static func buildFrontier(from payload: VerifierPayload?, claims: [VerificationClaim]) -> [VerificationFrontierItem] {
         let ranking = payload?.frontierRanking ?? []
         if !ranking.isEmpty {
             return ranking.map { item in
@@ -330,12 +179,12 @@ struct AgentLoopVerificationCoordinator {
         }
     }
 
-    private func claimID(for text: String) -> String {
+    private static func claimID(for text: String) -> String {
         let normalized = text.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
         return "claim-\(normalized.trimmingCharacters(in: CharacterSet(charactersIn: "-")))"
     }
 
-    private func claimType(for text: String) -> VerificationClaimType {
+    private static func claimType(for text: String) -> VerificationClaimType {
         let lowercased = text.lowercased()
         if lowercased.contains("pass") || lowercased.contains("build") || lowercased.contains("test") || lowercased.contains("run") || lowercased.contains("execut") {
             return .execution
@@ -356,23 +205,6 @@ struct AgentLoopVerificationCoordinator {
             return .factual
         }
         return .behavioral
-    }
-
-    private func buildExecutionEvidenceText(executionEvidence: Set<ExecutionEvidenceKind>) -> String {
-        let descriptor = FetchDescriptor<Message>(
-            predicate: #Predicate { $0.session?.sessionId == sessionId }
-        )
-        let rootToolCalls = ((try? modelContext.fetch(descriptor)) ?? [])
-            .flatMap(\.toolCalls)
-            .sorted { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
-        let lspPromptContext = buildLSPPromptContext()
-        return Self.buildExecutionEvidenceText(
-            executionEvidence: executionEvidence,
-            toolCalls: rootToolCalls,
-            lspServerID: lspPromptContext.serverID,
-            lspServerStateSummary: lspPromptContext.serverStateSummary,
-            diagnosticsSnapshot: lspPromptContext.diagnosticsSnapshot
-        )
     }
 
     static func buildExecutionEvidenceTextForTests(
@@ -423,33 +255,6 @@ struct AgentLoopVerificationCoordinator {
             ))
         }
         return lines.joined(separator: "\n")
-    }
-
-    private func buildLSPPromptContext() -> (serverID: String?, serverStateSummary: String?, diagnosticsSnapshot: LSPDiagnosticsSnapshot?) {
-        let workspaceContext = claudeService.currentWorkspaceContext
-        guard settings.enableLSPTools,
-              !workspaceContext.workingDirectory.isEmpty,
-              let filePath = workspaceContext.selectedFilePath,
-              let registry = try? LSPServerRegistry(settings: settings) else {
-            return (nil, nil, nil)
-        }
-
-        let resolver = LSPWorkspaceResolver()
-        guard let binding = resolver.resolve(
-            filePath: filePath,
-            workingDirectory: workspaceContext.workingDirectory,
-            registry: registry,
-            settings: settings
-        ) else {
-            return (nil, nil, nil)
-        }
-
-        let uri = URL(fileURLWithPath: filePath).absoluteString
-        return (
-            binding.serverID,
-            claudeService.lspServerManager?.state(for: workspaceContext.workingDirectory, serverID: binding.serverID)?.summaryText,
-            claudeService.lspServerManager?.diagnosticsStore.snapshot(for: workspaceContext.workingDirectory, uri: uri)
-        )
     }
 
     private static func renderLSPPromptSummary(
@@ -689,10 +494,6 @@ struct AgentLoopVerificationCoordinator {
         return result
     }
 
-    private func parseVerifierPayload(from text: String) -> VerifierPayload? {
-        Self.parseVerifierPayloadForTests(from: text)
-    }
-
     static func parseVerifierPayloadForTests(from text: String) -> VerifierPayload? {
         ModelResponseJSONExtractor.decodeIfPresent(VerifierPayload.self, from: text)
     }
@@ -723,6 +524,12 @@ struct VerifierPayload: Codable {
             case reason
             case recommendedProbe = "recommended_probe"
         }
+
+            init(claimID: String, reason: String, recommendedProbe: String) {
+                self.claimID = claimID
+                self.reason = reason
+                self.recommendedProbe = recommendedProbe
+            }
     }
 
     let passed: Bool
@@ -747,6 +554,50 @@ struct VerifierPayload: Codable {
         case frontierRanking = "frontier_ranking"
         case recommendedNextAction = "recommended_next_action"
         case confidence
+    }
+
+    init(
+        passed: Bool = false,
+        summary: String = "",
+        verifiedItems: [String] = [],
+        failedItems: [String] = [],
+        missingEvidence: [String] = [],
+        riskAreas: [String] = [],
+        residualRisks: [String] = [],
+        frontierRanking: [FrontierRankingItem] = [],
+        recommendedNextAction: String? = nil,
+        confidence: Double? = nil
+    ) {
+        self.passed = passed
+        self.summary = summary
+        self.verifiedItems = verifiedItems
+        self.failedItems = failedItems
+        self.missingEvidence = missingEvidence
+        self.riskAreas = riskAreas
+        self.residualRisks = residualRisks
+        self.frontierRanking = frontierRanking
+        self.recommendedNextAction = recommendedNextAction
+        self.confidence = confidence
+    }
+
+    init(
+        frontierRanking: [FrontierRankingItem],
+        missingEvidence: [String],
+        residualRisks: [String],
+        recommendedNextAction: String?
+    ) {
+        self.init(
+            passed: false,
+            summary: "",
+            verifiedItems: [],
+            failedItems: [],
+            missingEvidence: missingEvidence,
+            riskAreas: [],
+            residualRisks: residualRisks,
+            frontierRanking: frontierRanking,
+            recommendedNextAction: recommendedNextAction,
+            confidence: nil
+        )
     }
 
     init(from decoder: Decoder) throws {

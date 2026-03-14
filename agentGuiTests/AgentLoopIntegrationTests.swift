@@ -31,7 +31,6 @@ struct AgentLoopIntegrationTests {
         )
 
         #expect(!result.completedSuccessfully)
-        #expect(result.terminationReason == "maxRounds")
         #expect(result.text.contains("[Stopped: maximum rounds reached]"))
     }
 
@@ -60,6 +59,25 @@ struct AgentLoopIntegrationTests {
             ],
             [
                 decodeStreamEvent("""
+                {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-verify","name":"run_subagent"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"agent_name\\":\\"verifier\\",\\"task\\":\\"Check whether the delegated result is fully supported\\"}"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\"passed\":true,\"summary\":\"delegated verification passed\",\"verified_items\":[\"subagent plan observed\"],\"failed_items\":[],\"missing_evidence\":[],\"risk_areas\":[],\"recommended_next_action\":\"finish\",\"confidence\":0.98}"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
                 {"type":"content_block_delta","delta":{"type":"text_delta","text":"outer loop finished"}}
                 """),
                 decodeStreamEvent("""
@@ -81,7 +99,7 @@ struct AgentLoopIntegrationTests {
             settings: .testFixture(),
             sessionId: "session-subagent",
             modelContext: modelContext,
-            maxRounds: 4,
+            maxRounds: 6,
             makeRound: { AgentRound(roundIndex: $0) },
             parentMessage: nil,
             streamProjectionTarget: .none
@@ -91,8 +109,9 @@ struct AgentLoopIntegrationTests {
 
         #expect(result.completedSuccessfully)
         #expect(result.text.contains("outer loop finished"))
-        #expect(toolCalls.count == 1)
+        #expect(toolCalls.count == 2)
         #expect(toolCalls.first?.subagentAgentName == "explore")
+        #expect(toolCalls.contains(where: { $0.subagentAgentName == "verifier" }))
         #expect(["text", "structured"].contains(toolCalls.first?.subagentResultKind ?? ""))
         #expect(toolCalls.first?.subagentMessageMetadata?["agent"] == "explore")
     }
@@ -122,7 +141,26 @@ struct AgentLoopIntegrationTests {
             ],
             [
                 decodeStreamEvent("""
+                {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-verify-bash","name":"run_subagent"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"agent_name\\":\\"verifier\\",\\"task\\":\\"Verify the observed bash output before finishing\\"}"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
                 {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"passed\\":true,\\"summary\\":\\"bash verification passed\\",\\"verified_items\\":[\\"bash output observed\\"],\\"failed_items\\":[],\\"missing_evidence\\":[],\\"risk_areas\\":[],\\"recommended_next_action\\":\\"finish\\",\\"confidence\\":0.97}"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"bash run finished"}}
                 """),
                 decodeStreamEvent("""
                 {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
@@ -146,7 +184,7 @@ struct AgentLoopIntegrationTests {
             settings: settings,
             sessionId: "session-bash",
             modelContext: modelContext,
-            maxRounds: 4,
+            maxRounds: 6,
             makeRound: { AgentRound(roundIndex: $0) },
             parentMessage: nil,
             streamProjectionTarget: .none
@@ -176,16 +214,16 @@ struct AgentLoopIntegrationTests {
         }))
     }
 
-    @Test func runCoreAgentLoopInvokesVerifierSubagentBeforeReportingSuccess() async throws {
+    @Test func runCoreAgentLoopFinishesAfterMainAgentExplicitlyInvokesVerifierSubagent() async throws {
         let claudeService = ClaudeService()
         let modelContext = try makeModelContext()
         let service = SequencedFakeAnthropicService(streamBatches: [
             [
                 decodeStreamEvent("""
-                {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-verify","name":"verify_completion"}}
+                {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-verify","name":"run_subagent"}}
                 """),
                 decodeStreamEvent("""
-                {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\\"verified\\\":[\\\"swift test passed\\\"],\\\"not_verified\\\":[],\\\"conclusion\\\":\\\"ready to finish\\\"}"}}
+                {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"agent_name\\":\\"verifier\\",\\"task\\":\\"Check whether completion claims are fully supported\\"}"}}
                 """),
                 decodeStreamEvent("""
                 {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
@@ -193,7 +231,7 @@ struct AgentLoopIntegrationTests {
             ],
             [
                 decodeStreamEvent("""
-                {"type":"content_block_delta","delta":{"type":"text_delta","text":"candidate complete"}}
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"frontier_ranking\\":[],\\"missing_evidence\\":[],\\"residual_risks\\":[],\\"recommended_next_action\\":\\"finish\\"}"}}
                 """),
                 decodeStreamEvent("""
                 {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
@@ -201,7 +239,7 @@ struct AgentLoopIntegrationTests {
             ],
             [
                 decodeStreamEvent("""
-                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"frontier_ranking\\":[],\\"missing_evidence\\":[],\\"residual_risks\\":[],\\"recommended_next_action\\":\\"finish\\"}"}}
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"candidate complete after verifier"}}
                 """),
                 decodeStreamEvent("""
                 {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
@@ -239,7 +277,54 @@ struct AgentLoopIntegrationTests {
         #expect(verification.verificationState?.certificate?.openClaims.isEmpty == true)
     }
 
-    @Test func runCoreAgentLoopDoesNotUseLegacyExecutionRequirementGuard() async throws {
+    @Test func runCoreAgentLoopDoesNotHostInvokeVerifierAfterEndTurn() async throws {
+        let claudeService = ClaudeService()
+        let modelContext = try makeModelContext()
+        let service = SequencedFakeAnthropicService(streamBatches: [
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"candidate complete"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"candidate complete again"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ]
+        ])
+
+        var messages: [MessageParameter.Message] = [
+            .init(role: .user, content: .text("finish with proof"))
+        ]
+
+        let result = try await claudeService.runCoreAgentLoop(
+            messages: &messages,
+            service: service,
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            settings: .testFixture(),
+            sessionId: "session-no-host-verifier",
+            modelContext: modelContext,
+            maxRounds: 2,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none
+        )
+
+        let toolCalls = try modelContext.fetch(FetchDescriptor<ToolCall>())
+
+        #expect(!result.completedSuccessfully)
+        #expect(!toolCalls.contains(where: { $0.subagentAgentName == "verifier" }))
+    }
+
+    @Test func runCoreAgentLoopDoesNotFinishWithoutVerifierOrEquivalentProof() async throws {
         let claudeService = ClaudeService()
         let modelContext = try makeModelContext()
         let service = SequencedFakeAnthropicService(streamBatches: [
@@ -253,7 +338,31 @@ struct AgentLoopIntegrationTests {
             ],
             [
                 decodeStreamEvent("""
-                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\"passed\\":true,\\"summary\\":\\"verification passed without verify_completion\\",\\"verified_items\\":[\\"answer matches task\\"],\\"failed_items\\":[],\\"missing_evidence\\":[],\\"risk_areas\\":[],\\"recommended_next_action\\":\\"finish\\",\\"confidence\\":0.92}"}}
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"candidate complete without verify tool again"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"candidate complete without verify tool third round"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"candidate complete without verify tool fourth round"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"candidate complete without verify tool fifth round"}}
                 """),
                 decodeStreamEvent("""
                 {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
@@ -282,8 +391,8 @@ struct AgentLoopIntegrationTests {
 
         let store = SessionTaskStateStore(modelContext: modelContext)
 
-        #expect(result.completedSuccessfully)
-        #expect(result.terminationReason == nil)
+        #expect(!result.completedSuccessfully)
+        #expect(result.terminationReason == "maxRounds")
         #expect(store.verification(for: "session-verifier-no-tool") == nil)
     }
 

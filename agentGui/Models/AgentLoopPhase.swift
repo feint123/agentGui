@@ -14,6 +14,11 @@ struct AgentLoopRunResult: Equatable {
     let terminationReason: String?
 }
 
+enum VerificationGateResolution: Equatable {
+    case clearToFinish
+    case needsMoreEvidence(openClaims: [String], suggestedProbe: String?)
+}
+
 // MARK: - AgentLoopPhase
 
 /// Every distinct phase the agent loop can occupy.
@@ -37,9 +42,6 @@ enum AgentLoopPhase: Equatable {
     /// Model returned `end_turn`; loop is completing gracefully.
     case finalizing
 
-    /// Host runtime is validating the claimed completion before allowing exit.
-    case verifying
-
     /// Model has completed a turn; evaluating output quality before deciding whether to retry.
     case reflecting
 
@@ -55,7 +57,7 @@ enum AgentLoopPhase: Equatable {
     var shouldContinue: Bool {
         switch self {
         case .idle, .executing, .awaitingToolResults,
-             .continuingTruncatedResponse, .resumingAfterPause, .verifying, .reflecting:
+             .continuingTruncatedResponse, .resumingAfterPause, .reflecting:
             return true
         case .finalizing, .failed, .cancelled:
             return false
@@ -76,8 +78,6 @@ enum AgentLoopPhase: Equatable {
             return "resumingAfterPause"
         case .finalizing:
             return "finalizing"
-        case .verifying:
-            return "verifying"
         case .reflecting:
             return "reflecting"
         case .failed:
@@ -148,11 +148,6 @@ struct AgentLoopContext {
     mutating func reflectionComplete(shouldRetry: Bool) {
         reflectionCount += 1
         phase = shouldRetry ? .executing : .finalizing
-    }
-
-    /// Called after host-side verification completes.
-    mutating func verificationComplete(passed: Bool) {
-        phase = passed ? .finalizing : .reflecting
     }
 
     /// Called after a continuation or resume turn has been injected.

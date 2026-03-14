@@ -61,13 +61,13 @@ struct AgentLoopExecutionGuardTests {
         #expect(trigger.description.contains("missing execution evidence"))
     }
 
-    @Test func verificationFailureTransitionKeepsPendingTriggerUntilReflectionConsumesIt() {
-        var loopContext = AgentLoopContext(phase: .verifying)
+    @Test func reflectionCompletionKeepsPendingTriggerUntilHooksConsumeIt() {
+        var loopContext = AgentLoopContext(phase: .reflecting)
         loopContext.pendingFailureTrigger = .verificationFailure(detail: "missing execution evidence")
 
-        loopContext.verificationComplete(passed: false)
+        loopContext.reflectionComplete(shouldRetry: false)
 
-        #expect(loopContext.phase == .reflecting)
+        #expect(loopContext.phase == .finalizing)
         #expect(loopContext.pendingFailureTrigger == .verificationFailure(detail: "missing execution evidence"))
     }
 

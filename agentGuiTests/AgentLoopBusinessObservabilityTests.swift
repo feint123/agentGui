@@ -60,7 +60,8 @@ struct AgentLoopBusinessObservabilityTests {
             maxRounds: 2,
             makeRound: { AgentRound(roundIndex: $0) },
             parentMessage: nil,
-            streamProjectionTarget: .none
+            streamProjectionTarget: .none,
+            toolExecutionContext: .subagent
         )
 
         #expect(result.completedSuccessfully)

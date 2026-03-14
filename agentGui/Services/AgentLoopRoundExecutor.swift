@@ -110,73 +110,6 @@ struct AgentLoopRoundExecutor {
         state.loopCtx.reflectionComplete(shouldRetry: false)
     }
 
-    func executeVerification(
-        state: inout AgentLoopRunState,
-        messages: [MessageParameter.Message]
-    ) async throws {
-        // verification 优先读 in-memory report，再回落到持久化 store，保持和主循环之前的 gate 语义一致。
-        let sessionId = runtime.sessionId
-        let modelContext = runtime.modelContext
-        let existingVerification = sharedState.readVerification(sessionId)
-            ?? SessionTaskStateStore(modelContext: modelContext).verification(for: sessionId)
-        emitter.emitBusinessEvent(
-            .verificationStarted,
-            state: state,
-            metadata: [
-                "hasVerificationRecord": existingVerification != nil,
-                "executionEvidenceCount": state.executionEvidence.count,
-                "answerLength": state.accumulatedText.count,
-                "pendingFailureTrigger": state.loopCtx.pendingFailureTrigger?.actionLabel ?? "none"
-            ]
-        )
-        let verificationCoordinator = AgentLoopVerificationCoordinator(
-            claudeService: claudeService,
-            service: request.service,
-            modelId: request.modelId,
-            settings: runtime.settings,
-            sessionId: sessionId,
-            modelContext: modelContext,
-            runID: state.runID,
-            roundIndex: state.loopCtx.roundIndex,
-            parentMessage: runtime.parentMessage
-        )
-        let verificationOutcome = try await verificationCoordinator.verify(
-            currentAnswer: state.accumulatedText,
-            executionEvidence: state.executionEvidence,
-            existingVerification: existingVerification,
-            latestFailureTrigger: state.loopCtx.pendingFailureTrigger
-        )
-        state.verificationState = verificationOutcome.verificationState
-        state.hookState.verificationState = verificationOutcome.verificationState
-        sharedState.writeVerification(sessionId, verificationOutcome.report)
-
-        if let failureTrigger = verificationOutcome.failureTrigger {
-            state.loopCtx.pendingFailureTrigger = failureTrigger
-        }
-        let verificationObservations = [
-            verificationOutcome.report.summary,
-            verificationOutcome.verificationState.frontier.first?.recommendedProbe,
-            verificationOutcome.verificationState.certificate?.stopReason
-        ].compactMap { summary in
-            let trimmed = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (trimmed?.isEmpty == false) ? trimmed : nil
-        }
-        let verificationEvents = verificationEvents(
-            for: verificationOutcome.verificationState,
-            sessionId: sessionId,
-            roundIndex: state.loopCtx.roundIndex,
-            passed: verificationOutcome.passed
-        )
-        recordEpistemicInputEnvelope(
-            sessionId: sessionId,
-            roundIndex: state.loopCtx.roundIndex,
-            messages: messages,
-            toolObservations: verificationObservations,
-            events: verificationEvents
-        )
-        state.loopCtx.verificationComplete(passed: verificationOutcome.passed)
-    }
-
     private func verificationEvents(
         for verificationState: VerificationState,
         sessionId: String,
@@ -487,7 +420,7 @@ struct AgentLoopRoundExecutor {
         case .failed:
             break
 
-        case .idle, .cancelled, .verifying, .reflecting:
+        case .idle, .cancelled, .reflecting:
             break
         }
     }
@@ -631,6 +564,27 @@ struct AgentLoopRoundExecutor {
                 state.loopCtx.pendingFailureTrigger = failureTrigger
             }
 
+            if pending.name == "run_subagent", record.subagentAgentName == "verifier" {
+                let store = SessionTaskStateStore(modelContext: runtime.modelContext)
+                let existingVerification = sharedState.readVerification(runtime.sessionId)
+                    ?? store.verification(for: runtime.sessionId)
+                let reduction = AgentLoopVerificationCoordinator.reduceVerifierResult(
+                    rawText: result.text,
+                    existingVerification: existingVerification,
+                    executionEvidence: state.executionEvidence,
+                    verifierAgent: record.subagentAgentName ?? "verifier"
+                )
+                state.verificationState = reduction.verificationState
+                state.hookState.verificationState = reduction.verificationState
+                sharedState.writeVerification(runtime.sessionId, reduction.report)
+                try? store.saveVerification(reduction.report, for: runtime.sessionId)
+                state.loopCtx.pendingFailureTrigger = reduction.failureTrigger
+                record.subagentMessageMetadata = verifierMetadata(
+                    existing: record.subagentMessageMetadata,
+                    reduction: reduction
+                )
+            }
+
             let observation = (result.rawOutputText ?? result.text)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !observation.isEmpty {
@@ -691,12 +645,8 @@ struct AgentLoopRoundExecutor {
             autoVerificationAssessment = nil
         }
 
-        let verificationEnabled = request.toolExecutionContext == .mainAgent && (
-            inMemoryVerification != nil ||
-            storedVerification != nil ||
-            hasExecutionEvidence ||
-            ExecutionGuard.shouldAutoVerify(autoVerificationAssessment)
-        )
+        let verificationEnabled = request.toolExecutionContext == .mainAgent &&
+            !state.accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         emitter.emitBusinessEvent(
             .verificationGateEvaluated,
@@ -730,6 +680,25 @@ struct AgentLoopRoundExecutor {
             )
         }
 
+        let verificationResolution: VerificationGateResolution?
+        if verificationEnabled {
+            if state.verificationState?.certificate?.decision == .pass {
+                verificationResolution = .clearToFinish
+            } else {
+                let openClaims = state.verificationState?.certificate?.openClaims
+                    ?? state.verificationState?.frontier.map(\.openQuestion)
+                    ?? ["Need direct runtime proof before finishing"]
+                let suggestedProbe = state.verificationState?.frontier.first?.recommendedProbe
+                    ?? "Call run_subagent with verifier before finishing"
+                verificationResolution = .needsMoreEvidence(
+                    openClaims: openClaims,
+                    suggestedProbe: suggestedProbe
+                )
+            }
+        } else {
+            verificationResolution = nil
+        }
+
         let phaseOutcome = AgentLoopPhaseOutcomeApplier.apply(
             phase: .finalizing,
             loopContext: &state.loopCtx,
@@ -739,7 +708,8 @@ struct AgentLoopRoundExecutor {
             currentRoundText: outcome.currentRoundText,
             assistantObjects: outcome.assistantObjects,
             reflectionEnabled: runtime.settings.enableReflection,
-            verificationEnabled: verificationEnabled
+            verificationEnabled: verificationEnabled,
+            verificationResolution: verificationResolution
         )
 
         if let projectedTextReset = phaseOutcome.projectedTextReset {
@@ -759,6 +729,21 @@ struct AgentLoopRoundExecutor {
     private func primaryUserTaskText(from messages: [MessageParameter.Message]) -> String {
         guard let taskMessage = messages.first(where: { $0.role == "user" }) else { return "" }
         return claudeService.extractText(from: taskMessage.content)
+    }
+
+    private func verifierMetadata(
+        existing: [String: String]?,
+        reduction: AgentLoopVerificationReduction
+    ) -> [String: String] {
+        var metadata = existing ?? [:]
+        let certificate = reduction.verificationState.certificate
+        metadata["verificationPassed"] = reduction.report.passed == true ? "true" : "false"
+        metadata["verificationSummary"] = reduction.report.summary ?? certificate?.stopReason ?? ""
+        metadata["verificationResidualRisk"] = String(format: "%.2f", reduction.verificationState.riskScore)
+        metadata["verificationRecommendedProbe"] = reduction.verificationState.frontier.first?.recommendedProbe ?? ""
+        metadata["verificationOpenClaimsCount"] = String(certificate?.openClaims.count ?? 0)
+        metadata["verificationContradictedClaimsCount"] = String(certificate?.contradictedClaims.count ?? 0)
+        return metadata
     }
 
     private func recordEpistemicInputEnvelope(

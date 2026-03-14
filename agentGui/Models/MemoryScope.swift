@@ -8,6 +8,8 @@ enum MemoryScope: Equatable, Codable, Sendable {
     case thread(id: String)
     case workflowRun(id: String)
 
+    static let task = MemoryScope.session(id: "task")
+
     var namespace: String {
         switch self {
         case .user:

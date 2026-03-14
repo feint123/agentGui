@@ -65,44 +65,38 @@ struct AgentLoopVerificationCoordinatorTests {
         #expect(payload?.verifiedItems == ["swift test passed"])
     }
 
-    @Test func verificationBuildsFrontierForExecutionClaimWithoutDirectEvidence() async throws {
-        let container = try makeContainer()
-        let context = container.mainContext
-        let session = Session(title: "Verifier Frontier")
-        context.insert(session)
-
-        let claudeService = ClaudeService()
-        let sinkService = VerificationFakeAnthropicService.singleTextResponse(
-            "{\"frontier_ranking\":[{\"claim_id\":\"claim-1\",\"reason\":\"No direct execution evidence exists\",\"recommended_probe\":\"inspect targeted test invocation\"}],\"missing_evidence\":[\"No focused test result was observed\"],\"residual_risks\":[\"Behavioral regression remains untested\"],\"recommended_next_action\":\"retry_execution\"}"
-        )
-        let settings = AppSettings()
-        context.insert(settings)
-
-        let coordinator = AgentLoopVerificationCoordinator(
-            claudeService: claudeService,
-            service: sinkService,
-            modelId: "test-model",
-            settings: settings,
-            sessionId: session.sessionId,
-            modelContext: context,
-            runID: "run-frontier",
-            roundIndex: 2,
-            parentMessage: nil
-        )
-
-        let outcome = try await coordinator.verify(
-            currentAnswer: "I fixed the issue and all targeted tests passed.",
-            executionEvidence: [],
+    @Test func verificationBuildsFrontierForExecutionClaimWithoutDirectEvidence() {
+        let reduction = AgentLoopVerificationCoordinator.reduceVerifierResult(
+            rawText: "{\"frontier_ranking\":[{\"claim_id\":\"claim-1\",\"reason\":\"No direct execution evidence exists\",\"recommended_probe\":\"inspect targeted test invocation\"}],\"missing_evidence\":[\"No focused test result was observed\"],\"residual_risks\":[\"Behavioral regression remains untested\"],\"recommended_next_action\":\"retry_execution\"}",
             existingVerification: CompletionVerification(
                 verified: ["targeted tests passed"],
                 notVerified: [],
                 conclusion: "done"
             ),
-            latestFailureTrigger: nil
+            executionEvidence: []
         )
 
-        #expect(outcome.verificationState.frontier.contains { $0.claimType == .execution })
-        #expect(outcome.verificationState.certificate?.decision != .pass)
+        #expect(reduction.verificationState.frontier.contains { $0.claimType == .execution })
+        #expect(reduction.verificationState.certificate?.decision != .pass)
+        #expect(reduction.failureTrigger == .verificationFailure(detail: reduction.report.summary ?? ""))
+    }
+
+    @Test func verificationCoordinatorBuildsCertificateWithoutLaunchingVerifier() {
+        let payload = VerifierPayload(
+            frontierRanking: [],
+            missingEvidence: [],
+            residualRisks: [],
+            recommendedNextAction: "finish"
+        )
+
+        let state = AgentLoopVerificationCoordinator.buildVerificationStateForTests(
+            payload: payload,
+            verification: CompletionVerification(verified: ["swift test passed"], notVerified: []),
+            executionEvidence: [.bash],
+            fallbackSummary: "ok"
+        )
+
+        #expect(state.certificate?.decision == .pass)
     }
 
     @Test func verifierPayloadParserAcceptsProseWrappedJSON() {
@@ -128,43 +122,16 @@ struct AgentLoopVerificationCoordinatorTests {
         #expect(payload?.missingEvidence == ["manual runtime check not observed"])
     }
 
-    @Test func verifierToolMetadataCapturesPassedAndSummary() async throws {
-        let container = try makeContainer()
-        let context = container.mainContext
-        let session = Session(title: "Verifier")
-        context.insert(session)
-        let parent = Message.agentMessage(text: "done", session: session)
-        context.insert(parent)
-
-        let claudeService = ClaudeService()
-        let sinkService = VerificationFakeAnthropicService.singleTextResponse(
-            "{\"passed\":true,\"summary\":\"verification passed\",\"verified_items\":[\"swift test passed\"],\"failed_items\":[],\"missing_evidence\":[],\"risk_areas\":[],\"recommended_next_action\":\"finish\",\"confidence\":0.98}"
-        )
-        let settings = AppSettings()
-        context.insert(settings)
-
-        let coordinator = AgentLoopVerificationCoordinator(
-            claudeService: claudeService,
-            service: sinkService,
-            modelId: "test-model",
-            settings: settings,
-            sessionId: session.sessionId,
-            modelContext: context,
-            runID: "run-1",
-            roundIndex: 1,
-            parentMessage: parent
-        )
-
-        _ = try await coordinator.verify(
-            currentAnswer: "finished",
-            executionEvidence: Set([ExecutionEvidenceKind.builtinTool]),
+    @Test func verifierReductionCapturesPassedAndSummary() {
+        let reduction = AgentLoopVerificationCoordinator.reduceVerifierResult(
+            rawText: "{\"passed\":true,\"summary\":\"verification passed\",\"verified_items\":[\"swift test passed\"],\"failed_items\":[],\"missing_evidence\":[],\"risk_areas\":[],\"recommended_next_action\":\"finish\",\"confidence\":0.98}",
             existingVerification: CompletionVerification(verified: ["swift test passed"], notVerified: []),
-            latestFailureTrigger: Optional<FailureTrigger>.none
+            executionEvidence: [.builtinTool]
         )
 
-        let toolCall = try #require(parent.toolCalls.first)
-        #expect(toolCall.subagentMessageMetadata?["verificationPassed"] == "true")
-        #expect(toolCall.subagentMessageMetadata?["verificationSummary"] == "verification passed")
+        #expect(reduction.report.passed == true)
+        #expect(reduction.report.summary == "verification passed")
+        #expect(reduction.verificationState.certificate?.decision == .pass)
     }
 
     @Test func verifierEvidenceTextIncludesRichToolDetails() {

@@ -28,4 +28,19 @@ struct AgentLoopRoundExecutorTests {
         #expect(outcome.stopReason == "end_turn")
         #expect(outcome.accumulatedTextBeforeRound == "before")
     }
+
+    @Test func verificationGateResolutionNeedsMoreEvidenceStoresOpenClaims() {
+        let resolution = VerificationGateResolution.needsMoreEvidence(
+            openClaims: ["Need direct runtime proof"],
+            suggestedProbe: "Call run_subagent verifier"
+        )
+
+        switch resolution {
+        case .needsMoreEvidence(let openClaims, let suggestedProbe):
+            #expect(openClaims == ["Need direct runtime proof"])
+            #expect(suggestedProbe == "Call run_subagent verifier")
+        case .clearToFinish:
+            Issue.record("Expected needsMoreEvidence resolution")
+        }
+    }
 }

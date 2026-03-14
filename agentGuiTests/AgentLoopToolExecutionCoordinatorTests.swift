@@ -40,6 +40,24 @@ struct AgentLoopToolExecutionCoordinatorTests {
         #expect(outcome.record.subagentMessageMetadata?["rounds"] == "2")
     }
 
+    @Test func verifierRunSubagentUsesNormalSubagentRouting() async {
+        let coordinator = AgentLoopToolExecutionCoordinator(
+            dependencies: .fixture(
+                runSubagent: { _, _ in
+                    .text("{\"frontier_ranking\":[],\"missing_evidence\":[],\"residual_risks\":[],\"recommended_next_action\":\"finish\"}", sender: "verifier")
+                }
+            )
+        )
+        let pendingTool = AgentLoopPendingTool(id: "call-verifier", name: "run_subagent", partialJson: "{\"agent_name\":\"verifier\",\"task\":\"check completion\"}")
+        let record = ToolCall.fixture(toolCallId: "call-verifier", kind: .execute)
+
+        let outcome = await coordinator.execute(pendingTool: pendingTool, record: record)
+
+        #expect(outcome.record.subagentAgentName == "verifier")
+        #expect(outcome.record.subagentResultKind == "text")
+        #expect(outcome.result.text.contains("recommended_next_action"))
+    }
+
     @Test func startWorkflowRoutingUsesWorkflowExecutor() async {
         let coordinator = AgentLoopToolExecutionCoordinator(
             dependencies: .fixture(

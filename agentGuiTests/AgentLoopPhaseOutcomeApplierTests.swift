@@ -20,11 +20,12 @@ struct AgentLoopPhaseOutcomeApplierTests {
         )
 
         let continuationPrompt = extractText(from: messages.last?.content)
+    let hasContinuationPrompt = continuationPrompt.contains("Please continue your previous response exactly where you left off")
         #expect(loopContext.phase == .executing)
         #expect(messages.count == 2)
         #expect(messages.first?.role == "assistant")
         #expect(messages.last?.role == "user")
-        #expect(continuationPrompt.contains("Please continue your previous response exactly where you left off"))
+    #expect(hasContinuationPrompt)
         #expect(outcome.projectedTextReset == nil)
     }
 
@@ -62,7 +63,7 @@ struct AgentLoopPhaseOutcomeApplierTests {
         #expect(loopContext.phase == .finalizing)
     }
 
-    @Test func applierTransitionsIntoVerifyingBeforeAllowingCompletion() {
+    @Test func applierReopensExecutionWhenVerificationFrontierIsStillOpen() {
         var messages: [MessageParameter.Message] = []
         var loopContext = AgentLoopContext(phase: .finalizing)
 
@@ -75,10 +76,18 @@ struct AgentLoopPhaseOutcomeApplierTests {
             currentRoundText: "",
             assistantObjects: [],
             reflectionEnabled: true,
-            verificationEnabled: true
+            verificationEnabled: true,
+            verificationResolution: .needsMoreEvidence(
+                openClaims: ["Need direct runtime proof"],
+                suggestedProbe: "Call run_subagent with verifier before finishing"
+            )
         )
 
-        #expect(loopContext.phase == .verifying)
+        let obligationText = extractText(from: messages.last?.content)
+        let containsVerifierPrompt = obligationText.contains("Call run_subagent with verifier before finishing")
+
+        #expect(loopContext.phase == .executing)
+        #expect(containsVerifierPrompt)
         #expect(outcome.projectedTextReset == nil)
     }
 }

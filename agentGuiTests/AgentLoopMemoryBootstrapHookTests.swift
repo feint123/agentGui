@@ -95,8 +95,16 @@ struct AgentLoopMemoryBootstrapHookTests {
             context: .testMemoryBootstrapContext()
         )
 
-        #expect(result.messagePatch?.insertions.count == 1)
-        #expect(result.messagePatch?.metadata["source"] as? String == "story")
+        let insertionCount = result.messagePatch.map { $0.insertions.count }
+        let source: String?
+        if let patch = result.messagePatch {
+            source = patch.metadata["source"] as? String
+        } else {
+            source = nil
+        }
+
+        #expect(insertionCount == 1)
+        #expect(source == "story")
     }
 }
 
