@@ -130,4 +130,23 @@ final class MemoryRuntimeSnapshotViewModel {
     var dereferenceCount: Int {
         snapshot.dereferenceCount
     }
+
+    var workingSetCost: Int {
+        snapshot.metrics.workingSetCost
+    }
+
+    var retrievalIntentSummary: String {
+        guard let intent = snapshot.plan.retrievalIntent else {
+            return "Legacy layer-based retrieval"
+        }
+
+        let objectTypes = intent.neededObjectTypes
+            .map(\.rawValue)
+            .sorted()
+            .joined(separator: ", ")
+        if objectTypes.isEmpty {
+            return "\(intent.phase.rawValue)"
+        }
+        return "\(intent.phase.rawValue) · \(objectTypes)"
+    }
 }

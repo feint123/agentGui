@@ -6,6 +6,31 @@ struct MemoryRetrievalPlanner {
         return makePlan(request: request, profiles: profiles, intent: defaultIntent)
     }
 
+    func makeLegacyPlan(request: MemoryRuntimeRequest, profiles: [MemoryDomainProfile]) -> MemoryRetrievalPlan {
+        let orderedLayers: [MemoryLayer]
+        let itemBudgetByLayer: [MemoryLayer: Int]
+
+        switch request.taskKind {
+        case .creativeWriting:
+            orderedLayers = [.working, .task, .semantic, .episodic, .proceduralArchive]
+            itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 3, .task: 3, .semantic: 4, .episodic: 2, .proceduralArchive: 1], contextBudget: request.contextBudget)
+        case .coding:
+            orderedLayers = [.working, .task, .semantic, .episodic, .proceduralArchive]
+            itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 3, .task: 4, .semantic: 3, .episodic: 1, .proceduralArchive: 1], contextBudget: request.contextBudget)
+        case .generalAssistant:
+            orderedLayers = [.working, .semantic]
+            itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 2, .semantic: 3], contextBudget: request.contextBudget)
+        }
+
+        return MemoryRetrievalPlan(
+            orderedLayers: orderedLayers,
+            itemBudgetByLayer: itemBudgetByLayer,
+            objectBudgetByType: [:],
+            profileIDs: profiles.map(\.id),
+            includeArchived: false
+        )
+    }
+
     func makePlan(request: MemoryRuntimeRequest, profiles: [MemoryDomainProfile], intent: MemoryRetrievalIntent) -> MemoryRetrievalPlan {
         let orderedLayers: [MemoryLayer]
         let itemBudgetByLayer: [MemoryLayer: Int]

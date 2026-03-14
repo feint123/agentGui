@@ -35,6 +35,12 @@ struct MemoryRuntimeSnapshotRecordList: View {
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
 
+                            if !record.admissionExplanationSummary.isEmpty {
+                                Text(record.admissionExplanationSummary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+
                             if showExclusionReason, let exclusionReason = record.exclusionReason {
                                 Text("排除原因：\(exclusionReason.rawValue)")
                                     .font(.caption2)
@@ -58,7 +64,9 @@ struct MemoryRuntimeSnapshotRecordList: View {
             record.kind.rawValue,
             record.scope.namespace,
             record.verificationStatus.rawValue,
+            record.lifecycleTier.rawValue,
             record.sourceLabel,
+            "evidence=\(record.evidenceAnchorCount)",
             "chars=\(record.estimatedPromptChars)"
         ]
         .joined(separator: " · ")

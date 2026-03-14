@@ -5,6 +5,7 @@ import SwiftData
 final class MemoryRuntimeCoordinator {
     private let profileRegistry: MemoryDomainProfileRegistry
     private let retrievalPlanner: MemoryRetrievalPlanner
+    private let featureConfiguration: MemoryRuntimeFeatureConfiguration
     private let unifiedRecordsProvider: (MemoryRuntimeRequest) -> [MemoryRecord]
     private let unifiedStoreBaseDirectory: URL
     private let backgroundWriteQueue: MemoryBackgroundWriteQueue
@@ -19,6 +20,7 @@ final class MemoryRuntimeCoordinator {
     init(
         profileRegistry: MemoryDomainProfileRegistry = MemoryDomainProfileRegistry(),
         retrievalPlanner: MemoryRetrievalPlanner = MemoryRetrievalPlanner(),
+        featureConfiguration: MemoryRuntimeFeatureConfiguration = .allEnabled,
         unifiedRecordsProvider: @escaping (MemoryRuntimeRequest) -> [MemoryRecord] = { _ in [] },
         unifiedStoreBaseDirectory: URL = ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory),
         backgroundWriteQueue: MemoryBackgroundWriteQueue? = nil,
@@ -32,6 +34,7 @@ final class MemoryRuntimeCoordinator {
     ) {
         self.profileRegistry = profileRegistry
         self.retrievalPlanner = retrievalPlanner
+        self.featureConfiguration = featureConfiguration
         self.unifiedRecordsProvider = unifiedRecordsProvider
         self.unifiedStoreBaseDirectory = unifiedStoreBaseDirectory
         self.backgroundWriteQueue = backgroundWriteQueue ?? MemoryBackgroundWriteQueue(storeBaseDirectory: unifiedStoreBaseDirectory)
@@ -67,7 +70,14 @@ final class MemoryRuntimeCoordinator {
         )
 
         let profiles = profileRegistry.profiles(for: request)
-        let plan = retrievalPlanner.makePlan(request: request, profiles: profiles)
+        let retrievalIntent = featureConfiguration.enableGoalConditionedRetrieval
+            ? MemoryRetrievalIntentClassifier().classify(request: request)
+            : nil
+        let plan = if let retrievalIntent {
+            retrievalPlanner.makePlan(request: request, profiles: profiles, intent: retrievalIntent)
+        } else {
+            retrievalPlanner.makeLegacyPlan(request: request, profiles: profiles)
+        }
 
         var records = unifiedRecordsProvider(request)
         if records.contains(where: { $0.layer == .working }) == false,
@@ -76,12 +86,21 @@ final class MemoryRuntimeCoordinator {
         }
 
         let filtered = filterAndBudget(records: records, with: plan)
-        let bridgeExpansion = bridgeExpander.expand(selectedRecords: filtered.selectedRecords, candidateRecords: records)
-        let expandedRecords = filtered.selectedRecords + bridgeExpansion.additionalRecords.filter { candidate in
-            filtered.selectedRecords.contains(where: { $0.id == candidate.id }) == false
+        let bridgeExpansion: MemoryBridgeExpansionResult
+        let filteredRecords: [MemoryRecord]
+        let evidenceResolution: MemoryEvidenceResolutionResult
+        if featureConfiguration.enableBridgeExpansion {
+            bridgeExpansion = bridgeExpander.expand(selectedRecords: filtered.selectedRecords, candidateRecords: records)
+            let expandedRecords = filtered.selectedRecords + bridgeExpansion.additionalRecords.filter { candidate in
+                filtered.selectedRecords.contains(where: { $0.id == candidate.id }) == false
+            }
+            filteredRecords = expandedRecords
+            evidenceResolution = evidenceResolver.resolve(for: filteredRecords)
+        } else {
+            bridgeExpansion = MemoryBridgeExpansionResult(edges: [], additionalRecords: [])
+            filteredRecords = filtered.selectedRecords
+            evidenceResolution = MemoryEvidenceResolutionResult(dereferenceCount: 0, summaries: [])
         }
-        let filteredRecords = expandedRecords
-        let evidenceResolution = evidenceResolver.resolve(for: filteredRecords)
         let touchedAt = Date()
         let unifiedStore = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreBaseDirectory)
         for record in filteredRecords where records.contains(where: { $0.id == record.id }) {
@@ -97,9 +116,10 @@ final class MemoryRuntimeCoordinator {
         let runtimeSnapshot = makeSnapshot(
             request: request,
             plan: plan,
+            retrievalIntent: retrievalIntent,
             profiles: profiles.map(\.id),
             candidateRecords: records,
-            selectedRecords: filtered.selectedRecords,
+            selectedRecords: filteredRecords,
             excludedRecords: filtered.excludedRecords,
             candidateCountByLayer: filtered.candidateCountByLayer,
             selectedCountByLayer: filtered.selectedCountByLayer,
@@ -237,6 +257,7 @@ final class MemoryRuntimeCoordinator {
     private func makeSnapshot(
         request: MemoryRuntimeRequest,
         plan: MemoryRetrievalPlan,
+        retrievalIntent: MemoryRetrievalIntent?,
         profiles: [String],
         candidateRecords: [MemoryRecord],
         selectedRecords: [MemoryRecord],
@@ -278,7 +299,8 @@ final class MemoryRuntimeCoordinator {
                 itemBudgetByLayer: plan.itemBudgetByLayer,
                 candidateScopes: candidateScopes(for: request).map(\.namespace),
                 candidateCountByLayer: candidateCountByLayer,
-                selectedCountByLayer: selectedCountByLayer
+                selectedCountByLayer: selectedCountByLayer,
+                retrievalIntent: retrievalIntent
             ),
             selectedRecords: selectedSnapshotRecords,
             excludedRecords: excludedSnapshotRecords,
@@ -288,7 +310,10 @@ final class MemoryRuntimeCoordinator {
             metrics: MemoryRuntimeSnapshot.makeMetrics(
                 candidateCount: candidateRecords.count,
                 selectedRecords: selectedSnapshotRecords,
-                excludedRecords: excludedSnapshotRecords
+                excludedRecords: excludedSnapshotRecords,
+                bridgeExpansionCount: bridgeExpansions.count,
+                dereferenceCount: dereferenceCount,
+                includeWorkingSetCost: featureConfiguration.enableLifecycleManager
             )
         )
     }

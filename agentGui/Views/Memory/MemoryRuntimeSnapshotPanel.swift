@@ -27,10 +27,12 @@ struct MemoryRuntimeSnapshotPanel: View {
                 summaryRow("Profiles", value: viewModel.snapshot.plan.profileIDs.joined(separator: ", "))
                 summaryRow("Scopes", value: viewModel.snapshot.plan.candidateScopes.joined(separator: ", "))
                 summaryRow("Context Budget", value: "\(viewModel.snapshot.request.contextBudget)")
+                summaryRow("Retrieval Intent", value: viewModel.retrievalIntentSummary)
                 summaryRow("Candidates", value: "\(viewModel.selectedSummary.candidateCount)")
                 summaryRow("Selected", value: "\(viewModel.selectedSummary.selectedCount)")
                 summaryRow("Excluded", value: "\(viewModel.selectedSummary.excludedCount)")
                 summaryRow("Estimated Chars", value: "\(viewModel.selectedSummary.totalEstimatedPromptChars)")
+                summaryRow("Working-set Cost", value: "\(viewModel.workingSetCost)")
                 summaryRow("Bridge Expansions", value: "\(viewModel.bridgeExpansionCount)")
                 summaryRow("Dereferences", value: "\(viewModel.dereferenceCount)")
             }

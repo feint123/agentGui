@@ -8,11 +8,18 @@ struct ToolCallDetailPresentationTests {
         let toolCall = ToolCall(toolCallId: "tool-1", kind: .search)
         toolCall.memoryRuntimeProfiles = ["coding-task"]
         toolCall.memoryRuntimeSnapshotID = "snapshot-1"
+        toolCall.memoryRuntimeIntentPhase = "verification"
+        toolCall.memoryRuntimeWorkingSetCost = 128
+        toolCall.memoryRuntimeBridgeExpansionCount = 2
+        toolCall.memoryRuntimeDereferenceCount = 3
 
         let row = ToolCallRowPresentation.make(for: toolCall)
         let sections = ToolCallDetailPresentation.sections(for: toolCall, row: row)
 
         #expect(sections.contains { $0.label == "记忆上下文快照" && $0.text.contains("snapshot-1") })
+        #expect(sections.contains { $0.label == "检索意图" && $0.text == "verification" })
+        #expect(sections.contains { $0.label == "Working-set Cost" && $0.text == "128" })
+        #expect(sections.contains { $0.label == "Bridge / Dereference" && $0.text == "2 / 3" })
     }
 
     @Test func detailSectionsIncludeUnifiedToolMetadata() {

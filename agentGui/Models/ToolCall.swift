@@ -118,6 +118,18 @@ final class ToolCall {
     /// Structured runtime snapshot ID captured for this tool call
     var memoryRuntimeSnapshotID: String?
 
+    /// Retrieval intent phase summarized for quick inspection in the tool detail UI
+    var memoryRuntimeIntentPhase: String?
+
+    /// Approximate working-set cost captured from the runtime snapshot
+    var memoryRuntimeWorkingSetCost: Int?
+
+    /// Bridge expansion count captured from the runtime snapshot
+    var memoryRuntimeBridgeExpansionCount: Int?
+
+    /// Evidence dereference count captured from the runtime snapshot
+    var memoryRuntimeDereferenceCount: Int?
+
     /// Whether this tool call queued memory work for background consolidation
     var memoryBackgroundConsolidationQueued: Bool?
 
@@ -169,6 +181,10 @@ final class ToolCall {
         self.memoryRuntimeLayers = nil
         self.memoryRuntimeWarnings = nil
         self.memoryRuntimeSnapshotID = nil
+        self.memoryRuntimeIntentPhase = nil
+        self.memoryRuntimeWorkingSetCost = nil
+        self.memoryRuntimeBridgeExpansionCount = nil
+        self.memoryRuntimeDereferenceCount = nil
         self.memoryBackgroundConsolidationQueued = nil
         self.memoryConflictRecordIDs = nil
         self.memoryConfirmationCandidateIDs = nil

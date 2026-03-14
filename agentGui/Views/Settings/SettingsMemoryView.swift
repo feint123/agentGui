@@ -143,11 +143,26 @@ struct SettingsMemoryView: View {
                     )
                 }
 
-                NavigationLink {
-                    MemoryManagementPanel()
-                } label: {
-                    Label("打开记忆治理面板", systemImage: "tray.full")
+                NavigationLink(value: SettingsDetailRoute.memoryGovernance) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "shield.lefthalf.filled")
+                            .font(.title3)
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 34, height: 34)
+                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("打开记忆治理面板")
+                                .foregroundStyle(.primary)
+                            Text("查看待确认写入、冲突替代记录与 TTL Sweep 状态")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
 
             TextEditor(text: $memoryContent)

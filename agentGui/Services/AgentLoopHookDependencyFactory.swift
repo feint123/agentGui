@@ -65,6 +65,10 @@ struct AgentLoopHookDependencyFactory {
         state.memoryRuntimeLayers = composition.runtimeLayers
         state.memoryRuntimeWarnings = composition.runtimeWarnings
         state.memoryRuntimeSnapshotID = composition.runtimeSnapshotID
+        state.memoryRuntimeIntentPhase = composition.runtimeIntentPhase
+        state.memoryRuntimeWorkingSetCost = composition.runtimeWorkingSetCost
+        state.memoryRuntimeBridgeExpansionCount = composition.runtimeBridgeExpansionCount
+        state.memoryRuntimeDereferenceCount = composition.runtimeDereferenceCount
         return composition.patch
     }
 
@@ -93,6 +97,19 @@ struct AgentLoopHookDependencyFactory {
         if let memoryRuntimeSnapshotID = state.memoryRuntimeSnapshotID,
            !memoryRuntimeSnapshotID.isEmpty {
             record.memoryRuntimeSnapshotID = memoryRuntimeSnapshotID
+        }
+        if let memoryRuntimeIntentPhase = state.memoryRuntimeIntentPhase,
+           !memoryRuntimeIntentPhase.isEmpty {
+            record.memoryRuntimeIntentPhase = memoryRuntimeIntentPhase
+        }
+        if let memoryRuntimeWorkingSetCost = state.memoryRuntimeWorkingSetCost {
+            record.memoryRuntimeWorkingSetCost = memoryRuntimeWorkingSetCost
+        }
+        if let memoryRuntimeBridgeExpansionCount = state.memoryRuntimeBridgeExpansionCount {
+            record.memoryRuntimeBridgeExpansionCount = memoryRuntimeBridgeExpansionCount
+        }
+        if let memoryRuntimeDereferenceCount = state.memoryRuntimeDereferenceCount {
+            record.memoryRuntimeDereferenceCount = memoryRuntimeDereferenceCount
         }
         runtime.modelContext.insert(record)
         try? runtime.modelContext.save()

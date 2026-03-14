@@ -33,4 +33,26 @@ struct MemoryRuntimeSnapshotViewModelTests {
         #expect(viewModel.bridgeExpansionCount == 1)
         #expect(viewModel.dereferenceCount == 2)
     }
+
+    @Test func viewModelExposesRetrievalIntentAndWorkingSetCost() throws {
+        let snapshot = MemoryRuntimeSnapshot.fixture(
+            profileIDs: ["coding-task"],
+            selectedRecords: [
+                .fixture(recordID: "r1", title: "Build failure", layer: .task, kind: .working, estimatedPromptChars: 42)
+            ],
+            bridgeExpansions: [MemoryBridgeEdge(sourceRecordID: "r1", targetRecordID: "r2", relationship: "recovery-path")],
+            dereferenceCount: 1,
+            retrievalIntent: MemoryRetrievalIntent(
+                phase: .verification,
+                neededObjectTypes: [.fact, .procedure],
+                reason: "User asked to verify the failing build"
+            ),
+            workingSetCost: 84
+        )
+
+        let viewModel = MemoryRuntimeSnapshotViewModel(snapshot: snapshot)
+
+        #expect(viewModel.retrievalIntentSummary.contains("verification"))
+        #expect(viewModel.workingSetCost == 84)
+    }
 }

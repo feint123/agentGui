@@ -47,21 +47,41 @@ struct SettingsWindowView: View {
     @ViewBuilder
     private var detailView: some View {
         if let store {
-            switch store.selectedItem {
-            case .connection:
-                SettingsConnectionView(store: store)
-            case .tools:
-                SettingsToolsView(store: store)
-            case .intelligence:
-                SettingsIntelligenceView(store: store)
-            case .memory:
-                SettingsMemoryView(store: store)
-            case .general:
-                SettingsGeneralView(store: store)
+            NavigationStack(path: detailPathBinding(for: store)) {
+                rootDetailView(store: store)
+                    .navigationDestination(for: SettingsDetailRoute.self) { route in
+                        switch route {
+                        case .memoryGovernance:
+                            MemoryManagementPanel(settings: store.settings)
+                        }
+                    }
             }
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func detailPathBinding(for store: SettingsStore) -> Binding<[SettingsDetailRoute]> {
+        Binding(
+            get: { store.detailPath },
+            set: { store.detailPath = $0 }
+        )
+    }
+
+    @ViewBuilder
+    private func rootDetailView(store: SettingsStore) -> some View {
+        switch store.selectedItem {
+        case .connection:
+            SettingsConnectionView(store: store)
+        case .tools:
+            SettingsToolsView(store: store)
+        case .intelligence:
+            SettingsIntelligenceView(store: store)
+        case .memory:
+            SettingsMemoryView(store: store)
+        case .general:
+            SettingsGeneralView(store: store)
         }
     }
 }

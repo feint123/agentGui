@@ -36,6 +36,9 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
     var updatedAt: Date
     var lastAccessedAt: Date?
     var estimatedPromptChars: Int
+    var evidenceAnchorCount: Int
+    var lifecycleTier: MemoryLifecycleTier
+    var admissionExplanationSummary: String
     var promptOrder: Int?
     var exclusionReason: MemoryRuntimeExclusionReason?
 
@@ -56,6 +59,9 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         updatedAt: Date,
         lastAccessedAt: Date?,
         estimatedPromptChars: Int,
+        evidenceAnchorCount: Int,
+        lifecycleTier: MemoryLifecycleTier,
+        admissionExplanationSummary: String,
         promptOrder: Int? = nil,
         exclusionReason: MemoryRuntimeExclusionReason? = nil
     ) {
@@ -75,6 +81,9 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         self.updatedAt = updatedAt
         self.lastAccessedAt = lastAccessedAt
         self.estimatedPromptChars = estimatedPromptChars
+        self.evidenceAnchorCount = evidenceAnchorCount
+        self.lifecycleTier = lifecycleTier
+        self.admissionExplanationSummary = admissionExplanationSummary
         self.promptOrder = promptOrder
         self.exclusionReason = exclusionReason
     }
@@ -97,9 +106,61 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
             updatedAt: record.updatedAt,
             lastAccessedAt: record.lastAccessedAt,
             estimatedPromptChars: Self.estimatePromptChars(title: record.title, summary: record.summary),
+            evidenceAnchorCount: record.evidenceAnchors.count,
+            lifecycleTier: record.lifecycleTier,
+            admissionExplanationSummary: record.admissionExplanation?.reasons.joined(separator: "; ") ?? "",
             promptOrder: promptOrder,
             exclusionReason: exclusionReason
         )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case recordID
+        case title
+        case summary
+        case layer
+        case kind
+        case scope
+        case domainProfile
+        case verificationStatus
+        case retentionPolicy
+        case sourceLabel
+        case tags
+        case confidence
+        case createdAt
+        case updatedAt
+        case lastAccessedAt
+        case estimatedPromptChars
+        case evidenceAnchorCount
+        case lifecycleTier
+        case admissionExplanationSummary
+        case promptOrder
+        case exclusionReason
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.recordID = try container.decode(String.self, forKey: .recordID)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.summary = try container.decode(String.self, forKey: .summary)
+        self.layer = try container.decode(MemoryLayer.self, forKey: .layer)
+        self.kind = try container.decode(MemoryKind.self, forKey: .kind)
+        self.scope = try container.decode(MemoryScope.self, forKey: .scope)
+        self.domainProfile = try container.decode(String.self, forKey: .domainProfile)
+        self.verificationStatus = try container.decode(MemoryRecord.VerificationStatus.self, forKey: .verificationStatus)
+        self.retentionPolicy = try container.decode(MemoryRecord.RetentionPolicy.self, forKey: .retentionPolicy)
+        self.sourceLabel = try container.decode(String.self, forKey: .sourceLabel)
+        self.tags = try container.decode([String].self, forKey: .tags)
+        self.confidence = try container.decode(Double.self, forKey: .confidence)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        self.lastAccessedAt = try container.decodeIfPresent(Date.self, forKey: .lastAccessedAt)
+        self.estimatedPromptChars = try container.decode(Int.self, forKey: .estimatedPromptChars)
+        self.evidenceAnchorCount = try container.decodeIfPresent(Int.self, forKey: .evidenceAnchorCount) ?? 0
+        self.lifecycleTier = try container.decodeIfPresent(MemoryLifecycleTier.self, forKey: .lifecycleTier) ?? .warm
+        self.admissionExplanationSummary = try container.decodeIfPresent(String.self, forKey: .admissionExplanationSummary) ?? ""
+        self.promptOrder = try container.decodeIfPresent(Int.self, forKey: .promptOrder)
+        self.exclusionReason = try container.decodeIfPresent(MemoryRuntimeExclusionReason.self, forKey: .exclusionReason)
     }
 
     private static func describe(source: MemoryRecord.Source) -> String {
@@ -139,6 +200,9 @@ extension MemoryRuntimeSnapshotRecord {
         updatedAt: Date = Date(timeIntervalSince1970: 0),
         lastAccessedAt: Date? = nil,
         estimatedPromptChars: Int = 24,
+        evidenceAnchorCount: Int = 0,
+        lifecycleTier: MemoryLifecycleTier = .warm,
+        admissionExplanationSummary: String = "",
         promptOrder: Int? = nil,
         exclusionReason: MemoryRuntimeExclusionReason? = nil
     ) -> MemoryRuntimeSnapshotRecord {
@@ -159,6 +223,9 @@ extension MemoryRuntimeSnapshotRecord {
             updatedAt: updatedAt,
             lastAccessedAt: lastAccessedAt,
             estimatedPromptChars: estimatedPromptChars,
+            evidenceAnchorCount: evidenceAnchorCount,
+            lifecycleTier: lifecycleTier,
+            admissionExplanationSummary: admissionExplanationSummary,
             promptOrder: promptOrder,
             exclusionReason: exclusionReason
         )
@@ -183,6 +250,7 @@ struct MemoryRuntimeSnapshotPlanSummary: Codable, Equatable, Sendable {
     var candidateScopes: [String]
     var candidateCountByLayer: [MemoryLayer: Int]
     var selectedCountByLayer: [MemoryLayer: Int]
+    var retrievalIntent: MemoryRetrievalIntent?
 }
 
 struct MemoryRuntimeSnapshotMetrics: Codable, Equatable, Sendable {
@@ -190,8 +258,48 @@ struct MemoryRuntimeSnapshotMetrics: Codable, Equatable, Sendable {
     var selectedCount: Int
     var excludedCount: Int
     var totalEstimatedPromptChars: Int
+    var workingSetCost: Int
     var countBreakdowns: [MemoryRuntimeSnapshotMetricDimension: [String: Int]]
     var estimatedCharBreakdowns: [MemoryRuntimeSnapshotMetricDimension: [String: Int]]
+
+    enum CodingKeys: String, CodingKey {
+        case candidateCount
+        case selectedCount
+        case excludedCount
+        case totalEstimatedPromptChars
+        case workingSetCost
+        case countBreakdowns
+        case estimatedCharBreakdowns
+    }
+
+    init(
+        candidateCount: Int,
+        selectedCount: Int,
+        excludedCount: Int,
+        totalEstimatedPromptChars: Int,
+        workingSetCost: Int,
+        countBreakdowns: [MemoryRuntimeSnapshotMetricDimension: [String: Int]],
+        estimatedCharBreakdowns: [MemoryRuntimeSnapshotMetricDimension: [String: Int]]
+    ) {
+        self.candidateCount = candidateCount
+        self.selectedCount = selectedCount
+        self.excludedCount = excludedCount
+        self.totalEstimatedPromptChars = totalEstimatedPromptChars
+        self.workingSetCost = workingSetCost
+        self.countBreakdowns = countBreakdowns
+        self.estimatedCharBreakdowns = estimatedCharBreakdowns
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.candidateCount = try container.decode(Int.self, forKey: .candidateCount)
+        self.selectedCount = try container.decode(Int.self, forKey: .selectedCount)
+        self.excludedCount = try container.decode(Int.self, forKey: .excludedCount)
+        self.totalEstimatedPromptChars = try container.decode(Int.self, forKey: .totalEstimatedPromptChars)
+        self.workingSetCost = try container.decodeIfPresent(Int.self, forKey: .workingSetCost) ?? 0
+        self.countBreakdowns = try container.decode([MemoryRuntimeSnapshotMetricDimension: [String: Int]].self, forKey: .countBreakdowns)
+        self.estimatedCharBreakdowns = try container.decode([MemoryRuntimeSnapshotMetricDimension: [String: Int]].self, forKey: .estimatedCharBreakdowns)
+    }
 }
 
 struct MemoryRuntimeSnapshot: Codable, Equatable, Sendable, Identifiable {
@@ -237,6 +345,8 @@ extension MemoryRuntimeSnapshot {
         excludedRecords: [MemoryRuntimeSnapshotRecord] = [],
         bridgeExpansions: [MemoryBridgeEdge] = [],
         dereferenceCount: Int = 0,
+        retrievalIntent: MemoryRetrievalIntent? = nil,
+        workingSetCost: Int = 0,
         renderedPrompt: String = "## 已验证事实\n- Fixture Record"
     ) -> MemoryRuntimeSnapshot {
         let selectedCount = selectedRecords.count
@@ -245,6 +355,7 @@ extension MemoryRuntimeSnapshot {
             selectedCount: selectedCount,
             excludedCount: excludedRecords.count,
             totalEstimatedPromptChars: selectedRecords.reduce(0) { $0 + $1.estimatedPromptChars },
+            workingSetCost: workingSetCost,
             countBreakdowns: makeBreakdowns(records: selectedRecords, value: { _ in 1 }),
             estimatedCharBreakdowns: makeBreakdowns(records: selectedRecords, value: { $0.estimatedPromptChars })
         )
@@ -273,7 +384,8 @@ extension MemoryRuntimeSnapshot {
                 itemBudgetByLayer: itemBudgetByLayer,
                 candidateScopes: candidateScopes,
                 candidateCountByLayer: candidateCountByLayer,
-                selectedCountByLayer: selectedCountByLayer
+                selectedCountByLayer: selectedCountByLayer,
+                retrievalIntent: retrievalIntent
             ),
             selectedRecords: selectedRecords,
             excludedRecords: excludedRecords,
@@ -287,16 +399,42 @@ extension MemoryRuntimeSnapshot {
     static func makeMetrics(
         candidateCount: Int,
         selectedRecords: [MemoryRuntimeSnapshotRecord],
-        excludedRecords: [MemoryRuntimeSnapshotRecord]
+        excludedRecords: [MemoryRuntimeSnapshotRecord],
+        bridgeExpansionCount: Int = 0,
+        dereferenceCount: Int = 0,
+        includeWorkingSetCost: Bool = false
     ) -> MemoryRuntimeSnapshotMetrics {
-        MemoryRuntimeSnapshotMetrics(
+        let totalEstimatedPromptChars = selectedRecords.reduce(0) { $0 + $1.estimatedPromptChars }
+        let workingSetCost: Int
+        if includeWorkingSetCost {
+            let tierWeightedChars = selectedRecords.reduce(0) { partial, record in
+                partial + (record.estimatedPromptChars * tierWeight(for: record.lifecycleTier))
+            }
+            workingSetCost = tierWeightedChars + (bridgeExpansionCount * 24) + (dereferenceCount * 16)
+        } else {
+            workingSetCost = 0
+        }
+
+        return MemoryRuntimeSnapshotMetrics(
             candidateCount: candidateCount,
             selectedCount: selectedRecords.count,
             excludedCount: excludedRecords.count,
-            totalEstimatedPromptChars: selectedRecords.reduce(0) { $0 + $1.estimatedPromptChars },
+            totalEstimatedPromptChars: totalEstimatedPromptChars,
+            workingSetCost: workingSetCost,
             countBreakdowns: makeBreakdowns(records: selectedRecords, value: { _ in 1 }),
             estimatedCharBreakdowns: makeBreakdowns(records: selectedRecords, value: { $0.estimatedPromptChars })
         )
+    }
+
+    private static func tierWeight(for tier: MemoryLifecycleTier) -> Int {
+        switch tier {
+        case .hot:
+            return 3
+        case .warm:
+            return 2
+        case .cold, .archive:
+            return 1
+        }
     }
 
     private static func makeBreakdowns(

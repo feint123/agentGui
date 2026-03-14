@@ -144,6 +144,42 @@ struct MemoryRuntimeRequest: Equatable, Sendable {
     }
 }
 
+struct MemoryRuntimeFeatureConfiguration: Equatable, Sendable {
+    var enableAdmissionV2: Bool
+    var enableGoalConditionedRetrieval: Bool
+    var enableBridgeExpansion: Bool
+    var enableLifecycleManager: Bool
+    var enableExperienceDistillation: Bool
+
+    init(
+        enableAdmissionV2: Bool = true,
+        enableGoalConditionedRetrieval: Bool = true,
+        enableBridgeExpansion: Bool = true,
+        enableLifecycleManager: Bool = true,
+        enableExperienceDistillation: Bool = true
+    ) {
+        self.enableAdmissionV2 = enableAdmissionV2
+        self.enableGoalConditionedRetrieval = enableGoalConditionedRetrieval
+        self.enableBridgeExpansion = enableBridgeExpansion
+        self.enableLifecycleManager = enableLifecycleManager
+        self.enableExperienceDistillation = enableExperienceDistillation
+    }
+
+    static let allEnabled = MemoryRuntimeFeatureConfiguration()
+}
+
+extension MemoryRuntimeFeatureConfiguration {
+    init(settings: AppSettings) {
+        self.init(
+            enableAdmissionV2: settings.enableAdmissionV2,
+            enableGoalConditionedRetrieval: settings.enableGoalConditionedRetrieval,
+            enableBridgeExpansion: settings.enableBridgeExpansion,
+            enableLifecycleManager: settings.enableLifecycleManager,
+            enableExperienceDistillation: settings.enableExperienceDistillation
+        )
+    }
+}
+
 struct MemoryRuntimeContext: Equatable, Sendable {
     var profiles: [String]
     var records: [MemoryRecord]

@@ -168,7 +168,8 @@ extension ClaudeService {
         session: Session?,
         sessionId: String,
         messages: [MessageParameter.Message],
-        modelContext: ModelContext
+        modelContext: ModelContext,
+        coordinator: MemoryRuntimeCoordinator? = nil
     ) async throws -> MemoryRuntimeContext? {
         guard settings.enableUnifiedMemoryRuntime else { return nil }
         guard !sessionId.isEmpty else { return nil }
@@ -207,8 +208,16 @@ extension ClaudeService {
             contextBudget: max(settings.unifiedMemoryContextBudget * 1000, 4000)
         )
 
-        let coordinator = MemoryRuntimeCoordinator(modelContext: modelContext)
-        let context = try await coordinator.prepareContext(for: request)
+        let resolvedCoordinator = coordinator ?? MemoryRuntimeCoordinator(
+            featureConfiguration: MemoryRuntimeFeatureConfiguration(settings: settings),
+            unifiedRecordsProvider: { request in
+                let unifiedStoreDirectory = ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory)
+                let unifiedStore = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreDirectory)
+                return (try? unifiedStore.records(for: request)) ?? []
+            },
+            unifiedStoreBaseDirectory: ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory)
+        )
+        let context = try await resolvedCoordinator.prepareContext(for: request)
         return context
     }
 

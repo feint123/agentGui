@@ -144,6 +144,23 @@ struct MemoryManagementViewModelTests {
         #expect(viewModel.recordRows.contains { $0.admissionExplanationSummary.contains("verified") })
     }
 
+    @Test func memoryManagementViewModelExposesRolloutFlagStates() async throws {
+        let settings = AppSettings.testFixture()
+        settings.enableAdmissionV2 = true
+        settings.enableGoalConditionedRetrieval = true
+        settings.enableBridgeExpansion = false
+        settings.enableLifecycleManager = true
+        settings.enableExperienceDistillation = false
+
+        let viewModel = MemoryManagementViewModel(settings: settings)
+        try viewModel.reload()
+
+        #expect(viewModel.rolloutFlags.contains { $0.label == "Admission V2" && $0.isEnabled })
+        #expect(viewModel.rolloutFlags.contains { $0.label == "Goal-conditioned Retrieval" && $0.isEnabled })
+        #expect(viewModel.rolloutFlags.contains { $0.label == "Lifecycle Manager" && $0.isEnabled })
+        #expect(viewModel.rolloutFlags.contains { $0.label == "Bridge Expansion" && $0.isEnabled == false })
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

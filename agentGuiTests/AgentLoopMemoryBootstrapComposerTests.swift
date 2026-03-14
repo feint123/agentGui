@@ -17,7 +17,13 @@ struct AgentLoopMemoryBootstrapComposerTests {
                         runtimeSnapshot: .fixture(
                             id: "snapshot-1",
                             bridgeExpansions: [MemoryBridgeEdge(sourceRecordID: "r1", targetRecordID: "r2", relationship: "recovery-path")],
-                            dereferenceCount: 2
+                            dereferenceCount: 2,
+                            retrievalIntent: MemoryRetrievalIntent(
+                                phase: .verification,
+                                neededObjectTypes: [.fact, .procedure],
+                                reason: "Verify the build fix"
+                            ),
+                            workingSetCost: 96
                         )
                     )
                 },
@@ -36,6 +42,8 @@ struct AgentLoopMemoryBootstrapComposerTests {
         #expect(composition.runtimeSnapshotID == "snapshot-1")
         #expect(composition.runtimeBridgeExpansionCount == 1)
         #expect(composition.runtimeDereferenceCount == 2)
+        #expect(composition.runtimeIntentPhase == "verification")
+        #expect(composition.runtimeWorkingSetCost == 96)
     }
 
     @Test func composerBuildsTaskMemoryFallbackWhenUnifiedContextIsMissing() async throws {

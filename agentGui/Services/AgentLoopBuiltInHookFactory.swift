@@ -7,6 +7,10 @@ struct AgentLoopBuiltInHookFactory {
         var memoryRuntimeLayers: [String] = []
         var memoryRuntimeWarnings: [String] = []
         var memoryRuntimeSnapshotID: String?
+        var memoryRuntimeIntentPhase: String?
+        var memoryRuntimeWorkingSetCost: Int?
+        var memoryRuntimeBridgeExpansionCount: Int?
+        var memoryRuntimeDereferenceCount: Int?
     }
 
     struct Dependencies {

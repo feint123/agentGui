@@ -94,6 +94,123 @@ struct MemoryRuntimeIntegrationTests {
         #expect(context == nil)
     }
 
+    @Test func memoryRuntimeSupportsFlaggedV2PathWithoutBreakingLegacyFallback() async throws {
+        let service = ClaudeService()
+        let settings = AppSettings.testFixture()
+        settings.enableUnifiedMemoryRuntime = true
+        settings.enableAdmissionV2 = true
+        settings.enableGoalConditionedRetrieval = true
+        settings.enableBridgeExpansion = true
+        settings.enableLifecycleManager = true
+
+        let coordinator = MemoryRuntimeCoordinator(
+            featureConfiguration: .init(
+                enableAdmissionV2: true,
+                enableGoalConditionedRetrieval: true,
+                enableBridgeExpansion: true,
+                enableLifecycleManager: true,
+                enableExperienceDistillation: false
+            ),
+            unifiedRecordsProvider: { _ in
+                [
+                    MemoryRecord.fixture(
+                        id: "failure-1",
+                        layer: .task,
+                        kind: .working,
+                        scope: .session(id: "s1"),
+                        title: "Build failure",
+                        summary: "xcodebuild scheme failure",
+                        verificationStatus: .verified,
+                        tags: ["failed-attempt"],
+                        evidenceAnchors: [
+                            MemoryEvidenceAnchor(kind: .toolCall, identifier: "tool-1", summary: "Ran xcodebuild test")
+                        ],
+                        admissionExplanation: MemoryAdmissionExplanation(
+                            score: MemoryAdmissionScore(total: 0.92, route: .hotPath),
+                            featureVector: MemoryAdmissionFeatureVector(
+                                futureUtility: 0.8,
+                                factualConfidence: 1,
+                                novelty: 0.6,
+                                temporalRecency: 1,
+                                taskRelevance: 1,
+                                verificationSupport: 1,
+                                privacyRisk: 0,
+                                driftRisk: 0.1
+                            ),
+                            reasons: ["verified tool evidence"]
+                        ),
+                        lifecycleTier: .hot,
+                    ),
+                    MemoryRecord.fixture(
+                        id: "recovery-1",
+                        layer: .task,
+                        kind: .working,
+                        scope: .session(id: "s1"),
+                        title: "Re-run with shared scheme",
+                        summary: "Share the scheme before building",
+                        verificationStatus: .verified,
+                        tags: ["recovery-tip"],
+                        lifecycleTier: .warm
+                    )
+                ]
+            }
+        )
+
+        let context = try await service.buildUnifiedMemoryBootstrap(
+            settings: settings,
+            session: nil,
+            sessionId: "s1",
+            messages: [MessageParameter.Message(role: .user, content: .text("Fix failing build and verify tests"))],
+            modelContext: try makeModelContext(),
+            coordinator: coordinator
+        )
+
+        let snapshot = try #require(context?.runtimeSnapshot)
+        #expect(snapshot.selectedRecords.isEmpty == false)
+        #expect(snapshot.plan.retrievalIntent?.phase == .verification)
+        #expect(snapshot.bridgeExpansions.isEmpty == false)
+        #expect(snapshot.metrics.workingSetCost > 0)
+
+        let legacyCoordinator = MemoryRuntimeCoordinator(
+            featureConfiguration: .init(
+                enableAdmissionV2: false,
+                enableGoalConditionedRetrieval: false,
+                enableBridgeExpansion: false,
+                enableLifecycleManager: false,
+                enableExperienceDistillation: false
+            ),
+            unifiedRecordsProvider: { _ in
+                [
+                    MemoryRecord.fixture(
+                        id: "legacy-1",
+                        layer: .task,
+                        kind: .working,
+                        scope: .session(id: "s1"),
+                        title: "Legacy build fact",
+                        summary: "Build uses xcodebuild",
+                        verificationStatus: .verified,
+                        tags: ["failed-attempt"],
+                        lifecycleTier: .hot
+                    )
+                ]
+            }
+        )
+
+        let legacyContext = try await service.buildUnifiedMemoryBootstrap(
+            settings: settings,
+            session: nil,
+            sessionId: "s1",
+            messages: [MessageParameter.Message(role: .user, content: .text("Fix failing build and verify tests"))],
+            modelContext: try makeModelContext(),
+            coordinator: legacyCoordinator
+        )
+
+        let legacySnapshot = try #require(legacyContext?.runtimeSnapshot)
+        #expect(legacySnapshot.plan.retrievalIntent == nil)
+        #expect(legacySnapshot.bridgeExpansions.isEmpty)
+        #expect(legacySnapshot.metrics.workingSetCost == 0)
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(

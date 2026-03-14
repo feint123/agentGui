@@ -7,6 +7,8 @@ struct AgentLoopMemoryBootstrapComposition {
     var runtimeLayers: [String] = []
     var runtimeWarnings: [String] = []
     var runtimeSnapshotID: String?
+    var runtimeIntentPhase: String?
+    var runtimeWorkingSetCost: Int = 0
     var runtimeBridgeExpansionCount: Int = 0
     var runtimeDereferenceCount: Int = 0
 }
@@ -28,6 +30,8 @@ struct AgentLoopMemoryBootstrapComposer {
                 runtimeLayers: Array(Set(unifiedContext.records.map { $0.layer.rawValue })).sorted(),
                 runtimeWarnings: unifiedContext.warnings,
                 runtimeSnapshotID: nil,
+                runtimeIntentPhase: unifiedContext.runtimeSnapshot?.plan.retrievalIntent?.phase.rawValue,
+                runtimeWorkingSetCost: unifiedContext.runtimeSnapshot?.metrics.workingSetCost ?? 0,
                 runtimeBridgeExpansionCount: unifiedContext.runtimeSnapshot?.bridgeExpansions.count ?? 0,
                 runtimeDereferenceCount: unifiedContext.runtimeSnapshot?.dereferenceCount ?? 0
             )

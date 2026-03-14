@@ -4,10 +4,29 @@ import Observation
 @MainActor
 @Observable
 final class MemoryManagementViewModel {
+    enum GovernanceHealth: Equatable, Sendable {
+        case healthy
+        case attention
+    }
+
     struct CountSummary: Identifiable, Equatable {
         let id: String
         let label: String
         let count: Int
+    }
+
+    struct DashboardMetric: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let value: Int
+        let detail: String
+        let symbolName: String
+    }
+
+    struct RolloutFlag: Identifiable, Equatable {
+        let id: String
+        let label: String
+        let isEnabled: Bool
     }
 
     struct RecordRow: Identifiable, Equatable {
@@ -25,6 +44,7 @@ final class MemoryManagementViewModel {
     private let confirmationWorkflowService: MemoryConfirmationWorkflowService
     private let backgroundJobStore: MemoryBackgroundJobStore
     private let retentionService: MemoryRetentionService
+    private let settings: AppSettings?
 
     var scopeSummaries: [CountSummary] = []
     var layerSummaries: [CountSummary] = []
@@ -37,13 +57,71 @@ final class MemoryManagementViewModel {
     var latestSweepReport: MemorySweepReport?
     var recordRows: [RecordRow] = []
 
+    var rolloutFlags: [RolloutFlag] {
+        guard let settings else { return [] }
+        return [
+            RolloutFlag(id: "admission-v2", label: "Admission V2", isEnabled: settings.enableAdmissionV2),
+            RolloutFlag(id: "goal-conditioned", label: "Goal-conditioned Retrieval", isEnabled: settings.enableGoalConditionedRetrieval),
+            RolloutFlag(id: "bridge-expansion", label: "Bridge Expansion", isEnabled: settings.enableBridgeExpansion),
+            RolloutFlag(id: "lifecycle-manager", label: "Lifecycle Manager", isEnabled: settings.enableLifecycleManager),
+            RolloutFlag(id: "experience-distillation", label: "Experience Distillation", isEnabled: settings.enableExperienceDistillation)
+        ]
+    }
+
+    var reviewQueueCount: Int {
+        pendingConfirmationCount + conflictCount
+    }
+
+    var governanceHealth: GovernanceHealth {
+        reviewQueueCount == 0 ? .healthy : .attention
+    }
+
+    var dashboardMetrics: [DashboardMetric] {
+        [
+            DashboardMetric(
+                id: "records",
+                title: "统一记录",
+                value: totalRecordCount,
+                detail: "当前纳入治理视图的总条目",
+                symbolName: "square.stack.3d.up"
+            ),
+            DashboardMetric(
+                id: "review",
+                title: "待人工处理",
+                value: reviewQueueCount,
+                detail: "待确认写入与冲突记录总和",
+                symbolName: "person.badge.key"
+            ),
+            DashboardMetric(
+                id: "archive",
+                title: "已归档",
+                value: archivedCount,
+                detail: "当前标记为 archive only 的记录",
+                symbolName: "archivebox"
+            ),
+            DashboardMetric(
+                id: "scope",
+                title: "活跃 Scope",
+                value: scopeSummaries.count,
+                detail: "当前存在记录的命名空间数量",
+                symbolName: "square.3.layers.3d"
+            )
+        ]
+    }
+
+    var recentRecordRows: [RecordRow] {
+        Array(recordRows.prefix(8))
+    }
+
     init(
+        settings: AppSettings? = nil,
         store: UnifiedMemoryFileStoreAdapter = UnifiedMemoryFileStoreAdapter(),
         confirmationStore: MemoryConfirmationStore = MemoryConfirmationStore(),
         confirmationWorkflowService: MemoryConfirmationWorkflowService = MemoryConfirmationWorkflowService(),
         backgroundJobStore: MemoryBackgroundJobStore = MemoryBackgroundJobStore(),
         retentionService: MemoryRetentionService = MemoryRetentionService()
     ) {
+        self.settings = settings
         self.store = store
         self.confirmationStore = confirmationStore
         self.confirmationWorkflowService = confirmationWorkflowService

@@ -198,6 +198,19 @@ enum ToolCallDetailPresentation {
             sections.append(.init(label: "记忆上下文快照", text: snapshotID, monospaced: true, maxHeight: 80))
         }
 
+        if let intentPhase = toolCall.memoryRuntimeIntentPhase, !intentPhase.isEmpty {
+            sections.append(.init(label: "检索意图", text: intentPhase, monospaced: true, maxHeight: 80))
+        }
+
+        if let workingSetCost = toolCall.memoryRuntimeWorkingSetCost {
+            sections.append(.init(label: "Working-set Cost", text: String(workingSetCost), monospaced: true, maxHeight: 80))
+        }
+
+        if let bridgeCount = toolCall.memoryRuntimeBridgeExpansionCount,
+           let dereferenceCount = toolCall.memoryRuntimeDereferenceCount {
+            sections.append(.init(label: "Bridge / Dereference", text: "\(bridgeCount) / \(dereferenceCount)", monospaced: true, maxHeight: 80))
+        }
+
         if let profiles = toolCall.memoryRuntimeProfiles, !profiles.isEmpty {
             sections.append(.init(label: "记忆 Profiles", text: profiles.joined(separator: "\n"), monospaced: false, maxHeight: 120))
         }
