@@ -11,6 +11,8 @@ struct AgentMessageStepFlowView: View {
                     AgentMessageResultBlockView(presentation: presentation)
                 case .thinking(let presentation):
                     ThinkingBubbleView(presentation: presentation)
+                case .reflection(let presentation):
+                    ReflectionBubbleView(presentation: presentation)
                 case .tool(let presentation):
                     if let toolCall = snapshot.toolCall(for: presentation.toolCallID) {
                         ToolCallBubbleView(toolCall: toolCall, rowPresentation: presentation.row)

@@ -45,6 +45,37 @@ struct AgentMessageFlowPresentationTests {
         })
     }
 
+    @Test func flowSnapshotIncludesReflectionStepAfterRoundResult() async throws {
+        let message = AgentMessageFlowFixture.makeReflectedMessage()
+
+        let snapshot = AgentMessageFlowPresentation.snapshot(for: message)
+
+        #expect(snapshot.steps.map(AgentMessageFlowFixture.kindLabel) == ["thinking", "read", "edit", "result", "reflection"])
+
+        let reflection = try #require(snapshot.steps.compactMap { step -> ReflectionStepPresentation? in
+            guard case .reflection(let value) = step else { return nil }
+            return value
+        }.first)
+
+        #expect(reflection.summaryText.contains("建议重试"))
+        #expect(reflection.content.contains("未覆盖失败路径"))
+        #expect(reflection.content.contains("补充失败场景测试"))
+        #expect(reflection.retryRecommended)
+    }
+
+    @Test func completedReflectionStepStaysCollapsedByDefault() async throws {
+        let message = AgentMessageFlowFixture.makeReflectedMessage()
+
+        let snapshot = AgentMessageFlowPresentation.snapshot(for: message)
+
+        let reflection = try #require(snapshot.steps.compactMap { step -> ReflectionStepPresentation? in
+            guard case .reflection(let value) = step else { return nil }
+            return value
+        }.first)
+
+        #expect(!reflection.isExpanded)
+    }
+
     @Test func flowSnapshotToolLookupDeduplicatesRepeatedToolCallRelationships() async throws {
         let message = Message.agentMessage(text: nil, session: Session(title: "Retry"))
         let round = AgentRound(roundIndex: 0, message: message)
@@ -188,6 +219,8 @@ private enum AgentMessageFlowFixture {
             return "result"
         case .thinking:
             return "thinking"
+        case .reflection:
+            return "reflection"
         case .tool(let value):
             switch value.row.style {
             case .read:
@@ -259,6 +292,16 @@ private enum AgentMessageFlowFixture {
     static func makeCompletedMessage() -> Message {
         let message = makeChronologicalMessage()
         message.status = .completed
+        return message
+    }
+
+    static func makeReflectedMessage() -> Message {
+        let message = makeChronologicalMessage()
+        guard let round = message.agentRounds.first else { fatalError("Expected round") }
+        round.reflectionConfidence = 0.42
+        round.reflectionConcerns = ["未覆盖失败路径", "缺少运行时证据"]
+        round.reflectionSuggestedFixes = ["补充失败场景测试", "重新执行并附上日志证据"]
+        round.reflectionShouldRetry = true
         return message
     }
 
