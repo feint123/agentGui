@@ -37,7 +37,6 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
     var lastAccessedAt: Date?
     var estimatedPromptChars: Int
     var evidenceAnchorCount: Int
-    var lifecycleTier: MemoryLifecycleTier
     var admissionExplanationSummary: String
     var promptOrder: Int?
     var exclusionReason: MemoryRuntimeExclusionReason?
@@ -60,7 +59,6 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         lastAccessedAt: Date?,
         estimatedPromptChars: Int,
         evidenceAnchorCount: Int,
-        lifecycleTier: MemoryLifecycleTier,
         admissionExplanationSummary: String,
         promptOrder: Int? = nil,
         exclusionReason: MemoryRuntimeExclusionReason? = nil
@@ -82,7 +80,6 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         self.lastAccessedAt = lastAccessedAt
         self.estimatedPromptChars = estimatedPromptChars
         self.evidenceAnchorCount = evidenceAnchorCount
-        self.lifecycleTier = lifecycleTier
         self.admissionExplanationSummary = admissionExplanationSummary
         self.promptOrder = promptOrder
         self.exclusionReason = exclusionReason
@@ -107,7 +104,6 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
             lastAccessedAt: record.lastAccessedAt,
             estimatedPromptChars: Self.estimatePromptChars(title: record.title, summary: record.summary),
             evidenceAnchorCount: record.evidenceAnchors.count,
-            lifecycleTier: record.lifecycleTier,
             admissionExplanationSummary: record.admissionExplanation?.reasons.joined(separator: "; ") ?? "",
             promptOrder: promptOrder,
             exclusionReason: exclusionReason
@@ -132,7 +128,6 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         case lastAccessedAt
         case estimatedPromptChars
         case evidenceAnchorCount
-        case lifecycleTier
         case admissionExplanationSummary
         case promptOrder
         case exclusionReason
@@ -157,7 +152,6 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         self.lastAccessedAt = try container.decodeIfPresent(Date.self, forKey: .lastAccessedAt)
         self.estimatedPromptChars = try container.decode(Int.self, forKey: .estimatedPromptChars)
         self.evidenceAnchorCount = try container.decodeIfPresent(Int.self, forKey: .evidenceAnchorCount) ?? 0
-        self.lifecycleTier = try container.decodeIfPresent(MemoryLifecycleTier.self, forKey: .lifecycleTier) ?? .warm
         self.admissionExplanationSummary = try container.decodeIfPresent(String.self, forKey: .admissionExplanationSummary) ?? ""
         self.promptOrder = try container.decodeIfPresent(Int.self, forKey: .promptOrder)
         self.exclusionReason = try container.decodeIfPresent(MemoryRuntimeExclusionReason.self, forKey: .exclusionReason)
@@ -167,8 +161,6 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         switch source {
         case .tool(let name):
             return "tool:\(name)"
-        case .taskMemory:
-            return "taskMemory"
         case .userInput:
             return "userInput"
         case .system(let name):
@@ -193,7 +185,7 @@ extension MemoryRuntimeSnapshotRecord {
         domainProfile: String = "coding-task",
         verificationStatus: MemoryRecord.VerificationStatus = .verified,
         retentionPolicy: MemoryRecord.RetentionPolicy = .sessionBound,
-        sourceLabel: String = "taskMemory",
+        sourceLabel: String = "system:tests",
         tags: [String] = [],
         confidence: Double = 1.0,
         createdAt: Date = Date(timeIntervalSince1970: 0),
@@ -201,7 +193,6 @@ extension MemoryRuntimeSnapshotRecord {
         lastAccessedAt: Date? = nil,
         estimatedPromptChars: Int = 24,
         evidenceAnchorCount: Int = 0,
-        lifecycleTier: MemoryLifecycleTier = .warm,
         admissionExplanationSummary: String = "",
         promptOrder: Int? = nil,
         exclusionReason: MemoryRuntimeExclusionReason? = nil
@@ -224,7 +215,6 @@ extension MemoryRuntimeSnapshotRecord {
             lastAccessedAt: lastAccessedAt,
             estimatedPromptChars: estimatedPromptChars,
             evidenceAnchorCount: evidenceAnchorCount,
-            lifecycleTier: lifecycleTier,
             admissionExplanationSummary: admissionExplanationSummary,
             promptOrder: promptOrder,
             exclusionReason: exclusionReason
@@ -314,7 +304,6 @@ struct MemoryRuntimeSnapshot: Codable, Equatable, Sendable, Identifiable {
     var plan: MemoryRuntimeSnapshotPlanSummary
     var selectedRecords: [MemoryRuntimeSnapshotRecord]
     var excludedRecords: [MemoryRuntimeSnapshotRecord]
-    var bridgeExpansions: [MemoryBridgeEdge]
     var dereferenceCount: Int
     var epistemicState: EpistemicState
     var influenceTrace: MemoryInfluenceTrace
@@ -345,7 +334,6 @@ extension MemoryRuntimeSnapshot {
         candidateCount: Int = 1,
         selectedRecords: [MemoryRuntimeSnapshotRecord] = [.fixture()],
         excludedRecords: [MemoryRuntimeSnapshotRecord] = [],
-        bridgeExpansions: [MemoryBridgeEdge] = [],
         dereferenceCount: Int = 0,
         epistemicState: EpistemicState = EpistemicState(),
         influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
@@ -393,7 +381,6 @@ extension MemoryRuntimeSnapshot {
             ),
             selectedRecords: selectedRecords,
             excludedRecords: excludedRecords,
-            bridgeExpansions: bridgeExpansions,
             dereferenceCount: dereferenceCount,
             epistemicState: epistemicState,
             influenceTrace: influenceTrace,
@@ -406,17 +393,13 @@ extension MemoryRuntimeSnapshot {
         candidateCount: Int,
         selectedRecords: [MemoryRuntimeSnapshotRecord],
         excludedRecords: [MemoryRuntimeSnapshotRecord],
-        bridgeExpansionCount: Int = 0,
         dereferenceCount: Int = 0,
         includeWorkingSetCost: Bool = false
     ) -> MemoryRuntimeSnapshotMetrics {
         let totalEstimatedPromptChars = selectedRecords.reduce(0) { $0 + $1.estimatedPromptChars }
         let workingSetCost: Int
         if includeWorkingSetCost {
-            let tierWeightedChars = selectedRecords.reduce(0) { partial, record in
-                partial + (record.estimatedPromptChars * tierWeight(for: record.lifecycleTier))
-            }
-            workingSetCost = tierWeightedChars + (bridgeExpansionCount * 24) + (dereferenceCount * 16)
+            workingSetCost = totalEstimatedPromptChars + (dereferenceCount * 16)
         } else {
             workingSetCost = 0
         }
@@ -430,17 +413,6 @@ extension MemoryRuntimeSnapshot {
             countBreakdowns: makeBreakdowns(records: selectedRecords, value: { _ in 1 }),
             estimatedCharBreakdowns: makeBreakdowns(records: selectedRecords, value: { $0.estimatedPromptChars })
         )
-    }
-
-    private static func tierWeight(for tier: MemoryLifecycleTier) -> Int {
-        switch tier {
-        case .hot:
-            return 3
-        case .warm:
-            return 2
-        case .cold, .archive:
-            return 1
-        }
     }
 
     private static func makeBreakdowns(

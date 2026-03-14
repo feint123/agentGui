@@ -19,7 +19,11 @@ struct FrontierSynthesisPromptBuilder {
         \(actionLines)
 
         Identify which unresolved claims qualify as frontier objects because they block action selection.
-        Return JSON using the same extraction schema and prefer kind="frontier" when appropriate.
+        Prefer kind="frontier" for every retained object.
+        \(EpistemicPromptJSONContract.extractionSchema)
+
+        \(EpistemicPromptJSONContract.frontierExample)
+
         Do not output chain-of-thought.
         """
     }

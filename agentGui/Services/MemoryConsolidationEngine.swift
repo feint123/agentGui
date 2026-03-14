@@ -1,19 +1,13 @@
 import Foundation
 
 struct MemoryConsolidationEngine {
-    private let experienceDistiller: MemoryExperienceDistillationService
-    private let procedureInductor: MemoryProcedureInductionService
     private let counterexampleDistiller: CounterexampleDistillationService
     private let tacticKernelDistiller: TacticKernelDistillationService
 
     init(
-        experienceDistiller: MemoryExperienceDistillationService = MemoryExperienceDistillationService(),
-        procedureInductor: MemoryProcedureInductionService = MemoryProcedureInductionService(),
         counterexampleDistiller: CounterexampleDistillationService = CounterexampleDistillationService(),
         tacticKernelDistiller: TacticKernelDistillationService = TacticKernelDistillationService()
     ) {
-        self.experienceDistiller = experienceDistiller
-        self.procedureInductor = procedureInductor
         self.counterexampleDistiller = counterexampleDistiller
         self.tacticKernelDistiller = tacticKernelDistiller
     }
@@ -82,11 +76,9 @@ struct MemoryConsolidationEngine {
             }
         }
 
-        let distilled = experienceDistiller.distill(from: outcome)
-        let procedures = procedureInductor.induce(from: outcome)
         let counterexamples = counterexampleDistiller.distill(from: outcome)
         let tacticKernels = tacticKernelDistiller.distill(from: outcome)
-        return deduplicated(candidates + distilled + procedures + counterexamples + tacticKernels)
+        return deduplicated(candidates + counterexamples + tacticKernels)
     }
 
     private func consolidateCreative(outcome: MemoryRuntimeOutcome, profiles: [MemoryDomainProfile]) -> [MemoryCandidate] {

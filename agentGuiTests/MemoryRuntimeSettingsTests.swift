@@ -8,7 +8,6 @@ struct MemoryRuntimeSettingsTests {
         #expect(settings.enableEpistemicExtraction == false)
         #expect(settings.enableRMSRetrieval == false)
         #expect(settings.enableRMSDistillation == false)
-        #expect(settings.enableLegacyMemoryCompatibility == true)
     }
 
     @Test func appSettingsExposeUnifiedMemoryRuntimeDefaults() async throws {

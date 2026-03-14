@@ -17,6 +17,15 @@ struct EpistemicStateReducer {
                 if !object.decisionDelta.isEmpty {
                     nextState.candidateActions = appendUnique(object.decisionDelta, to: nextState.candidateActions)
                     nextTrace.rankedActionIDs = appendUnique(object.decisionDelta, to: nextTrace.rankedActionIDs)
+                    nextTrace.actionRankingChanges = appendUnique(
+                        MemoryInfluenceTrace.ActionRankingChange(
+                            memoryID: object.id,
+                            fromAction: "unranked",
+                            toAction: object.decisionDelta,
+                            rationale: "frontier elevated a probe action into the ranked set"
+                        ),
+                        to: nextTrace.actionRankingChanges
+                    )
                 }
                 let frontier = FrontierMemory(
                     frontierId: object.id,
@@ -52,6 +61,15 @@ struct EpistemicStateReducer {
                     replacementAction: object.decisionDelta
                 )
                 upsertCounterexample(counterexample, into: &nextState.counterexamples)
+                nextTrace.blockedActionIDs = appendUnique(object.summary, to: nextTrace.blockedActionIDs)
+                nextTrace.blockedPathReasons = appendUnique(
+                    MemoryInfluenceTrace.BlockedPathReason(
+                        memoryID: object.id,
+                        blockedAction: object.summary,
+                        rationale: object.decisionDelta.isEmpty ? "counterexample blocked a repeated failed path" : object.decisionDelta
+                    ),
+                    to: nextTrace.blockedPathReasons
+                )
 
             case .tacticKernel, .atomicEvent:
                 continue
@@ -76,6 +94,13 @@ struct EpistemicStateReducer {
 
     private func appendUnique(_ value: String, to array: [String]) -> [String] {
         guard !value.isEmpty else { return array }
+        if array.contains(value) {
+            return array
+        }
+        return array + [value]
+    }
+
+    private func appendUnique<T: Equatable>(_ value: T, to array: [T]) -> [T] {
         if array.contains(value) {
             return array
         }

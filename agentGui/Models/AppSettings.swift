@@ -96,44 +96,14 @@ final class AppSettings {
     /// 是否启用统一记忆治理层
     var enableMemoryGovernance: Bool = true
 
-    /// Admission V2：基于 feature vector 的准入评分
-    var enableAdmissionV2: Bool = false
+    /// 是否启用 epistemic extraction
+    var enableEpistemicExtraction: Bool = false
 
-    /// Goal-conditioned retrieval intent
-    var enableGoalConditionedRetrieval: Bool = false
+    /// 是否启用 RMS retrieval
+    var enableRMSRetrieval: Bool = false
 
-    /// Bridge-aware expansion and evidence dereference
-    var enableBridgeExpansion: Bool = false
-
-    /// Working-set lifecycle manager
-    var enableLifecycleManager: Bool = false
-
-    /// Experience / procedure distillation jobs
-    var enableExperienceDistillation: Bool = false
-
-    /// RMS naming bridge: extraction stage for epistemic objects.
-    var enableEpistemicExtraction: Bool {
-        get { enableAdmissionV2 }
-        set { enableAdmissionV2 = newValue }
-    }
-
-    /// RMS naming bridge: retrieval stage centered on frontiers and verification debt.
-    var enableRMSRetrieval: Bool {
-        get { enableGoalConditionedRetrieval }
-        set { enableGoalConditionedRetrieval = newValue }
-    }
-
-    /// RMS naming bridge: distillation stage for counterexamples and tactic kernels.
-    var enableRMSDistillation: Bool {
-        get { enableExperienceDistillation }
-        set { enableExperienceDistillation = newValue }
-    }
-
-    /// Compatibility bridge for legacy task-memory and layer-first affordances.
-    var enableLegacyMemoryCompatibility: Bool {
-        get { enableLifecycleManager == false }
-        set { enableLifecycleManager = !newValue }
-    }
+    /// 是否启用 RMS distillation jobs
+    var enableRMSDistillation: Bool = false
 
     /// 是否启用统一写路径
     var enableUnifiedMemoryWritePath: Bool = true
@@ -182,11 +152,9 @@ final class AppSettings {
         self.enableUnifiedMemoryRuntime = false
         self.unifiedMemoryContextBudget = 8
         self.enableMemoryGovernance = true
-        self.enableAdmissionV2 = false
-        self.enableGoalConditionedRetrieval = false
-        self.enableBridgeExpansion = false
-        self.enableLifecycleManager = false
-        self.enableExperienceDistillation = false
+        self.enableEpistemicExtraction = false
+        self.enableRMSRetrieval = false
+        self.enableRMSDistillation = false
         self.enableUnifiedMemoryWritePath = true
         self.enableBackgroundMemoryConsolidation = true
         self.memoryConfirmationThreshold = 0.6

@@ -19,7 +19,12 @@ struct CounterexampleExtractionPromptBuilder {
         \(priorCounterexamples)
 
         Promote only failures that invalidate a prior assumption or procedure.
-        Return JSON using the extraction schema with kind="counterexample" when warranted.
+        Prefer kind="counterexample" for every retained object.
+        Include a replacementAction field inside each counterexample object when you keep one.
+        \(EpistemicPromptJSONContract.extractionSchema)
+
+        \(EpistemicPromptJSONContract.counterexampleExample)
+
         Do not output chain-of-thought.
         """
     }

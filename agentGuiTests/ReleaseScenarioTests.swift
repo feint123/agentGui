@@ -52,7 +52,7 @@ struct ReleaseScenarioTests {
                     scope: .session(id: "story-session"),
                     title: "林澈",
                     summary: "调查者仍在北塔",
-                    source: .taskMemory,
+                    source: .system(name: "tests"),
                     retentionPolicy: .sessionBound
                 )
             ]

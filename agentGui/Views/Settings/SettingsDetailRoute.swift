@@ -1,7 +1,7 @@
 import Foundation
 
 enum SettingsDetailRoute: String, Hashable, Identifiable, Sendable {
-    case memoryGovernance
+    case rmsCognition
 
     var id: String { rawValue }
 }

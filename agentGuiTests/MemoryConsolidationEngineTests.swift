@@ -133,12 +133,25 @@ struct MemoryConsolidationEngineTests {
             ]
         )
 
-        let candidates = try await MemoryConsolidationEngine(
-            experienceDistiller: MemoryExperienceDistillationService(),
-            procedureInductor: MemoryProcedureInductionService()
-        ).consolidate(outcome)
+        let candidates = try await MemoryConsolidationEngine().consolidate(outcome)
 
-        #expect(candidates.contains { $0.tags.contains("counterexample") })
-        #expect(candidates.contains { $0.tags.contains("tactic-kernel") })
+        let counterexample = try #require(candidates.first(where: { $0.tags.contains("counterexample") }))
+        let tacticKernel = try #require(candidates.first(where: { $0.tags.contains("tactic-kernel") }))
+
+        if case let .structured(fields) = counterexample.payload {
+            #expect(fields["falsified_assumption"]?.isEmpty == false)
+            #expect(fields["replacement_action"]?.isEmpty == false)
+            #expect(fields["context_fingerprint"]?.isEmpty == false)
+        } else {
+            Issue.record("Expected structured counterexample payload")
+        }
+
+        if case let .structured(fields) = tacticKernel.payload {
+            #expect(fields["applicable_precondition"]?.isEmpty == false)
+            #expect(fields["preferred_action_sequence"]?.isEmpty == false)
+            #expect(fields["verification_path"]?.isEmpty == false)
+        } else {
+            Issue.record("Expected structured tactic kernel payload")
+        }
     }
 }

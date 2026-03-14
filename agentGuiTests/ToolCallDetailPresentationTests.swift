@@ -13,7 +13,6 @@ struct ToolCallDetailPresentationTests {
         toolCall.memoryRuntimeSnapshotID = "snapshot-1"
         toolCall.memoryRuntimeIntentPhase = "verification"
         toolCall.memoryRuntimeWorkingSetCost = 128
-        toolCall.memoryRuntimeBridgeExpansionCount = 2
         toolCall.memoryRuntimeDereferenceCount = 3
         toolCall.toolDefinitionID = "search"
         toolCall.toolSchemaVersion = 1

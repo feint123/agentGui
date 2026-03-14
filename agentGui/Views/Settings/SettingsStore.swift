@@ -64,9 +64,9 @@ final class SettingsStore {
         )
     }
 
-    func showMemoryGovernance() {
+    func showRMSCognitionPanel() {
         selectedItem = .memory
-        detailPath = [.memoryGovernance]
+        detailPath = [.rmsCognition]
     }
 
     func dismissDetailRoute() {

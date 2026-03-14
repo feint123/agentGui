@@ -13,7 +13,7 @@ struct MemoryRuntimeCoordinatorTests {
             kind: .working,
             scope: .session(id: "s1"),
             title: "Known failure",
-            source: .taskMemory,
+            source: .system(name: "tests"),
             tags: ["failed-attempt"]
         ))
 
@@ -194,7 +194,7 @@ struct MemoryRuntimeCoordinatorTests {
         #expect(snapshot.request.contextBudget == 4000)
     }
 
-    @Test func coordinatorExpandsBridgesAndCapturesDereferenceTrace() async throws {
+    @Test func coordinatorCapturesDereferenceTraceFromSelectedRecords() async throws {
         let records = [
             MemoryRecord.fixture(
                 id: "failure-1",
@@ -237,7 +237,6 @@ struct MemoryRuntimeCoordinatorTests {
         let snapshot = try #require(context.runtimeSnapshot)
 
         #expect(snapshot.selectedRecords.contains { $0.recordID == "failure-1" })
-        #expect(snapshot.bridgeExpansions.contains { $0.sourceRecordID == "failure-1" && $0.targetRecordID == "recovery-1" })
         #expect(snapshot.dereferenceCount > 0)
     }
 
@@ -310,10 +309,12 @@ struct MemoryRuntimeCoordinatorTests {
         #expect(context.epistemicState.frontiers.first?.openClaim == "Need to confirm shared scheme")
         #expect(context.influenceTrace.activatedMemoryIDs == ["f-1"])
         #expect(context.renderedPrompt.contains("Need to confirm shared scheme"))
+        #expect(context.influenceTrace.frontierBudgetDecisions.first?.frontierID == "f-1")
 
         let snapshot = try #require(context.runtimeSnapshot)
         #expect(snapshot.epistemicState.frontiers.first?.frontierId == "f-1")
         #expect(snapshot.influenceTrace.rankedActionIDs == ["Run xcodebuild -list"])
+        #expect(snapshot.influenceTrace.frontierBudgetDecisions.first?.allocatedBudget ?? 0 >= 1)
     }
 
     @Test func scheduleConsolidationQueuesRMSDistillationJobs() async throws {
@@ -363,6 +364,7 @@ struct MemoryRuntimeCoordinatorTests {
         let jobs = try MemoryBackgroundJobStore(baseDirectory: baseDirectory).allJobs()
         #expect(jobs.contains { $0.type == .counterexampleDistillation })
         #expect(jobs.contains { $0.type == .tacticKernelDistillation })
+        #expect(jobs.contains { $0.type == .memoryInvalidation })
         #expect(jobs.contains { $0.type == .consolidation })
     }
 

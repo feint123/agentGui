@@ -262,21 +262,65 @@ extension ClaudeService {
         }
 
         let resolvedStore = store ?? UnifiedMemoryFileStoreAdapter()
-
-        var extracted = TaskMemory(sessionId: sessionId)
         let actionLabel = trigger?.actionLabel ?? "unknown_failure"
         let reasonSummary = concerns.prefix(3).joined(separator: "; ")
-        if !reasonSummary.isEmpty {
-            extracted.failedAttempts = [FailedAttempt(action: actionLabel, reason: reasonSummary)]
-        }
-        extracted.attemptedActions = suggestedFixes.prefix(3).map { "Reflection fix: \($0)" }
 
-        try persistTaskMemoryExtraction(
-            sessionId: sessionId,
-            extracted: extracted,
-            store: resolvedStore,
-            timestamp: timestamp
-        )
+        if !reasonSummary.isEmpty {
+            _ = try resolvedStore.persist(record: MemoryRecord(
+                id: "reflection-failure-\(sessionId)-\(timestamp.timeIntervalSince1970)",
+                layer: .task,
+                kind: .working,
+                domainProfile: "coding-task",
+                scope: .session(id: sessionId),
+                title: actionLabel,
+                summary: reasonSummary,
+                payload: .structured([
+                    "reflection_type": "failure",
+                    "action": actionLabel,
+                    "reason": reasonSummary
+                ]),
+                source: .system(name: "reflection"),
+                sourceRefs: [],
+                confidence: 0.9,
+                verificationStatus: .failed,
+                retentionPolicy: .sessionBound,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                lastAccessedAt: nil,
+                supersededBy: nil,
+                tags: ["reflection-failure"],
+                evidenceAnchors: [],
+                admissionExplanation: nil
+            ))
+        }
+
+        for (index, fix) in suggestedFixes.prefix(3).enumerated() {
+            _ = try resolvedStore.persist(record: MemoryRecord(
+                id: "reflection-fix-\(sessionId)-\(index)-\(timestamp.timeIntervalSince1970)",
+                layer: .task,
+                kind: .working,
+                domainProfile: "coding-task",
+                scope: .session(id: sessionId),
+                title: "Reflection fix: \(fix)",
+                summary: fix,
+                payload: .structured([
+                    "reflection_type": "suggested_fix",
+                    "suggested_fix": fix
+                ]),
+                source: .system(name: "reflection"),
+                sourceRefs: [],
+                confidence: 0.8,
+                verificationStatus: .partial,
+                retentionPolicy: .sessionBound,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                lastAccessedAt: nil,
+                supersededBy: nil,
+                tags: ["reflection-fix"],
+                evidenceAnchors: [],
+                admissionExplanation: nil
+            ))
+        }
     }
 
 }

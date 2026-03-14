@@ -1,12 +1,10 @@
 import Foundation
 
 struct MemoryAdmissionFeatureVector: Codable, Equatable, Sendable {
-    var futureUtility: Double
-    var factualConfidence: Double
-    var novelty: Double
-    var temporalRecency: Double
-    var taskRelevance: Double
-    var verificationSupport: Int
+    var decisionDelta: Double
+    var transferability: Double
+    var evidenceStrength: Double
+    var decayResistance: Double
     var privacyRisk: Double
-    var driftRisk: Double
+    var confidenceSignal: Double
 }

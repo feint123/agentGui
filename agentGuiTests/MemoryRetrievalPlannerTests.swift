@@ -53,10 +53,12 @@ struct MemoryRetrievalPlannerTests {
         let classifier = MemoryRetrievalIntentClassifier()
         let intent = classifier.classify(request: request, phaseHint: .verification)
         let plan = planner.makePlan(request: request, profiles: [MemoryDomainProfile.codingTask()], intent: intent)
+        let objectTypeNames = Set(plan.objectBudgetByType.keys.map(\.rawValue))
 
         #expect(intent.phase == .verification)
         #expect(plan.objectBudgetByType[MemoryRetrievalObjectType.procedure, default: 0] >= 1)
         #expect(plan.objectBudgetByType[MemoryRetrievalObjectType.fact, default: 0] >= 1)
+        #expect(objectTypeNames.contains("bridge") == false)
     }
 
     @Test func retrievalPlannerUsesFrontierAndCounterexamplePriority() async throws {
@@ -87,14 +89,24 @@ struct MemoryRetrievalPlannerTests {
                         stopCondition: "Scheme confirmed"
                     )
                 ],
+                activeConstraints: [
+                    ConstraintMemory(id: "c-1", summary: "Inspect before edit", scope: .session(id: "s1"))
+                ],
+                verificationDebt: [
+                    VerificationDebt(id: "d-1", claim: "Build fix works", reason: "Need direct test evidence")
+                ],
                 counterexamples: [
                     CounterexampleMemory(id: "ce-1", summary: "Do not edit before inspect", replacementAction: "Inspect first")
                 ]
             )
         )
+        let objectTypeNames = Set(plan.objectBudgetByType.keys.map(\.rawValue))
 
         #expect(plan.orderedLayers.first == .task)
-        #expect(plan.objectBudgetByType[.bridge, default: 0] >= 2)
+        #expect(plan.objectBudgetByType[.counterexample, default: 0] >= 2)
+        #expect(plan.objectBudgetByType[.constraint, default: 0] >= 1)
+        #expect(plan.objectBudgetByType[.verificationDebt, default: 0] >= 1)
+        #expect(objectTypeNames.contains("bridge") == false)
         #expect(plan.objectBudgetByType[.fact, default: 0] >= 1)
     }
 }

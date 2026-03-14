@@ -13,13 +13,18 @@ struct MemoryGovernanceServiceTests {
             layer: .task,
             kind: .working,
             domainProfile: "coding-task",
+            title: "Verify shared scheme before editing",
+            summary: "Run xcodebuild -list to confirm the shared scheme before changing project files",
             confidence: 1.0,
-            verificationStatus: .verified
+            verificationStatus: .verified,
+            sourceRefs: [.init(kind: "tool", identifier: "tool-1")],
+            tags: ["tactic-kernel"]
         )
 
         let evaluation = service.evaluate(candidate)
         #expect(evaluation.route == .acceptHotPath)
         #expect(evaluation.explanation?.score.route == .hotPath)
+        #expect(evaluation.explanation?.assessment.decisionDelta.passes == true)
     }
 
     @Test func speculativeCreativeSemanticCandidateNeedsConfirmation() async throws {
@@ -31,8 +36,12 @@ struct MemoryGovernanceServiceTests {
             layer: .semantic,
             kind: .semantic,
             domainProfile: "creative-writing",
+            title: "Preserve north tower curfew",
+            summary: "Always verify the north tower curfew before resolving the scene",
             confidence: 0.45,
-            verificationStatus: .unverified
+            verificationStatus: .unverified,
+            sourceRefs: [.init(kind: "message", identifier: "user-1")],
+            tags: ["constraint"]
         )
 
         let evaluation = service.evaluate(candidate)
@@ -47,6 +56,8 @@ struct MemoryGovernanceServiceTests {
         )
         let candidate = MemoryCandidate.fixture(
             domainProfile: "user-preferences",
+            title: "README subtitle",
+            summary: "README has a subtitle",
             confidence: 0.2,
             verificationStatus: .unverified
         )
@@ -65,15 +76,20 @@ struct MemoryGovernanceServiceTests {
             layer: .task,
             kind: .working,
             domainProfile: "coding-task",
+            title: "Verify shared scheme before editing",
+            summary: "Run xcodebuild -list to confirm the shared scheme before changing project files",
             confidence: 0.96,
-            verificationStatus: .verified
+            verificationStatus: .verified,
+            sourceRefs: [.init(kind: "tool", identifier: "tool-1")],
+            tags: ["tactic-kernel"]
         )
 
         let evaluation = service.evaluate(candidate)
 
         #expect(evaluation.explanation != nil)
         #expect(evaluation.route == .acceptHotPath)
-        #expect((evaluation.explanation?.featureVector.taskRelevance ?? 0) > 0)
+        #expect((evaluation.explanation?.featureVector.decisionDelta ?? 0) > 0)
+        #expect(evaluation.explanation?.reasons.contains { $0.contains("decision delta") } == true)
     }
 
     @Test func governanceRouteEmitsStructuredLogs() async throws {
@@ -90,8 +106,12 @@ struct MemoryGovernanceServiceTests {
             kind: .working,
             domainProfile: "coding-task",
             scope: .session(id: "s1"),
+            title: "Verify shared scheme before editing",
+            summary: "Run xcodebuild -list to confirm the shared scheme before changing project files",
             confidence: 1.0,
-            verificationStatus: .verified
+            verificationStatus: .verified,
+            sourceRefs: [.init(kind: "tool", identifier: "tool-1")],
+            tags: ["tactic-kernel"]
         )
 
         _ = try await service.route(

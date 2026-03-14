@@ -11,14 +11,18 @@ struct UnifiedMemoryFileStoreAdapterTests {
         let explanation = MemoryAdmissionExplanation(
             score: MemoryAdmissionScore(total: 0.88, route: .background),
             featureVector: MemoryAdmissionFeatureVector(
-                futureUtility: 0.7,
-                factualConfidence: 0.9,
-                novelty: 0.8,
-                temporalRecency: 0.6,
-                taskRelevance: 0.95,
-                verificationSupport: 1,
+                decisionDelta: 0.74,
+                transferability: 0.68,
+                evidenceStrength: 0.9,
+                decayResistance: 0.72,
                 privacyRisk: 0.0,
-                driftRisk: 0.05
+                confidenceSignal: 0.9
+            ),
+            assessment: MemoryDecisionImpactAssessment(
+                decisionDelta: MemoryAdmissionGateResult(passes: true, value: 0.74, rationale: "changes next verification step"),
+                transfer: MemoryAdmissionGateResult(passes: true, value: 0.68, rationale: "reusable across coding tasks"),
+                evidence: MemoryAdmissionGateResult(passes: true, value: 0.9, rationale: "tool evidence attached"),
+                decay: MemoryAdmissionGateResult(passes: true, value: 0.72, rationale: "stable enough for stored memory")
             ),
             reasons: ["recent verified task context"]
         )

@@ -51,7 +51,6 @@ enum ToolExecutionBusinessLogger {
         put(record.memoryRuntimeSnapshotID, into: &metadata, key: "memoryRuntimeSnapshotID")
         put(record.memoryRuntimeIntentPhase, into: &metadata, key: "memoryRuntimeIntentPhase")
         put(record.memoryRuntimeWorkingSetCost, into: &metadata, key: "memoryRuntimeWorkingSetCost")
-        put(record.memoryRuntimeBridgeExpansionCount, into: &metadata, key: "memoryRuntimeBridgeExpansionCount")
         put(record.memoryRuntimeDereferenceCount, into: &metadata, key: "memoryRuntimeDereferenceCount")
         put(joined(record.memoryRuntimeProfiles), into: &metadata, key: "memoryRuntimeProfiles")
         put(joined(record.memoryRuntimeLayers), into: &metadata, key: "memoryRuntimeLayers")

@@ -145,24 +145,18 @@ struct MemoryRuntimeRequest: Equatable, Sendable {
 }
 
 struct MemoryRuntimeFeatureConfiguration: Equatable, Sendable {
-    var enableAdmissionV2: Bool
-    var enableGoalConditionedRetrieval: Bool
-    var enableBridgeExpansion: Bool
-    var enableLifecycleManager: Bool
-    var enableExperienceDistillation: Bool
+    var enableEpistemicExtraction: Bool
+    var enableRMSRetrieval: Bool
+    var enableRMSDistillation: Bool
 
     init(
-        enableAdmissionV2: Bool = true,
-        enableGoalConditionedRetrieval: Bool = true,
-        enableBridgeExpansion: Bool = true,
-        enableLifecycleManager: Bool = true,
-        enableExperienceDistillation: Bool = true
+        enableEpistemicExtraction: Bool = true,
+        enableRMSRetrieval: Bool = true,
+        enableRMSDistillation: Bool = true
     ) {
-        self.enableAdmissionV2 = enableAdmissionV2
-        self.enableGoalConditionedRetrieval = enableGoalConditionedRetrieval
-        self.enableBridgeExpansion = enableBridgeExpansion
-        self.enableLifecycleManager = enableLifecycleManager
-        self.enableExperienceDistillation = enableExperienceDistillation
+        self.enableEpistemicExtraction = enableEpistemicExtraction
+        self.enableRMSRetrieval = enableRMSRetrieval
+        self.enableRMSDistillation = enableRMSDistillation
     }
 
     static let allEnabled = MemoryRuntimeFeatureConfiguration()
@@ -171,11 +165,9 @@ struct MemoryRuntimeFeatureConfiguration: Equatable, Sendable {
 extension MemoryRuntimeFeatureConfiguration {
     init(settings: AppSettings) {
         self.init(
-            enableAdmissionV2: settings.enableEpistemicExtraction,
-            enableGoalConditionedRetrieval: settings.enableRMSRetrieval,
-            enableBridgeExpansion: settings.enableBridgeExpansion,
-            enableLifecycleManager: !settings.enableLegacyMemoryCompatibility,
-            enableExperienceDistillation: settings.enableRMSDistillation
+            enableEpistemicExtraction: settings.enableEpistemicExtraction,
+            enableRMSRetrieval: settings.enableRMSRetrieval,
+            enableRMSDistillation: settings.enableRMSDistillation
         )
     }
 }

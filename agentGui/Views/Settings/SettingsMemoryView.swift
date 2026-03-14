@@ -60,18 +60,6 @@ struct SettingsMemoryView: View {
                     set: { settings.enableRMSRetrieval = $0 }
                 ))
 
-                Toggle("启用 Bridge Expansion", isOn: store.persistedSettingsBinding(
-                    get: { settings.enableBridgeExpansion },
-                    userMessage: "Bridge Expansion 设置未成功保存",
-                    set: { settings.enableBridgeExpansion = $0 }
-                ))
-
-                Toggle("启用 Legacy Compatibility", isOn: store.persistedSettingsBinding(
-                    get: { settings.enableLegacyMemoryCompatibility },
-                    userMessage: "Legacy Compatibility 设置未成功保存",
-                    set: { settings.enableLegacyMemoryCompatibility = $0 }
-                ))
-
                 Toggle("启用 RMS Distillation", isOn: store.persistedSettingsBinding(
                     get: { settings.enableRMSDistillation },
                     userMessage: "RMS Distillation 设置未成功保存",
@@ -143,7 +131,7 @@ struct SettingsMemoryView: View {
                     )
                 }
 
-                NavigationLink(value: SettingsDetailRoute.memoryGovernance) {
+                NavigationLink(value: SettingsDetailRoute.rmsCognition) {
                     HStack(spacing: 12) {
                         Image(systemName: "shield.lefthalf.filled")
                             .font(.title3)
@@ -152,9 +140,9 @@ struct SettingsMemoryView: View {
                             .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("打开 RMS 治理面板")
+                            Text("打开 RMS 认知面板")
                                 .foregroundStyle(.primary)
-                            Text("查看待确认写入、反例修订、影响轨迹与 TTL Sweep 状态")
+                            Text("查看 frontiers、反例、约束、验证债务与建议动作")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -180,7 +168,7 @@ struct SettingsMemoryView: View {
         } header: {
             Text("长期记忆")
         } footer: {
-            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。统一记忆运行时用于把 episode delta、统一存储记录和 epistemic objects 组装成单一读视图，治理层用于限制低置信度写入。下方开关用于逐步 rollout epistemic extraction、RMS retrieval、bridge expansion、legacy compatibility 和 RMS distillation。")
+            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。统一记忆运行时用于把统一存储记录和 epistemic objects 组装成单一读视图，治理层用于限制低置信度写入。下方开关用于逐步 rollout epistemic extraction、RMS retrieval 和 RMS distillation。")
         }
     }
 

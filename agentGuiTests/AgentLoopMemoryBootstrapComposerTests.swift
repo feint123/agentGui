@@ -16,7 +16,6 @@ struct AgentLoopMemoryBootstrapComposerTests {
                         renderedPrompt: "Unified prompt",
                         runtimeSnapshot: .fixture(
                             id: "snapshot-1",
-                            bridgeExpansions: [MemoryBridgeEdge(sourceRecordID: "r1", targetRecordID: "r2", relationship: "recovery-path")],
                             dereferenceCount: 2,
                             retrievalIntent: MemoryRetrievalIntent(
                                 phase: .verification,
@@ -27,8 +26,6 @@ struct AgentLoopMemoryBootstrapComposerTests {
                         )
                     )
                 },
-                loadTaskMemory: { nil },
-                loadTaskMemoryPromptText: { nil },
                 saveRuntimeSnapshot: { $0.id }
             )
         )
@@ -40,58 +37,44 @@ struct AgentLoopMemoryBootstrapComposerTests {
         #expect(composition.runtimeLayers == [MemoryLayer.task.rawValue])
         #expect(composition.runtimeWarnings == ["warn"])
         #expect(composition.runtimeSnapshotID == "snapshot-1")
-        #expect(composition.runtimeBridgeExpansionCount == 1)
         #expect(composition.runtimeDereferenceCount == 2)
         #expect(composition.runtimeIntentPhase == "verification")
         #expect(composition.runtimeWorkingSetCost == 96)
     }
 
-    @Test func composerBuildsTaskMemoryFallbackWhenUnifiedContextIsMissing() async throws {
-        var taskMemory = TaskMemory(sessionId: "session-1")
-        taskMemory.confirmedFacts = ["Repo root is agentGui"]
-        taskMemory.failedAttempts = [FailedAttempt(action: "bash:test", reason: "failed")]
-
+    @Test func composerBuildsEpistemicFallbackWhenUnifiedContextIsMissing() async throws {
         let composer = AgentLoopMemoryBootstrapComposer(
             dependencies: .init(
                 loadUnifiedContext: { nil },
-                loadTaskMemory: { taskMemory },
-                loadTaskMemoryPromptText: { "## Confirmed Facts\n- Repo root is agentGui" },
                 saveRuntimeSnapshot: { _ in nil }
             )
         )
 
-        let composition = try await composer.compose(bootstrapMessageCount: 4)
+        let composition = try await composer.compose(
+            bootstrapMessageCount: 4,
+            epistemicState: EpistemicState(
+                frontiers: [
+                    FrontierMemory(
+                        frontierId: "f-1",
+                        goal: "Fix build",
+                        openClaim: "Need scheme evidence",
+                        uncertaintyType: .tooling,
+                        impactLevel: .high,
+                        suggestedProbe: "Run xcodebuild -list",
+                        stopCondition: "Scheme confirmed"
+                    )
+                ]
+            )
+        )
 
         #expect(composition.patch?.insertions.count == 2)
-        #expect(composition.patch?.metadata["source"] as? String == "task-unified")
-        #expect(composition.patch?.metadata["confirmedFactCount"] as? Int == 1)
-        #expect(composition.patch?.metadata["failedAttemptCount"] as? Int == 1)
-    }
-
-    @Test func composerKeepsTaskBootstrapOrderingStable() async throws {
-        var taskMemory = TaskMemory(sessionId: "session-1")
-        taskMemory.confirmedFacts = ["fact"]
-
-        let composer = AgentLoopMemoryBootstrapComposer(
-            dependencies: .init(
-                loadUnifiedContext: { nil },
-                loadTaskMemory: { taskMemory },
-                loadTaskMemoryPromptText: { "task prompt" },
-                saveRuntimeSnapshot: { _ in nil }
-            )
-        )
-
-        let composition = try await composer.compose(bootstrapMessageCount: 5)
-
-        #expect(composition.patch?.insertions.map(\.index) == [0, 1])
+        #expect(composition.patch?.metadata["epistemicSummary"] as? Bool == true)
     }
 
     @Test func composerReturnsNoPatchWhenAllSourcesAreEmpty() async throws {
         let composer = AgentLoopMemoryBootstrapComposer(
             dependencies: .init(
                 loadUnifiedContext: { nil },
-                loadTaskMemory: { nil },
-                loadTaskMemoryPromptText: { nil },
                 saveRuntimeSnapshot: { _ in nil }
             )
         )

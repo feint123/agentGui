@@ -4,8 +4,8 @@ import Testing
 
 @MainActor
 struct SettingsMemoryNavigationStateTests {
-    @Test func detailRouteUsesExpectedMemoryGovernanceCase() {
-        #expect(SettingsDetailRoute.memoryGovernance.id == "memoryGovernance")
+    @Test func detailRouteUsesExpectedRMSCognitionCase() {
+        #expect(SettingsDetailRoute.rmsCognition.id == "rmsCognition")
     }
 
     @Test func switchingAwayFromMemoryClearsDetailPath() throws {
@@ -22,9 +22,9 @@ struct SettingsMemoryNavigationStateTests {
             persistenceCoordinator: nil
         )
 
-        store.showMemoryGovernance()
+        store.showRMSCognitionPanel()
         #expect(store.selectedItem == .memory)
-        #expect(store.detailPath == [.memoryGovernance])
+        #expect(store.detailPath == [.rmsCognition])
 
         store.selectedItem = .general
         #expect(store.detailPath.isEmpty)

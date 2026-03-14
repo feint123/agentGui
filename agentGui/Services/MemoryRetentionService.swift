@@ -1,22 +1,12 @@
 import Foundation
 
 struct MemoryRetentionService {
-    private let lifecycleManager: MemoryLifecycleManager
-
-    init(lifecycleManager: MemoryLifecycleManager = MemoryLifecycleManager()) {
-        self.lifecycleManager = lifecycleManager
-    }
-
     func sweep(
         store: UnifiedMemoryFileStoreAdapter,
         asOf: Date,
         ttl: TimeInterval
     ) throws -> MemorySweepReport {
         let expiredResults = try sweepExpiredSessionRecords(store: store, asOf: asOf, ttl: ttl)
-        let rebalance = lifecycleManager.rebalance(records: try store.allRecords(includeArchived: true))
-        for record in rebalance.updatedRecords {
-            _ = try store.persist(record: record)
-        }
         let revalidation = try revalidationQueue(store: store)
         return MemorySweepReport(
             runAt: asOf,

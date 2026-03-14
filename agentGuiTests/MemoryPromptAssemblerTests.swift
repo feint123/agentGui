@@ -60,7 +60,7 @@ struct MemoryPromptAssemblerTests {
             profiles: ["coding-task"],
             records: [
                 MemoryRecord.fixture(layer: .task, kind: .working, title: "Build failed", verificationStatus: .verified),
-                MemoryRecord.fixture(layer: .semantic, kind: .semantic, title: "TaskMemory fact", verificationStatus: .verified),
+                MemoryRecord.fixture(layer: .semantic, kind: .semantic, title: "Verified repo fact", verificationStatus: .verified),
                 MemoryRecord.fixture(layer: .semantic, kind: .semantic, title: "Possible cause", verificationStatus: .unverified)
             ],
             writePolicy: .readMostly,

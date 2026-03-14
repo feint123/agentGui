@@ -10,8 +10,6 @@ final class MemoryBackgroundScheduler {
     private let confirmationStore: MemoryConfirmationStore
     private let retentionService: MemoryRetentionService
     private let consolidationEngine: MemoryConsolidationEngine
-    private let experienceDistiller: MemoryExperienceDistillationService
-    private let procedureInductor: MemoryProcedureInductionService
     private let counterexampleDistiller: CounterexampleDistillationService
     private let tacticKernelDistiller: TacticKernelDistillationService
     private let invalidationService: MemoryInvalidationService
@@ -23,8 +21,6 @@ final class MemoryBackgroundScheduler {
         governanceService: MemoryGovernanceService = MemoryGovernanceService(),
         retentionService: MemoryRetentionService = MemoryRetentionService(),
         consolidationEngine: MemoryConsolidationEngine = MemoryConsolidationEngine(),
-        experienceDistiller: MemoryExperienceDistillationService = MemoryExperienceDistillationService(),
-        procedureInductor: MemoryProcedureInductionService = MemoryProcedureInductionService(),
         counterexampleDistiller: CounterexampleDistillationService = CounterexampleDistillationService(),
         tacticKernelDistiller: TacticKernelDistillationService = TacticKernelDistillationService(),
         invalidationService: MemoryInvalidationService = MemoryInvalidationService(),
@@ -38,8 +34,6 @@ final class MemoryBackgroundScheduler {
         self.confirmationStore = MemoryConfirmationStore(baseDirectory: baseDirectory)
         self.retentionService = retentionService
         self.consolidationEngine = consolidationEngine
-        self.experienceDistiller = experienceDistiller
-        self.procedureInductor = procedureInductor
         self.counterexampleDistiller = counterexampleDistiller
         self.tacticKernelDistiller = tacticKernelDistiller
         self.invalidationService = invalidationService
@@ -149,18 +143,6 @@ final class MemoryBackgroundScheduler {
                 )
             }
 
-        case .experienceDistillation:
-            let outcome = try job.toOutcome()
-            for candidate in experienceDistiller.distill(from: outcome) {
-                _ = try await governanceService.route(candidate, store: unifiedStore, backgroundQueue: backgroundWriteQueue, confirmationStore: confirmationStore)
-            }
-
-        case .procedureInduction:
-            let outcome = try job.toOutcome()
-            for candidate in procedureInductor.induce(from: outcome) {
-                _ = try await governanceService.route(candidate, store: unifiedStore, backgroundQueue: backgroundWriteQueue, confirmationStore: confirmationStore)
-            }
-
         case .counterexampleDistillation:
             let outcome = try job.toOutcome()
             for candidate in counterexampleDistiller.distill(from: outcome) {
@@ -175,7 +157,8 @@ final class MemoryBackgroundScheduler {
 
         case .memoryInvalidation:
             let outcome = try job.toOutcome()
-            let invalidatedIDs = Set(invalidationService.recordsToInvalidate(from: outcome))
+            let analysis = invalidationService.analyze(outcome)
+            let invalidatedIDs = Set(analysis.invalidatedRecordIDs)
             guard invalidatedIDs.isEmpty == false else { return }
             let records = try unifiedStore.allRecords(includeArchived: true)
             for record in records where invalidatedIDs.contains(record.id) {
@@ -184,12 +167,8 @@ final class MemoryBackgroundScheduler {
                 archived.updatedAt = Date()
                 _ = try unifiedStore.persist(record: archived)
             }
-
-        case .workingSetRebalance:
-            let records = try unifiedStore.allRecords(includeArchived: true)
-            let rebalance = MemoryLifecycleManager().rebalance(records: records)
-            for record in rebalance.updatedRecords {
-                _ = try unifiedStore.persist(record: record)
+            for signal in analysis.generatedSignals {
+                _ = try await governanceService.route(signal, store: unifiedStore, backgroundQueue: backgroundWriteQueue, confirmationStore: confirmationStore)
             }
 
         case .ttlSweep:

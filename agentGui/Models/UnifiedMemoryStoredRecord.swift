@@ -8,7 +8,6 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
 
     enum StoredSourceKind: String, Codable, Sendable {
         case tool
-        case taskMemory
         case userInput
         case system
 
@@ -18,8 +17,6 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
             switch rawValue {
             case "tool":
                 self = .tool
-            case "taskMemory", "storyMemory":
-                self = .taskMemory
             case "userInput":
                 self = .userInput
             case "system":
@@ -53,7 +50,6 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
     var tags: [String]
     var evidenceAnchors: [MemoryEvidenceAnchor]
     var admissionExplanation: MemoryAdmissionExplanation?
-    var lifecycleTier: MemoryLifecycleTier
 
     init(record: MemoryRecord) {
         id = record.id
@@ -79,9 +75,6 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
         case let .tool(name):
             sourceKind = .tool
             sourceName = name
-        case .taskMemory:
-            sourceKind = .taskMemory
-            sourceName = nil
         case .userInput:
             sourceKind = .userInput
             sourceName = nil
@@ -101,7 +94,6 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
         tags = record.tags
         evidenceAnchors = record.evidenceAnchors
         admissionExplanation = record.admissionExplanation
-        lifecycleTier = record.lifecycleTier
     }
 
     func toMemoryRecord() throws -> MemoryRecord {
@@ -120,8 +112,6 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
         switch sourceKind {
         case .tool:
             source = .tool(name: sourceName ?? "unknown")
-        case .taskMemory:
-            source = .taskMemory
         case .userInput:
             source = .userInput
         case .system:
@@ -148,8 +138,7 @@ struct UnifiedMemoryStoredRecord: Codable, Equatable, Sendable, Identifiable {
             supersededBy: supersededBy,
             tags: tags,
             evidenceAnchors: evidenceAnchors,
-            admissionExplanation: admissionExplanation,
-            lifecycleTier: lifecycleTier
+            admissionExplanation: admissionExplanation
         )
     }
 }

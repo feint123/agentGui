@@ -13,7 +13,9 @@ enum MemoryRetrievalObjectType: String, Codable, Equatable, Hashable, Sendable {
     case fact
     case episode
     case procedure
-    case bridge
+    case counterexample
+    case constraint
+    case verificationDebt
     case preference
 }
 

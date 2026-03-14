@@ -35,7 +35,6 @@ struct AgentLoopHookDependencyFactory {
         // bootstrap 既返回 message patch，也把 runtime snapshot 写回共享 hook state，供 tool audit 等后续 hook 读取。
         try await loadEpistemicBootstrapState(into: state)
 
-        let unifiedStore = UnifiedMemoryFileStoreAdapter()
         let composer = AgentLoopMemoryBootstrapComposer(
             dependencies: .init(
                 loadUnifiedContext: {
@@ -48,14 +47,6 @@ struct AgentLoopHookDependencyFactory {
                         epistemicState: state.epistemicState,
                         influenceTrace: state.influenceTrace
                     )
-                },
-                loadTaskMemory: {
-                    guard !runtime.sessionId.isEmpty else { return nil }
-                    return try claudeService.loadTaskMemory(sessionId: runtime.sessionId, store: unifiedStore)
-                },
-                loadTaskMemoryPromptText: {
-                    guard !runtime.sessionId.isEmpty else { return nil }
-                    return try claudeService.taskMemoryPromptText(sessionId: runtime.sessionId, store: unifiedStore)
                 },
                 saveRuntimeSnapshot: { snapshot in
                     let snapshotStore = MemoryRuntimeSnapshotStore()
@@ -74,7 +65,6 @@ struct AgentLoopHookDependencyFactory {
         state.memoryRuntimeSnapshotID = composition.runtimeSnapshotID
         state.memoryRuntimeIntentPhase = composition.runtimeIntentPhase
         state.memoryRuntimeWorkingSetCost = composition.runtimeWorkingSetCost
-        state.memoryRuntimeBridgeExpansionCount = composition.runtimeBridgeExpansionCount
         state.memoryRuntimeDereferenceCount = composition.runtimeDereferenceCount
         return composition.patch
     }
@@ -125,9 +115,6 @@ struct AgentLoopHookDependencyFactory {
         }
         if let memoryRuntimeWorkingSetCost = state.memoryRuntimeWorkingSetCost {
             record.memoryRuntimeWorkingSetCost = memoryRuntimeWorkingSetCost
-        }
-        if let memoryRuntimeBridgeExpansionCount = state.memoryRuntimeBridgeExpansionCount {
-            record.memoryRuntimeBridgeExpansionCount = memoryRuntimeBridgeExpansionCount
         }
         if let memoryRuntimeDereferenceCount = state.memoryRuntimeDereferenceCount {
             record.memoryRuntimeDereferenceCount = memoryRuntimeDereferenceCount

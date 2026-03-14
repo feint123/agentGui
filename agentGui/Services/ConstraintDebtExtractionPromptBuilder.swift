@@ -18,8 +18,11 @@ struct ConstraintDebtExtractionPromptBuilder {
         Existing verification debt:
         \(debtLines)
 
-        Return JSON using the extraction schema.
+        \(EpistemicPromptJSONContract.extractionSchema)
+
         Use kind="constraint" for stable action-limiting rules and kind="verificationDebt" for evidence gaps that still influence decisions.
+        \(EpistemicPromptJSONContract.constraintDebtExample)
+
         Do not output chain-of-thought.
         """
     }

@@ -91,57 +91,6 @@ struct MemoryBackgroundSchedulerTests {
         #expect(report.revalidationCount >= 0)
     }
 
-    @Test func schedulerConsumesExperienceDistillationJobsAsCounterexampleCompatibilityPath() async throws {
-        let baseDirectory = try makeTemporaryDirectory()
-        let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
-        let scheduler = MemoryBackgroundScheduler(baseDirectory: baseDirectory)
-
-        let outcome = MemoryRuntimeOutcome(
-            request: MemoryRuntimeRequest(
-                sessionId: "s1",
-                threadId: "t1",
-                workflowRunId: nil,
-                userRequest: "Fix build",
-                taskKind: .coding,
-                projectId: nil,
-                workspaceRoot: "/tmp/repo",
-                contextBudget: 4000
-            ),
-            records: [
-                MemoryRecord.fixture(
-                    id: "failure-1",
-                    layer: .task,
-                    kind: .working,
-                    scope: .session(id: "s1"),
-                    title: "Attempt 1",
-                    summary: "Scheme missing",
-                    verificationStatus: .failed,
-                    tags: ["failed-attempt"]
-                ),
-                MemoryRecord.fixture(
-                    id: "failure-2",
-                    layer: .task,
-                    kind: .working,
-                    scope: .session(id: "s1"),
-                    title: "Attempt 2",
-                    summary: "Scheme missing",
-                    verificationStatus: .failed,
-                    tags: ["failed-attempt"]
-                )
-            ]
-        )
-
-        try jobStore.enqueue(.experienceDistillation(outcome: outcome))
-        await scheduler.runOnce()
-
-        let jobs = try jobStore.allJobs()
-        #expect(jobs.allSatisfy { $0.status == .completed })
-
-        let records = try UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
-            .records(for: .session(id: "s1"), includeArchived: true)
-        #expect(records.contains { $0.tags.contains("counterexample") })
-    }
-
     @Test func schedulerConsumesCounterexampleDistillationJobs() async throws {
         let baseDirectory = try makeTemporaryDirectory()
         let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
@@ -178,7 +127,13 @@ struct MemoryBackgroundSchedulerTests {
 
         let records = try UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
             .records(for: .session(id: "s1"), includeArchived: true)
-        #expect(records.contains { $0.tags.contains("counterexample") })
+        let counterexample = try #require(records.first(where: { $0.tags.contains("counterexample") }))
+        #expect(counterexample.tags.contains("anti-pattern"))
+        if case let .structured(fields) = counterexample.payload {
+            #expect(fields["replacement_action"]?.isEmpty == false)
+        } else {
+            Issue.record("Expected structured counterexample payload")
+        }
     }
 
     @Test func schedulerConsumesTacticKernelDistillationJobs() async throws {
@@ -207,7 +162,50 @@ struct MemoryBackgroundSchedulerTests {
 
         let records = try UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
             .records(for: .session(id: "s1"), includeArchived: true)
-        #expect(records.contains { $0.tags.contains("tactic-kernel") })
+        let tacticKernel = try #require(records.first(where: { $0.tags.contains("tactic-kernel") }))
+        if case let .structured(fields) = tacticKernel.payload {
+            #expect(fields["applicable_precondition"]?.isEmpty == false)
+            #expect(fields["exit_condition"]?.isEmpty == false)
+        } else {
+            Issue.record("Expected structured tactic kernel payload")
+        }
+    }
+
+    @Test func schedulerConsumesInvalidationJobsAndPersistsSignals() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+        _ = try store.persist(record: MemoryRecord.fixture(
+            id: "failed-procedure",
+            layer: .task,
+            kind: .working,
+            scope: .session(id: "s1"),
+            title: "Old repair path",
+            summary: "Edited before confirming scheme",
+            verificationStatus: .verified,
+            tags: ["tactic-kernel"]
+        ))
+
+        let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
+        let scheduler = MemoryBackgroundScheduler(baseDirectory: baseDirectory)
+        let outcome = makeOutcome(records: [
+            MemoryRecord.fixture(
+                id: "failed-procedure",
+                layer: .task,
+                kind: .working,
+                scope: .session(id: "s1"),
+                title: "Old repair path",
+                summary: "Edited before confirming scheme",
+                verificationStatus: .failed,
+                tags: ["tactic-kernel", "failed-attempt"]
+            )
+        ])
+
+        try jobStore.enqueue(.memoryInvalidation(outcome: outcome))
+        await scheduler.runOnce()
+
+        let records = try store.records(for: .session(id: "s1"), includeArchived: true)
+        #expect(records.first(where: { $0.id == "failed-procedure" })?.retentionPolicy == .archiveOnly)
+        #expect(records.contains { $0.tags.contains("invalidated-procedure") })
     }
 
     @Test func schedulerEmitsBackgroundJobLifecycleLogs() async throws {

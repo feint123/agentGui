@@ -202,7 +202,7 @@ enum FailureTrigger: Equatable {
         }
     }
 
-    /// Short label used as `FailedAttempt.action` in TaskMemory.
+    /// Short label used when persisting reflection failures into session-scoped RMS records.
     var actionLabel: String {
         switch self {
         case .toolFailure(let name, _):    return "tool:\(name)"

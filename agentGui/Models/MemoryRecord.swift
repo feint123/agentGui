@@ -8,7 +8,6 @@ struct MemoryRecord: Equatable, Sendable, Identifiable {
 
     enum Source: Equatable, Sendable {
         case tool(name: String)
-        case taskMemory
         case userInput
         case system(name: String)
     }
@@ -59,7 +58,6 @@ struct MemoryRecord: Equatable, Sendable, Identifiable {
     var evidenceAnchors: [MemoryEvidenceAnchor]
     // Admission explanation captures why a record was admitted, archived, or deferred.
     var admissionExplanation: MemoryAdmissionExplanation?
-    var lifecycleTier: MemoryLifecycleTier
 
     init(
         id: String,
@@ -81,8 +79,7 @@ struct MemoryRecord: Equatable, Sendable, Identifiable {
         supersededBy: String? = nil,
         tags: [String] = [],
         evidenceAnchors: [MemoryEvidenceAnchor] = [],
-        admissionExplanation: MemoryAdmissionExplanation? = nil,
-        lifecycleTier: MemoryLifecycleTier = .warm
+        admissionExplanation: MemoryAdmissionExplanation? = nil
     ) {
         self.id = id
         self.layer = layer
@@ -104,7 +101,6 @@ struct MemoryRecord: Equatable, Sendable, Identifiable {
         self.tags = tags
         self.evidenceAnchors = evidenceAnchors
         self.admissionExplanation = admissionExplanation
-        self.lifecycleTier = lifecycleTier
     }
 }
 
@@ -129,8 +125,7 @@ extension MemoryRecord {
         supersededBy: String? = nil,
         tags: [String] = [],
         evidenceAnchors: [MemoryEvidenceAnchor] = [],
-        admissionExplanation: MemoryAdmissionExplanation? = nil,
-        lifecycleTier: MemoryLifecycleTier = .warm
+        admissionExplanation: MemoryAdmissionExplanation? = nil
     ) -> MemoryRecord {
         MemoryRecord(
             id: id,
@@ -152,8 +147,7 @@ extension MemoryRecord {
             supersededBy: supersededBy,
             tags: tags,
             evidenceAnchors: evidenceAnchors,
-            admissionExplanation: admissionExplanation,
-            lifecycleTier: lifecycleTier
+            admissionExplanation: admissionExplanation
         )
     }
 }
@@ -165,8 +159,7 @@ extension MemoryRecord {
         retentionPolicy: RetentionPolicy? = nil,
         updatedAt: Date? = nil,
         evidenceAnchors: [MemoryEvidenceAnchor]? = nil,
-        admissionExplanation: MemoryAdmissionExplanation? = nil,
-        lifecycleTier: MemoryLifecycleTier? = nil
+        admissionExplanation: MemoryAdmissionExplanation? = nil
     ) -> MemoryRecord {
         MemoryRecord(
             id: id,
@@ -188,8 +181,7 @@ extension MemoryRecord {
             supersededBy: supersededBy ?? self.supersededBy,
             tags: tags,
             evidenceAnchors: evidenceAnchors ?? self.evidenceAnchors,
-            admissionExplanation: admissionExplanation ?? self.admissionExplanation,
-            lifecycleTier: lifecycleTier ?? self.lifecycleTier
+            admissionExplanation: admissionExplanation ?? self.admissionExplanation
         )
     }
 }

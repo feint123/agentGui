@@ -12,8 +12,12 @@ struct MemoryGovernedWriteRoutingTests {
             kind: .working,
             domainProfile: "coding-task",
             scope: .session(id: "routing-session"),
+            title: "Verify shared scheme before editing",
+            summary: "Run xcodebuild -list to confirm the shared scheme before changing project files",
             confidence: 1.0,
-            verificationStatus: .verified
+            verificationStatus: .verified,
+            sourceRefs: [.init(kind: "tool", identifier: "tool-1")],
+            tags: ["tactic-kernel"]
         )
 
         let result = try await coordinator.applyGovernedWrite(candidate: candidate)
@@ -39,8 +43,12 @@ struct MemoryGovernedWriteRoutingTests {
             kind: .semantic,
             domainProfile: "user-preferences",
             scope: .user,
+            title: "Verify before editing",
+            summary: "Verify the environment before editing implementation",
             confidence: 0.9,
-            verificationStatus: .verified
+            verificationStatus: .verified,
+            sourceRefs: [.init(kind: "message", identifier: "user-1")],
+            tags: ["constraint"]
         )
 
         let result = try await coordinator.applyGovernedWrite(candidate: candidate)
@@ -65,6 +73,8 @@ struct MemoryGovernedWriteRoutingTests {
             kind: .semantic,
             domainProfile: "user-preferences",
             scope: .user,
+            title: "Temporary current run note",
+            summary: "Temporary current run note about a local path",
             confidence: 0.55,
             verificationStatus: .partial
         )
@@ -89,8 +99,12 @@ struct MemoryGovernedWriteRoutingTests {
             kind: .semantic,
             domainProfile: "creative-writing",
             scope: .project(id: "story-project"),
+            title: "Preserve north tower curfew",
+            summary: "Always verify the north tower curfew before resolving the scene",
             confidence: 0.45,
-            verificationStatus: .unverified
+            verificationStatus: .unverified,
+            sourceRefs: [.init(kind: "message", identifier: "user-1")],
+            tags: ["constraint"]
         )
 
         let result = try await coordinator.applyGovernedWrite(candidate: candidate)

@@ -13,7 +13,6 @@ final class MemoryRuntimeCoordinator {
     private let consolidationEngine: MemoryConsolidationEngine
     private let promptAssembler: MemoryPromptAssembler
     private let backgroundJobStore: MemoryBackgroundJobStore
-    private let bridgeExpander: MemoryBridgeExpander
     private let evidenceResolver: MemoryEvidenceResolver
     private let businessLogSink: BusinessLogSink?
 
@@ -28,7 +27,6 @@ final class MemoryRuntimeCoordinator {
         consolidationEngine: MemoryConsolidationEngine = MemoryConsolidationEngine(),
         promptAssembler: MemoryPromptAssembler = MemoryPromptAssembler(),
         backgroundJobStore: MemoryBackgroundJobStore? = nil,
-        bridgeExpander: MemoryBridgeExpander = MemoryBridgeExpander(),
         evidenceResolver: MemoryEvidenceResolver = MemoryEvidenceResolver(),
         businessLogSink: BusinessLogSink? = nil
     ) {
@@ -42,7 +40,6 @@ final class MemoryRuntimeCoordinator {
         self.consolidationEngine = consolidationEngine
         self.promptAssembler = promptAssembler
         self.backgroundJobStore = backgroundJobStore ?? MemoryBackgroundJobStore(baseDirectory: unifiedStoreBaseDirectory)
-        self.bridgeExpander = bridgeExpander
         self.evidenceResolver = evidenceResolver
         self.businessLogSink = businessLogSink
     }
@@ -74,14 +71,23 @@ final class MemoryRuntimeCoordinator {
         )
 
         let profiles = profileRegistry.profiles(for: request)
-        let retrievalIntent = featureConfiguration.enableGoalConditionedRetrieval
-            ? MemoryRetrievalIntentClassifier().classify(request: request)
-            : nil
-        let plan = if let retrievalIntent {
-            retrievalPlanner.makePlan(request: request, profiles: profiles, intent: retrievalIntent)
-        } else {
-            retrievalPlanner.makeLegacyPlan(request: request, profiles: profiles)
-        }
+        let phaseHint: MemoryRetrievalPhase? = featureConfiguration.enableRMSRetrieval && (
+            !epistemicState.frontiers.isEmpty ||
+            !epistemicState.counterexamples.isEmpty ||
+            !epistemicState.verificationDebt.isEmpty
+        ) ? .frontierResolution : nil
+        let retrievalIntent = MemoryRetrievalIntentClassifier().classify(
+            request: request,
+            phaseHint: phaseHint,
+            epistemicState: epistemicState
+        )
+        let plan = retrievalPlanner.makePlan(
+            request: request,
+            profiles: profiles,
+            intent: retrievalIntent,
+            epistemicState: epistemicState
+        )
+        let nextInfluenceTrace = augment(influenceTrace: influenceTrace, with: epistemicState, plan: plan)
 
         var records = unifiedRecordsProvider(request)
         if records.contains(where: { $0.layer == .working }) == false,
@@ -90,21 +96,8 @@ final class MemoryRuntimeCoordinator {
         }
 
         let filtered = filterAndBudget(records: records, with: plan)
-        let bridgeExpansion: MemoryBridgeExpansionResult
-        let filteredRecords: [MemoryRecord]
-        let evidenceResolution: MemoryEvidenceResolutionResult
-        if featureConfiguration.enableBridgeExpansion {
-            bridgeExpansion = bridgeExpander.expand(selectedRecords: filtered.selectedRecords, candidateRecords: records)
-            let expandedRecords = filtered.selectedRecords + bridgeExpansion.additionalRecords.filter { candidate in
-                filtered.selectedRecords.contains(where: { $0.id == candidate.id }) == false
-            }
-            filteredRecords = expandedRecords
-            evidenceResolution = evidenceResolver.resolve(for: filteredRecords)
-        } else {
-            bridgeExpansion = MemoryBridgeExpansionResult(edges: [], additionalRecords: [])
-            filteredRecords = filtered.selectedRecords
-            evidenceResolution = MemoryEvidenceResolutionResult(dereferenceCount: 0, summaries: [])
-        }
+        let filteredRecords = filtered.selectedRecords
+        let evidenceResolution = evidenceResolver.resolve(for: filteredRecords)
         let touchedAt = Date()
         let unifiedStore = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreBaseDirectory)
         for record in filteredRecords where records.contains(where: { $0.id == record.id }) {
@@ -116,7 +109,7 @@ final class MemoryRuntimeCoordinator {
             writePolicy: mergedWritePolicy(for: profiles, request: request),
             warnings: [],
             epistemicState: epistemicState,
-            influenceTrace: influenceTrace
+            influenceTrace: nextInfluenceTrace
         )
         let renderedPrompt = promptAssembler.render(context: baseContext)
         let runtimeSnapshot = makeSnapshot(
@@ -129,10 +122,9 @@ final class MemoryRuntimeCoordinator {
             excludedRecords: filtered.excludedRecords,
             candidateCountByLayer: filtered.candidateCountByLayer,
             selectedCountByLayer: filtered.selectedCountByLayer,
-            bridgeExpansions: bridgeExpansion.edges,
             dereferenceCount: evidenceResolution.dereferenceCount,
             epistemicState: epistemicState,
-            influenceTrace: influenceTrace,
+            influenceTrace: nextInfluenceTrace,
             renderedPrompt: renderedPrompt
         )
 
@@ -144,7 +136,6 @@ final class MemoryRuntimeCoordinator {
                 "candidateCount": records.count,
                 "selectedCount": filteredRecords.count,
                 "excludedCount": filtered.excludedRecords.count,
-                "bridgeExpansionCount": bridgeExpansion.edges.count,
                 "dereferenceCount": evidenceResolution.dereferenceCount
             ],
             sink: businessLogSink
@@ -231,6 +222,38 @@ final class MemoryRuntimeCoordinator {
         return .readOnly
     }
 
+    private func augment(
+        influenceTrace: MemoryInfluenceTrace,
+        with epistemicState: EpistemicState,
+        plan: MemoryRetrievalPlan
+    ) -> MemoryInfluenceTrace {
+        guard !epistemicState.frontiers.isEmpty else {
+            return influenceTrace
+        }
+
+        var nextTrace = influenceTrace
+        let budgetPool = [
+            plan.objectBudgetByType[.counterexample, default: 0],
+            plan.objectBudgetByType[.procedure, default: 0],
+            plan.objectBudgetByType[.constraint, default: 0],
+            plan.objectBudgetByType[.verificationDebt, default: 0]
+        ].reduce(0, +)
+        let allocatedPerFrontier = max(budgetPool / max(epistemicState.frontiers.count, 1), 1)
+
+        for frontier in epistemicState.frontiers {
+            let decision = MemoryInfluenceTrace.FrontierBudgetDecision(
+                frontierID: frontier.id,
+                allocatedBudget: allocatedPerFrontier,
+                rationale: "\(frontier.impactLevel.rawValue) impact frontier drove RMS retrieval budget"
+            )
+            if !nextTrace.frontierBudgetDecisions.contains(decision) {
+                nextTrace.frontierBudgetDecisions.append(decision)
+            }
+        }
+
+        return nextTrace
+    }
+
     func applyGovernedWrite(candidate: MemoryCandidate) async throws -> MemoryGovernedWriteResult {
         let store = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreBaseDirectory)
         return try await MemoryGovernanceService().route(
@@ -277,7 +300,6 @@ final class MemoryRuntimeCoordinator {
         excludedRecords: [(MemoryRecord, MemoryRuntimeExclusionReason)],
         candidateCountByLayer: [MemoryLayer: Int],
         selectedCountByLayer: [MemoryLayer: Int],
-        bridgeExpansions: [MemoryBridgeEdge],
         dereferenceCount: Int,
         epistemicState: EpistemicState,
         influenceTrace: MemoryInfluenceTrace,
@@ -319,7 +341,6 @@ final class MemoryRuntimeCoordinator {
             ),
             selectedRecords: selectedSnapshotRecords,
             excludedRecords: excludedSnapshotRecords,
-            bridgeExpansions: bridgeExpansions,
             dereferenceCount: dereferenceCount,
             epistemicState: epistemicState,
             influenceTrace: influenceTrace,
@@ -328,9 +349,8 @@ final class MemoryRuntimeCoordinator {
                 candidateCount: candidateRecords.count,
                 selectedRecords: selectedSnapshotRecords,
                 excludedRecords: excludedSnapshotRecords,
-                bridgeExpansionCount: bridgeExpansions.count,
                 dereferenceCount: dereferenceCount,
-                includeWorkingSetCost: featureConfiguration.enableLifecycleManager
+                includeWorkingSetCost: true
             )
         )
     }

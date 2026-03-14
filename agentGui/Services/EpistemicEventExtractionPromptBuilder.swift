@@ -19,27 +19,9 @@ struct EpistemicEventExtractionPromptBuilder {
         Tool observations:
         \(renderList(envelope.toolObservations))
 
-        Return ONLY valid JSON with this schema:
-        {
-          "objects": [
-            {
-              "kind": "frontier|counterexample|constraint|verificationDebt|tacticKernel|atomicEvent",
-              "id": "string",
-              "summary": "string",
-              "source_refs": ["string"],
-              "decision_delta": "string",
-              "evidence_level": "none|partial|verified"
-            }
-          ],
-          "rejected": [
-            {
-              "summary": "string",
-              "reason": "string"
-            }
-          ],
-          "missingEvidence": ["string"],
-          "decisionImpactNote": "string"
-        }
+        \(EpistemicPromptJSONContract.extractionSchema)
+
+        \(EpistemicPromptJSONContract.genericExample)
 
         Do not output chain-of-thought. Output only structured residue backed by source_refs.
         """

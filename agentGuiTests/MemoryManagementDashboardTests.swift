@@ -3,21 +3,36 @@ import Testing
 
 @MainActor
 struct MemoryManagementDashboardTests {
-    @Test func governanceHealthBecomesAttentionWhenReviewQueuesExist() throws {
-        let viewModel = MemoryManagementViewModel()
-        viewModel.pendingConfirmationCount = 2
-        viewModel.conflictCount = 1
+    @Test func cognitionRequiresAttentionWhenOpenFrontiersAndDebtExist() throws {
+        let viewModel = RMSCognitionPanelViewModel(
+            snapshot: .fixture(
+                epistemicState: EpistemicState(
+                    frontiers: [
+                        FrontierMemory(
+                            frontierId: "f-1",
+                            goal: "Fix build",
+                            openClaim: "Need tool evidence",
+                            uncertaintyType: .tooling,
+                            impactLevel: .high,
+                            suggestedProbe: "Run xcodebuild -list",
+                            stopCondition: "Scheme confirmed"
+                        )
+                    ],
+                    verificationDebt: [
+                        VerificationDebt(id: "d-1", claim: "Patch works", reason: "No test evidence")
+                    ]
+                )
+            )
+        )
 
-        #expect(viewModel.governanceHealth == .attention)
-        #expect(viewModel.reviewQueueCount == 3)
+        #expect(viewModel.requiresAttention)
+        #expect(viewModel.openCognitionItemCount == 2)
     }
 
-    @Test func governanceHealthIsHealthyWhenNoPendingItemsExist() throws {
-        let viewModel = MemoryManagementViewModel()
-        viewModel.pendingConfirmationCount = 0
-        viewModel.conflictCount = 0
+    @Test func cognitionIsStableWhenNoOpenFrontiersOrDebtExist() throws {
+        let viewModel = RMSCognitionPanelViewModel(snapshot: .fixture())
 
-        #expect(viewModel.governanceHealth == .healthy)
-        #expect(viewModel.reviewQueueCount == 0)
+        #expect(viewModel.requiresAttention == false)
+        #expect(viewModel.openCognitionItemCount == 0)
     }
 }

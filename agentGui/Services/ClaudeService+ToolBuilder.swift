@@ -271,14 +271,13 @@ extension ClaudeService {
             Persist important long-term facts into the unified memory store. \
             Use this for durable user preferences, stable project facts, or other cross-session context that should be remembered later. \
             The write is governed: low-confidence or speculative content may be archived, queued for background persistence, or require user confirmation instead of being injected into live prompt memory. \
-            Keep entries concise and factual. \
-            The legacy mode field is still accepted for compatibility, but unified memory writes are record-based rather than direct edits to a markdown file.
+            Keep entries concise and factual.
             """,
             inputSchema: .init(
                 type: .object,
                 properties: [
                     "content": .init(type: .string, description: "Concise factual memory content to persist into the unified memory store"),
-                    "mode": .init(type: .string, description: "Legacy compatibility hint. Accepted values: 'overwrite' or 'append'; unified memory writes ignore markdown file semantics.")
+                    "mode": .init(type: .string, description: "Optional write mode hint. Accepted values: 'overwrite' or 'append'; unified memory writes are record-based rather than markdown edits.")
                 ],
                 required: ["content"]
             )

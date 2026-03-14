@@ -11,7 +11,6 @@ struct AgentLoopBuiltInHookFactory {
         var memoryRuntimeSnapshotID: String?
         var memoryRuntimeIntentPhase: String?
         var memoryRuntimeWorkingSetCost: Int?
-        var memoryRuntimeBridgeExpansionCount: Int?
         var memoryRuntimeDereferenceCount: Int?
     }
 

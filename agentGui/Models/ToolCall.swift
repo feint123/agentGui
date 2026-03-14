@@ -124,9 +124,6 @@ final class ToolCall {
     /// Approximate working-set cost captured from the runtime snapshot
     var memoryRuntimeWorkingSetCost: Int?
 
-    /// Bridge expansion count captured from the runtime snapshot
-    var memoryRuntimeBridgeExpansionCount: Int?
-
     /// Evidence dereference count captured from the runtime snapshot
     var memoryRuntimeDereferenceCount: Int?
 
@@ -183,7 +180,6 @@ final class ToolCall {
         self.memoryRuntimeSnapshotID = nil
         self.memoryRuntimeIntentPhase = nil
         self.memoryRuntimeWorkingSetCost = nil
-        self.memoryRuntimeBridgeExpansionCount = nil
         self.memoryRuntimeDereferenceCount = nil
         self.memoryBackgroundConsolidationQueued = nil
         self.memoryConflictRecordIDs = nil

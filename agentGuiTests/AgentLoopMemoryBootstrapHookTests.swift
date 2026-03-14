@@ -9,8 +9,6 @@ struct AgentLoopMemoryBootstrapHookTests {
         let composer = AgentLoopMemoryBootstrapComposer(
             dependencies: .init(
                 loadUnifiedContext: { nil },
-                loadTaskMemory: { nil },
-                loadTaskMemoryPromptText: { nil },
                 saveRuntimeSnapshot: { _ in nil }
             )
         )

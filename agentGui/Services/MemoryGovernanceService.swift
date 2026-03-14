@@ -5,29 +5,48 @@ import SwiftAnthropic
 struct MemoryGovernanceService {
     private let policy: MemoryAdmissionPolicy
     private let featureExtractor: MemoryAdmissionFeatureExtractor
+    private let decisionImpactEvaluator: MemoryDecisionImpactEvaluator
     private let businessLogSink: BusinessLogSink?
 
     init(
         policy: MemoryAdmissionPolicy = DefaultMemoryAdmissionPolicy(),
         featureExtractor: MemoryAdmissionFeatureExtractor = MemoryAdmissionFeatureExtractor(),
+        decisionImpactEvaluator: MemoryDecisionImpactEvaluator = MemoryDecisionImpactEvaluator(),
         businessLogSink: BusinessLogSink? = nil
     ) {
         self.policy = policy
         self.featureExtractor = featureExtractor
+        self.decisionImpactEvaluator = decisionImpactEvaluator
         self.businessLogSink = businessLogSink
     }
 
-    func evaluate(_ candidate: MemoryCandidate) -> MemoryGovernanceEvaluation {
-        let features = featureExtractor.extract(from: candidate)
-        let evaluation = policy.evaluate(candidate: candidate, features: features)
+    func evaluate(
+        _ candidate: MemoryCandidate,
+        request: MemoryRuntimeRequest? = nil,
+        epistemicState: EpistemicState = EpistemicState()
+    ) -> MemoryGovernanceEvaluation {
+        let request = request ?? MemoryRuntimeRequest(
+            sessionId: candidate.scope.identifierValue,
+            threadId: "memory-governance",
+            workflowRunId: nil,
+            userRequest: candidate.summary,
+            taskKind: inferredTaskKind(for: candidate),
+            projectId: candidate.scope.projectID,
+            workspaceRoot: nil,
+            contextBudget: 4000
+        )
+        let assessment = decisionImpactEvaluator.assess(candidate: candidate, request: request, epistemicState: epistemicState)
+        let features = featureExtractor.extract(from: candidate, assessment: assessment)
+        let evaluation = policy.evaluate(candidate: candidate, features: features, assessment: assessment)
         MemoryBusinessLogger.emit(
             .memoryWriteEvaluated,
             candidate: candidate,
             metadata: [
                 "route": evaluation.route.rawValue,
-                "futureUtility": features.futureUtility,
-                "taskRelevance": features.taskRelevance,
-                "driftRisk": features.driftRisk
+                "decisionDelta": features.decisionDelta,
+                "transferability": features.transferability,
+                "evidenceStrength": features.evidenceStrength,
+                "decayResistance": features.decayResistance
             ],
             sink: businessLogSink
         )
@@ -97,6 +116,17 @@ struct MemoryGovernanceService {
 }
 
 private extension MemoryGovernanceService {
+    func inferredTaskKind(for candidate: MemoryCandidate) -> MemoryTaskKind {
+        switch candidate.domainProfile {
+        case "creative-writing":
+            return .creativeWriting
+        case "coding-task":
+            return .coding
+        default:
+            return .generalAssistant
+        }
+    }
+
     func describe(_ result: MemoryGovernedWriteResult) -> String {
         switch result {
         case .hotPath:
@@ -110,6 +140,24 @@ private extension MemoryGovernanceService {
         case .rejected:
             return "rejected"
         }
+    }
+}
+
+private extension MemoryScope {
+    var identifierValue: String {
+        switch self {
+        case let .workspace(id), let .project(id), let .session(id), let .thread(id), let .workflowRun(id):
+            return id
+        case .user:
+            return "user"
+        }
+    }
+
+    var projectID: String? {
+        if case let .project(id) = self {
+            return id
+        }
+        return nil
     }
 }
 

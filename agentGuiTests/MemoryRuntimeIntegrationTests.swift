@@ -90,29 +90,6 @@ struct MemoryRuntimeIntegrationTests {
         #expect(context?.runtimeSnapshot?.influenceTrace.rankedActionIDs == ["Run xcodebuild -list"])
     }
 
-    @Test func taskMemoryEpisodeDeltaRecordsStillRenderIntoBootstrapPrompt() async throws {
-        let service = ClaudeService()
-        let baseDirectory = try makeTemporaryDirectory()
-        let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
-
-        try service.persistTaskMemoryExtraction(
-            sessionId: "session-episode",
-            extracted: {
-                var memory = TaskMemory(sessionId: "session-episode")
-                memory.confirmedFacts = ["Build uses xcodebuild"]
-                memory.failedAttempts = [FailedAttempt(action: "Run tests", reason: "Scheme missing")]
-                return memory
-            }(),
-            store: store,
-            timestamp: Date(timeIntervalSince1970: 100)
-        )
-
-        let prompt = try service.taskMemoryPromptText(sessionId: "session-episode", store: store)
-
-        #expect(prompt.contains("Build uses xcodebuild"))
-        #expect(prompt.contains("Scheme missing"))
-    }
-
     @Test func prepareContextSynthesizesWorkingMemoryWhenNoWorkingRecordsExist() async throws {
         let coordinator = MemoryRuntimeCoordinator.makeForTests(
             unifiedRecords: [MemoryRecord.fixture(id: "semantic-1", layer: .semantic, kind: .semantic, title: "North tower curfew")]
@@ -152,22 +129,18 @@ struct MemoryRuntimeIntegrationTests {
         #expect(context == nil)
     }
 
-    @Test func memoryRuntimeSupportsRMSPathWithoutBreakingCompatibilityFallback() async throws {
+    @Test func memoryRuntimeSupportsRMSPlannerWithoutLegacyFallback() async throws {
         let service = ClaudeService()
         let settings = AppSettings.testFixture()
         settings.enableUnifiedMemoryRuntime = true
         settings.enableEpistemicExtraction = true
         settings.enableRMSRetrieval = true
-        settings.enableBridgeExpansion = true
-        settings.enableLegacyMemoryCompatibility = false
 
         let coordinator = MemoryRuntimeCoordinator(
             featureConfiguration: .init(
-                enableAdmissionV2: true,
-                enableGoalConditionedRetrieval: true,
-                enableBridgeExpansion: true,
-                enableLifecycleManager: true,
-                enableExperienceDistillation: false
+                enableEpistemicExtraction: true,
+                enableRMSRetrieval: true,
+                enableRMSDistillation: false
             ),
             unifiedRecordsProvider: { _ in
                 [
@@ -186,18 +159,21 @@ struct MemoryRuntimeIntegrationTests {
                         admissionExplanation: MemoryAdmissionExplanation(
                             score: MemoryAdmissionScore(total: 0.92, route: .hotPath),
                             featureVector: MemoryAdmissionFeatureVector(
-                                futureUtility: 0.8,
-                                factualConfidence: 1,
-                                novelty: 0.6,
-                                temporalRecency: 1,
-                                taskRelevance: 1,
-                                verificationSupport: 1,
+                                decisionDelta: 0.92,
+                                transferability: 0.8,
+                                evidenceStrength: 1,
+                                decayResistance: 0.75,
                                 privacyRisk: 0,
-                                driftRisk: 0.1
+                                confidenceSignal: 1
+                            ),
+                            assessment: MemoryDecisionImpactAssessment(
+                                decisionDelta: MemoryAdmissionGateResult(passes: true, value: 0.92, rationale: "changes next step from edit to inspect"),
+                                transfer: MemoryAdmissionGateResult(passes: true, value: 0.8, rationale: "reusable across build failures"),
+                                evidence: MemoryAdmissionGateResult(passes: true, value: 1, rationale: "direct tool evidence"),
+                                decay: MemoryAdmissionGateResult(passes: true, value: 0.75, rationale: "stable across runs")
                             ),
                             reasons: ["verified tool evidence"]
                         ),
-                        lifecycleTier: .hot,
                     ),
                     MemoryRecord.fixture(
                         id: "recovery-1",
@@ -207,8 +183,7 @@ struct MemoryRuntimeIntegrationTests {
                         title: "Re-run with shared scheme",
                         summary: "Share the scheme before building",
                         verificationStatus: .verified,
-                        tags: ["tactic-kernel"],
-                        lifecycleTier: .warm
+                        tags: ["tactic-kernel"]
                     )
                 ]
             }
@@ -226,16 +201,13 @@ struct MemoryRuntimeIntegrationTests {
         let snapshot = try #require(context?.runtimeSnapshot)
         #expect(snapshot.selectedRecords.isEmpty == false)
         #expect(snapshot.plan.retrievalIntent?.phase == .verification)
-        #expect(snapshot.bridgeExpansions.isEmpty == false)
         #expect(snapshot.metrics.workingSetCost > 0)
 
         let legacyCoordinator = MemoryRuntimeCoordinator(
             featureConfiguration: .init(
-                enableAdmissionV2: false,
-                enableGoalConditionedRetrieval: false,
-                enableBridgeExpansion: false,
-                enableLifecycleManager: false,
-                enableExperienceDistillation: false
+                enableEpistemicExtraction: false,
+                enableRMSRetrieval: false,
+                enableRMSDistillation: false
             ),
             unifiedRecordsProvider: { _ in
                 [
@@ -247,8 +219,7 @@ struct MemoryRuntimeIntegrationTests {
                         title: "Legacy build fact",
                         summary: "Build uses xcodebuild",
                         verificationStatus: .verified,
-                        tags: ["failed-attempt"],
-                        lifecycleTier: .hot
+                        tags: ["failed-attempt"]
                     )
                 ]
             }
@@ -264,9 +235,8 @@ struct MemoryRuntimeIntegrationTests {
         )
 
         let legacySnapshot = try #require(legacyContext?.runtimeSnapshot)
-        #expect(legacySnapshot.plan.retrievalIntent == nil)
-        #expect(legacySnapshot.bridgeExpansions.isEmpty)
-        #expect(legacySnapshot.metrics.workingSetCost == 0)
+        #expect(legacySnapshot.plan.retrievalIntent?.phase == .verification)
+        #expect(legacySnapshot.metrics.workingSetCost > 0)
     }
 
     private func makeModelContext() throws -> ModelContext {

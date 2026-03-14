@@ -75,7 +75,6 @@ struct AgentLoopToolAuditHookTests {
         record.memoryRuntimeSnapshotID = "snapshot-1"
         record.memoryRuntimeIntentPhase = "verification"
         record.memoryRuntimeWorkingSetCost = 128
-        record.memoryRuntimeBridgeExpansionCount = 2
         record.memoryRuntimeDereferenceCount = 3
         record.memoryRuntimeProfiles = ["coding-task"]
         record.memoryRuntimeLayers = ["task"]
