@@ -58,4 +58,43 @@ struct MemoryRetrievalPlannerTests {
         #expect(plan.objectBudgetByType[MemoryRetrievalObjectType.procedure, default: 0] >= 1)
         #expect(plan.objectBudgetByType[MemoryRetrievalObjectType.fact, default: 0] >= 1)
     }
+
+    @Test func retrievalPlannerUsesFrontierAndCounterexamplePriority() async throws {
+        let planner = MemoryRetrievalPlanner()
+        let request = MemoryRuntimeRequest(
+            sessionId: "s1",
+            threadId: "t1",
+            workflowRunId: nil,
+            userRequest: "Fix build",
+            taskKind: .coding,
+            projectId: nil,
+            workspaceRoot: "/tmp/repo",
+            contextBudget: 4000
+        )
+
+        let plan = planner.makeRMSPlan(
+            request: request,
+            profiles: [MemoryDomainProfile.codingTask()],
+            epistemicState: EpistemicState(
+                frontiers: [
+                    FrontierMemory(
+                        frontierId: "f-1",
+                        goal: "Fix build",
+                        openClaim: "Need scheme evidence",
+                        uncertaintyType: .tooling,
+                        impactLevel: .high,
+                        suggestedProbe: "Run xcodebuild -list",
+                        stopCondition: "Scheme confirmed"
+                    )
+                ],
+                counterexamples: [
+                    CounterexampleMemory(id: "ce-1", summary: "Do not edit before inspect", replacementAction: "Inspect first")
+                ]
+            )
+        )
+
+        #expect(plan.orderedLayers.first == .task)
+        #expect(plan.objectBudgetByType[.bridge, default: 0] >= 2)
+        #expect(plan.objectBudgetByType[.fact, default: 0] >= 1)
+    }
 }

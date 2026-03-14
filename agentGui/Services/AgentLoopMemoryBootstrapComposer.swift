@@ -23,8 +23,20 @@ struct AgentLoopMemoryBootstrapComposer {
 
     let dependencies: Dependencies
 
-    func compose(bootstrapMessageCount: Int) async throws -> AgentLoopMemoryBootstrapComposition {
+    func compose(
+        bootstrapMessageCount: Int,
+        epistemicState: EpistemicState = EpistemicState()
+    ) async throws -> AgentLoopMemoryBootstrapComposition {
+        let epistemicSummary = renderEpistemicSummary(epistemicState)
         if let unifiedContext = try await dependencies.loadUnifiedContext() {
+            let renderedPrompt: String
+            if epistemicSummary.isEmpty {
+                renderedPrompt = unifiedContext.renderedPrompt
+            } else if unifiedContext.renderedPrompt.isEmpty {
+                renderedPrompt = epistemicSummary
+            } else {
+                renderedPrompt = "\(epistemicSummary)\n\n\(unifiedContext.renderedPrompt)"
+            }
             var composition = AgentLoopMemoryBootstrapComposition(
                 runtimeProfiles: unifiedContext.profiles,
                 runtimeLayers: Array(Set(unifiedContext.records.map { $0.layer.rawValue })).sorted(),
@@ -40,14 +52,14 @@ struct AgentLoopMemoryBootstrapComposer {
                 composition.runtimeSnapshotID = try dependencies.saveRuntimeSnapshot(snapshot) ?? snapshot.id
             }
 
-            if !unifiedContext.renderedPrompt.isEmpty {
+            if !renderedPrompt.isEmpty {
                 composition.patch = AgentLoopMessagePatch(
                     insertions: [
                         .init(
                             index: 0,
                             message: MessageParameter.Message(
                                 role: .user,
-                                content: .text("【统一记忆切片】以下是当前任务的统一记忆视图，请优先遵守其中的当前状态、事实、事件与风险：\n\n\(unifiedContext.renderedPrompt)")
+                                content: .text("【统一记忆切片】以下是当前任务的统一记忆视图，请优先遵守其中的当前状态、事实、事件与风险：\n\n\(renderedPrompt)")
                             )
                         ),
                         .init(
@@ -70,6 +82,28 @@ struct AgentLoopMemoryBootstrapComposer {
         }
 
         var patch = AgentLoopMessagePatch()
+
+        if !epistemicSummary.isEmpty {
+            patch.insertions.append(
+                .init(
+                    index: 0,
+                    message: MessageParameter.Message(
+                        role: .user,
+                        content: .text("【Epistemic State】以下是当前任务的未决前沿、约束和验证债务：\n\n\(epistemicSummary)")
+                    )
+                )
+            )
+            patch.insertions.append(
+                .init(
+                    index: 1,
+                    message: MessageParameter.Message(
+                        role: .assistant,
+                        content: .text("已加载当前 epistemic state，将优先处理未决前沿与验证债务。")
+                    )
+                )
+            )
+            patch.metadata["epistemicSummary"] = true
+        }
 
         if let taskMemory = try dependencies.loadTaskMemory(),
            !taskMemory.isEmpty,
@@ -103,5 +137,43 @@ struct AgentLoopMemoryBootstrapComposer {
         return AgentLoopMemoryBootstrapComposition(
             patch: patch.insertions.isEmpty ? nil : patch
         )
+    }
+
+    func renderEpistemicSummary(_ epistemicState: EpistemicState) -> String {
+        var sections: [String] = []
+
+        if !epistemicState.frontiers.isEmpty {
+            sections.append(
+                "未决前沿:\n" + epistemicState.frontiers.map {
+                    "- \($0.openClaim)\n  suggested_probe: \($0.suggestedProbe)"
+                }.joined(separator: "\n")
+            )
+        }
+
+        if !epistemicState.activeConstraints.isEmpty {
+            sections.append(
+                "当前约束:\n" + epistemicState.activeConstraints.map {
+                    "- \($0.summary)"
+                }.joined(separator: "\n")
+            )
+        }
+
+        if !epistemicState.verificationDebt.isEmpty {
+            sections.append(
+                "验证债务:\n" + epistemicState.verificationDebt.map {
+                    "- \($0.claim): \($0.reason)"
+                }.joined(separator: "\n")
+            )
+        }
+
+        if !epistemicState.counterexamples.isEmpty {
+            sections.append(
+                "激活反例:\n" + epistemicState.counterexamples.map {
+                    "- \($0.summary) -> \($0.replacementAction)"
+                }.joined(separator: "\n")
+            )
+        }
+
+        return sections.joined(separator: "\n\n")
     }
 }

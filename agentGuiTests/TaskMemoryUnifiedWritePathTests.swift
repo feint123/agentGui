@@ -4,6 +4,21 @@ import Testing
 
 @MainActor
 struct TaskMemoryUnifiedWritePathTests {
+    @Test func factoryBuildsEpisodeDeltaCompatibleRecords() async throws {
+        let records = TaskMemoryRecordFactory().makeEpisodeDeltaRecords(
+            sessionId: "session-0",
+            confirmedFacts: ["Build uses xcodebuild"],
+            attemptedActions: ["Run tests"],
+            failedAttempts: [FailedAttempt(action: "Run tests", reason: "Scheme missing")],
+            pendingQuestions: ["Which scheme is shared?"],
+            verificationEntries: [VerificationEntry(item: "scheme", status: "partial")],
+            timestamp: Date(timeIntervalSince1970: 10)
+        )
+
+        #expect(records.isEmpty == false)
+        #expect(records.allSatisfy { $0.tags.contains("episode-delta") })
+    }
+
     @Test func extractedTaskMemoryPersistsSessionRecordsIntoUnifiedStore() async throws {
         let service = ClaudeService()
         let baseDirectory = try makeTemporaryDirectory()
@@ -22,11 +37,11 @@ struct TaskMemoryUnifiedWritePathTests {
 
         let persisted = try store.records(for: .session(id: "session-1"), includeArchived: true)
 
-        #expect(persisted.contains { $0.title == "Build uses xcodebuild" && $0.tags.contains("confirmed-fact") })
-        #expect(persisted.contains { $0.title == "Run tests" && $0.tags.contains("failed-attempt") })
+        #expect(persisted.contains { $0.title == "Build uses xcodebuild" && $0.tags.contains("episode-delta") })
+        #expect(persisted.contains { $0.title == "Run tests" && $0.tags.contains("episode-delta") })
     }
 
-    @Test func reflectionFailureWritesFailedAttemptAndSuggestedFixesIntoUnifiedStore() async throws {
+    @Test func reflectionFailureWritesEpisodeDeltaAndSuggestedFixesIntoUnifiedStore() async throws {
         let service = ClaudeService()
         let baseDirectory = try makeTemporaryDirectory()
         let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
@@ -42,9 +57,9 @@ struct TaskMemoryUnifiedWritePathTests {
 
         let persisted = try store.records(for: .session(id: "session-2"), includeArchived: true)
 
-        #expect(persisted.contains { $0.title == "tool:bash" && $0.tags.contains("failed-attempt") })
-        #expect(persisted.contains { $0.title == "Reflection fix: Run xcodebuild -list" && $0.tags.contains("attempt") })
-        #expect(persisted.contains { $0.title == "Reflection fix: Check the active scheme" && $0.tags.contains("attempt") })
+        #expect(persisted.contains { $0.title == "tool:bash" && $0.tags.contains("episode-delta") })
+        #expect(persisted.contains { $0.title == "Reflection fix: Run xcodebuild -list" && $0.tags.contains("episode-delta") })
+        #expect(persisted.contains { $0.title == "Reflection fix: Check the active scheme" && $0.tags.contains("episode-delta") })
     }
 
     private func makeTemporaryDirectory() throws -> URL {

@@ -55,4 +55,47 @@ struct MemoryRuntimeSnapshotViewModelTests {
         #expect(viewModel.retrievalIntentSummary.contains("verification"))
         #expect(viewModel.workingSetCost == 84)
     }
+
+    @Test func viewModelUsesRMSFallbackRetrievalSummary() throws {
+        let viewModel = MemoryRuntimeSnapshotViewModel(snapshot: .fixture())
+
+        #expect(viewModel.retrievalIntentSummary == "RMS retrieval fallback")
+    }
+
+    @Test func viewModelExposesEpistemicStateSummary() throws {
+        let snapshot = MemoryRuntimeSnapshot.fixture(
+            epistemicState: EpistemicState(
+                frontiers: [
+                    FrontierMemory(
+                        frontierId: "f-1",
+                        goal: "Fix build",
+                        openClaim: "Need to confirm shared scheme",
+                        uncertaintyType: .tooling,
+                        impactLevel: .high,
+                        suggestedProbe: "Run xcodebuild -list",
+                        stopCondition: "Scheme confirmed"
+                    )
+                ],
+                activeConstraints: [
+                    ConstraintMemory(id: "c-1", summary: "Inspect before editing", scope: .session(id: "s1"))
+                ],
+                verificationDebt: [
+                    VerificationDebt(id: "d-1", claim: "Scheme is shared", reason: "Need direct evidence")
+                ],
+                counterexamples: [
+                    CounterexampleMemory(id: "ce-1", summary: "Edit-first is unsafe", replacementAction: "Inspect first")
+                ]
+            ),
+            influenceTrace: MemoryInfluenceTrace(activatedMemoryIDs: ["f-1", "ce-1"], rankedActionIDs: ["Run xcodebuild -list"])
+        )
+
+        let viewModel = MemoryRuntimeSnapshotViewModel(snapshot: snapshot)
+
+        #expect(viewModel.epistemicSummary.frontierCount == 1)
+        #expect(viewModel.epistemicSummary.counterexampleCount == 1)
+        #expect(viewModel.epistemicSummary.constraintCount == 1)
+        #expect(viewModel.epistemicSummary.verificationDebtCount == 1)
+        #expect(viewModel.epistemicSummary.activatedMemoryCount == 2)
+        #expect(viewModel.epistemicSummary.rankedActionCount == 1)
+    }
 }

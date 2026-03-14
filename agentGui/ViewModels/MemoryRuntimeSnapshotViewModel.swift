@@ -53,6 +53,15 @@ final class MemoryRuntimeSnapshotViewModel {
         var selected: Int
     }
 
+    struct EpistemicSummary: Equatable {
+        var frontierCount: Int
+        var counterexampleCount: Int
+        var constraintCount: Int
+        var verificationDebtCount: Int
+        var activatedMemoryCount: Int
+        var rankedActionCount: Int
+    }
+
     let snapshot: MemoryRuntimeSnapshot
     var dimension: Dimension = .layer
     var metric: Metric = .count
@@ -137,7 +146,7 @@ final class MemoryRuntimeSnapshotViewModel {
 
     var retrievalIntentSummary: String {
         guard let intent = snapshot.plan.retrievalIntent else {
-            return "Legacy layer-based retrieval"
+            return "RMS retrieval fallback"
         }
 
         let objectTypes = intent.neededObjectTypes
@@ -148,5 +157,16 @@ final class MemoryRuntimeSnapshotViewModel {
             return "\(intent.phase.rawValue)"
         }
         return "\(intent.phase.rawValue) · \(objectTypes)"
+    }
+
+    var epistemicSummary: EpistemicSummary {
+        EpistemicSummary(
+            frontierCount: snapshot.epistemicState.frontiers.count,
+            counterexampleCount: snapshot.epistemicState.counterexamples.count,
+            constraintCount: snapshot.epistemicState.activeConstraints.count,
+            verificationDebtCount: snapshot.epistemicState.verificationDebt.count,
+            activatedMemoryCount: snapshot.influenceTrace.activatedMemoryIDs.count,
+            rankedActionCount: snapshot.influenceTrace.rankedActionIDs.count
+        )
     }
 }

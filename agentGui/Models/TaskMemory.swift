@@ -12,8 +12,8 @@ import Foundation
 // MARK: - TaskMemory
 
 /// Persistent task-level memory for a single session.
-/// Intermediate task-memory shape used to extract and merge task state before
-/// persisting it as unified session-scoped MemoryRecord values.
+/// Intermediate compatibility shape used to extract and merge task state before
+/// persisting it as episode-delta session-scoped MemoryRecord values.
 struct TaskMemory: Codable {
 
     // MARK: - Metadata

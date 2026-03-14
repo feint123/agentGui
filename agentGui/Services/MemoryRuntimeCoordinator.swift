@@ -58,7 +58,11 @@ final class MemoryRuntimeCoordinator {
         )
     }
 
-    func prepareContext(for request: MemoryRuntimeRequest) async throws -> MemoryRuntimeContext {
+    func prepareContext(
+        for request: MemoryRuntimeRequest,
+        epistemicState: EpistemicState = EpistemicState(),
+        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace()
+    ) async throws -> MemoryRuntimeContext {
         MemoryBusinessLogger.emit(
             .memoryContextPreparationStarted,
             request: request,
@@ -110,7 +114,9 @@ final class MemoryRuntimeCoordinator {
             profiles: profiles.map(\.id),
             records: filteredRecords,
             writePolicy: mergedWritePolicy(for: profiles, request: request),
-            warnings: []
+            warnings: [],
+            epistemicState: epistemicState,
+            influenceTrace: influenceTrace
         )
         let renderedPrompt = promptAssembler.render(context: baseContext)
         let runtimeSnapshot = makeSnapshot(
@@ -125,6 +131,8 @@ final class MemoryRuntimeCoordinator {
             selectedCountByLayer: filtered.selectedCountByLayer,
             bridgeExpansions: bridgeExpansion.edges,
             dereferenceCount: evidenceResolution.dereferenceCount,
+            epistemicState: epistemicState,
+            influenceTrace: influenceTrace,
             renderedPrompt: renderedPrompt
         )
 
@@ -147,6 +155,8 @@ final class MemoryRuntimeCoordinator {
             records: baseContext.records,
             writePolicy: baseContext.writePolicy,
             warnings: baseContext.warnings,
+            epistemicState: baseContext.epistemicState,
+            influenceTrace: baseContext.influenceTrace,
             renderedPrompt: renderedPrompt,
             runtimeSnapshot: runtimeSnapshot
         )
@@ -246,6 +256,9 @@ final class MemoryRuntimeCoordinator {
 
     func scheduleConsolidation(for outcome: MemoryRuntimeOutcome) async {
         try? backgroundJobStore.enqueue(.consolidation(outcome: outcome))
+        try? backgroundJobStore.enqueue(.counterexampleDistillation(outcome: outcome))
+        try? backgroundJobStore.enqueue(.tacticKernelDistillation(outcome: outcome))
+        try? backgroundJobStore.enqueue(.memoryInvalidation(outcome: outcome))
         MemoryBusinessLogger.emit(
             .memoryConsolidationQueued,
             request: outcome.request,
@@ -266,6 +279,8 @@ final class MemoryRuntimeCoordinator {
         selectedCountByLayer: [MemoryLayer: Int],
         bridgeExpansions: [MemoryBridgeEdge],
         dereferenceCount: Int,
+        epistemicState: EpistemicState,
+        influenceTrace: MemoryInfluenceTrace,
         renderedPrompt: String
     ) -> MemoryRuntimeSnapshot {
         let selectedSnapshotRecords = selectedRecords.enumerated().map { index, record in
@@ -306,6 +321,8 @@ final class MemoryRuntimeCoordinator {
             excludedRecords: excludedSnapshotRecords,
             bridgeExpansions: bridgeExpansions,
             dereferenceCount: dereferenceCount,
+            epistemicState: epistemicState,
+            influenceTrace: influenceTrace,
             renderedPrompt: renderedPrompt,
             metrics: MemoryRuntimeSnapshot.makeMetrics(
                 candidateCount: candidateRecords.count,

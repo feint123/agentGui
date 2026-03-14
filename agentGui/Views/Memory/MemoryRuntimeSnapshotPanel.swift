@@ -35,6 +35,12 @@ struct MemoryRuntimeSnapshotPanel: View {
                 summaryRow("Working-set Cost", value: "\(viewModel.workingSetCost)")
                 summaryRow("Bridge Expansions", value: "\(viewModel.bridgeExpansionCount)")
                 summaryRow("Dereferences", value: "\(viewModel.dereferenceCount)")
+                summaryRow("Frontiers", value: "\(viewModel.epistemicSummary.frontierCount)")
+                summaryRow("Counterexamples", value: "\(viewModel.epistemicSummary.counterexampleCount)")
+                summaryRow("Constraints", value: "\(viewModel.epistemicSummary.constraintCount)")
+                summaryRow("Verification Debt", value: "\(viewModel.epistemicSummary.verificationDebtCount)")
+                summaryRow("Activated Memories", value: "\(viewModel.epistemicSummary.activatedMemoryCount)")
+                summaryRow("Ranked Actions", value: "\(viewModel.epistemicSummary.rankedActionCount)")
             }
         }
     }

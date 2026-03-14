@@ -41,6 +41,9 @@ struct MemoryBackgroundJob: Codable, Equatable, Sendable, Identifiable {
         case consolidation
         case experienceDistillation
         case procedureInduction
+        case counterexampleDistillation
+        case tacticKernelDistillation
+        case memoryInvalidation
         case workingSetRebalance
         case ttlSweep
     }
@@ -144,6 +147,36 @@ extension MemoryBackgroundJob {
     static func procedureInduction(outcome: MemoryRuntimeOutcome) -> MemoryBackgroundJob {
         MemoryBackgroundJob(
             type: .procedureInduction,
+            scopeNamespace: MemoryScope.session(id: outcome.request.sessionId).namespace,
+            request: MemoryBackgroundRuntimeRequestSnapshot(request: outcome.request),
+            outcomeRecords: outcome.records.map(UnifiedMemoryStoredRecord.init(record:)),
+            notes: outcome.notes
+        )
+    }
+
+    static func counterexampleDistillation(outcome: MemoryRuntimeOutcome) -> MemoryBackgroundJob {
+        MemoryBackgroundJob(
+            type: .counterexampleDistillation,
+            scopeNamespace: MemoryScope.session(id: outcome.request.sessionId).namespace,
+            request: MemoryBackgroundRuntimeRequestSnapshot(request: outcome.request),
+            outcomeRecords: outcome.records.map(UnifiedMemoryStoredRecord.init(record:)),
+            notes: outcome.notes
+        )
+    }
+
+    static func tacticKernelDistillation(outcome: MemoryRuntimeOutcome) -> MemoryBackgroundJob {
+        MemoryBackgroundJob(
+            type: .tacticKernelDistillation,
+            scopeNamespace: MemoryScope.session(id: outcome.request.sessionId).namespace,
+            request: MemoryBackgroundRuntimeRequestSnapshot(request: outcome.request),
+            outcomeRecords: outcome.records.map(UnifiedMemoryStoredRecord.init(record:)),
+            notes: outcome.notes
+        )
+    }
+
+    static func memoryInvalidation(outcome: MemoryRuntimeOutcome) -> MemoryBackgroundJob {
+        MemoryBackgroundJob(
+            type: .memoryInvalidation,
             scopeNamespace: MemoryScope.session(id: outcome.request.sessionId).namespace,
             request: MemoryBackgroundRuntimeRequestSnapshot(request: outcome.request),
             outcomeRecords: outcome.records.map(UnifiedMemoryStoredRecord.init(record:)),

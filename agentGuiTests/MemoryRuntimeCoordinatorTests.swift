@@ -276,6 +276,96 @@ struct MemoryRuntimeCoordinatorTests {
         })
     }
 
+    @Test func coordinatorCarriesEpistemicStateIntoContextAndSnapshot() async throws {
+        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [
+            MemoryRecord.fixture(id: "task-1", layer: .task, kind: .working, scope: .session(id: "s1"), title: "Known failure")
+        ])
+
+        let frontier = FrontierMemory(
+            frontierId: "f-1",
+            goal: "Fix build",
+            openClaim: "Need to confirm shared scheme",
+            uncertaintyType: .tooling,
+            impactLevel: .high,
+            suggestedProbe: "Run xcodebuild -list",
+            stopCondition: "Scheme confirmed"
+        )
+        let trace = MemoryInfluenceTrace(activatedMemoryIDs: ["f-1"], rankedActionIDs: ["Run xcodebuild -list"])
+
+        let context = try await coordinator.prepareContext(
+            for: MemoryRuntimeRequest(
+                sessionId: "s1",
+                threadId: "t1",
+                workflowRunId: nil,
+                userRequest: "Fix build",
+                taskKind: .coding,
+                projectId: nil,
+                workspaceRoot: "/tmp/repo",
+                contextBudget: 4000
+            ),
+            epistemicState: EpistemicState(frontiers: [frontier]),
+            influenceTrace: trace
+        )
+
+        #expect(context.epistemicState.frontiers.first?.openClaim == "Need to confirm shared scheme")
+        #expect(context.influenceTrace.activatedMemoryIDs == ["f-1"])
+        #expect(context.renderedPrompt.contains("Need to confirm shared scheme"))
+
+        let snapshot = try #require(context.runtimeSnapshot)
+        #expect(snapshot.epistemicState.frontiers.first?.frontierId == "f-1")
+        #expect(snapshot.influenceTrace.rankedActionIDs == ["Run xcodebuild -list"])
+    }
+
+    @Test func scheduleConsolidationQueuesRMSDistillationJobs() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let coordinator = MemoryRuntimeCoordinator(
+            unifiedRecordsProvider: { _ in [] },
+            unifiedStoreBaseDirectory: baseDirectory
+        )
+
+        let outcome = MemoryRuntimeOutcome(
+            request: MemoryRuntimeRequest(
+                sessionId: "s1",
+                threadId: "t1",
+                workflowRunId: nil,
+                userRequest: "Fix build",
+                taskKind: .coding,
+                projectId: nil,
+                workspaceRoot: "/tmp/repo",
+                contextBudget: 4000
+            ),
+            records: [
+                MemoryRecord.fixture(
+                    id: "failure-1",
+                    layer: .task,
+                    kind: .working,
+                    scope: .session(id: "s1"),
+                    title: "Attempt 1",
+                    summary: "Edited before confirming scheme",
+                    verificationStatus: .failed,
+                    tags: ["failed-attempt"]
+                ),
+                MemoryRecord.fixture(
+                    id: "fact-1",
+                    layer: .working,
+                    kind: .working,
+                    scope: .session(id: "s1"),
+                    title: "Build uses xcodebuild",
+                    confidence: 1.0,
+                    verificationStatus: .verified,
+                    tags: ["confirmed-fact"]
+                )
+            ]
+        )
+
+        await coordinator.scheduleConsolidation(for: outcome)
+
+        let jobs = try MemoryBackgroundJobStore(baseDirectory: baseDirectory).allJobs()
+        #expect(jobs.contains { $0.type == .counterexampleDistillation })
+        #expect(jobs.contains { $0.type == .tacticKernelDistillation })
+        #expect(jobs.contains { $0.type == .consolidation })
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

@@ -5,6 +5,8 @@ struct AgentLoopSharedStateAccess {
     let writeVerification: (String, CompletionVerification) -> Void
     let readExecutionEvidence: (String) -> Set<ExecutionEvidenceKind>
     let writeExecutionEvidence: (String, Set<ExecutionEvidenceKind>) -> Void
+    let readEpistemicInputs: (String) -> [EpistemicInputEnvelope]
+    let writeEpistemicInputs: (String, [EpistemicInputEnvelope]) -> Void
     let setCurrentModelId: (String) -> Void
     let setCurrentInputTokens: (Int) -> Void
 }

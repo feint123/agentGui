@@ -171,11 +171,11 @@ struct MemoryRuntimeFeatureConfiguration: Equatable, Sendable {
 extension MemoryRuntimeFeatureConfiguration {
     init(settings: AppSettings) {
         self.init(
-            enableAdmissionV2: settings.enableAdmissionV2,
-            enableGoalConditionedRetrieval: settings.enableGoalConditionedRetrieval,
+            enableAdmissionV2: settings.enableEpistemicExtraction,
+            enableGoalConditionedRetrieval: settings.enableRMSRetrieval,
             enableBridgeExpansion: settings.enableBridgeExpansion,
-            enableLifecycleManager: settings.enableLifecycleManager,
-            enableExperienceDistillation: settings.enableExperienceDistillation
+            enableLifecycleManager: !settings.enableLegacyMemoryCompatibility,
+            enableExperienceDistillation: settings.enableRMSDistillation
         )
     }
 }
@@ -185,6 +185,8 @@ struct MemoryRuntimeContext: Equatable, Sendable {
     var records: [MemoryRecord]
     var writePolicy: MemoryWritePolicy
     var warnings: [String]
+    var epistemicState: EpistemicState
+    var influenceTrace: MemoryInfluenceTrace
     var renderedPrompt: String
     var runtimeSnapshot: MemoryRuntimeSnapshot?
 
@@ -193,6 +195,8 @@ struct MemoryRuntimeContext: Equatable, Sendable {
         records: [MemoryRecord],
         writePolicy: MemoryWritePolicy = .readMostly,
         warnings: [String] = [],
+        epistemicState: EpistemicState = EpistemicState(),
+        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
         renderedPrompt: String = "",
         runtimeSnapshot: MemoryRuntimeSnapshot? = nil
     ) {
@@ -200,6 +204,8 @@ struct MemoryRuntimeContext: Equatable, Sendable {
         self.records = records
         self.writePolicy = writePolicy
         self.warnings = warnings
+        self.epistemicState = epistemicState
+        self.influenceTrace = influenceTrace
         self.renderedPrompt = renderedPrompt
         self.runtimeSnapshot = runtimeSnapshot
     }

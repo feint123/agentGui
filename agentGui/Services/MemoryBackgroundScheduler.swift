@@ -12,6 +12,9 @@ final class MemoryBackgroundScheduler {
     private let consolidationEngine: MemoryConsolidationEngine
     private let experienceDistiller: MemoryExperienceDistillationService
     private let procedureInductor: MemoryProcedureInductionService
+    private let counterexampleDistiller: CounterexampleDistillationService
+    private let tacticKernelDistiller: TacticKernelDistillationService
+    private let invalidationService: MemoryInvalidationService
     private let businessLogSink: BusinessLogSink?
     private var loopTask: Task<Void, Never>?
 
@@ -22,6 +25,9 @@ final class MemoryBackgroundScheduler {
         consolidationEngine: MemoryConsolidationEngine = MemoryConsolidationEngine(),
         experienceDistiller: MemoryExperienceDistillationService = MemoryExperienceDistillationService(),
         procedureInductor: MemoryProcedureInductionService = MemoryProcedureInductionService(),
+        counterexampleDistiller: CounterexampleDistillationService = CounterexampleDistillationService(),
+        tacticKernelDistiller: TacticKernelDistillationService = TacticKernelDistillationService(),
+        invalidationService: MemoryInvalidationService = MemoryInvalidationService(),
         businessLogSink: BusinessLogSink? = nil
     ) {
         self.baseDirectory = baseDirectory
@@ -34,6 +40,9 @@ final class MemoryBackgroundScheduler {
         self.consolidationEngine = consolidationEngine
         self.experienceDistiller = experienceDistiller
         self.procedureInductor = procedureInductor
+        self.counterexampleDistiller = counterexampleDistiller
+        self.tacticKernelDistiller = tacticKernelDistiller
+        self.invalidationService = invalidationService
         self.businessLogSink = businessLogSink
     }
 
@@ -150,6 +159,30 @@ final class MemoryBackgroundScheduler {
             let outcome = try job.toOutcome()
             for candidate in procedureInductor.induce(from: outcome) {
                 _ = try await governanceService.route(candidate, store: unifiedStore, backgroundQueue: backgroundWriteQueue, confirmationStore: confirmationStore)
+            }
+
+        case .counterexampleDistillation:
+            let outcome = try job.toOutcome()
+            for candidate in counterexampleDistiller.distill(from: outcome) {
+                _ = try await governanceService.route(candidate, store: unifiedStore, backgroundQueue: backgroundWriteQueue, confirmationStore: confirmationStore)
+            }
+
+        case .tacticKernelDistillation:
+            let outcome = try job.toOutcome()
+            for candidate in tacticKernelDistiller.distill(from: outcome) {
+                _ = try await governanceService.route(candidate, store: unifiedStore, backgroundQueue: backgroundWriteQueue, confirmationStore: confirmationStore)
+            }
+
+        case .memoryInvalidation:
+            let outcome = try job.toOutcome()
+            let invalidatedIDs = Set(invalidationService.recordsToInvalidate(from: outcome))
+            guard invalidatedIDs.isEmpty == false else { return }
+            let records = try unifiedStore.allRecords(includeArchived: true)
+            for record in records where invalidatedIDs.contains(record.id) {
+                var archived = record
+                archived.retentionPolicy = .archiveOnly
+                archived.updatedAt = Date()
+                _ = try unifiedStore.persist(record: archived)
             }
 
         case .workingSetRebalance:

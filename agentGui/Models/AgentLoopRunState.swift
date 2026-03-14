@@ -8,6 +8,8 @@ struct AgentLoopRunState {
     var loopCtx: AgentLoopContext
     var loopMemory: ContextMemory
     var executionEvidence: Set<ExecutionEvidenceKind>
+    var epistemicState: EpistemicState
+    var influenceTrace: MemoryInfluenceTrace
     let hookState: AgentLoopBuiltInHookFactory.State
 
     init(
@@ -16,6 +18,8 @@ struct AgentLoopRunState {
         loopCtx: AgentLoopContext = AgentLoopContext(phase: .executing),
         loopMemory: ContextMemory = ContextMemory(),
         executionEvidence: Set<ExecutionEvidenceKind> = [],
+        epistemicState: EpistemicState = EpistemicState(),
+        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
         hookState: AgentLoopBuiltInHookFactory.State = AgentLoopBuiltInHookFactory.State()
     ) {
         self.runID = runID
@@ -23,6 +27,8 @@ struct AgentLoopRunState {
         self.loopCtx = loopCtx
         self.loopMemory = loopMemory
         self.executionEvidence = executionEvidence
+        self.epistemicState = epistemicState
+        self.influenceTrace = influenceTrace
         self.hookState = hookState
     }
 }

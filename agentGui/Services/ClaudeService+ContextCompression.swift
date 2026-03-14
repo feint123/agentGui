@@ -425,9 +425,22 @@ extension ClaudeService {
         }
 
         var memory = TaskMemory(sessionId: sessionId)
-        memory.confirmedFacts = records.filter { $0.tags.contains("confirmed-fact") }.map(\.title)
-        memory.attemptedActions = records.filter { $0.tags.contains("attempt") }.map(\.title)
-        memory.failedAttempts = records.filter { $0.tags.contains("failed-attempt") }.map { record in
+        memory.confirmedFacts = records.compactMap { record in
+            guard taskMemoryEpisodeType(for: record) == "confirmed_fact" || record.tags.contains("confirmed-fact") else {
+                return nil
+            }
+            return record.title
+        }
+        memory.attemptedActions = records.compactMap { record in
+            guard taskMemoryEpisodeType(for: record) == "attempted_action" || record.tags.contains("attempt") else {
+                return nil
+            }
+            return record.title
+        }
+        memory.failedAttempts = records.compactMap { record in
+            guard taskMemoryEpisodeType(for: record) == "failed_attempt" || record.tags.contains("failed-attempt") else {
+                return nil
+            }
             switch record.payload {
             case let .structured(fields):
                 return FailedAttempt(
@@ -438,8 +451,16 @@ extension ClaudeService {
                 return FailedAttempt(action: record.title, reason: text)
             }
         }
-        memory.pendingQuestions = records.filter { $0.tags.contains("pending") }.map(\.title)
-        memory.verificationStatus = records.filter { $0.tags.contains("verification-entry") }.map { record in
+        memory.pendingQuestions = records.compactMap { record in
+            guard taskMemoryEpisodeType(for: record) == "pending_question" || record.tags.contains("pending") else {
+                return nil
+            }
+            return record.title
+        }
+        memory.verificationStatus = records.compactMap { record in
+            guard taskMemoryEpisodeType(for: record) == "verification_entry" || record.tags.contains("verification-entry") else {
+                return nil
+            }
             switch record.payload {
             case let .structured(fields):
                 return VerificationEntry(
@@ -466,6 +487,11 @@ extension ClaudeService {
                 }
                 return lhs.updatedAt < rhs.updatedAt
             }
+    }
+
+    private func taskMemoryEpisodeType(for record: MemoryRecord) -> String? {
+        guard case let .structured(fields) = record.payload else { return nil }
+        return fields["episode_type"]
     }
 
     // MARK: - Helpers

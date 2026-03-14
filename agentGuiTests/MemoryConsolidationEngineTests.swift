@@ -88,7 +88,7 @@ struct MemoryConsolidationEngineTests {
         #expect(candidates.contains { $0.layer == .episodic && $0.title == "北塔夜巡" })
     }
 
-    @Test func consolidationEngineDistillsStrategyRecoveryAndProcedureRecords() async throws {
+    @Test func consolidationEngineDistillsCounterexampleAndTacticKernelRecords() async throws {
         let outcome = MemoryRuntimeOutcome(
             request: MemoryRuntimeRequest(
                 sessionId: "s1",
@@ -138,8 +138,7 @@ struct MemoryConsolidationEngineTests {
             procedureInductor: MemoryProcedureInductionService()
         ).consolidate(outcome)
 
-        #expect(candidates.contains { $0.tags.contains("strategy-tip") })
-        #expect(candidates.contains { $0.tags.contains("recovery-tip") })
-        #expect(candidates.contains { $0.tags.contains("procedure") })
+        #expect(candidates.contains { $0.tags.contains("counterexample") })
+        #expect(candidates.contains { $0.tags.contains("tactic-kernel") })
     }
 }

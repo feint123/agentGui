@@ -141,6 +141,8 @@ extension ClaudeService {
             writeVerification: { self.sessionVerifications[$0] = $1 },
             readExecutionEvidence: { self.sessionExecutionEvidence[$0] ?? [] },
             writeExecutionEvidence: { self.sessionExecutionEvidence[$0] = $1 },
+            readEpistemicInputs: { self.sessionEpistemicInputs[$0] ?? [] },
+            writeEpistemicInputs: { self.sessionEpistemicInputs[$0] = $1 },
             setCurrentModelId: { self.currentModelId = $0 },
             setCurrentInputTokens: { self.currentInputTokens = $0 }
         )
@@ -169,6 +171,8 @@ extension ClaudeService {
         sessionId: String,
         messages: [MessageParameter.Message],
         modelContext: ModelContext,
+        epistemicState: EpistemicState = EpistemicState(),
+        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
         coordinator: MemoryRuntimeCoordinator? = nil
     ) async throws -> MemoryRuntimeContext? {
         guard settings.enableUnifiedMemoryRuntime else { return nil }
@@ -217,7 +221,11 @@ extension ClaudeService {
             },
             unifiedStoreBaseDirectory: ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory)
         )
-        let context = try await resolvedCoordinator.prepareContext(for: request)
+        let context = try await resolvedCoordinator.prepareContext(
+            for: request,
+            epistemicState: epistemicState,
+            influenceTrace: influenceTrace
+        )
         return context
     }
 

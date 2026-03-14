@@ -62,6 +62,9 @@ final class ClaudeService {
     /// 每个 Session 已观察到的执行证据（key = sessionId）
     var sessionExecutionEvidence: [String: Set<ExecutionEvidenceKind>] = [:]
 
+    /// 每个 Session 收集到的结构化 epistemic 输入包（key = sessionId）
+    var sessionEpistemicInputs: [String: [EpistemicInputEnvelope]] = [:]
+
     /// Skill service reference for tool dispatch and system prompt
     var skillService: SkillService?
 

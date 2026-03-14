@@ -10,6 +10,26 @@ struct TaskMemoryRecordFactory {
         verificationEntries: [VerificationEntry],
         timestamp: Date
     ) -> [MemoryRecord] {
+        makeEpisodeDeltaRecords(
+            sessionId: sessionId,
+            confirmedFacts: confirmedFacts,
+            attemptedActions: attemptedActions,
+            failedAttempts: failedAttempts,
+            pendingQuestions: pendingQuestions,
+            verificationEntries: verificationEntries,
+            timestamp: timestamp
+        )
+    }
+
+    func makeEpisodeDeltaRecords(
+        sessionId: String,
+        confirmedFacts: [String],
+        attemptedActions: [String],
+        failedAttempts: [FailedAttempt],
+        pendingQuestions: [String],
+        verificationEntries: [VerificationEntry],
+        timestamp: Date
+    ) -> [MemoryRecord] {
         let scope = MemoryScope.session(id: sessionId)
 
         let confirmed = confirmedFacts.enumerated().map { index, fact in
@@ -18,10 +38,13 @@ struct TaskMemoryRecordFactory {
                 scope: scope,
                 title: fact,
                 summary: fact,
-                payload: .text(fact),
+                payload: .structured([
+                    "episode_type": "confirmed_fact",
+                    "fact": fact
+                ]),
                 verificationStatus: .verified,
                 timestamp: timestamp,
-                tags: ["confirmed-fact"]
+                tags: ["episode-delta"]
             )
         }
 
@@ -31,10 +54,13 @@ struct TaskMemoryRecordFactory {
                 scope: scope,
                 title: action,
                 summary: action,
-                payload: .text(action),
+                payload: .structured([
+                    "episode_type": "attempted_action",
+                    "action": action
+                ]),
                 verificationStatus: .partial,
                 timestamp: timestamp,
-                tags: ["attempt"]
+                tags: ["episode-delta"]
             )
         }
 
@@ -45,12 +71,13 @@ struct TaskMemoryRecordFactory {
                 title: failure.action,
                 summary: failure.reason,
                 payload: .structured([
+                    "episode_type": "failed_attempt",
                     "action": failure.action,
                     "reason": failure.reason
                 ]),
                 verificationStatus: .failed,
                 timestamp: timestamp,
-                tags: ["failed-attempt"]
+                tags: ["episode-delta"]
             )
         }
 
@@ -60,10 +87,13 @@ struct TaskMemoryRecordFactory {
                 scope: scope,
                 title: question,
                 summary: question,
-                payload: .text(question),
+                payload: .structured([
+                    "episode_type": "pending_question",
+                    "question": question
+                ]),
                 verificationStatus: .unverified,
                 timestamp: timestamp,
-                tags: ["pending"]
+                tags: ["episode-delta"]
             )
         }
 
@@ -74,12 +104,13 @@ struct TaskMemoryRecordFactory {
                 title: entry.item,
                 summary: entry.status,
                 payload: .structured([
+                    "episode_type": "verification_entry",
                     "item": entry.item,
                     "status": entry.status
                 ]),
                 verificationStatus: status(from: entry.status),
                 timestamp: timestamp,
-                tags: ["verification-entry"]
+                tags: ["episode-delta"]
             )
         }
 

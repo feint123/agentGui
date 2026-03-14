@@ -4,6 +4,13 @@ import Testing
 
 @MainActor
 struct MemoryBackgroundSchedulerTests {
+    @Test func backgroundJobFactoriesExposeRMSDistillationAndInvalidationTypes() async throws {
+        let outcome = makeOutcome(records: [])
+        #expect(MemoryBackgroundJob.counterexampleDistillation(outcome: outcome).type == .counterexampleDistillation)
+        #expect(MemoryBackgroundJob.tacticKernelDistillation(outcome: outcome).type == .tacticKernelDistillation)
+        #expect(MemoryBackgroundJob.memoryInvalidation(outcome: outcome).type == .memoryInvalidation)
+    }
+
     @Test func backgroundJobStorePersistsQueuedJobsAcrossReload() async throws {
         let baseDirectory = try makeTemporaryDirectory()
         let store = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
@@ -84,7 +91,7 @@ struct MemoryBackgroundSchedulerTests {
         #expect(report.revalidationCount >= 0)
     }
 
-    @Test func schedulerConsumesExperienceDistillationJobs() async throws {
+    @Test func schedulerConsumesExperienceDistillationJobsAsCounterexampleCompatibilityPath() async throws {
         let baseDirectory = try makeTemporaryDirectory()
         let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
         let scheduler = MemoryBackgroundScheduler(baseDirectory: baseDirectory)
@@ -132,7 +139,75 @@ struct MemoryBackgroundSchedulerTests {
 
         let records = try UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
             .records(for: .session(id: "s1"), includeArchived: true)
-        #expect(records.contains { $0.tags.contains("recovery-tip") })
+        #expect(records.contains { $0.tags.contains("counterexample") })
+    }
+
+    @Test func schedulerConsumesCounterexampleDistillationJobs() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
+        let scheduler = MemoryBackgroundScheduler(baseDirectory: baseDirectory)
+
+        let outcome = makeOutcome(records: [
+            MemoryRecord.fixture(
+                id: "failure-1",
+                layer: .task,
+                kind: .working,
+                scope: .session(id: "s1"),
+                title: "Attempt 1",
+                summary: "Edited before confirming scheme",
+                verificationStatus: .failed,
+                tags: ["failed-attempt"]
+            ),
+            MemoryRecord.fixture(
+                id: "failure-2",
+                layer: .task,
+                kind: .working,
+                scope: .session(id: "s1"),
+                title: "Attempt 2",
+                summary: "Edited before confirming scheme",
+                verificationStatus: .failed,
+                tags: ["failed-attempt"]
+            )
+        ])
+
+        try jobStore.enqueue(.counterexampleDistillation(outcome: outcome))
+        await scheduler.runOnce()
+
+        let jobs = try jobStore.allJobs()
+        #expect(jobs.allSatisfy { $0.status == .completed })
+
+        let records = try UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+            .records(for: .session(id: "s1"), includeArchived: true)
+        #expect(records.contains { $0.tags.contains("counterexample") })
+    }
+
+    @Test func schedulerConsumesTacticKernelDistillationJobs() async throws {
+        let baseDirectory = try makeTemporaryDirectory()
+        let jobStore = MemoryBackgroundJobStore(baseDirectory: baseDirectory)
+        let scheduler = MemoryBackgroundScheduler(baseDirectory: baseDirectory)
+
+        let outcome = makeOutcome(records: [
+            MemoryRecord.fixture(
+                id: "fact-1",
+                layer: .working,
+                kind: .working,
+                scope: .session(id: "s1"),
+                title: "Build uses xcodebuild",
+                confidence: 1.0,
+                verificationStatus: .verified,
+                tags: ["confirmed-fact"]
+            )
+        ])
+
+        try jobStore.enqueue(.tacticKernelDistillation(outcome: outcome))
+        await scheduler.runOnce()
+
+        let jobs = try jobStore.allJobs()
+        #expect(jobs.allSatisfy { $0.status == .completed })
+
+        let records = try UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+            .records(for: .session(id: "s1"), includeArchived: true)
+        #expect(records.contains { $0.tags.contains("tactic-kernel") })
     }
 
     @Test func schedulerEmitsBackgroundJobLifecycleLogs() async throws {
@@ -156,5 +231,21 @@ struct MemoryBackgroundSchedulerTests {
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    private func makeOutcome(records: [MemoryRecord]) -> MemoryRuntimeOutcome {
+        MemoryRuntimeOutcome(
+            request: MemoryRuntimeRequest(
+                sessionId: "s1",
+                threadId: "t1",
+                workflowRunId: nil,
+                userRequest: "Fix build",
+                taskKind: .coding,
+                projectId: nil,
+                workspaceRoot: "/tmp/repo",
+                contextBudget: 4000
+            ),
+            records: records
+        )
     }
 }

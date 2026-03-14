@@ -5,4 +5,8 @@ enum MemoryLifecycleTier: String, Codable, Equatable, Sendable {
     case warm
     case cold
     case archive
+
+    var isSecondaryMetadata: Bool {
+        true
+    }
 }

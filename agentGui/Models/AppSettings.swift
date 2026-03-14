@@ -111,6 +111,30 @@ final class AppSettings {
     /// Experience / procedure distillation jobs
     var enableExperienceDistillation: Bool = false
 
+    /// RMS naming bridge: extraction stage for epistemic objects.
+    var enableEpistemicExtraction: Bool {
+        get { enableAdmissionV2 }
+        set { enableAdmissionV2 = newValue }
+    }
+
+    /// RMS naming bridge: retrieval stage centered on frontiers and verification debt.
+    var enableRMSRetrieval: Bool {
+        get { enableGoalConditionedRetrieval }
+        set { enableGoalConditionedRetrieval = newValue }
+    }
+
+    /// RMS naming bridge: distillation stage for counterexamples and tactic kernels.
+    var enableRMSDistillation: Bool {
+        get { enableExperienceDistillation }
+        set { enableExperienceDistillation = newValue }
+    }
+
+    /// Compatibility bridge for legacy task-memory and layer-first affordances.
+    var enableLegacyMemoryCompatibility: Bool {
+        get { enableLifecycleManager == false }
+        set { enableLifecycleManager = !newValue }
+    }
+
     /// 是否启用统一写路径
     var enableUnifiedMemoryWritePath: Bool = true
 

@@ -5,6 +5,51 @@ import Testing
 
 struct AgentLoopMemoryBootstrapHookTests {
 
+    @Test func memoryBootstrapComposerRendersEpistemicStateSummary() async throws {
+        let composer = AgentLoopMemoryBootstrapComposer(
+            dependencies: .init(
+                loadUnifiedContext: { nil },
+                loadTaskMemory: { nil },
+                loadTaskMemoryPromptText: { nil },
+                saveRuntimeSnapshot: { _ in nil }
+            )
+        )
+
+        let summary = composer.renderEpistemicSummary(
+            EpistemicState(
+                frontiers: [
+                    FrontierMemory(
+                        frontierId: "f-1",
+                        goal: "Fix build",
+                        openClaim: "Need to verify shared scheme",
+                        uncertaintyType: .tooling,
+                        impactLevel: .high,
+                        suggestedProbe: "Run xcodebuild -list",
+                        stopCondition: "Scheme confirmed"
+                    )
+                ],
+                activeConstraints: [
+                    ConstraintMemory(
+                        id: "c-1",
+                        summary: "Inspect before editing",
+                        scope: .session(id: "s1")
+                    )
+                ],
+                verificationDebt: [
+                    VerificationDebt(
+                        id: "d-1",
+                        claim: "Scheme issue",
+                        reason: "No direct evidence yet"
+                    )
+                ]
+            )
+        )
+
+        #expect(summary.contains("Need to verify shared scheme"))
+        #expect(summary.contains("Inspect before editing"))
+        #expect(summary.contains("Scheme issue"))
+    }
+
     @Test func memoryBootstrapHookReturnsMessagePatch() async throws {
         let hook = MemoryBootstrapHook { _ in
             AgentLoopMessagePatch(

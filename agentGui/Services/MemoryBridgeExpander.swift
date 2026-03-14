@@ -18,6 +18,8 @@ struct MemoryBridgeExpander {
 
             for candidate in candidateRecords where candidate.id != selected.id {
                 let isRecoveryCandidate = candidate.tags.contains("recovery-tip") ||
+                    candidate.tags.contains("tactic-kernel") ||
+                    candidate.tags.contains("counterexample") ||
                     candidate.tags.contains("procedure") ||
                     candidate.title.localizedCaseInsensitiveContains("scheme")
                 guard isRecoveryCandidate else { continue }

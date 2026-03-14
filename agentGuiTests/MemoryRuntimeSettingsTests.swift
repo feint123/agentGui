@@ -2,6 +2,15 @@ import Testing
 @testable import agentGui
 
 struct MemoryRuntimeSettingsTests {
+    @Test func appSettingsExposeRMSFlags() async throws {
+        let settings = AppSettings()
+
+        #expect(settings.enableEpistemicExtraction == false)
+        #expect(settings.enableRMSRetrieval == false)
+        #expect(settings.enableRMSDistillation == false)
+        #expect(settings.enableLegacyMemoryCompatibility == true)
+    }
+
     @Test func appSettingsExposeUnifiedMemoryRuntimeDefaults() async throws {
         let settings = AppSettings()
 

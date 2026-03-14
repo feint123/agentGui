@@ -22,7 +22,7 @@ struct MemoryManagementPanel: View {
             .padding(24)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle("记忆治理")
+        .navigationTitle("RMS 治理")
         .task {
             reload()
         }
@@ -68,7 +68,7 @@ struct MemoryManagementPanel: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("记忆治理工作台")
+                    Text("RMS 治理工作台")
                         .font(.title2.weight(.semibold))
                     Text(heroDescription)
                         .font(.subheadline)
@@ -194,7 +194,7 @@ struct MemoryManagementPanel: View {
         }
 
         return AnyView(
-            surfaceSection(title: "Rollout Flags", subtitle: "当前 memory control plane 的特性开关状态") {
+            surfaceSection(title: "RMS Rollout", subtitle: "当前 RMS control plane 的特性开关状态") {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(viewModel.rolloutFlags) { flag in
                         HStack(spacing: 12) {
@@ -254,7 +254,7 @@ struct MemoryManagementPanel: View {
             return "当前没有待确认写入或冲突替代记录，治理队列处于稳定状态。"
         }
 
-        return "当前有 \(viewModel.reviewQueueCount) 条记录需要处理，建议先处理待确认写入，再清理冲突替代记录。"
+        return "当前有 \(viewModel.reviewQueueCount) 条记录需要处理，建议先处理待确认写入，再清理反例修订和冲突替代记录。"
     }
 
     private func breakdownContent(items: [MemoryManagementViewModel.CountSummary]) -> some View {

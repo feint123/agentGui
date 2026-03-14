@@ -12,6 +12,7 @@ struct MemoryLifecycleRebalanceResult: Equatable, Sendable {
     var auditEntries: [MemoryLifecycleAuditEntry]
 }
 
+// Lifecycle tiering remains a secondary metadata pass and should not drive RMS planning.
 struct MemoryLifecycleManager {
     private let budgeter: MemoryWorkingSetBudgeter
 

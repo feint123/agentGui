@@ -55,6 +55,64 @@ struct MemoryRuntimeIntegrationTests {
         #expect(toolCall.memoryRuntimeSnapshotID == snapshot.id)
     }
 
+    @Test func unifiedMemoryBootstrapCarriesEpistemicStateIntoRenderedPrompt() async throws {
+        let service = ClaudeService()
+        let settings = AppSettings.testFixture()
+        settings.enableUnifiedMemoryRuntime = true
+
+        let context = try await service.buildUnifiedMemoryBootstrap(
+            settings: settings,
+            session: nil,
+            sessionId: "s1",
+            messages: [MessageParameter.Message(role: .user, content: .text("Fix build"))],
+            modelContext: try makeModelContext(),
+            epistemicState: EpistemicState(
+                frontiers: [
+                    FrontierMemory(
+                        frontierId: "f-1",
+                        goal: "Fix build",
+                        openClaim: "Need to confirm shared scheme",
+                        uncertaintyType: .tooling,
+                        impactLevel: .high,
+                        suggestedProbe: "Run xcodebuild -list",
+                        stopCondition: "Scheme confirmed"
+                    )
+                ]
+            ),
+            influenceTrace: MemoryInfluenceTrace(activatedMemoryIDs: ["f-1"], rankedActionIDs: ["Run xcodebuild -list"]),
+            coordinator: MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [
+                MemoryRecord.fixture(id: "task-1", layer: .task, scope: .session(id: "s1"), title: "Known failure")
+            ])
+        )
+
+        #expect(context?.epistemicState.frontiers.first?.frontierId == "f-1")
+        #expect(context?.renderedPrompt.contains("Need to confirm shared scheme") == true)
+        #expect(context?.runtimeSnapshot?.influenceTrace.rankedActionIDs == ["Run xcodebuild -list"])
+    }
+
+    @Test func taskMemoryEpisodeDeltaRecordsStillRenderIntoBootstrapPrompt() async throws {
+        let service = ClaudeService()
+        let baseDirectory = try makeTemporaryDirectory()
+        let store = UnifiedMemoryFileStoreAdapter(baseDirectory: baseDirectory)
+
+        try service.persistTaskMemoryExtraction(
+            sessionId: "session-episode",
+            extracted: {
+                var memory = TaskMemory(sessionId: "session-episode")
+                memory.confirmedFacts = ["Build uses xcodebuild"]
+                memory.failedAttempts = [FailedAttempt(action: "Run tests", reason: "Scheme missing")]
+                return memory
+            }(),
+            store: store,
+            timestamp: Date(timeIntervalSince1970: 100)
+        )
+
+        let prompt = try service.taskMemoryPromptText(sessionId: "session-episode", store: store)
+
+        #expect(prompt.contains("Build uses xcodebuild"))
+        #expect(prompt.contains("Scheme missing"))
+    }
+
     @Test func prepareContextSynthesizesWorkingMemoryWhenNoWorkingRecordsExist() async throws {
         let coordinator = MemoryRuntimeCoordinator.makeForTests(
             unifiedRecords: [MemoryRecord.fixture(id: "semantic-1", layer: .semantic, kind: .semantic, title: "North tower curfew")]
@@ -94,14 +152,14 @@ struct MemoryRuntimeIntegrationTests {
         #expect(context == nil)
     }
 
-    @Test func memoryRuntimeSupportsFlaggedV2PathWithoutBreakingLegacyFallback() async throws {
+    @Test func memoryRuntimeSupportsRMSPathWithoutBreakingCompatibilityFallback() async throws {
         let service = ClaudeService()
         let settings = AppSettings.testFixture()
         settings.enableUnifiedMemoryRuntime = true
-        settings.enableAdmissionV2 = true
-        settings.enableGoalConditionedRetrieval = true
+        settings.enableEpistemicExtraction = true
+        settings.enableRMSRetrieval = true
         settings.enableBridgeExpansion = true
-        settings.enableLifecycleManager = true
+        settings.enableLegacyMemoryCompatibility = false
 
         let coordinator = MemoryRuntimeCoordinator(
             featureConfiguration: .init(
@@ -149,7 +207,7 @@ struct MemoryRuntimeIntegrationTests {
                         title: "Re-run with shared scheme",
                         summary: "Share the scheme before building",
                         verificationStatus: .verified,
-                        tags: ["recovery-tip"],
+                        tags: ["tactic-kernel"],
                         lifecycleTier: .warm
                     )
                 ]

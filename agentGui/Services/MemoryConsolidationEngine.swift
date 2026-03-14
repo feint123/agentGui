@@ -3,13 +3,19 @@ import Foundation
 struct MemoryConsolidationEngine {
     private let experienceDistiller: MemoryExperienceDistillationService
     private let procedureInductor: MemoryProcedureInductionService
+    private let counterexampleDistiller: CounterexampleDistillationService
+    private let tacticKernelDistiller: TacticKernelDistillationService
 
     init(
         experienceDistiller: MemoryExperienceDistillationService = MemoryExperienceDistillationService(),
-        procedureInductor: MemoryProcedureInductionService = MemoryProcedureInductionService()
+        procedureInductor: MemoryProcedureInductionService = MemoryProcedureInductionService(),
+        counterexampleDistiller: CounterexampleDistillationService = CounterexampleDistillationService(),
+        tacticKernelDistiller: TacticKernelDistillationService = TacticKernelDistillationService()
     ) {
         self.experienceDistiller = experienceDistiller
         self.procedureInductor = procedureInductor
+        self.counterexampleDistiller = counterexampleDistiller
+        self.tacticKernelDistiller = tacticKernelDistiller
     }
 
     func consolidate(_ outcome: MemoryRuntimeOutcome) async throws -> [MemoryCandidate] {
@@ -78,7 +84,9 @@ struct MemoryConsolidationEngine {
 
         let distilled = experienceDistiller.distill(from: outcome)
         let procedures = procedureInductor.induce(from: outcome)
-        return deduplicated(candidates + distilled + procedures)
+        let counterexamples = counterexampleDistiller.distill(from: outcome)
+        let tacticKernels = tacticKernelDistiller.distill(from: outcome)
+        return deduplicated(candidates + distilled + procedures + counterexamples + tacticKernels)
     }
 
     private func consolidateCreative(outcome: MemoryRuntimeOutcome, profiles: [MemoryDomainProfile]) -> [MemoryCandidate] {

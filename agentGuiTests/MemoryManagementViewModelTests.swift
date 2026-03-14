@@ -146,19 +146,19 @@ struct MemoryManagementViewModelTests {
 
     @Test func memoryManagementViewModelExposesRolloutFlagStates() async throws {
         let settings = AppSettings.testFixture()
-        settings.enableAdmissionV2 = true
-        settings.enableGoalConditionedRetrieval = true
+        settings.enableEpistemicExtraction = true
+        settings.enableRMSRetrieval = true
         settings.enableBridgeExpansion = false
-        settings.enableLifecycleManager = true
-        settings.enableExperienceDistillation = false
+        settings.enableRMSDistillation = true
+        settings.enableLegacyMemoryCompatibility = false
 
         let viewModel = MemoryManagementViewModel(settings: settings)
         try viewModel.reload()
 
-        #expect(viewModel.rolloutFlags.contains { $0.label == "Admission V2" && $0.isEnabled })
-        #expect(viewModel.rolloutFlags.contains { $0.label == "Goal-conditioned Retrieval" && $0.isEnabled })
-        #expect(viewModel.rolloutFlags.contains { $0.label == "Lifecycle Manager" && $0.isEnabled })
-        #expect(viewModel.rolloutFlags.contains { $0.label == "Bridge Expansion" && $0.isEnabled == false })
+        #expect(viewModel.rolloutFlags.contains { $0.label == "Epistemic Extraction" && $0.isEnabled })
+        #expect(viewModel.rolloutFlags.contains { $0.label == "RMS Retrieval" && $0.isEnabled })
+        #expect(viewModel.rolloutFlags.contains { $0.label == "RMS Distillation" && $0.isEnabled })
+        #expect(viewModel.rolloutFlags.contains { $0.label == "Legacy Compatibility" && $0.isEnabled == false })
     }
 
     private func makeTemporaryDirectory() throws -> URL {

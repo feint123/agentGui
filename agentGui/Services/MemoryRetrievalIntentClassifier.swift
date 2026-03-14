@@ -30,6 +30,8 @@ struct MemoryRetrievalIntentClassifier {
 
     private func objectTypes(for phase: MemoryRetrievalPhase, taskKind: MemoryTaskKind) -> Set<MemoryRetrievalObjectType> {
         switch (taskKind, phase) {
+        case (.coding, .frontierResolution):
+            return [.fact, .bridge, .episode]
         case (.coding, .verification):
             return [.fact, .procedure, .episode]
         case (.coding, .recovery):

@@ -151,6 +151,23 @@ struct AgentLoopRoundExecutor {
         if let failureTrigger = verificationOutcome.failureTrigger {
             state.loopCtx.pendingFailureTrigger = failureTrigger
         }
+        let verificationObservations = [verificationOutcome.report.summary].compactMap { summary in
+            let trimmed = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed?.isEmpty == false) ? trimmed : nil
+        }
+        recordEpistemicInputEnvelope(
+            sessionId: sessionId,
+            roundIndex: state.loopCtx.roundIndex,
+            messages: messages,
+            toolObservations: verificationObservations,
+            events: [
+                AtomicEpistemicEvent(
+                    kind: .claimResolved,
+                    summary: verificationOutcome.passed ? "verification passed" : "verification failed",
+                    sourceRefs: ["verification:\(sessionId):\(state.loopCtx.roundIndex)"]
+                )
+            ]
+        )
         state.loopCtx.verificationComplete(passed: verificationOutcome.passed)
     }
 
@@ -338,6 +355,22 @@ struct AgentLoopRoundExecutor {
         roundSpan.addMetadata("phase", value: state.loopCtx.phase.label)
         roundSpan.addMetadata("textBytes", value: currentRoundText.count)
 
+        recordEpistemicInputEnvelope(
+            sessionId: sessionId,
+            roundIndex: roundIdx,
+            messages: messages,
+            currentRoundText: currentRoundText,
+            events: stopReason.map {
+                [
+                    AtomicEpistemicEvent(
+                        kind: .observationReceived,
+                        summary: "stop_reason=\($0)",
+                        sourceRefs: ["round:\(roundIdx)"]
+                    )
+                ]
+            } ?? []
+        )
+
         return RoundOutcome(
             roundIndex: roundIdx,
             round: round,
@@ -468,6 +501,7 @@ struct AgentLoopRoundExecutor {
             assistantObjects.append(.text(outcome.currentRoundText))
         }
         var toolResultObjects: [MessageParameter.Message.Content.ContentObject] = []
+        var toolObservations: [String] = []
 
         for pending in outcome.pendingTools {
             let input = pending.parsedInput
@@ -552,6 +586,12 @@ struct AgentLoopRoundExecutor {
                 state.loopCtx.pendingFailureTrigger = failureTrigger
             }
 
+            let observation = (result.rawOutputText ?? result.text)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !observation.isEmpty {
+                toolObservations.append(observation)
+            }
+
             toolResultObjects.append(.toolResult(pending.id, result.text, isError: result.isError ? true : nil))
             toolResultObjects.append(contentsOf: result.mediaContent)
 
@@ -562,6 +602,19 @@ struct AgentLoopRoundExecutor {
 
         messages.append(.init(role: .assistant, content: .list(assistantObjects)))
         messages.append(.init(role: .user, content: .list(toolResultObjects)))
+        recordEpistemicInputEnvelope(
+            sessionId: runtime.sessionId,
+            roundIndex: outcome.roundIndex,
+            messages: messages,
+            toolObservations: toolObservations,
+            events: toolObservations.map {
+                AtomicEpistemicEvent(
+                    kind: .observationReceived,
+                    summary: $0,
+                    sourceRefs: ["tool-round:\(outcome.roundIndex)"]
+                )
+            }
+        )
         state.loopCtx.toolResultsAppended()
     }
 
@@ -661,5 +714,62 @@ struct AgentLoopRoundExecutor {
     private func primaryUserTaskText(from messages: [MessageParameter.Message]) -> String {
         guard let taskMessage = messages.first(where: { $0.role == "user" }) else { return "" }
         return claudeService.extractText(from: taskMessage.content)
+    }
+
+    private func recordEpistemicInputEnvelope(
+        sessionId: String,
+        roundIndex: Int,
+        messages: [MessageParameter.Message],
+        currentRoundText: String? = nil,
+        toolObservations: [String] = [],
+        events: [AtomicEpistemicEvent] = []
+    ) {
+        let envelope = makeEpistemicInputEnvelope(
+            sessionId: sessionId,
+            roundIndex: roundIndex,
+            messages: messages,
+            currentRoundText: currentRoundText,
+            toolObservations: toolObservations,
+            events: events
+        )
+        var envelopes = sharedState.readEpistemicInputs(sessionId)
+        envelopes.append(envelope)
+        sharedState.writeEpistemicInputs(sessionId, envelopes)
+    }
+
+    private func makeEpistemicInputEnvelope(
+        sessionId: String,
+        roundIndex: Int,
+        messages: [MessageParameter.Message],
+        currentRoundText: String? = nil,
+        toolObservations: [String],
+        events: [AtomicEpistemicEvent]
+    ) -> EpistemicInputEnvelope {
+        var userAgentMessages = messages.compactMap { message -> String? in
+            guard message.role == "user" || message.role == "assistant" else { return nil }
+            let text = claudeService.extractText(from: message.content)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        }
+
+        if let currentRoundText {
+            let trimmed = currentRoundText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                userAgentMessages.append(trimmed)
+            }
+        }
+
+        let normalizedObservations = toolObservations.compactMap { observation -> String? in
+            let trimmed = observation.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        return EpistemicInputEnvelope(
+            sessionID: sessionId,
+            roundIndex: roundIndex,
+            userAgentMessages: userAgentMessages,
+            toolObservations: normalizedObservations,
+            events: events
+        )
     }
 }

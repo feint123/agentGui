@@ -10,32 +10,18 @@ struct MemoryExperienceDistillationService {
 
         return [
             MemoryCandidate(
-                id: "strategy-\(outcome.request.sessionId)",
+                id: "counterexample-legacy-\(outcome.request.sessionId)",
                 layer: .task,
                 kind: .working,
                 domainProfile: "coding-task",
                 scope: sessionScope,
-                title: "Prefer verified recovery path",
+                title: "Avoid invalidated recovery path",
                 summary: summary,
                 payload: .text(summary),
                 confidence: 0.8,
                 verificationStatus: .partial,
                 sourceRefs: [],
-                tags: ["strategy-tip"]
-            ),
-            MemoryCandidate(
-                id: "recovery-\(outcome.request.sessionId)",
-                layer: .task,
-                kind: .working,
-                domainProfile: "coding-task",
-                scope: sessionScope,
-                title: "Re-run with shared scheme",
-                summary: "If xcodebuild cannot find a scheme, make the scheme shared before retrying.",
-                payload: .text("If xcodebuild cannot find a scheme, make the scheme shared before retrying."),
-                confidence: 0.85,
-                verificationStatus: .partial,
-                sourceRefs: [],
-                tags: ["recovery-tip"]
+                tags: ["counterexample", "invalidated-procedure"]
             )
         ]
     }

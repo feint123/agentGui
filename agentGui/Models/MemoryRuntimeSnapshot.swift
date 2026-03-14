@@ -316,6 +316,8 @@ struct MemoryRuntimeSnapshot: Codable, Equatable, Sendable, Identifiable {
     var excludedRecords: [MemoryRuntimeSnapshotRecord]
     var bridgeExpansions: [MemoryBridgeEdge]
     var dereferenceCount: Int
+    var epistemicState: EpistemicState
+    var influenceTrace: MemoryInfluenceTrace
     var renderedPrompt: String
     var metrics: MemoryRuntimeSnapshotMetrics
 }
@@ -345,6 +347,8 @@ extension MemoryRuntimeSnapshot {
         excludedRecords: [MemoryRuntimeSnapshotRecord] = [],
         bridgeExpansions: [MemoryBridgeEdge] = [],
         dereferenceCount: Int = 0,
+        epistemicState: EpistemicState = EpistemicState(),
+        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
         retrievalIntent: MemoryRetrievalIntent? = nil,
         workingSetCost: Int = 0,
         renderedPrompt: String = "## 已验证事实\n- Fixture Record"
@@ -391,6 +395,8 @@ extension MemoryRuntimeSnapshot {
             excludedRecords: excludedRecords,
             bridgeExpansions: bridgeExpansions,
             dereferenceCount: dereferenceCount,
+            epistemicState: epistemicState,
+            influenceTrace: influenceTrace,
             renderedPrompt: renderedPrompt,
             metrics: metrics
         )

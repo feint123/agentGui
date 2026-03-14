@@ -168,6 +168,12 @@ struct AgentLoopIntegrationTests {
         #expect(snapshot?.latestOutputSnippet?.contains("hello from bash") == true)
         #expect(verification.passed == true)
         #expect(verification.summary == "bash verification passed")
+
+        let epistemicInputs = claudeService.sessionEpistemicInputs["session-bash"] ?? []
+        #expect(!epistemicInputs.isEmpty)
+        #expect(epistemicInputs.contains(where: { envelope in
+            envelope.toolObservations.contains(where: { $0.contains("hello from bash") })
+        }))
     }
 
     @Test func runCoreAgentLoopInvokesVerifierSubagentBeforeReportingSuccess() async throws {

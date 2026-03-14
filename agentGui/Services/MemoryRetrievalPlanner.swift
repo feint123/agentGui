@@ -1,6 +1,17 @@
 import Foundation
 
 struct MemoryRetrievalPlanner {
+    func makeRMSPlan(request: MemoryRuntimeRequest, profiles: [MemoryDomainProfile], epistemicState: EpistemicState) -> MemoryRetrievalPlan {
+        let phaseHint: MemoryRetrievalPhase? =
+            (!epistemicState.frontiers.isEmpty ||
+             !epistemicState.counterexamples.isEmpty ||
+             !epistemicState.verificationDebt.isEmpty)
+            ? .frontierResolution
+            : nil
+        let intent = MemoryRetrievalIntentClassifier().classify(request: request, phaseHint: phaseHint)
+        return makePlan(request: request, profiles: profiles, intent: intent)
+    }
+
     func makePlan(request: MemoryRuntimeRequest, profiles: [MemoryDomainProfile]) -> MemoryRetrievalPlan {
         let defaultIntent = MemoryRetrievalIntentClassifier().classify(request: request)
         return makePlan(request: request, profiles: profiles, intent: defaultIntent)
@@ -41,8 +52,16 @@ struct MemoryRetrievalPlanner {
             orderedLayers = [.working, .task, .semantic, .episodic, .proceduralArchive]
             itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 3, .task: 3, .semantic: 4, .episodic: 2, .proceduralArchive: 1], contextBudget: request.contextBudget)
         case .coding:
-            orderedLayers = [.working, .task, .semantic, .episodic, .proceduralArchive]
-            itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 3, .task: 4, .semantic: 3, .episodic: 1, .proceduralArchive: 1], contextBudget: request.contextBudget)
+            orderedLayers = intent.phase == .frontierResolution
+                ? [.task, .working, .semantic, .episodic, .proceduralArchive]
+                : [.working, .task, .semantic, .episodic, .proceduralArchive]
+            itemBudgetByLayer = budgets(
+                for: orderedLayers,
+                weights: intent.phase == .frontierResolution
+                    ? [.task: 4, .working: 3, .semantic: 2, .episodic: 2, .proceduralArchive: 1]
+                    : [.working: 3, .task: 4, .semantic: 3, .episodic: 1, .proceduralArchive: 1],
+                contextBudget: request.contextBudget
+            )
         case .generalAssistant:
             orderedLayers = [.working, .semantic]
             itemBudgetByLayer = budgets(for: orderedLayers, weights: [.working: 2, .semantic: 3], contextBudget: request.contextBudget)
@@ -77,6 +96,8 @@ struct MemoryRetrievalPlanner {
         var result: [MemoryRetrievalObjectType: Int] = [:]
         for objectType in intent.neededObjectTypes {
             switch objectType {
+            case .bridge where intent.phase == .frontierResolution:
+                result[objectType] = max(normalizedBudget + 1, 2)
             case .procedure where intent.phase == .verification || intent.phase == .recovery:
                 result[objectType] = max(normalizedBudget, 1)
             case .fact:

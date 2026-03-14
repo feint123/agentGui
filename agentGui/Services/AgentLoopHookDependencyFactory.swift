@@ -33,6 +33,8 @@ struct AgentLoopHookDependencyFactory {
         state: AgentLoopBuiltInHookFactory.State
     ) async throws -> AgentLoopMessagePatch? {
         // bootstrap 既返回 message patch，也把 runtime snapshot 写回共享 hook state，供 tool audit 等后续 hook 读取。
+        try await loadEpistemicBootstrapState(into: state)
+
         let unifiedStore = UnifiedMemoryFileStoreAdapter()
         let composer = AgentLoopMemoryBootstrapComposer(
             dependencies: .init(
@@ -42,7 +44,9 @@ struct AgentLoopHookDependencyFactory {
                         session: runtime.session,
                         sessionId: runtime.sessionId,
                         messages: bootstrapMessagesSnapshot,
-                        modelContext: runtime.modelContext
+                        modelContext: runtime.modelContext,
+                        epistemicState: state.epistemicState,
+                        influenceTrace: state.influenceTrace
                     )
                 },
                 loadTaskMemory: {
@@ -60,7 +64,10 @@ struct AgentLoopHookDependencyFactory {
                 }
             )
         )
-        let composition = try await composer.compose(bootstrapMessageCount: bootstrapMessagesSnapshot.count)
+        let composition = try await composer.compose(
+            bootstrapMessageCount: bootstrapMessagesSnapshot.count,
+            epistemicState: state.epistemicState
+        )
         state.memoryRuntimeProfiles = composition.runtimeProfiles
         state.memoryRuntimeLayers = composition.runtimeLayers
         state.memoryRuntimeWarnings = composition.runtimeWarnings
@@ -70,6 +77,20 @@ struct AgentLoopHookDependencyFactory {
         state.memoryRuntimeBridgeExpansionCount = composition.runtimeBridgeExpansionCount
         state.memoryRuntimeDereferenceCount = composition.runtimeDereferenceCount
         return composition.patch
+    }
+
+    func loadEpistemicBootstrapState(
+        into state: AgentLoopBuiltInHookFactory.State
+    ) async throws {
+        guard !runtime.sessionId.isEmpty else { return }
+        let envelopes = claudeService.sessionEpistemicInputs[runtime.sessionId] ?? []
+        guard !envelopes.isEmpty else { return }
+
+        let buildResult = try await EpistemicStateCoordinator
+            .fallbackOnly()
+            .buildState(from: envelopes)
+        state.epistemicState = buildResult.state
+        state.influenceTrace = buildResult.influenceTrace
     }
 
     private func createToolCallRecord(

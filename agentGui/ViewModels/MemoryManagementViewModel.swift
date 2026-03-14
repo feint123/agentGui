@@ -60,11 +60,11 @@ final class MemoryManagementViewModel {
     var rolloutFlags: [RolloutFlag] {
         guard let settings else { return [] }
         return [
-            RolloutFlag(id: "admission-v2", label: "Admission V2", isEnabled: settings.enableAdmissionV2),
-            RolloutFlag(id: "goal-conditioned", label: "Goal-conditioned Retrieval", isEnabled: settings.enableGoalConditionedRetrieval),
+            RolloutFlag(id: "epistemic-extraction", label: "Epistemic Extraction", isEnabled: settings.enableEpistemicExtraction),
+            RolloutFlag(id: "rms-retrieval", label: "RMS Retrieval", isEnabled: settings.enableRMSRetrieval),
             RolloutFlag(id: "bridge-expansion", label: "Bridge Expansion", isEnabled: settings.enableBridgeExpansion),
-            RolloutFlag(id: "lifecycle-manager", label: "Lifecycle Manager", isEnabled: settings.enableLifecycleManager),
-            RolloutFlag(id: "experience-distillation", label: "Experience Distillation", isEnabled: settings.enableExperienceDistillation)
+            RolloutFlag(id: "rms-distillation", label: "RMS Distillation", isEnabled: settings.enableRMSDistillation),
+            RolloutFlag(id: "legacy-compatibility", label: "Legacy Compatibility", isEnabled: settings.enableLegacyMemoryCompatibility)
         ]
     }
 

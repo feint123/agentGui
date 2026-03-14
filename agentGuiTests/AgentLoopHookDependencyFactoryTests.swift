@@ -82,6 +82,34 @@ struct AgentLoopHookDependencyFactoryTests {
         #expect(record.endTime != nil)
     }
 
+    @Test func dependencyFactoryLoadsEpistemicStateDuringBootstrap() async throws {
+        let service = ClaudeService()
+        service.sessionEpistemicInputs["session-1"] = [
+            EpistemicInputEnvelope(
+                sessionID: "session-1",
+                roundIndex: 1,
+                userAgentMessages: ["Fix build"],
+                toolObservations: ["Need to verify shared scheme"]
+            )
+        ]
+
+        let modelContext = try makeModelContext()
+        let request = makeRequest(service: ExtractionAnthropicService())
+        let runtime = makeRuntime(modelContext: modelContext)
+        let factory = AgentLoopHookDependencyFactory(
+            claudeService: service,
+            request: request,
+            runtime: runtime,
+            bootstrapMessagesSnapshot: []
+        )
+        let state = AgentLoopBuiltInHookFactory.State()
+
+        try await factory.loadEpistemicBootstrapState(into: state)
+
+        #expect(state.epistemicState.frontiers.count == 1)
+        #expect(state.epistemicState.frontiers.first?.openClaim == "Need to verify shared scheme")
+    }
+
     private func makeRequest(service: any AnthropicService) -> AgentLoopRunRequest {
         AgentLoopRunRequest(
             service: service,
@@ -152,4 +180,46 @@ private final class TestAnthropicService: AnthropicService {
 
 private enum TestError: Error {
     case unused
+}
+
+private final class ExtractionAnthropicService: AnthropicService {
+        let httpClient: HTTPClient = URLSessionHTTPClientAdapter()
+        let decoder: JSONDecoder = JSONDecoder()
+
+        func createMessage(_ parameter: MessageParameter) async throws -> MessageResponse {
+                _ = parameter
+                return try JSONDecoder().decode(
+                        MessageResponse.self,
+                        from: Data(#"""
+                        {
+                            "id": "msg_1",
+                            "type": "message",
+                            "role": "assistant",
+                            "model": "claude-test",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "{\"objects\":[{\"kind\":\"frontier\",\"id\":\"f-1\",\"summary\":\"Need to verify shared scheme\",\"source_refs\":[\"message:user:0\"],\"decision_delta\":\"Run xcodebuild -list\",\"evidence_level\":\"partial\"}],\"rejected\":[],\"missingEvidence\":[],\"decisionImpactNote\":\"inspect first\"}"
+                                }
+                            ],
+                            "stop_reason": "end_turn",
+                            "stop_sequence": null,
+                            "usage": { "input_tokens": 10, "output_tokens": 10 }
+                        }
+                        """#.utf8)
+                )
+        }
+
+        func streamMessage(_ parameter: MessageParameter) async throws -> AsyncThrowingStream<MessageStreamResponse, Error> { throw TestError.unused }
+        func countTokens(parameter: MessageTokenCountParameter) async throws -> MessageInputTokens { throw TestError.unused }
+        func createTextCompletion(_ parameter: TextCompletionParameter) async throws -> TextCompletionResponse { throw TestError.unused }
+        func createStreamTextCompletion(_ parameter: TextCompletionParameter) async throws -> AsyncThrowingStream<TextCompletionStreamResponse, Error> { throw TestError.unused }
+        func createSkill(_ parameter: SkillCreateParameter) async throws -> SkillResponse { throw TestError.unused }
+        func listSkills(parameter: ListSkillsParameter?) async throws -> ListSkillsResponse { throw TestError.unused }
+        func retrieveSkill(skillId: String) async throws -> SkillResponse { throw TestError.unused }
+        func deleteSkill(skillId: String) async throws { throw TestError.unused }
+        func createSkillVersion(skillId: String, _ parameter: SkillVersionCreateParameter) async throws -> SkillVersionResponse { throw TestError.unused }
+        func listSkillVersions(skillId: String, parameter: ListSkillVersionsParameter?) async throws -> ListSkillVersionsResponse { throw TestError.unused }
+        func retrieveSkillVersion(skillId: String, version: String) async throws -> SkillVersionResponse { throw TestError.unused }
+        func deleteSkillVersion(skillId: String, version: String) async throws { throw TestError.unused }
 }

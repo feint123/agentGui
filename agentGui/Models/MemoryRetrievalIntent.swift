@@ -2,6 +2,7 @@ import Foundation
 
 enum MemoryRetrievalPhase: String, Codable, Equatable, Sendable {
     case understanding
+    case frontierResolution
     case modification
     case verification
     case recovery
