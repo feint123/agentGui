@@ -104,12 +104,12 @@ struct SlashCommandRequestAssemblyTests {
         let service = ClaudeService()
         let manager = ConfigDirectoryManager.shared
         manager.setup()
-        let originalMemory = manager.readMemory()
+        let originalMemory = (try? String(contentsOf: manager.memoryFileURL, encoding: .utf8)) ?? ""
         defer {
-            _ = manager.writeMemory(content: originalMemory, mode: .overwrite)
+            try? originalMemory.write(to: manager.memoryFileURL, atomically: true, encoding: .utf8)
         }
 
-        _ = manager.writeMemory(content: "LEGACY_MEMORY_SENTINEL", mode: .overwrite)
+        try "LEGACY_MEMORY_SENTINEL".write(to: manager.memoryFileURL, atomically: true, encoding: .utf8)
 
         let prompt = service.makeSystemPromptForTests(
             skills: [],

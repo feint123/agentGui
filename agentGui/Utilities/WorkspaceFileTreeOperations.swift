@@ -42,6 +42,11 @@ enum WorkspaceFileTreeOperations {
             throw WorkspaceFileTreeOperationError.itemMissing
         }
 
+        let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName == standardizedURL.lastPathComponent {
+            return standardizedURL
+        }
+
         let destinationURL = try validatedDestinationURL(for: rawName, in: standardizedURL.deletingLastPathComponent())
         try fileManager.moveItem(at: standardizedURL, to: destinationURL)
         return destinationURL

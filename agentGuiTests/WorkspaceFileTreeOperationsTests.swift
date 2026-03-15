@@ -41,6 +41,18 @@ struct WorkspaceFileTreeOperationsTests {
             _ = try WorkspaceFileTreeOperations.renameItem(at: rootURL.appending(path: "README.md"), to: "Nested/Name.md")
         }
     }
+
+    @Test func renameWithUnchangedNameIsANoop() throws {
+        let rootURL = try makeWorkspaceOperationsTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileURL = try WorkspaceFileTreeOperations.createFile(named: "README.md", in: rootURL)
+
+        let resultURL = try WorkspaceFileTreeOperations.renameItem(at: fileURL, to: "README.md")
+
+        #expect(resultURL == fileURL.standardizedFileURL)
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+    }
 }
 
 private func makeWorkspaceOperationsTemporaryDirectory() throws -> URL {

@@ -32,6 +32,9 @@ struct FileEditorView: View {
     @State private var hasUnsavedChanges: Bool = false
     @State private var viewerType: FileViewerType = .text
     @State private var viewerImage: NSImage? = nil
+    @State private var isLoadingFile = false
+    @State private var fileLoadTask: Task<Void, Never>?
+    @State private var requestTracker = FileEditorRequestTracker()
     @State private var openFileRefreshMonitor = OpenFileRefreshMonitor()
     @State private var externalConflictCoordinator = FileEditorExternalConflictCoordinator()
     private let launchOptions = TestLaunchOptions.current
@@ -56,6 +59,8 @@ struct FileEditorView: View {
             openFileRefreshMonitor.watch(workspaceState.selectedFile)
         }
         .onDisappear {
+            fileLoadTask?.cancel()
+            requestTracker.invalidate()
             openFileRefreshMonitor.watch(nil)
         }
         .onChange(of: textContent) { _, newValue in
@@ -155,7 +160,7 @@ struct FileEditorView: View {
         .onAppear {
             openFileRefreshMonitor.watch(url)
             externalConflictCoordinator.clear()
-            if loadedFileURL != url {
+            if loadedFileURL != url || isLoadingFile {
                 loadFile(url)
             }
             triggerWorkspaceLSPBootstrap(for: url)
@@ -194,9 +199,16 @@ struct FileEditorView: View {
     private func fileContentView(for url: URL) -> some View {
         switch viewerType {
         case .text:
-            BlockDocumentEditor(text: $textContent, fileURL: url, onSelectionChange: { snapshot in
-                workspaceState.editorSelection = snapshot
-            })
+            Group {
+                if isLoadingFile {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    BlockDocumentEditor(text: $textContent, fileURL: url, onSelectionChange: { snapshot in
+                        workspaceState.editorSelection = snapshot
+                    })
+                }
+            }
         case .image:
             Group {
                 if let img = viewerImage {
@@ -231,45 +243,59 @@ struct FileEditorView: View {
     // MARK: - File I/O
 
     private func loadFile(_ url: URL) {
-        if AttachedFile.pathIsImage(url.path) {
-            loadedFileURL = url
-            viewerType = .image
-            hasUnsavedChanges = false
-            viewerImage = nil
-            Task.detached(priority: .userInitiated) { [url] in
-                let img = NSImage(contentsOf: url)
-                await MainActor.run { self.viewerImage = img }
-            }
-            return
-        }
-        if AttachedFile.pathIsPDF(url.path) {
-            loadedFileURL = url
-            viewerType = .pdf
-            hasUnsavedChanges = false
-            viewerImage = nil
-            return
-        }
+        let standardizedURL = url.standardizedFileURL
+        fileLoadTask?.cancel()
 
-        // Text file
-        viewerType = .text
-        let loadedText: String
-        do {
-            loadedText = try String(contentsOf: url, encoding: .utf8)
-        } catch {
-            if let t = try? String(contentsOf: url, encoding: .isoLatin1) {
-                loadedText = t
-            } else {
-                errorMessage = "无法读取文件：\(error.localizedDescription)"
+        let requestToken = requestTracker.beginRequest(for: standardizedURL)
+        prepareForLoading(url: standardizedURL)
+
+        fileLoadTask = Task {
+            if AttachedFile.pathIsImage(standardizedURL.path) {
+                let image = await Task.detached(priority: .userInitiated) {
+                    NSImage(contentsOf: standardizedURL)
+                }.value
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard requestTracker.isCurrent(requestToken, for: loadedFileURL) else { return }
+                    viewerImage = image
+                    isLoadingFile = false
+                }
                 return
             }
+
+            if AttachedFile.pathIsPDF(standardizedURL.path) {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard requestTracker.isCurrent(requestToken, for: loadedFileURL) else { return }
+                    isLoadingFile = false
+                }
+                return
+            }
+
+            do {
+                let normalizedText = try await FileEditorLoadedTextState.loadNormalizedText(from: standardizedURL)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard requestTracker.isCurrent(requestToken, for: loadedFileURL) else { return }
+                    fileContent = normalizedText
+                    textContent = normalizedText
+                    hasUnsavedChanges = false
+                    isLoadingFile = false
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                await MainActor.run {
+                    guard requestTracker.isCurrent(requestToken, for: loadedFileURL) else { return }
+                    fileContent = ""
+                    textContent = ""
+                    hasUnsavedChanges = false
+                    viewerImage = nil
+                    isLoadingFile = false
+                    errorMessage = "无法读取文件：\(error.localizedDescription)"
+                }
+            }
         }
-
-        let normalizedText = FileEditorLoadedTextState.normalizedTextForInitialLoad(loadedText, fileURL: url)
-
-        fileContent = normalizedText
-        textContent = normalizedText
-        loadedFileURL = url
-        hasUnsavedChanges = false
     }
 
     private func triggerWorkspaceLSPBootstrap(for url: URL) {
@@ -285,6 +311,8 @@ struct FileEditorView: View {
     }
 
     private func clearEditor() {
+        fileLoadTask?.cancel()
+        requestTracker.invalidate()
         externalConflictCoordinator.clear()
         textContent = ""
         fileContent = ""
@@ -292,26 +320,51 @@ struct FileEditorView: View {
         hasUnsavedChanges = false
         viewerType = .text
         viewerImage = nil
+        isLoadingFile = false
+        isSaving = false
     }
 
     private func saveFile(_ url: URL) {
+        let standardizedURL = url.standardizedFileURL
+        let saveToken = requestTracker.snapshot(for: standardizedURL)
         isSaving = true
         let textToSave = textContent
         Task.detached(priority: .userInitiated) {
             do {
-                try textToSave.write(to: url, atomically: true, encoding: .utf8)
+                try textToSave.write(to: standardizedURL, atomically: true, encoding: .utf8)
                 await MainActor.run {
-                    self.externalConflictCoordinator.handleSuccessfulSave(for: url)
+                    guard requestTracker.isCurrent(saveToken, for: loadedFileURL) else { return }
+                    self.externalConflictCoordinator.handleSuccessfulSave(for: standardizedURL)
                     self.fileContent = textToSave
                     self.hasUnsavedChanges = false
                     self.isSaving = false
                 }
             } catch {
                 await MainActor.run {
+                    guard requestTracker.isCurrent(saveToken, for: loadedFileURL) else { return }
                     self.errorMessage = "保存失败：\(error.localizedDescription)"
                     self.isSaving = false
                 }
             }
+        }
+    }
+
+    private func prepareForLoading(url: URL) {
+        loadedFileURL = url
+        textContent = ""
+        fileContent = ""
+        hasUnsavedChanges = false
+        viewerImage = nil
+        isSaving = false
+        isLoadingFile = true
+        errorMessage = nil
+
+        if AttachedFile.pathIsImage(url.path) {
+            viewerType = .image
+        } else if AttachedFile.pathIsPDF(url.path) {
+            viewerType = .pdf
+        } else {
+            viewerType = .text
         }
     }
 
