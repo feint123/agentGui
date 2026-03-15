@@ -26,6 +26,19 @@ struct AgentDefinitionLoaderTests {
         #expect(verifier.body.contains("real evidence"))
     }
 
+    @Test func exploreDocumentPrioritizesStepByStepWorkspaceFirstSearchWithBoundedWebUse() throws {
+        let loader = AgentDefinitionLoader()
+        let documents = try loader.loadBuiltInDocuments(from: Bundle.main)
+        let explore = try #require(documents.first(where: { $0.name == "explore" }))
+
+        #expect(explore.toolGroupNames == ["read_only_editor", "web"])
+        #expect(explore.body.contains("step by step"))
+        #expect(explore.body.contains("workspace"))
+        #expect(explore.body.contains("web"))
+        #expect(explore.body.contains("Only use web"))
+        #expect(explore.body.contains("local"))
+    }
+
     @Test func rejectsUnknownToolGroup() throws {
         let loader = AgentDefinitionLoader()
 

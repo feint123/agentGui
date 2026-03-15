@@ -172,17 +172,16 @@ struct ChatView: View {
         }
     }
 
-    var unifiedMemoryRuntimeEnabled: Bool {
-        AppSettings.getOrCreate(in: modelContext).enableUnifiedMemoryRuntime
+    var rmsRuntimeEnabled: Bool {
+        AppSettings.getOrCreate(in: modelContext).memoryEnabled
     }
 
     var navigationSubtitleText: String {
         if !claudeService.isConfigured {
             return "⚠️ 请先配置 API Key"
         }
-        if unifiedMemoryRuntimeEnabled {
-            let settings = AppSettings.getOrCreate(in: modelContext)
-            return settings.enableMemoryGovernance ? "统一记忆运行时已启用 · 治理层开启" : "统一记忆运行时已启用"
+        if rmsRuntimeEnabled {
+            return "RMS memory 已启用"
         }
         return ""
     }

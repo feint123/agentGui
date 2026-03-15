@@ -78,6 +78,18 @@ final class SessionTaskStateStore {
         )
     }
 
+    func saveRMSState(_ rmsState: RMSState, for sessionId: String) throws {
+        let state = try upsertTaskState(for: sessionId)
+        state.rmsStateJson = try encode(rmsState.stableSnapshot())
+        state.updatedAt = Date()
+        try persistenceCoordinator.save(
+            modelContext,
+            domain: .sessionTaskState,
+            userMessage: "RMS 状态未成功保存",
+            metadata: ["sessionId": sessionId]
+        )
+    }
+
     func updateVerificationAssessment(
         _ update: VerificationAssessmentUpdate,
         for sessionId: String
@@ -102,6 +114,10 @@ final class SessionTaskStateStore {
 
     func verification(for sessionId: String) -> CompletionVerification? {
         try? taskState(for: sessionId)?.verification
+    }
+
+    func rmsState(for sessionId: String) -> RMSState? {
+        try? taskState(for: sessionId)?.rmsState
     }
 
     private func upsertTaskState(for sessionId: String) throws -> SessionTaskState {

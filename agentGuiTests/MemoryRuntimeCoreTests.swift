@@ -7,12 +7,11 @@ struct MemoryRuntimeCoreTests {
         #expect(MemoryLayer.allCases == [.instant, .working, .task, .episodic, .semantic, .proceduralArchive])
     }
 
-    @Test func agentLoopRunStateStartsWithEmptyEpistemicState() async throws {
+    @Test func agentLoopRunStateStartsWithoutVerificationState() async throws {
         let state = AgentLoopRunState()
 
-        #expect(state.epistemicState.frontiers.isEmpty)
-        #expect(state.epistemicState.activeConstraints.isEmpty)
-        #expect(state.influenceTrace.activatedMemoryIDs.isEmpty)
+        #expect(state.verificationState == nil)
+        #expect(state.executionEvidence.isEmpty)
     }
 
     @Test func memoryScopeSupportsProjectAndSessionNamespaces() async throws {

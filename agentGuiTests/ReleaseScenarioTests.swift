@@ -42,38 +42,6 @@ struct ReleaseScenarioTests {
         #expect(row.tertiaryText == "waiting for tests")
     }
 
-    @Test func creativeWritingRuntimeCanUseUnifiedRecordsWithoutStoryProjectFixture() async throws {
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(
-            unifiedRecords: [
-                MemoryRecord.fixture(
-                    layer: .semantic,
-                    kind: .semantic,
-                    domainProfile: "creative-writing",
-                    scope: .session(id: "story-session"),
-                    title: "林澈",
-                    summary: "调查者仍在北塔",
-                    source: .system(name: "tests"),
-                    retentionPolicy: .sessionBound
-                )
-            ]
-        )
-        let request = MemoryRuntimeRequest(
-            sessionId: "story-session",
-            threadId: "story-thread",
-            workflowRunId: nil,
-            userRequest: "Continue the chapter with Lin Che and keep the curfew rule consistent",
-            taskKind: MemoryTaskKind.creativeWriting,
-            projectId: nil,
-            workspaceRoot: nil,
-            contextBudget: 4000
-        )
-        let context = try await coordinator.prepareContext(for: request)
-
-        #expect(context.records.contains {
-            $0.scope == .session(id: "story-session") && $0.title == "林澈"
-        })
-    }
-
     @Test func recoveryScenarioFindsInterruptedWorkflowAndPendingMessage() async throws {
         let harness = try InMemoryAppHarness.makeRecoveryScenario()
 

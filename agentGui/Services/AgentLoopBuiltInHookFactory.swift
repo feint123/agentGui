@@ -4,8 +4,6 @@ struct AgentLoopBuiltInHookFactory {
     final class State {
         var lastRound: AgentRound?
         var verificationState: VerificationState?
-        var epistemicState: EpistemicState = EpistemicState()
-        var influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace()
         var memoryRuntimeProfiles: [String] = []
         var memoryRuntimeLayers: [String] = []
         var memoryRuntimeWarnings: [String] = []

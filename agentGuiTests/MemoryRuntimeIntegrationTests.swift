@@ -6,117 +6,42 @@ import Testing
 
 @MainActor
 struct MemoryRuntimeIntegrationTests {
-    @Test func codingRequestProducesSingleUnifiedMemorySlice() async throws {
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(
-            unifiedRecords: [MemoryRecord.fixture(layer: .task, kind: .working, title: "Known task fact")]
-        )
-
-        let request = MemoryRuntimeRequest(
-            sessionId: "s1",
-            threadId: "t1",
-            workflowRunId: nil,
-            userRequest: "Fix the failing build",
-            taskKind: .coding,
-            projectId: nil,
-            workspaceRoot: "/tmp/repo",
-            contextBudget: 4000
-        )
-
-        let context = try await coordinator.prepareContext(for: request)
-        #expect(context.renderedPrompt.contains("Known task fact"))
-    }
-
-    @Test func unifiedMemoryBootstrapPersistsSnapshotAndLinksToolCall() async throws {
-        let baseDirectory = try makeTemporaryDirectory()
-        let store = MemoryRuntimeSnapshotStore(baseDirectory: baseDirectory)
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(
-            unifiedRecords: [MemoryRecord.fixture(id: "task-1", layer: .task, scope: .session(id: "s1"), title: "Known failure")]
-        )
-
-        let context = try await coordinator.prepareContext(for: .init(
-            sessionId: "s1",
-            threadId: "t1",
-            workflowRunId: nil,
-            userRequest: "Fix build",
-            taskKind: .coding,
-            projectId: nil,
-            workspaceRoot: "/tmp/repo",
-            contextBudget: 4000
-        ))
-        let snapshot = try #require(context.runtimeSnapshot)
-        try store.save(snapshot)
-
-        let toolCall = ToolCall(toolCallId: "tool-1", kind: .search)
-        toolCall.memoryRuntimeSnapshotID = snapshot.id
-
-        let loadedSnapshot = try store.snapshot(id: snapshot.id)
-        #expect(loadedSnapshot?.selectedRecords.contains { $0.layer == .task && $0.title == "Known failure" } == true)
-        #expect(loadedSnapshot?.selectedRecords.contains { $0.layer == .working && $0.tags.contains("runtime-working") } == true)
-        #expect(toolCall.memoryRuntimeSnapshotID == snapshot.id)
-    }
-
-    @Test func unifiedMemoryBootstrapCarriesEpistemicStateIntoRenderedPrompt() async throws {
+    @Test func bootstrapUsesPersistedTaskBoundRMSState() async throws {
         let service = ClaudeService()
         let settings = AppSettings.testFixture()
-        settings.enableUnifiedMemoryRuntime = true
+        let modelContext = try makeModelContext()
+        let store = SessionTaskStateStore(modelContext: modelContext, persistenceCoordinator: .shared)
+
+        try store.saveRMSState(
+            RMSState.fixture(
+                taskID: "task-1",
+                sessionID: "s1",
+                threadID: "s1",
+                summary: "Fix the failing build",
+                constraints: [
+                    .init(id: "c-1", summary: "Inspect before editing", scope: .session(id: "s1"))
+                ],
+                candidateActions: ["Run targeted xcodebuild test"]
+            ),
+            for: "s1"
+        )
 
         let context = try await service.buildUnifiedMemoryBootstrap(
             settings: settings,
             session: nil,
             sessionId: "s1",
-            messages: [MessageParameter.Message(role: .user, content: .text("Fix build"))],
-            modelContext: try makeModelContext(),
-            epistemicState: EpistemicState(
-                frontiers: [
-                    FrontierMemory(
-                        frontierId: "f-1",
-                        goal: "Fix build",
-                        openClaim: "Need to confirm shared scheme",
-                        uncertaintyType: .tooling,
-                        impactLevel: .high,
-                        suggestedProbe: "Run xcodebuild -list",
-                        stopCondition: "Scheme confirmed"
-                    )
-                ]
-            ),
-            influenceTrace: MemoryInfluenceTrace(activatedMemoryIDs: ["f-1"], rankedActionIDs: ["Run xcodebuild -list"]),
-            coordinator: MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [
-                MemoryRecord.fixture(id: "task-1", layer: .task, scope: .session(id: "s1"), title: "Known failure")
-            ])
+            messages: [MessageParameter.Message(role: .user, content: .text("Fix the failing build"))],
+            modelContext: modelContext
         )
 
-        #expect(context?.epistemicState.frontiers.first?.frontierId == "f-1")
-        #expect(context?.renderedPrompt.contains("Need to confirm shared scheme") == true)
-        #expect(context?.runtimeSnapshot?.influenceTrace.rankedActionIDs == ["Run xcodebuild -list"])
+        #expect(context?.profiles == ["rms"])
+        #expect(context?.renderedPrompt.contains("Inspect before editing") == true)
+        #expect(context?.renderedPrompt.contains("Run targeted xcodebuild test") == true)
     }
 
-    @Test func prepareContextSynthesizesWorkingMemoryWhenNoWorkingRecordsExist() async throws {
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(
-            unifiedRecords: [MemoryRecord.fixture(id: "semantic-1", layer: .semantic, kind: .semantic, title: "North tower curfew")]
-        )
-
-        let context = try await coordinator.prepareContext(for: .init(
-            sessionId: "s1",
-            threadId: "t1",
-            workflowRunId: nil,
-            userRequest: "Continue the chapter and keep the night curfew consistent",
-            taskKind: .creativeWriting,
-            projectId: "project-1",
-            workspaceRoot: nil,
-            contextBudget: 4000
-        ))
-
-        #expect(context.records.contains {
-            $0.layer == .working &&
-            $0.tags.contains("runtime-working") &&
-            $0.summary.contains("Continue the chapter")
-        })
-    }
-
-    @Test func unifiedBootstrapRespectsFeatureFlag() async throws {
+    @Test func bootstrapReturnsNilWhenNoTaskBoundRMSStateExists() async throws {
         let service = ClaudeService()
         let settings = AppSettings.testFixture()
-        settings.enableUnifiedMemoryRuntime = false
 
         let context = try await service.buildUnifiedMemoryBootstrap(
             settings: settings,
@@ -129,64 +54,49 @@ struct MemoryRuntimeIntegrationTests {
         #expect(context == nil)
     }
 
-    @Test func memoryRuntimeSupportsRMSPlannerWithoutLegacyFallback() async throws {
+    @Test func unifiedBootstrapRespectsFeatureFlag() async throws {
         let service = ClaudeService()
         let settings = AppSettings.testFixture()
-        settings.enableUnifiedMemoryRuntime = true
-        settings.enableEpistemicExtraction = true
-        settings.enableRMSRetrieval = true
+        settings.memoryEnabled = false
 
-        let coordinator = MemoryRuntimeCoordinator(
-            featureConfiguration: .init(
-                enableEpistemicExtraction: true,
-                enableRMSRetrieval: true,
-                enableRMSDistillation: false
+        let context = try await service.buildUnifiedMemoryBootstrap(
+            settings: settings,
+            session: nil,
+            sessionId: "s1",
+            messages: [MessageParameter.Message(role: .user, content: .text("Fix build"))],
+            modelContext: try makeModelContext()
+        )
+
+        #expect(context == nil)
+    }
+
+    @Test func bootstrapUsesRMSPromptSectionsWithoutLegacyFallback() async throws {
+        let service = ClaudeService()
+        let settings = AppSettings.testFixture()
+        let modelContext = try makeModelContext()
+        let store = SessionTaskStateStore(modelContext: modelContext, persistenceCoordinator: .shared)
+
+        try store.saveRMSState(
+            RMSState.fixture(
+                taskID: "task-1",
+                sessionID: "s1",
+                threadID: "s1",
+                summary: "Fix failing build and verify tests",
+                frontiers: [
+                    .init(id: "f-1", goal: "Fix build", openClaim: "Need shared scheme evidence", suggestedProbe: "Run xcodebuild -list", stopCondition: "Scheme confirmed")
+                ],
+                constraints: [
+                    .init(id: "c-1", summary: "Inspect before editing", scope: .session(id: "s1"))
+                ],
+                counterexamples: [
+                    .init(id: "x-1", summary: "Edit-first caused regression", replacementAction: "Read failure output first")
+                ],
+                verificationDebts: [
+                    .init(id: "d-1", claim: "Fix works", reason: "No direct runtime evidence yet")
+                ],
+                candidateActions: ["Run xcodebuild -list"]
             ),
-            unifiedRecordsProvider: { _ in
-                [
-                    MemoryRecord.fixture(
-                        id: "failure-1",
-                        layer: .task,
-                        kind: .working,
-                        scope: .session(id: "s1"),
-                        title: "Build failure",
-                        summary: "xcodebuild scheme failure",
-                        verificationStatus: .verified,
-                        tags: ["failed-attempt"],
-                        evidenceAnchors: [
-                            MemoryEvidenceAnchor(kind: .toolCall, identifier: "tool-1", summary: "Ran xcodebuild test")
-                        ],
-                        admissionExplanation: MemoryAdmissionExplanation(
-                            score: MemoryAdmissionScore(total: 0.92, route: .hotPath),
-                            featureVector: MemoryAdmissionFeatureVector(
-                                decisionDelta: 0.92,
-                                transferability: 0.8,
-                                evidenceStrength: 1,
-                                decayResistance: 0.75,
-                                privacyRisk: 0,
-                                confidenceSignal: 1
-                            ),
-                            assessment: MemoryDecisionImpactAssessment(
-                                decisionDelta: MemoryAdmissionGateResult(passes: true, value: 0.92, rationale: "changes next step from edit to inspect"),
-                                transfer: MemoryAdmissionGateResult(passes: true, value: 0.8, rationale: "reusable across build failures"),
-                                evidence: MemoryAdmissionGateResult(passes: true, value: 1, rationale: "direct tool evidence"),
-                                decay: MemoryAdmissionGateResult(passes: true, value: 0.75, rationale: "stable across runs")
-                            ),
-                            reasons: ["verified tool evidence"]
-                        ),
-                    ),
-                    MemoryRecord.fixture(
-                        id: "recovery-1",
-                        layer: .task,
-                        kind: .working,
-                        scope: .session(id: "s1"),
-                        title: "Re-run with shared scheme",
-                        summary: "Share the scheme before building",
-                        verificationStatus: .verified,
-                        tags: ["tactic-kernel"]
-                    )
-                ]
-            }
+            for: "s1"
         )
 
         let context = try await service.buildUnifiedMemoryBootstrap(
@@ -194,49 +104,72 @@ struct MemoryRuntimeIntegrationTests {
             session: nil,
             sessionId: "s1",
             messages: [MessageParameter.Message(role: .user, content: .text("Fix failing build and verify tests"))],
-            modelContext: try makeModelContext(),
-            coordinator: coordinator
+            modelContext: modelContext
         )
 
-        let snapshot = try #require(context?.runtimeSnapshot)
-        #expect(snapshot.selectedRecords.isEmpty == false)
-        #expect(snapshot.plan.retrievalIntent?.phase == .verification)
-        #expect(snapshot.metrics.workingSetCost > 0)
+        let renderedPrompt = try #require(context?.renderedPrompt)
+        #expect(renderedPrompt.contains("Current Frontiers"))
+        #expect(renderedPrompt.contains("Constraints"))
+        #expect(renderedPrompt.contains("Known Counterexamples"))
+        #expect(renderedPrompt.contains("Verification Debt"))
+        #expect(renderedPrompt.contains("Preferred Next Actions"))
+    }
 
-        let legacyCoordinator = MemoryRuntimeCoordinator(
-            featureConfiguration: .init(
-                enableEpistemicExtraction: false,
-                enableRMSRetrieval: false,
-                enableRMSDistillation: false
-            ),
-            unifiedRecordsProvider: { _ in
-                [
-                    MemoryRecord.fixture(
-                        id: "legacy-1",
-                        layer: .task,
-                        kind: .working,
-                        scope: .session(id: "s1"),
-                        title: "Legacy build fact",
-                        summary: "Build uses xcodebuild",
-                        verificationStatus: .verified,
-                        tags: ["failed-attempt"]
-                    )
+    @Test func bootstrapLoadsPersistedInsightsForActiveScopes() async throws {
+        let service = ClaudeService()
+        let settings = AppSettings.testFixture()
+        let modelContext = try makeModelContext()
+        let taskStateStore = SessionTaskStateStore(modelContext: modelContext, persistenceCoordinator: .shared)
+        let insightStore = RMSInsightStore(baseDirectory: try makeTemporaryDirectory())
+
+        try taskStateStore.saveRMSState(
+            RMSState.fixture(
+                taskID: "task-1",
+                sessionID: "s1",
+                threadID: "s1",
+                summary: "Fix xcodebuild smoke failure",
+                frontiers: [
+                    .init(id: "f-1", goal: "Fix build", openClaim: "Need build evidence", suggestedProbe: "Run targeted xcodebuild test", stopCondition: "Failure reproduced")
                 ]
-            }
+            ),
+            for: "s1"
         )
+        try insightStore.upsert(.constraint(
+            id: "user-constraint",
+            summary: "Inspect before editing",
+            appliesWhen: "coding",
+            changesDecision: "block speculative edits",
+            scope: .user
+        ))
+        try insightStore.upsert(.counterexample(
+            id: "session-counterexample",
+            summary: "Edit-first caused regression",
+            appliesWhen: "xcodebuild",
+            changesDecision: "inspect current state first",
+            replacementAction: "Read failure output first",
+            scope: .session(id: "s1")
+        ))
+        try insightStore.upsert(.constraint(
+            id: "other-session",
+            summary: "Unrelated session guidance",
+            appliesWhen: "coding",
+            changesDecision: "ignore",
+            scope: .session(id: "s2")
+        ))
 
-        let legacyContext = try await service.buildUnifiedMemoryBootstrap(
+        let context = try await service.buildUnifiedMemoryBootstrap(
             settings: settings,
-            session: nil,
+            session: Session.fixture(sessionId: "s1", title: "RMS Insight Session"),
             sessionId: "s1",
-            messages: [MessageParameter.Message(role: .user, content: .text("Fix failing build and verify tests"))],
-            modelContext: try makeModelContext(),
-            coordinator: legacyCoordinator
+            messages: [MessageParameter.Message(role: .user, content: .text("Fix xcodebuild smoke failure"))],
+            modelContext: modelContext,
+            insightStore: insightStore
         )
 
-        let legacySnapshot = try #require(legacyContext?.runtimeSnapshot)
-        #expect(legacySnapshot.plan.retrievalIntent?.phase == .verification)
-        #expect(legacySnapshot.metrics.workingSetCost > 0)
+        let renderedPrompt = try #require(context?.renderedPrompt)
+        #expect(renderedPrompt.contains("Inspect before editing"))
+        #expect(renderedPrompt.contains("Edit-first caused regression"))
+        #expect(!renderedPrompt.contains("Unrelated session guidance"))
     }
 
     @Test func unifiedMemoryRuntimeEmitsBusinessLogsOnProductionPath() async throws {
@@ -244,15 +177,25 @@ struct MemoryRuntimeIntegrationTests {
         let service = ClaudeService()
         service.businessLogSink = sink
         let settings = AppSettings.testFixture()
-        settings.enableUnifiedMemoryRuntime = true
+        let modelContext = try makeModelContext()
+        let store = SessionTaskStateStore(modelContext: modelContext, persistenceCoordinator: .shared)
+
+        try store.saveRMSState(
+            RMSState.fixture(
+                summary: "Fix build",
+                frontiers: [
+                    .init(id: "f-1", goal: "Fix build", openClaim: "Need build evidence", suggestedProbe: "Run xcodebuild test", stopCondition: "Failure reproduced")
+                ]
+            ),
+            for: "s1"
+        )
 
         _ = try await service.buildUnifiedMemoryBootstrap(
             settings: settings,
             session: nil,
             sessionId: "s1",
             messages: [MessageParameter.Message(role: .user, content: .text("Fix build"))],
-            modelContext: try makeModelContext(),
-            coordinator: nil
+            modelContext: modelContext
         )
 
         #expect(sink.events.contains { $0.event == .memoryContextPrepared })

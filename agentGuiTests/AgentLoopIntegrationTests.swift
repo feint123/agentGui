@@ -34,6 +34,43 @@ struct AgentLoopIntegrationTests {
         #expect(result.text.contains("[Stopped: maximum rounds reached]"))
     }
 
+    @Test func runCoreAgentLoopPersistsTaskBoundRMSState() async throws {
+        let claudeService = ClaudeService()
+        let modelContext = try makeModelContext()
+
+        var messages: [MessageParameter.Message] = [
+            .init(role: .user, content: .text("Fix the smoke failure"))
+        ]
+
+        let result = try await claudeService.runCoreAgentLoop(
+            messages: &messages,
+            service: SequencedFakeAnthropicService(streamBatches: [[
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"I inspected the current failure output."}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ]]),
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            settings: .testFixture(),
+            sessionId: "session-rms-loop",
+            modelContext: modelContext,
+            maxRounds: 1,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none
+        )
+
+        let rmsState = SessionTaskStateStore(modelContext: modelContext).rmsState(for: "session-rms-loop")
+
+        #expect(!result.text.isEmpty)
+        #expect(rmsState?.summary == "Fix the smoke failure")
+        #expect(rmsState?.sessionID == "session-rms-loop")
+    }
+
     @Test func runCoreAgentLoopExecutesRunSubagentAndPersistsSubagentAudit() async throws {
         let claudeService = ClaudeService()
         let modelContext = try makeModelContext()

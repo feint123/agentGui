@@ -1,66 +1,49 @@
 import SwiftUI
+import SwiftData
 
-struct RMSCognitionPanel: View {
-    private let snapshotStore: MemoryRuntimeSnapshotStore
-    private let jobStore: MemoryBackgroundJobStore
-    private let snapshotID: String?
-    private let toolCallID: String?
+struct RMSPanel: View {
+    @Environment(\.modelContext) private var modelContext
+    private let sessionID: String?
 
-    @State private var snapshot: MemoryRuntimeSnapshot?
+    @State private var state: RMSState?
     @State private var loadError: String?
-    @State private var jobBacklogCount: Int = 0
-    @State private var recentFailedJobSummary: String?
 
-    init(
-        snapshotStore: MemoryRuntimeSnapshotStore = MemoryRuntimeSnapshotStore(),
-        jobStore: MemoryBackgroundJobStore = MemoryBackgroundJobStore(),
-        snapshotID: String? = nil,
-        toolCallID: String? = nil
-    ) {
-        self.snapshotStore = snapshotStore
-        self.jobStore = jobStore
-        self.snapshotID = snapshotID
-        self.toolCallID = toolCallID
+    init(sessionID: String? = nil) {
+        self.sessionID = sessionID
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if let snapshot {
-                    let viewModel = RMSCognitionPanelViewModel(
-                        snapshot: snapshot,
-                        jobBacklogCount: jobBacklogCount,
-                        recentFailedJobSummary: recentFailedJobSummary
-                    )
+                if let state {
+                    let viewModel = RMSPanelViewModel(state: state)
                     heroSection(viewModel: viewModel)
                     verificationSummarySection(viewModel: viewModel)
                     frontierSection(viewModel: viewModel)
                     counterexampleSection(viewModel: viewModel)
                     constraintSection(viewModel: viewModel)
                     verificationDebtSection(viewModel: viewModel)
-                    influenceSection(viewModel: viewModel)
                     nextActionsSection(viewModel: viewModel)
-                    diagnosticsSection(viewModel: viewModel)
                 } else if let loadError {
                     ContentUnavailableView("加载失败", systemImage: "exclamationmark.triangle", description: Text(loadError))
                 } else {
                     ContentUnavailableView(
-                        "暂无 RMS 认知快照",
+                        "暂无 RMS 状态",
                         systemImage: "brain",
-                        description: Text("当统一记忆运行时参与一轮任务后，这里会显示 frontiers、反例、约束、验证债务和建议动作。")
+                        description: Text("当任务 loop 产生 task-bound RMS state 后，这里会显示 frontiers、反例、约束、验证债务和建议动作。")
                     )
                 }
             }
             .padding(24)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle("RMS 认知面板")
+        .navigationTitle("RMS 面板")
         .task {
             loadLatestSnapshot()
         }
     }
 
-    private func heroSection(viewModel: RMSCognitionPanelViewModel) -> some View {
+    private func heroSection(viewModel: RMSPanelViewModel) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("当前任务认知状态")
                 .font(.title2.weight(.semibold))
@@ -79,7 +62,7 @@ struct RMSCognitionPanel: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private func frontierSection(viewModel: RMSCognitionPanelViewModel) -> some View {
+    private func frontierSection(viewModel: RMSPanelViewModel) -> some View {
         cognitionSection(title: "Frontiers", subtitle: "系统当前仍未关闭的关键前沿") {
             itemList(items: viewModel.frontierItems) { item in
                 VStack(alignment: .leading, spacing: 6) {
@@ -98,16 +81,14 @@ struct RMSCognitionPanel: View {
         }
     }
 
-    private func verificationSummarySection(viewModel: RMSCognitionPanelViewModel) -> some View {
+    private func verificationSummarySection(viewModel: RMSPanelViewModel) -> some View {
         guard let summary = viewModel.verificationSummary else {
             return AnyView(EmptyView())
         }
 
         return AnyView(
-            cognitionSection(title: "Verification Summary", subtitle: "当前验证收敛信号与残余风险") {
+            cognitionSection(title: "Verification Summary", subtitle: "当前未关闭 frontiers 与验证债务") {
                 HStack(spacing: 12) {
-                    cognitionChip(title: "残余风险", value: formattedDecimal(summary.residualRisk), tint: .pink)
-                    cognitionChip(title: "继续验证价值", value: formattedDecimal(summary.expectedValueOfMoreReasoning), tint: .mint)
                     cognitionChip(title: "前沿数", value: "\(summary.frontierCount)", tint: .orange)
                     cognitionChip(title: "债务数", value: "\(summary.debtCount)", tint: .yellow)
                 }
@@ -115,7 +96,7 @@ struct RMSCognitionPanel: View {
         )
     }
 
-    private func counterexampleSection(viewModel: RMSCognitionPanelViewModel) -> some View {
+    private func counterexampleSection(viewModel: RMSPanelViewModel) -> some View {
         cognitionSection(title: "Counterexamples", subtitle: "当前正在阻止错误路径的反例") {
             itemList(items: viewModel.counterexampleItems) { item in
                 VStack(alignment: .leading, spacing: 6) {
@@ -129,7 +110,7 @@ struct RMSCognitionPanel: View {
         }
     }
 
-    private func constraintSection(viewModel: RMSCognitionPanelViewModel) -> some View {
+    private func constraintSection(viewModel: RMSPanelViewModel) -> some View {
         cognitionSection(title: "Constraints", subtitle: "当前任务的显式边界与约束") {
             itemList(items: viewModel.constraintItems) { item in
                 VStack(alignment: .leading, spacing: 6) {
@@ -143,7 +124,7 @@ struct RMSCognitionPanel: View {
         }
     }
 
-    private func verificationDebtSection(viewModel: RMSCognitionPanelViewModel) -> some View {
+    private func verificationDebtSection(viewModel: RMSPanelViewModel) -> some View {
         cognitionSection(title: "Verification Debt", subtitle: "当前仍缺少直接证据的判断") {
             itemList(items: viewModel.verificationDebtItems) { item in
                 VStack(alignment: .leading, spacing: 6) {
@@ -157,49 +138,13 @@ struct RMSCognitionPanel: View {
         }
     }
 
-    private func influenceSection(viewModel: RMSCognitionPanelViewModel) -> some View {
-        cognitionSection(title: "Influence Trace", subtitle: "记忆如何影响当前动作排序与阻断") {
-            itemList(items: viewModel.influenceItems) { item in
-                HStack(alignment: .top, spacing: 10) {
-                    Text(item.kind.rawValue)
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.secondary.opacity(0.12), in: Capsule())
-                    Text(item.summary)
-                        .font(.subheadline)
-                }
-            }
-        }
-    }
-
-    private func nextActionsSection(viewModel: RMSCognitionPanelViewModel) -> some View {
+    private func nextActionsSection(viewModel: RMSPanelViewModel) -> some View {
         cognitionSection(title: "Suggested Next Actions", subtitle: "当前最值得执行的下一步") {
             itemList(items: viewModel.suggestedActionItems) { item in
                 Text(item.summary)
                     .font(.headline)
             }
         }
-    }
-
-    private func diagnosticsSection(viewModel: RMSCognitionPanelViewModel) -> some View {
-        DisclosureGroup("开发调试信息") {
-            VStack(alignment: .leading, spacing: 8) {
-                diagnosticsRow("Working-set Cost", value: "\(viewModel.developerDiagnostics.workingSetCost)")
-                diagnosticsRow("Dereferences", value: "\(viewModel.developerDiagnostics.dereferenceCount)")
-                diagnosticsRow("Post-enforcement Prompt", value: "\(viewModel.developerDiagnostics.postEnforcementPromptChars)")
-                diagnosticsRow("Trimmed Chars", value: "\(viewModel.developerDiagnostics.trimmedCharCount)")
-                diagnosticsRow("Fallback Extraction", value: viewModel.developerDiagnostics.wasFallbackExtractionUsed ? "yes" : "no")
-                diagnosticsRow("Job Backlog", value: "\(viewModel.developerDiagnostics.jobBacklogCount)")
-                if let recentFailedJobSummary = viewModel.developerDiagnostics.recentFailedJobSummary, !recentFailedJobSummary.isEmpty {
-                    diagnosticsRow("Recent Failed Job", value: recentFailedJobSummary)
-                }
-                diagnosticsRow("Retrieval Intent", value: viewModel.developerDiagnostics.retrievalIntentSummary)
-            }
-            .padding(.top, 8)
-        }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func cognitionSection<Content: View>(title: String, subtitle: String, @ViewBuilder content: () -> Content) -> some View {
@@ -253,22 +198,7 @@ struct RMSCognitionPanel: View {
         .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func formattedDecimal(_ value: Double) -> String {
-        String(format: "%.2f", value)
-    }
-
-    private func diagnosticsRow(_ label: String, value: String) -> some View {
-        HStack(alignment: .top) {
-            Text(label)
-            Spacer()
-            Text(value)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-        }
-    }
-
-    private func heroDescription(viewModel: RMSCognitionPanelViewModel) -> String {
+    private func heroDescription(viewModel: RMSPanelViewModel) -> String {
         if viewModel.frontierItems.isEmpty && viewModel.verificationDebtItems.isEmpty {
             return "当前没有显著未决前沿或验证债务，系统处于相对稳定的认知状态。"
         }
@@ -278,14 +208,15 @@ struct RMSCognitionPanel: View {
 
     private func loadLatestSnapshot() {
         do {
-            snapshot = try snapshotStore.preferredSnapshot(snapshotID: snapshotID, toolCallID: toolCallID)
-            let jobs = try jobStore.allJobs()
-            jobBacklogCount = jobs.filter { $0.status == .queued || $0.status == .running }.count
-            recentFailedJobSummary = jobs
-                .filter { $0.status == .failed }
-                .sorted { ($0.lastFailureAt ?? .distantPast) > ($1.lastFailureAt ?? .distantPast) }
-                .first?
-                .failureSummary
+            guard let sessionID, !sessionID.isEmpty else {
+                state = nil
+                loadError = nil
+                return
+            }
+            let descriptor = FetchDescriptor<SessionTaskState>(
+                predicate: #Predicate { $0.sessionId == sessionID }
+            )
+            state = try modelContext.fetch(descriptor).first?.rmsState
             loadError = nil
         } catch {
             loadError = error.localizedDescription

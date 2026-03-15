@@ -231,7 +231,6 @@ extension ClaudeService {
         guard settings.enableLSPTools else {
             return "Error: LSP tools are disabled in settings"
         }
-
         guard let facade = makeLSPToolFacade(settings: settings) else {
             return "Error: unable to configure LSP tools"
         }
@@ -330,6 +329,106 @@ extension ClaudeService {
         default:
             return "Error: unsupported LSP tool '\(name)'"
         }
+    }
+
+    private func executeGovernedMemoryWrite(
+        input: MessageResponse.Content.Input,
+        session: Session?,
+        modelContext _: ModelContext
+    ) async -> String {
+        guard let rawContent = input["content"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawContent.isEmpty else {
+            return "Error: missing parameter 'content'"
+        }
+
+        let mode = input["mode"]?.stringValue?.lowercased() ?? "append"
+        let scope = session.map { MemoryScope.session(id: $0.sessionId) } ?? .user
+        let now = Date()
+        let firstLine = rawContent
+            .split(whereSeparator: { $0.isNewline })
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedTitle = firstLine.isEmpty ? "Memory" : String(firstLine.prefix(80))
+        let store = RMSInsightStore()
+
+        do {
+            let existingInsight: RMSInsight?
+            if mode == "overwrite" {
+                existingInsight = try store.load(scope: scope).last(where: { insight in
+                    insight.summary.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(normalizedTitle)
+                })
+            } else {
+                existingInsight = nil
+            }
+
+            let insight = makeMemoryWriteInsight(
+                id: existingInsight?.id ?? UUID().uuidString,
+                content: rawContent,
+                normalizedTitle: normalizedTitle,
+                scope: scope,
+                updatedAt: now
+            )
+
+            try store.upsert(insight)
+            let actionDescription = existingInsight == nil ? "inserted" : "updated"
+            return "Stored RMS insight (\(actionDescription)): \(normalizedTitle)"
+        } catch {
+            return "Error: failed to store RMS insight - \(error.localizedDescription)"
+        }
+    }
+
+    private func makeMemoryWriteInsight(
+        id: String,
+        content: String,
+        normalizedTitle: String,
+        scope: MemoryScope,
+        updatedAt: Date
+    ) -> RMSInsight {
+        let lowercased = content.lowercased()
+        let appliesWhen = normalizedTitle == "Memory" ? "general" : normalizedTitle
+
+        if lowercased.contains("regress") ||
+            lowercased.contains("failed") ||
+            lowercased.contains("avoid") ||
+            lowercased.contains("instead") {
+            return RMSInsight.counterexample(
+                id: id,
+                summary: content,
+                appliesWhen: appliesWhen,
+                changesDecision: "avoid repeating the remembered failure mode",
+                replacementAction: "Inspect current state before acting",
+                evidenceRefs: ["tool:memory_write"],
+                scope: scope,
+                confidence: 0.8
+            )
+        }
+
+        if lowercased.contains("run ") ||
+            lowercased.contains("use ") ||
+            lowercased.contains("inspect ") ||
+            lowercased.contains("verify ") ||
+            lowercased.contains("rerun") {
+            return RMSInsight.tactic(
+                id: id,
+                summary: content,
+                appliesWhen: appliesWhen,
+                changesDecision: "prefer this remembered tactic when the same situation recurs",
+                evidenceRefs: ["tool:memory_write"],
+                scope: scope,
+                confidence: 0.8
+            )
+        }
+
+        return RMSInsight.constraint(
+            id: id,
+            summary: content,
+            appliesWhen: appliesWhen,
+            changesDecision: "apply the remembered constraint before taking the next action",
+            evidenceRefs: ["tool:memory_write"],
+            scope: scope,
+            confidence: 0.8
+        )
     }
 
     func ensureLSPServerStartedIfNeeded(

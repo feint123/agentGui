@@ -51,8 +51,8 @@ struct SettingsWindowView: View {
                 rootDetailView(store: store)
                     .navigationDestination(for: SettingsDetailRoute.self) { route in
                         switch route {
-                        case .rmsCognition:
-                            RMSCognitionPanel()
+                        case .rmsPanel:
+                            RMSPanel()
                         }
                     }
             }

@@ -803,6 +803,18 @@ struct AgentLoopRoundExecutor {
         var envelopes = sharedState.readEpistemicInputs(sessionId)
         envelopes.append(envelope)
         sharedState.writeEpistemicInputs(sessionId, envelopes)
+
+        let store = SessionTaskStateStore(modelContext: runtime.modelContext)
+        let existingState = store.rmsState(for: sessionId)
+        if let nextState = RMSStateReducer().reduce(existing: existingState, envelope: envelope) {
+            try? store.saveRMSState(nextState, for: sessionId)
+        }
+
+        let extraction = RMSExtractor().extract(existing: existingState, envelope: envelope)
+        let insightStore = RMSInsightStore()
+        for proposal in extraction.proposals where proposal.insight.confidence >= 0.75 {
+            try? insightStore.upsert(proposal.insight)
+        }
     }
 
     private func makeEpistemicInputEnvelope(

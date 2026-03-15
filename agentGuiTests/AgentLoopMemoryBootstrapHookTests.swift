@@ -5,47 +5,50 @@ import Testing
 
 struct AgentLoopMemoryBootstrapHookTests {
 
-    @Test func memoryBootstrapComposerRendersEpistemicStateSummary() async throws {
+    @Test func memoryBootstrapComposerBuildsRMSPromptPatch() async throws {
         let composer = AgentLoopMemoryBootstrapComposer(
             dependencies: .init(
-                loadUnifiedContext: { nil },
-                saveRuntimeSnapshot: { _ in nil }
+                loadRMSState: {
+                    RMSState(
+                        taskID: "task-1",
+                        sessionID: "session-1",
+                        threadID: "thread-1",
+                        summary: "Fix build",
+                        frontiers: [
+                            .init(
+                                id: "frontier-1",
+                                goal: "Fix build",
+                                openClaim: "Need to verify shared scheme",
+                                suggestedProbe: "Run xcodebuild -list",
+                                stopCondition: "Scheme confirmed"
+                            )
+                        ],
+                        constraints: [
+                            .init(
+                                id: "constraint-1",
+                                summary: "Inspect before editing",
+                                scope: .session(id: "s1")
+                            )
+                        ],
+                        verificationDebts: [
+                            .init(
+                                id: "debt-1",
+                                claim: "Scheme issue",
+                                reason: "No direct evidence yet"
+                            )
+                        ]
+                    )
+                },
+                loadInsights: { _ in [] }
             )
         )
 
-        let summary = composer.renderEpistemicSummary(
-            EpistemicState(
-                frontiers: [
-                    FrontierMemory(
-                        frontierId: "f-1",
-                        goal: "Fix build",
-                        openClaim: "Need to verify shared scheme",
-                        uncertaintyType: .tooling,
-                        impactLevel: .high,
-                        suggestedProbe: "Run xcodebuild -list",
-                        stopCondition: "Scheme confirmed"
-                    )
-                ],
-                activeConstraints: [
-                    ConstraintMemory(
-                        id: "c-1",
-                        summary: "Inspect before editing",
-                        scope: .session(id: "s1")
-                    )
-                ],
-                verificationDebt: [
-                    VerificationDebt(
-                        id: "d-1",
-                        claim: "Scheme issue",
-                        reason: "No direct evidence yet"
-                    )
-                ]
-            )
-        )
+        let composition = try await composer.compose(bootstrapMessageCount: 1)
+        let text = extractBootstrapText(from: composition.patch?.insertions.first?.message.content)
 
-        #expect(summary.contains("Need to verify shared scheme"))
-        #expect(summary.contains("Inspect before editing"))
-        #expect(summary.contains("Scheme issue"))
+        #expect(text.contains("Need to verify shared scheme"))
+        #expect(text.contains("Inspect before editing"))
+        #expect(text.contains("Scheme issue"))
     }
 
     @Test func memoryBootstrapHookReturnsMessagePatch() async throws {
@@ -106,6 +109,14 @@ struct AgentLoopMemoryBootstrapHookTests {
         #expect(insertionCount == 1)
         #expect(source == "story")
     }
+}
+
+private func extractBootstrapText(from content: MessageParameter.Message.Content?) -> String {
+    guard let content else { return "" }
+    if case .text(let value) = content {
+        return value
+    }
+    return ""
 }
 
 private extension AgentLoopHookContext {

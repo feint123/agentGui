@@ -268,16 +268,15 @@ extension ClaudeService {
         tools.append(makeEphemeralTool(
             name: "memory_write",
             description: """
-            Persist important long-term facts into the unified memory store. \
-            Use this for durable user preferences, stable project facts, or other cross-session context that should be remembered later. \
-            The write is governed: low-confidence or speculative content may be archived, queued for background persistence, or require user confirmation instead of being injected into live prompt memory. \
-            Keep entries concise and factual.
+            Persist important long-term RMS insights for future task decisions. \
+            Use this for durable constraints, remembered failure modes, and reusable tactics that should affect later action selection. \
+            Keep entries concise, factual, and decision-relevant.
             """,
             inputSchema: .init(
                 type: .object,
                 properties: [
-                    "content": .init(type: .string, description: "Concise factual memory content to persist into the unified memory store"),
-                    "mode": .init(type: .string, description: "Optional write mode hint. Accepted values: 'overwrite' or 'append'; unified memory writes are record-based rather than markdown edits.")
+                    "content": .init(type: .string, description: "Concise decision-relevant insight content to persist into RMS long-term memory"),
+                    "mode": .init(type: .string, description: "Optional write mode hint. Accepted values: 'overwrite' or 'append'.")
                 ],
                 required: ["content"]
             )

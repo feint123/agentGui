@@ -171,12 +171,11 @@ extension ClaudeService {
         sessionId: String,
         messages: [MessageParameter.Message],
         modelContext: ModelContext,
-        epistemicState: EpistemicState = EpistemicState(),
-        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
-        coordinator: MemoryRuntimeCoordinator? = nil
-    ) async throws -> MemoryRuntimeContext? {
-        guard settings.enableUnifiedMemoryRuntime else { return nil }
+        insightStore: (any RMSInsightStoring)? = nil
+    ) async throws -> RMSMemoryRuntimeContext? {
+        guard settings.memoryEnabled else { return nil }
         guard !sessionId.isEmpty else { return nil }
+        let resolvedInsightStore = insightStore ?? RMSInsightStore()
 
         let resolvedSession: Session?
         if let session {
@@ -190,44 +189,76 @@ extension ClaudeService {
             .first(where: { $0.role == "user" })
             .map { extractText(from: $0.content) } ?? ""
 
-        let taskKind: MemoryTaskKind = .coding
+        let taskStateStore = SessionTaskStateStore(
+            modelContext: modelContext,
+            persistenceCoordinator: .shared
+        )
+        let bootstrapState = taskStateStore.rmsState(for: sessionId)
+        guard let bootstrapState else { return nil }
 
-        let workspaceRoot: String?
-        if let sessionDirectory = resolvedSession?.workingDirectory, !sessionDirectory.isEmpty {
-            workspaceRoot = sessionDirectory
-        } else if !settings.workingDirectory.isEmpty {
-            workspaceRoot = settings.workingDirectory
-        } else {
-            workspaceRoot = nil
+        let composition = try await AgentLoopMemoryBootstrapComposer(
+            dependencies: .init(
+                loadRMSState: { bootstrapState },
+                loadInsights: { state in
+                    try resolvedInsightStore.load(
+                        scopes: self.insightScopes(
+                            for: state,
+                            session: resolvedSession,
+                            settings: settings
+                        )
+                    )
+                }
+            )
+        ).compose(bootstrapMessageCount: messages.count)
+        guard let renderedPrompt = composition.patch?.insertions.first.map({ extractText(from: $0.message.content) }),
+              !renderedPrompt.isEmpty else {
+            return nil
         }
 
-        let request = MemoryRuntimeRequest(
-            sessionId: sessionId,
-            threadId: sessionId,
-            workflowRunId: nil,
-            userRequest: currentRequest,
-            taskKind: taskKind,
-            projectId: nil,
-            workspaceRoot: workspaceRoot,
-            contextBudget: max(settings.unifiedMemoryContextBudget * 1000, 4000)
+        BusinessMonitor.emit(
+            .memoryContextPrepared,
+            context: .init(sessionID: sessionId),
+            metadata: [
+                "source": "rms",
+                "frontierCount": bootstrapState.frontiers.count,
+                "constraintCount": bootstrapState.constraints.count,
+                "verificationDebtCount": bootstrapState.verificationDebts.count,
+                "contextBudget": max(settings.memoryContextBudget * 1000, 4000)
+            ],
+            sink: businessLogSink
         )
 
-        let resolvedCoordinator = coordinator ?? MemoryRuntimeCoordinator(
-            featureConfiguration: MemoryRuntimeFeatureConfiguration(settings: settings),
-            unifiedRecordsProvider: { request in
-                let unifiedStoreDirectory = ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory)
-                let unifiedStore = UnifiedMemoryFileStoreAdapter(baseDirectory: unifiedStoreDirectory)
-                return (try? unifiedStore.records(for: request)) ?? []
-            },
-            unifiedStoreBaseDirectory: ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory),
-            businessLogSink: businessLogSink
+        return RMSMemoryRuntimeContext(
+            profiles: ["rms"],
+            records: [],
+            writePolicy: .readMostly,
+            warnings: composition.runtimeWarnings,
+            renderedPrompt: renderedPrompt
         )
-        let context = try await resolvedCoordinator.prepareContext(
-            for: request,
-            epistemicState: epistemicState,
-            influenceTrace: influenceTrace
-        )
-        return context
+    }
+
+    private func insightScopes(
+        for state: RMSState,
+        session: Session?,
+        settings: AppSettings
+    ) -> [MemoryScope] {
+        let workspaceRoot = [session?.workingDirectory, settings.workingDirectory]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+
+        var scopes: [MemoryScope] = [.user]
+        if !state.sessionID.isEmpty {
+            scopes.append(.session(id: state.sessionID))
+        }
+        if !state.threadID.isEmpty {
+            scopes.append(.thread(id: state.threadID))
+        }
+        if let workspaceRoot {
+            scopes.append(.workspace(id: workspaceRoot))
+        }
+
+        var seen: Set<String> = []
+        return scopes.filter { seen.insert($0.namespace).inserted }
     }
 
     func payloadReadRangeSummary(from input: MessageResponse.Content.Input) -> String? {

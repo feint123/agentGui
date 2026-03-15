@@ -321,8 +321,6 @@ struct MemoryRuntimeSnapshot: Codable, Equatable, Sendable, Identifiable {
     var excludedRecords: [MemoryRuntimeSnapshotRecord]
     var dereferenceCount: Int
     var warnings: [String]
-    var epistemicState: EpistemicState
-    var influenceTrace: MemoryInfluenceTrace
     var renderedPrompt: String
     var metrics: MemoryRuntimeSnapshotMetrics
 
@@ -340,8 +338,6 @@ struct MemoryRuntimeSnapshot: Codable, Equatable, Sendable, Identifiable {
         case excludedRecords
         case dereferenceCount
         case warnings
-        case epistemicState
-        case influenceTrace
         case renderedPrompt
         case metrics
     }
@@ -360,8 +356,6 @@ struct MemoryRuntimeSnapshot: Codable, Equatable, Sendable, Identifiable {
         excludedRecords: [MemoryRuntimeSnapshotRecord],
         dereferenceCount: Int,
         warnings: [String],
-        epistemicState: EpistemicState,
-        influenceTrace: MemoryInfluenceTrace,
         renderedPrompt: String,
         metrics: MemoryRuntimeSnapshotMetrics
     ) {
@@ -378,8 +372,6 @@ struct MemoryRuntimeSnapshot: Codable, Equatable, Sendable, Identifiable {
         self.excludedRecords = excludedRecords
         self.dereferenceCount = dereferenceCount
         self.warnings = warnings
-        self.epistemicState = epistemicState.stableSnapshot()
-        self.influenceTrace = influenceTrace
         self.renderedPrompt = renderedPrompt
         self.metrics = metrics
     }
@@ -399,8 +391,6 @@ struct MemoryRuntimeSnapshot: Codable, Equatable, Sendable, Identifiable {
         self.excludedRecords = try container.decode([MemoryRuntimeSnapshotRecord].self, forKey: .excludedRecords)
         self.dereferenceCount = try container.decode(Int.self, forKey: .dereferenceCount)
         self.warnings = try container.decodeIfPresent([String].self, forKey: .warnings) ?? []
-        self.epistemicState = try container.decode(EpistemicState.self, forKey: .epistemicState)
-        self.influenceTrace = try container.decode(MemoryInfluenceTrace.self, forKey: .influenceTrace)
         self.renderedPrompt = try container.decode(String.self, forKey: .renderedPrompt)
         self.metrics = try container.decode(MemoryRuntimeSnapshotMetrics.self, forKey: .metrics)
     }
@@ -430,8 +420,6 @@ extension MemoryRuntimeSnapshot {
         selectedRecords: [MemoryRuntimeSnapshotRecord] = [.fixture()],
         excludedRecords: [MemoryRuntimeSnapshotRecord] = [],
         dereferenceCount: Int = 0,
-        epistemicState: EpistemicState = EpistemicState(),
-        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
         retrievalIntent: MemoryRetrievalIntent? = nil,
         workingSetCost: Int = 0,
         renderedPrompt: String = "## 已验证事实\n- Fixture Record"
@@ -460,8 +448,6 @@ extension MemoryRuntimeSnapshot {
             excludedRecords: excludedRecords,
             dereferenceCount: dereferenceCount,
             warnings: [],
-            epistemicState: epistemicState,
-            influenceTrace: influenceTrace,
             retrievalIntent: retrievalIntent,
             workingSetCost: workingSetCost,
             postEnforcementPromptChars: nil,
@@ -495,8 +481,6 @@ extension MemoryRuntimeSnapshot {
         excludedRecords: [MemoryRuntimeSnapshotRecord] = [],
         dereferenceCount: Int = 0,
         warnings: [String] = [],
-        epistemicState: EpistemicState = EpistemicState(),
-        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
         retrievalIntent: MemoryRetrievalIntent? = nil,
         workingSetCost: Int = 0,
         postEnforcementPromptChars: Int? = nil,
@@ -549,8 +533,6 @@ extension MemoryRuntimeSnapshot {
             excludedRecords: excludedRecords,
             dereferenceCount: dereferenceCount,
             warnings: warnings,
-            epistemicState: epistemicState,
-            influenceTrace: influenceTrace,
             renderedPrompt: renderedPrompt,
             metrics: metrics
         )

@@ -32,76 +32,46 @@ struct AgentLoopHookDependencyFactory {
     private func loadMemoryBootstrap(
         state: AgentLoopBuiltInHookFactory.State
     ) async throws -> AgentLoopMessagePatch? {
-        // bootstrap 既返回 message patch，也把 runtime snapshot 写回共享 hook state，供 tool audit 等后续 hook 读取。
-        try await loadEpistemicBootstrapState(into: state)
-
-        let stableEpistemicState = state.epistemicState.stableSnapshot()
-        let stableInfluenceTrace = state.influenceTrace
+        let taskStateStore = SessionTaskStateStore(modelContext: runtime.modelContext)
         let composer = AgentLoopMemoryBootstrapComposer(
             dependencies: .init(
-                loadUnifiedContext: {
-                    try await claudeService.buildUnifiedMemoryBootstrap(
-                        settings: runtime.settings,
-                        session: runtime.session,
-                        sessionId: runtime.sessionId,
-                        messages: bootstrapMessagesSnapshot,
-                        modelContext: runtime.modelContext,
-                        epistemicState: stableEpistemicState,
-                        influenceTrace: stableInfluenceTrace
-                    )
+                loadRMSState: {
+                    taskStateStore.rmsState(for: runtime.sessionId)
                 },
-                saveRuntimeSnapshot: { snapshot in
-                    let snapshotStore = MemoryRuntimeSnapshotStore()
-                    try snapshotStore.save(snapshot)
-                    return snapshot.id
+                loadInsights: { state in
+                    try RMSInsightStore().load(scopes: insightScopes(for: state))
                 }
             )
         )
-        let composition = try await composer.compose(
-            bootstrapMessageCount: bootstrapMessagesSnapshot.count,
-            epistemicState: stableEpistemicState
-        )
-        state.memoryRuntimeProfiles = composition.runtimeProfiles
-        state.memoryRuntimeLayers = composition.runtimeLayers
+        let composition = try await composer.compose(bootstrapMessageCount: bootstrapMessagesSnapshot.count)
+        state.memoryRuntimeProfiles = []
+        state.memoryRuntimeLayers = []
         state.memoryRuntimeWarnings = composition.runtimeWarnings
-        state.memoryRuntimeSnapshotID = composition.runtimeSnapshotID
-        state.memoryRuntimeIntentPhase = composition.runtimeIntentPhase
-        state.memoryRuntimeWorkingSetCost = composition.runtimeWorkingSetCost
-        state.memoryRuntimeDereferenceCount = composition.runtimeDereferenceCount
+        state.memoryRuntimeSnapshotID = nil
+        state.memoryRuntimeIntentPhase = nil
+        state.memoryRuntimeWorkingSetCost = nil
+        state.memoryRuntimeDereferenceCount = nil
         return composition.patch
     }
 
-    func loadEpistemicBootstrapState(
-        into state: AgentLoopBuiltInHookFactory.State
-    ) async throws {
-        // Subagent loops reuse the parent session and Anthropic service. Re-entering
-        // bootstrap epistemic extraction here can race with the active loop and crash.
-        guard request.toolExecutionContext != .subagent else { return }
-        guard !runtime.sessionId.isEmpty else { return }
-        let envelopes = claudeService.sessionEpistemicInputs[runtime.sessionId] ?? []
-        guard !envelopes.isEmpty else { return }
+    private func insightScopes(for state: RMSState) -> [MemoryScope] {
+        let workspaceRoot = [runtime.session?.workingDirectory, runtime.settings.workingDirectory]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
 
-        let coordinator: EpistemicStateCoordinator
-        if runtime.settings.enableEpistemicExtraction {
-            coordinator = EpistemicStateCoordinator(
-                service: request.service,
-                modelId: request.modelId
-            )
-        } else {
-            coordinator = .fallbackOnly()
+        var scopes: [MemoryScope] = [.user]
+        if !state.sessionID.isEmpty {
+            scopes.append(.session(id: state.sessionID))
+        }
+        if !state.threadID.isEmpty {
+            scopes.append(.thread(id: state.threadID))
+        }
+        if let workspaceRoot {
+            scopes.append(.workspace(id: workspaceRoot))
         }
 
-        let buildResult = try await coordinator.buildState(from: envelopes)
-        state.epistemicState = buildResult.state.stableSnapshot()
-        state.influenceTrace = buildResult.influenceTrace
-        if runtime.settings.enableEpistemicExtraction && buildResult.usedFallbackExtraction {
-            let warning = buildResult.fallbackReasons.isEmpty
-                ? "Epistemic extraction fell back to bootstrap heuristics"
-                : "Epistemic extraction fell back to bootstrap heuristics: \(buildResult.fallbackReasons.joined(separator: "; "))"
-            if !state.memoryRuntimeWarnings.contains(warning) {
-                state.memoryRuntimeWarnings.append(warning)
-            }
-        }
+        var seen: Set<String> = []
+        return scopes.filter { seen.insert($0.namespace).inserted }
     }
 
     private func createToolCallRecord(

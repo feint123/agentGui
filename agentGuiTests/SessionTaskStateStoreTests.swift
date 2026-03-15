@@ -6,6 +6,42 @@ import Testing
 @MainActor
 struct SessionTaskStateStoreTests {
 
+    @Test func rmsStateReloadsAfterStoreRecreation() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let session = Session(sessionId: "session-rms", title: "Persisted RMS State")
+        context.insert(session)
+        try context.save()
+
+        let store = SessionTaskStateStore(modelContext: context)
+        try store.saveRMSState(
+            RMSState(
+                taskID: session.sessionId,
+                sessionID: session.sessionId,
+                threadID: session.sessionId,
+                summary: "Fix smoke failure",
+                frontiers: [
+                    .init(
+                        id: "frontier-1",
+                        goal: "Fix smoke failure",
+                        openClaim: "Need current build output",
+                        suggestedProbe: "Run targeted xcodebuild test",
+                        stopCondition: "Failure reproduced"
+                    )
+                ],
+                candidateActions: ["Run targeted xcodebuild test"]
+            ),
+            for: session.sessionId
+        )
+
+        let reloadedStore = SessionTaskStateStore(modelContext: context)
+        let taskState = try #require(try reloadedStore.taskState(for: session.sessionId))
+
+        #expect(taskState.rmsState?.summary == "Fix smoke failure")
+        #expect(taskState.rmsState?.frontiers.first?.openClaim == "Need current build output")
+        #expect(reloadedStore.rmsState(for: session.sessionId)?.candidateActions == ["Run targeted xcodebuild test"])
+    }
+
     @Test func todoAndVerificationReloadAfterStoreRecreation() async throws {
         let container = try makeContainer()
         let context = ModelContext(container)

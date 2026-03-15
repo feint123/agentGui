@@ -87,41 +87,11 @@ final class AppSettings {
     /// 反思置信度阈值（低于此值时触发重试，0.5–1.0）
     var reflectionConfidenceThreshold: Double = 0.7
 
-    /// 启用统一记忆运行时读取路径
-    var enableUnifiedMemoryRuntime: Bool = false
+    /// 是否启用简化后的 RMS memory 主链
+    var memoryEnabled: Bool = true
 
-    /// 统一记忆运行时的上下文预算（千字符级近似预算）
-    var unifiedMemoryContextBudget: Int = 8
-
-    /// 是否启用统一记忆治理层
-    var enableMemoryGovernance: Bool = true
-
-    /// 是否启用 epistemic extraction
-    var enableEpistemicExtraction: Bool = false
-
-    /// 是否启用 RMS retrieval
-    var enableRMSRetrieval: Bool = false
-
-    /// 是否启用 RMS distillation jobs
-    var enableRMSDistillation: Bool = false
-
-    /// 是否启用统一写路径
-    var enableUnifiedMemoryWritePath: Bool = true
-
-    /// 是否允许后台记忆巩固
-    var enableBackgroundMemoryConsolidation: Bool = true
-
-    /// 需要用户确认的默认置信度阈值
-    var memoryConfirmationThreshold: Double = 0.6
-
-    /// 是否启用 TTL sweep
-    var enableMemoryTTLSweep: Bool = true
-
-    /// 后台记忆调度轮询周期（秒）
-    var memoryBackgroundSchedulerIntervalSeconds: Int = 30
-
-    /// TTL sweep 调度周期（秒）
-    var memoryTTLSweepIntervalSeconds: Int = 300
+    /// RMS memory 注入的上下文预算（千字符级近似预算）
+    var memoryContextBudget: Int = 8
 
 
     init() {
@@ -149,18 +119,8 @@ final class AppSettings {
         self.networkProxyBypassList = ""
         self.enableReflection = false
         self.reflectionConfidenceThreshold = 0.7
-        self.enableUnifiedMemoryRuntime = false
-        self.unifiedMemoryContextBudget = 8
-        self.enableMemoryGovernance = true
-        self.enableEpistemicExtraction = false
-        self.enableRMSRetrieval = false
-        self.enableRMSDistillation = false
-        self.enableUnifiedMemoryWritePath = true
-        self.enableBackgroundMemoryConsolidation = true
-        self.memoryConfirmationThreshold = 0.6
-        self.enableMemoryTTLSweep = true
-        self.memoryBackgroundSchedulerIntervalSeconds = 30
-        self.memoryTTLSweepIntervalSeconds = 300
+        self.memoryEnabled = true
+        self.memoryContextBudget = 8
         self.lspManualWorkspaceBindingsJSON = "[]"
     }
 }

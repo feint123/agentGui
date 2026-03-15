@@ -20,145 +20,53 @@ struct SettingsMemoryView: View {
     private var settings: AppSettings { store.settings }
 
     private var runtimeEffectSummary: String {
-        let extraction = settings.enableEpistemicExtraction ? "Epistemic extraction 已接入 bootstrap 主链路" : "Epistemic extraction 使用 fallback"
-        let retrieval = settings.enableRMSRetrieval ? "RMS retrieval 会启用 frontier-aware 规划" : "RMS retrieval 退回普通检索规划"
-        let distillation = settings.enableRMSDistillation ? "RMS distillation 会排队后台蒸馏 job" : "RMS distillation 不会排队蒸馏 job"
-        return [extraction, retrieval, distillation].joined(separator: "；")
+        settings.memoryEnabled
+            ? "RMS memory 已启用，当前 task 的 state 会参与 bootstrap prompt 注入"
+            : "RMS memory 已停用，bootstrap 不会注入 task-bound memory state"
     }
 
     private var memorySection: some View {
         Section {
-            Toggle("启用统一记忆运行时", isOn: store.persistedSettingsBinding(
-                get: { settings.enableUnifiedMemoryRuntime },
-                userMessage: "统一记忆运行时设置未成功保存",
-                set: { settings.enableUnifiedMemoryRuntime = $0 }
+            Toggle("启用 Memory", isOn: store.persistedSettingsBinding(
+                get: { settings.memoryEnabled },
+                userMessage: "Memory 设置未成功保存",
+                set: { settings.memoryEnabled = $0 }
             ))
 
-            if settings.enableUnifiedMemoryRuntime {
-                Stepper(value: store.persistedSettingsBinding(
-                    get: { settings.unifiedMemoryContextBudget },
-                    userMessage: "统一记忆上下文预算未成功保存",
-                    set: { settings.unifiedMemoryContextBudget = $0 }
-                ), in: 4...16) {
-                    HStack {
-                        Text("统一记忆上下文预算")
-                        Spacer()
-                        Text("\(settings.unifiedMemoryContextBudget)")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
+            Stepper(value: store.persistedSettingsBinding(
+                get: { settings.memoryContextBudget },
+                userMessage: "Memory 上下文预算未成功保存",
+                set: { settings.memoryContextBudget = $0 }
+            ), in: 4...16) {
+                HStack {
+                    Text("Memory 上下文预算")
+                    Spacer()
+                    Text("\(settings.memoryContextBudget)")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
-
-                Toggle("启用记忆治理层", isOn: store.persistedSettingsBinding(
-                    get: { settings.enableMemoryGovernance },
-                    userMessage: "记忆治理设置未成功保存",
-                    set: { settings.enableMemoryGovernance = $0 }
-                ))
-
-                Toggle("启用 Epistemic Extraction", isOn: store.persistedSettingsBinding(
-                    get: { settings.enableEpistemicExtraction },
-                    userMessage: "Epistemic Extraction 设置未成功保存",
-                    set: { settings.enableEpistemicExtraction = $0 }
-                ))
-
-                Toggle("启用 RMS Retrieval", isOn: store.persistedSettingsBinding(
-                    get: { settings.enableRMSRetrieval },
-                    userMessage: "RMS Retrieval 设置未成功保存",
-                    set: { settings.enableRMSRetrieval = $0 }
-                ))
-
-                Toggle("启用 RMS Distillation", isOn: store.persistedSettingsBinding(
-                    get: { settings.enableRMSDistillation },
-                    userMessage: "RMS Distillation 设置未成功保存",
-                    set: { settings.enableRMSDistillation = $0 }
-                ))
-
-                Toggle("启用统一写路径", isOn: store.persistedSettingsBinding(
-                    get: { settings.enableUnifiedMemoryWritePath },
-                    userMessage: "统一写路径设置未成功保存",
-                    set: { settings.enableUnifiedMemoryWritePath = $0 }
-                ))
-
-                Toggle("允许后台记忆巩固", isOn: store.persistedSettingsBinding(
-                    get: { settings.enableBackgroundMemoryConsolidation },
-                    userMessage: "后台记忆巩固设置未成功保存",
-                    set: { settings.enableBackgroundMemoryConsolidation = $0 }
-                ))
-
-                Stepper(value: store.persistedSettingsBinding(
-                    get: { settings.memoryBackgroundSchedulerIntervalSeconds },
-                    userMessage: "后台调度周期未成功保存",
-                    set: { settings.memoryBackgroundSchedulerIntervalSeconds = $0 }
-                ), in: 5...600, step: 5) {
-                    HStack {
-                        Text("后台调度周期")
-                        Spacer()
-                        Text("\(settings.memoryBackgroundSchedulerIntervalSeconds)s")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-
-                Toggle("启用 TTL Sweep", isOn: store.persistedSettingsBinding(
-                    get: { settings.enableMemoryTTLSweep },
-                    userMessage: "TTL Sweep 设置未成功保存",
-                    set: { settings.enableMemoryTTLSweep = $0 }
-                ))
-
-                Stepper(value: store.persistedSettingsBinding(
-                    get: { settings.memoryTTLSweepIntervalSeconds },
-                    userMessage: "TTL Sweep 周期未成功保存",
-                    set: { settings.memoryTTLSweepIntervalSeconds = $0 }
-                ), in: 60...3600, step: 60) {
-                    HStack {
-                        Text("TTL Sweep 周期")
-                        Spacer()
-                        Text("\(settings.memoryTTLSweepIntervalSeconds)s")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("待确认阈值")
-                        Spacer()
-                        Text(String(format: "%.0f%%", settings.memoryConfirmationThreshold * 100))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    Slider(
-                        value: store.persistedSettingsBinding(
-                            get: { settings.memoryConfirmationThreshold },
-                            userMessage: "待确认阈值未成功保存",
-                            set: { settings.memoryConfirmationThreshold = $0 }
-                        ),
-                        in: 0.4...0.95,
-                        step: 0.05
-                    )
-                }
-
-                NavigationLink(value: SettingsDetailRoute.rmsCognition) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "shield.lefthalf.filled")
-                            .font(.title3)
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 34, height: 34)
-                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("打开 RMS 认知面板")
-                                .foregroundStyle(.primary)
-                            Text("查看 frontiers、反例、约束、验证债务与建议动作")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
             }
+
+            NavigationLink(value: SettingsDetailRoute.rmsPanel) {
+                HStack(spacing: 12) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.title3)
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 34, height: 34)
+                        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("打开 RMS 面板")
+                            .foregroundStyle(.primary)
+                        Text("查看当前 task-bound state 中的 frontiers、反例、约束、债务与下一步动作")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
             TextEditor(text: $memoryContent)
                 .font(.system(.body, design: .monospaced))
@@ -175,7 +83,7 @@ struct SettingsMemoryView: View {
         } header: {
             Text("长期记忆")
         } footer: {
-            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。统一记忆运行时用于把统一存储记录和 epistemic objects 组装成单一读视图，治理层用于限制低置信度写入。下方开关用于逐步 rollout epistemic extraction、RMS retrieval 和 RMS distillation。当前生效行为：\(runtimeEffectSummary)。")
+            Text("内容保存至 ~/.agentgui/memory.md，每次对话开始时自动注入系统提示词。Claude 也可通过 memory_write 工具直接更新记忆。Memory 设置已收敛为单一开关和上下文预算。当前生效行为：\(runtimeEffectSummary)。")
         }
     }
 

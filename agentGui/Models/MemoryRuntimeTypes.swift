@@ -144,65 +144,6 @@ struct MemoryRuntimeRequest: Equatable, Sendable {
     }
 }
 
-struct MemoryRuntimeFeatureConfiguration: Equatable, Sendable {
-    var enableEpistemicExtraction: Bool
-    var enableRMSRetrieval: Bool
-    var enableRMSDistillation: Bool
-
-    init(
-        enableEpistemicExtraction: Bool = true,
-        enableRMSRetrieval: Bool = true,
-        enableRMSDistillation: Bool = true
-    ) {
-        self.enableEpistemicExtraction = enableEpistemicExtraction
-        self.enableRMSRetrieval = enableRMSRetrieval
-        self.enableRMSDistillation = enableRMSDistillation
-    }
-
-    static let allEnabled = MemoryRuntimeFeatureConfiguration()
-}
-
-extension MemoryRuntimeFeatureConfiguration {
-    init(settings: AppSettings) {
-        self.init(
-            enableEpistemicExtraction: settings.enableEpistemicExtraction,
-            enableRMSRetrieval: settings.enableRMSRetrieval,
-            enableRMSDistillation: settings.enableRMSDistillation
-        )
-    }
-}
-
-struct MemoryRuntimeContext: Equatable, Sendable {
-    var profiles: [String]
-    var records: [MemoryRecord]
-    var writePolicy: MemoryWritePolicy
-    var warnings: [String]
-    var epistemicState: EpistemicState
-    var influenceTrace: MemoryInfluenceTrace
-    var renderedPrompt: String
-    var runtimeSnapshot: MemoryRuntimeSnapshot?
-
-    init(
-        profiles: [String],
-        records: [MemoryRecord],
-        writePolicy: MemoryWritePolicy = .readMostly,
-        warnings: [String] = [],
-        epistemicState: EpistemicState = EpistemicState(),
-        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
-        renderedPrompt: String = "",
-        runtimeSnapshot: MemoryRuntimeSnapshot? = nil
-    ) {
-        self.profiles = profiles
-        self.records = records
-        self.writePolicy = writePolicy
-        self.warnings = warnings
-        self.epistemicState = epistemicState.stableSnapshot()
-        self.influenceTrace = influenceTrace
-        self.renderedPrompt = renderedPrompt
-        self.runtimeSnapshot = runtimeSnapshot
-    }
-}
-
 enum MemoryWritePolicy: String, Codable, Equatable, Sendable {
     case readOnly
     case readMostly

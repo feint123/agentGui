@@ -9,8 +9,6 @@ struct AgentLoopRunState {
     var loopMemory: ContextMemory
     var executionEvidence: Set<ExecutionEvidenceKind>
     var verificationState: VerificationState?
-    var epistemicState: EpistemicState
-    var influenceTrace: MemoryInfluenceTrace
     let hookState: AgentLoopBuiltInHookFactory.State
 
     init(
@@ -20,8 +18,6 @@ struct AgentLoopRunState {
         loopMemory: ContextMemory = ContextMemory(),
         executionEvidence: Set<ExecutionEvidenceKind> = [],
         verificationState: VerificationState? = nil,
-        epistemicState: EpistemicState = EpistemicState(),
-        influenceTrace: MemoryInfluenceTrace = MemoryInfluenceTrace(),
         hookState: AgentLoopBuiltInHookFactory.State = AgentLoopBuiltInHookFactory.State()
     ) {
         self.runID = runID
@@ -30,8 +26,6 @@ struct AgentLoopRunState {
         self.loopMemory = loopMemory
         self.executionEvidence = executionEvidence
         self.verificationState = verificationState
-        self.epistemicState = epistemicState.stableSnapshot()
-        self.influenceTrace = influenceTrace
         self.hookState = hookState
     }
 }

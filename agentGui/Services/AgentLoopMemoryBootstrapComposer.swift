@@ -14,134 +14,48 @@ struct AgentLoopMemoryBootstrapComposition {
 
 struct AgentLoopMemoryBootstrapComposer {
     struct Dependencies {
-        var loadUnifiedContext: () async throws -> MemoryRuntimeContext?
-        var saveRuntimeSnapshot: (MemoryRuntimeSnapshot) throws -> String?
+        var loadRMSState: () async throws -> RMSState?
+        var loadInsights: (RMSState) async throws -> [RMSInsight]
     }
 
     let dependencies: Dependencies
 
-    func compose(
-        bootstrapMessageCount: Int,
-        epistemicState: EpistemicState = EpistemicState()
-    ) async throws -> AgentLoopMemoryBootstrapComposition {
-        let epistemicSummary = renderEpistemicSummary(epistemicState)
-        if let unifiedContext = try await dependencies.loadUnifiedContext() {
-            let renderedPrompt: String
-            if epistemicSummary.isEmpty {
-                renderedPrompt = unifiedContext.renderedPrompt
-            } else if unifiedContext.renderedPrompt.isEmpty {
-                renderedPrompt = epistemicSummary
-            } else {
-                renderedPrompt = "\(epistemicSummary)\n\n\(unifiedContext.renderedPrompt)"
-            }
-            var composition = AgentLoopMemoryBootstrapComposition(
-                runtimeProfiles: unifiedContext.profiles,
-                runtimeLayers: Array(Set(unifiedContext.records.map { $0.layer.rawValue })).sorted(),
-                runtimeWarnings: unifiedContext.warnings,
-                runtimeSnapshotID: nil,
-                runtimeIntentPhase: unifiedContext.runtimeSnapshot?.plan.retrievalIntent?.phase.rawValue,
-                runtimeWorkingSetCost: unifiedContext.runtimeSnapshot?.metrics.workingSetCost ?? 0,
-                runtimeDereferenceCount: unifiedContext.runtimeSnapshot?.dereferenceCount ?? 0
-            )
-
-            if let snapshot = unifiedContext.runtimeSnapshot {
-                composition.runtimeSnapshotID = try dependencies.saveRuntimeSnapshot(snapshot) ?? snapshot.id
-            }
-
-            if !renderedPrompt.isEmpty {
-                composition.patch = AgentLoopMessagePatch(
-                    insertions: [
-                        .init(
-                            index: 0,
-                            message: MessageParameter.Message(
-                                role: .user,
-                                content: .text("【统一记忆切片】以下是当前任务的统一记忆视图，请优先遵守其中的当前状态、事实、事件与风险：\n\n\(renderedPrompt)")
-                            )
-                        ),
-                        .init(
-                            index: 1,
-                            message: MessageParameter.Message(
-                                role: .assistant,
-                                content: .text("已加载统一记忆切片，将据此继续执行当前任务。")
-                            )
-                        )
-                    ],
-                    metadata: [
-                        "source": "unified",
-                        "recordCount": unifiedContext.records.count,
-                        "warningCount": unifiedContext.warnings.count
-                    ]
-                )
-            }
-
-            return composition
+    func compose(bootstrapMessageCount _: Int) async throws -> AgentLoopMemoryBootstrapComposition {
+        guard let state = try await dependencies.loadRMSState()?.stableSnapshot() else {
+            return AgentLoopMemoryBootstrapComposition()
         }
 
-        var patch = AgentLoopMessagePatch()
-
-        if !epistemicSummary.isEmpty {
-            patch.insertions.append(
-                .init(
-                    index: 0,
-                    message: MessageParameter.Message(
-                        role: .user,
-                        content: .text("【Epistemic State】以下是当前任务的未决前沿、约束和验证债务：\n\n\(epistemicSummary)")
-                    )
-                )
-            )
-            patch.insertions.append(
-                .init(
-                    index: 1,
-                    message: MessageParameter.Message(
-                        role: .assistant,
-                        content: .text("已加载当前 epistemic state，将优先处理未决前沿与验证债务。")
-                    )
-                )
-            )
-            patch.metadata["epistemicSummary"] = true
+        let activatedInsights = try await dependencies.loadInsights(state)
+        let budget = max(0, 3 - min(state.frontiers.count, 2))
+        let selectedInsights = RMSSelector().select(for: state, insights: activatedInsights, budget: max(budget, 1))
+        let renderedPrompt = RMSPromptComposer().compose(state: state, activatedInsights: selectedInsights)
+        guard !renderedPrompt.isEmpty else {
+            return AgentLoopMemoryBootstrapComposition()
         }
 
         return AgentLoopMemoryBootstrapComposition(
-            patch: patch.insertions.isEmpty ? nil : patch
+            patch: AgentLoopMessagePatch(
+                insertions: [
+                    .init(
+                        index: 0,
+                        message: MessageParameter.Message(
+                            role: .user,
+                            content: .text("【RMS】以下是当前任务的认知状态与高价值长期记忆，请先按这些约束与前沿推进：\n\n\(renderedPrompt)")
+                        )
+                    ),
+                    .init(
+                        index: 1,
+                        message: MessageParameter.Message(
+                            role: .assistant,
+                            content: .text("已加载当前 RMS 状态，将优先处理未决前沿、约束与验证债务。")
+                        )
+                    )
+                ],
+                metadata: [
+                    "source": "rms",
+                    "insightCount": selectedInsights.count
+                ]
+            )
         )
-    }
-
-    func renderEpistemicSummary(_ epistemicState: EpistemicState) -> String {
-        let stableState = epistemicState.stableSnapshot()
-        var sections: [String] = []
-
-        if !stableState.frontiers.isEmpty {
-            sections.append(
-                "未决前沿:\n" + stableState.frontiers.map {
-                    "- \($0.openClaim)\n  suggested_probe: \($0.suggestedProbe)"
-                }.joined(separator: "\n")
-            )
-        }
-
-        if !stableState.activeConstraints.isEmpty {
-            sections.append(
-                "当前约束:\n" + stableState.activeConstraints.map {
-                    "- \($0.summary)"
-                }.joined(separator: "\n")
-            )
-        }
-
-        if !stableState.verificationDebt.isEmpty {
-            sections.append(
-                "验证债务:\n" + stableState.verificationDebt.map {
-                    "- \($0.claim): \($0.reason)"
-                }.joined(separator: "\n")
-            )
-        }
-
-        if !stableState.counterexamples.isEmpty {
-            sections.append(
-                "激活反例:\n" + stableState.counterexamples.map {
-                    "- \($0.summary) -> \($0.replacementAction)"
-                }.joined(separator: "\n")
-            )
-        }
-
-        return sections.joined(separator: "\n\n")
     }
 }

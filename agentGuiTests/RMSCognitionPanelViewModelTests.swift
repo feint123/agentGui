@@ -3,130 +3,85 @@ import Testing
 @testable import agentGui
 
 @MainActor
-struct RMSCognitionPanelViewModelTests {
+struct RMSPanelViewModelTests {
     @Test func viewModelProjectsFrontiersCounterexamplesConstraintsAndDebt() {
-        let snapshot = MemoryRuntimeSnapshot.fixture(
-            epistemicState: EpistemicState(
-                frontiers: [
-                    FrontierMemory(
-                        frontierId: "f-1",
-                        goal: "Fix build",
-                        openClaim: "Need scheme evidence",
-                        uncertaintyType: .tooling,
-                        impactLevel: .high,
-                        suggestedProbe: "Run xcodebuild -list",
-                        stopCondition: "Scheme confirmed"
-                    )
-                ],
-                activeConstraints: [
-                    ConstraintMemory(id: "c-1", summary: "Run verification before file edits", scope: .session(id: "s1"))
-                ],
-                candidateActions: ["Run xcodebuild -list"],
-                verificationDebt: [
-                    VerificationDebt(id: "d-1", claim: "Build fix works", reason: "No direct test evidence yet")
-                ],
-                counterexamples: [
-                    CounterexampleMemory(id: "ce-1", summary: "Do not edit before inspect", replacementAction: "Inspect first")
-                ]
-            ),
-            influenceTrace: MemoryInfluenceTrace(
-                activatedMemoryIDs: ["f-1", "ce-1"],
-                rankedActionIDs: ["Run xcodebuild -list"],
-                blockedActionIDs: ["Edit Build Settings"],
-                actionRankingChanges: [
-                    .init(memoryID: "ce-1", fromAction: "Edit Build Settings", toAction: "Run xcodebuild -list", rationale: "counterexample blocked premature edits")
-                ],
-                blockedPathReasons: [
-                    .init(memoryID: "ce-1", blockedAction: "Edit Build Settings", rationale: "Do not edit before inspect")
-                ],
-                frontierBudgetDecisions: [
-                    .init(frontierID: "f-1", allocatedBudget: 3, rationale: "high impact frontier")
-                ]
-            )
+        let state = RMSState(
+            taskID: "task-1",
+            sessionID: "s1",
+            threadID: "thread-1",
+            summary: "Fix build",
+            frontiers: [
+                .init(id: "f-1", goal: "Fix build", openClaim: "Need scheme evidence", suggestedProbe: "Run xcodebuild -list", stopCondition: "Scheme confirmed")
+            ],
+            constraints: [
+                .init(id: "c-1", summary: "Run verification before file edits", scope: .session(id: "s1"))
+            ],
+            counterexamples: [
+                .init(id: "ce-1", summary: "Do not edit before inspect", replacementAction: "Inspect first")
+            ],
+            verificationDebts: [
+                .init(id: "d-1", claim: "Build fix works", reason: "No direct test evidence yet")
+            ],
+            candidateActions: ["Run xcodebuild -list"]
         )
 
-        let viewModel = RMSCognitionPanelViewModel(snapshot: snapshot)
+        let viewModel = RMSPanelViewModel(state: state)
 
         #expect(viewModel.frontierItems.count == 1)
         #expect(viewModel.counterexampleItems.count == 1)
         #expect(viewModel.constraintItems.count == 1)
         #expect(viewModel.verificationDebtItems.count == 1)
         #expect(viewModel.suggestedActionItems.map(\.summary) == ["Run xcodebuild -list"])
-        #expect(viewModel.influenceItems.contains { $0.kind == .actionRankingChange })
-        #expect(viewModel.influenceItems.contains { $0.kind == .blockedPathReason })
     }
 
     @Test func viewModelExposesSectionsInUserFacingOrder() {
-        let viewModel = RMSCognitionPanelViewModel(snapshot: .fixture())
+        let viewModel = RMSPanelViewModel(state: RMSState(taskID: "task-1", sessionID: "s1", threadID: "t1", summary: "Fix build"))
 
         #expect(viewModel.sectionOrder == [
             .frontiers,
             .counterexamples,
             .constraints,
             .verificationDebt,
-            .influenceTrace,
             .suggestedActions
         ])
     }
 
-    @Test func viewModelExposesDeveloperDiagnosticsAsSecondaryDetails() {
-        let snapshot = MemoryRuntimeSnapshot.fixture(
-            dereferenceCount: 2,
-            warnings: ["Epistemic extraction fell back to bootstrap heuristics"],
-            retrievalIntent: MemoryRetrievalIntent(
-                phase: .verification,
-                neededObjectTypes: [.fact, .procedure],
-                reason: "Verify build fix"
-            ),
-            workingSetCost: 128,
-            postEnforcementPromptChars: 96,
-            trimmedCharCount: 24,
-            trimmedSectionIDs: ["episodic-records"]
+    @Test func viewModelTracksAttentionStateFromFrontiersAndDebt() {
+        let state = RMSState(
+            taskID: "task-1",
+            sessionID: "session-1",
+            threadID: "thread-1",
+            summary: "Fix build",
+            frontiers: [
+                .init(id: "f-1", goal: "Fix build", openClaim: "Need scheme evidence", suggestedProbe: "Run xcodebuild -list", stopCondition: "Scheme confirmed")
+            ],
+            verificationDebts: [
+                .init(id: "d-1", claim: "Build fix works", reason: "No direct test evidence yet")
+            ]
         )
 
-        let viewModel = RMSCognitionPanelViewModel(
-            snapshot: snapshot,
-            jobBacklogCount: 3,
-            recentFailedJobSummary: "counterexample distillation failed"
-        )
+        let viewModel = RMSPanelViewModel(state: state)
 
-        #expect(viewModel.developerDiagnostics.workingSetCost == 128)
-        #expect(viewModel.developerDiagnostics.dereferenceCount == 2)
-        #expect(viewModel.developerDiagnostics.postEnforcementPromptChars == 96)
-        #expect(viewModel.developerDiagnostics.trimmedCharCount == 24)
-        #expect(viewModel.developerDiagnostics.wasFallbackExtractionUsed == true)
-        #expect(viewModel.developerDiagnostics.jobBacklogCount == 3)
-        #expect(viewModel.developerDiagnostics.recentFailedJobSummary == "counterexample distillation failed")
-        #expect(viewModel.developerDiagnostics.retrievalIntentSummary.contains("verification"))
-        #expect(viewModel.showDeveloperDiagnosticsByDefault == false)
+        #expect(viewModel.requiresAttention == true)
+        #expect(viewModel.openCognitionItemCount == 2)
     }
 
     @Test func viewModelExposesVerificationSummaryFromEpistemicState() {
-        let snapshot = MemoryRuntimeSnapshot.fixture(
-            epistemicState: EpistemicState(
-                frontiers: [
-                    FrontierMemory(
-                        frontierId: "f-1",
-                        goal: "Verify completion",
-                        openClaim: "Runtime behavior is still unverified",
-                        uncertaintyType: .unknown,
-                        impactLevel: .high,
-                        suggestedProbe: "run targeted UI check",
-                        stopCondition: "Runtime evidence captured"
-                    )
-                ],
-                verificationDebt: [
-                    VerificationDebt(id: "d-1", claim: "Runtime behavior is still unverified", reason: "No runtime evidence was observed")
-                ],
-                residualRisk: 0.72,
-                expectedValueOfMoreReasoning: 0.41
-            )
+        let state = RMSState(
+            taskID: "task-1",
+            sessionID: "session-1",
+            threadID: "thread-1",
+            summary: "Verify completion",
+            frontiers: [
+                .init(id: "f-1", goal: "Verify completion", openClaim: "Runtime behavior is still unverified", suggestedProbe: "run targeted UI check", stopCondition: "Runtime evidence captured")
+            ],
+            verificationDebts: [
+                .init(id: "d-1", claim: "Runtime behavior is still unverified", reason: "No runtime evidence was observed")
+            ]
         )
 
-        let viewModel = RMSCognitionPanelViewModel(snapshot: snapshot)
+        let viewModel = RMSPanelViewModel(state: state)
 
-        #expect(viewModel.verificationSummary?.residualRisk == 0.72)
-        #expect(viewModel.verificationSummary?.expectedValueOfMoreReasoning == 0.41)
         #expect(viewModel.verificationSummary?.frontierCount == 1)
         #expect(viewModel.verificationSummary?.debtCount == 1)
     }

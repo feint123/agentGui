@@ -43,7 +43,6 @@ struct agentGuiApp: App {
     @State private var claudeService = ClaudeService()
     @State private var skillService = SkillService()
     @State private var workflowRuntime: WorkflowRuntime?
-    @State private var memoryBackgroundScheduler: MemoryBackgroundScheduler?
     @State private var runtimeRecoveryService = RuntimeRecoveryService()
     @State private var reliabilityCenterViewModel = ReliabilityCenterViewModel()
 
@@ -107,17 +106,6 @@ struct agentGuiApp: App {
                     claudeService.workflowRuntime = runtime
                     try? runtimeRecoveryService.refresh(from: context)
                     reliabilityCenterViewModel.refresh(using: context)
-
-                    if !launchOptions.isUITestMode && settings.enableUnifiedMemoryRuntime && settings.enableBackgroundMemoryConsolidation {
-                        let scheduler = MemoryBackgroundScheduler(
-                            enableTTLSweep: settings.enableMemoryTTLSweep,
-                            ttlSweepIntervalSeconds: settings.memoryTTLSweepIntervalSeconds,
-                            ttlSeconds: TimeInterval(settings.memoryTTLSweepIntervalSeconds),
-                            businessLogSink: claudeService.businessLogSink
-                        )
-                        scheduler.start(intervalSeconds: settings.memoryBackgroundSchedulerIntervalSeconds)
-                        memoryBackgroundScheduler = scheduler
-                    }
                 }
                 .environment(PersistenceCoordinator.shared)
         }

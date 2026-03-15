@@ -10,7 +10,6 @@ struct InMemoryAppHarness {
     let session: Session
     let runtimeRecoveryService: RuntimeRecoveryService
     let launchOptions: TestLaunchOptions
-    let memoryRuntimeCoordinator: MemoryRuntimeCoordinator
     let projectID: String
 
     static func makeRecoveryScenario() throws -> InMemoryAppHarness {
@@ -25,8 +24,6 @@ struct InMemoryAppHarness {
         ])
         let settings = AppSettings.testFixture(apiKey: "sk-ant-ui-test")
         let fixture = QualityFixtureBuilder.recoveryScenario()
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [])
-
         context.insert(settings)
         context.insert(fixture.session)
         context.insert(fixture.pendingAgentMessage)
@@ -43,7 +40,6 @@ struct InMemoryAppHarness {
             session: fixture.session,
             runtimeRecoveryService: RuntimeRecoveryService(),
             launchOptions: launchOptions,
-            memoryRuntimeCoordinator: coordinator,
             projectID: ""
         )
     }
@@ -53,8 +49,6 @@ struct InMemoryAppHarness {
         let context = ModelContext(container)
         let settings = AppSettings.testFixture(apiKey: "sk-ant-release-test")
         let session = Session.fixture(title: "Configured Settings")
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [])
-
         context.insert(settings)
         context.insert(session)
         try context.save()
@@ -66,7 +60,6 @@ struct InMemoryAppHarness {
             session: session,
             runtimeRecoveryService: RuntimeRecoveryService(),
             launchOptions: TestLaunchOptions(arguments: ["-com.agentgui.test.mode", "true"]),
-            memoryRuntimeCoordinator: coordinator,
             projectID: ""
         )
     }
@@ -78,8 +71,6 @@ struct InMemoryAppHarness {
         let session = Session.fixture(sessionId: "release-session", title: "UI Test Session")
         let userMessage = Message.userFixture(text: "Run the release checks", session: session)
         let agentMessage = Message.agentFixture(text: "Release checklist prepared.", session: session)
-        let coordinator = MemoryRuntimeCoordinator.makeForTests(unifiedRecords: [])
-
         context.insert(settings)
         context.insert(session)
         context.insert(userMessage)
@@ -93,7 +84,6 @@ struct InMemoryAppHarness {
             session: session,
             runtimeRecoveryService: RuntimeRecoveryService(),
             launchOptions: TestLaunchOptions(arguments: ["-com.agentgui.test.mode", "true"]),
-            memoryRuntimeCoordinator: coordinator,
             projectID: ""
         )
     }
