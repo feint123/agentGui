@@ -194,7 +194,6 @@ extension ClaudeService {
             persistenceCoordinator: .shared
         )
         let bootstrapState = taskStateStore.rmsState(for: sessionId)
-        guard let bootstrapState else { return nil }
 
         let composition = try await AgentLoopMemoryBootstrapComposer(
             dependencies: .init(
@@ -204,7 +203,8 @@ extension ClaudeService {
                         scopes: self.insightScopes(
                             for: state,
                             session: resolvedSession,
-                            settings: settings
+                            settings: settings,
+                            fallbackSessionID: sessionId
                         )
                     )
                 }
@@ -223,9 +223,9 @@ extension ClaudeService {
             context: .init(sessionID: sessionId),
             metadata: [
                 "source": "rms",
-                "frontierCount": bootstrapState.frontiers.count,
-                "constraintCount": bootstrapState.constraints.count,
-                "verificationDebtCount": bootstrapState.verificationDebts.count,
+                "frontierCount": bootstrapState?.frontiers.count ?? 0,
+                "constraintCount": bootstrapState?.constraints.count ?? 0,
+                "verificationDebtCount": bootstrapState?.verificationDebts.count ?? 0,
                 "contextBudget": max(settings.memoryContextBudget * 1000, 4000)
             ],
             sink: businessLogSink
@@ -241,20 +241,25 @@ extension ClaudeService {
     }
 
     private func insightScopes(
-        for state: RMSState,
+        for state: RMSState?,
         session: Session?,
-        settings: AppSettings
+        settings: AppSettings,
+        fallbackSessionID: String
     ) -> [MemoryScope] {
         let workspaceRoot = [session?.workingDirectory, settings.workingDirectory]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
+        let sessionID = [state?.sessionID, fallbackSessionID]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        let threadID = state?.threadID.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var scopes: [MemoryScope] = [.user]
-        if !state.sessionID.isEmpty {
-            scopes.append(.session(id: state.sessionID))
+        if let sessionID {
+            scopes.append(.session(id: sessionID))
         }
-        if !state.threadID.isEmpty {
-            scopes.append(.thread(id: state.threadID))
+        if let threadID, !threadID.isEmpty {
+            scopes.append(.thread(id: threadID))
         }
         if let workspaceRoot {
             scopes.append(.workspace(id: workspaceRoot))

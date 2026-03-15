@@ -39,7 +39,12 @@ struct AgentLoopHookDependencyFactory {
                     taskStateStore.rmsState(for: runtime.sessionId)
                 },
                 loadInsights: { state in
-                    try RMSInsightStore().load(scopes: insightScopes(for: state))
+                    try RMSInsightStore().load(
+                        scopes: insightScopes(
+                            for: state,
+                            fallbackSessionID: runtime.sessionId
+                        )
+                    )
                 }
             )
         )
@@ -57,17 +62,21 @@ struct AgentLoopHookDependencyFactory {
         return composition.patch
     }
 
-    private func insightScopes(for state: RMSState) -> [MemoryScope] {
+    private func insightScopes(for state: RMSState?, fallbackSessionID: String) -> [MemoryScope] {
         let workspaceRoot = [runtime.session?.workingDirectory, runtime.settings.workingDirectory]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
+        let sessionID = [state?.sessionID, fallbackSessionID]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        let threadID = state?.threadID.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var scopes: [MemoryScope] = [.user]
-        if !state.sessionID.isEmpty {
-            scopes.append(.session(id: state.sessionID))
+        if let sessionID {
+            scopes.append(.session(id: sessionID))
         }
-        if !state.threadID.isEmpty {
-            scopes.append(.thread(id: state.threadID))
+        if let threadID, !threadID.isEmpty {
+            scopes.append(.thread(id: threadID))
         }
         if let workspaceRoot {
             scopes.append(.workspace(id: workspaceRoot))

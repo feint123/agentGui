@@ -39,7 +39,42 @@ struct MemoryRuntimeIntegrationTests {
         #expect(context?.renderedPrompt.contains("Run targeted xcodebuild test") == true)
     }
 
-    @Test func bootstrapReturnsNilWhenNoTaskBoundRMSStateExists() async throws {
+    @Test func bootstrapFallsBackToUserInsightsWhenNoTaskBoundRMSStateExists() async throws {
+        let service = ClaudeService()
+        let settings = AppSettings.testFixture()
+        let insightStore = RMSInsightStore(baseDirectory: try makeTemporaryDirectory())
+
+        try insightStore.upsert(.constraint(
+            id: "user-constraint",
+            summary: "Inspect before editing",
+            appliesWhen: "coding",
+            changesDecision: "block speculative edits",
+            scope: .user
+        ))
+        try insightStore.upsert(.tactic(
+            id: "user-tactic",
+            summary: "Start with the smallest targeted test",
+            appliesWhen: "build",
+            changesDecision: "prefer scoped verification before broad changes",
+            scope: .user
+        ))
+
+        let context = try await service.buildUnifiedMemoryBootstrap(
+            settings: settings,
+            session: nil,
+            sessionId: "s1",
+            messages: [MessageParameter.Message(role: .user, content: .text("Fix build"))],
+            modelContext: try makeModelContext(),
+            insightStore: insightStore
+        )
+
+        let renderedPrompt = try #require(context?.renderedPrompt)
+        #expect(renderedPrompt.contains("Inspect before editing"))
+        #expect(renderedPrompt.contains("Start with the smallest targeted test"))
+        #expect(renderedPrompt.contains("Current Frontiers\n- None"))
+    }
+
+    @Test func bootstrapReturnsNilWhenNoTaskBoundRMSStateOrInsightsExist() async throws {
         let service = ClaudeService()
         let settings = AppSettings.testFixture()
 
@@ -48,7 +83,8 @@ struct MemoryRuntimeIntegrationTests {
             session: nil,
             sessionId: "s1",
             messages: [MessageParameter.Message(role: .user, content: .text("Fix build"))],
-            modelContext: try makeModelContext()
+            modelContext: try makeModelContext(),
+            insightStore: RMSInsightStore(baseDirectory: try makeTemporaryDirectory())
         )
 
         #expect(context == nil)

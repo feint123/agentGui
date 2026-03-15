@@ -57,7 +57,46 @@ struct AgentLoopMemoryBootstrapComposerTests {
         #expect(composition.runtimeWorkingSetCost == 0)
     }
 
-    @Test func composerReturnsNoPatchWhenRMSStateIsMissing() async throws {
+    @Test func composerBuildsPatchFromUserInsightsWhenRMSStateIsMissing() async throws {
+        let composer = AgentLoopMemoryBootstrapComposer(
+            dependencies: .init(
+                loadRMSState: { nil },
+                loadInsights: { _ in
+                    [
+                        .constraint(
+                            id: "constraint-user-1",
+                            summary: "Inspect before editing",
+                            appliesWhen: "coding",
+                            changesDecision: "block speculative edits",
+                            scope: .user,
+                            confidence: 0.9
+                        ),
+                        .tactic(
+                            id: "tactic-user-1",
+                            summary: "Start with the smallest targeted test",
+                            appliesWhen: "swift build triage",
+                            changesDecision: "prefer scoped verification before broad changes",
+                            scope: .user,
+                            confidence: 0.8
+                        )
+                    ]
+                }
+            )
+        )
+
+        let composition = try await composer.compose(bootstrapMessageCount: 4)
+        let userText = extractText(from: composition.patch?.insertions.first?.message.content)
+
+        #expect(composition.patch?.metadata["source"] as? String == "rms")
+        #expect(composition.patch?.insertions.count == 2)
+        #expect(userText.contains("Constraints"))
+        #expect(userText.contains("Inspect before editing"))
+        #expect(userText.contains("Preferred Next Actions"))
+        #expect(userText.contains("Start with the smallest targeted test"))
+        #expect(userText.contains("Current Frontiers\n- None"))
+    }
+
+    @Test func composerReturnsNoPatchWhenRMSStateAndInsightsAreMissing() async throws {
         let composer = AgentLoopMemoryBootstrapComposer(
             dependencies: .init(
                 loadRMSState: { nil },

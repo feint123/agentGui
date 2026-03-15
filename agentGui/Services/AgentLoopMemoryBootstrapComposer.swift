@@ -15,20 +15,23 @@ struct AgentLoopMemoryBootstrapComposition {
 struct AgentLoopMemoryBootstrapComposer {
     struct Dependencies {
         var loadRMSState: () async throws -> RMSState?
-        var loadInsights: (RMSState) async throws -> [RMSInsight]
+        var loadInsights: (RMSState?) async throws -> [RMSInsight]
     }
 
     let dependencies: Dependencies
 
     func compose(bootstrapMessageCount _: Int, insightBudget: Int? = nil) async throws -> AgentLoopMemoryBootstrapComposition {
-        guard let state = try await dependencies.loadRMSState()?.stableSnapshot() else {
+        let state = try await dependencies.loadRMSState()?.stableSnapshot()
+        let activatedInsights = try await dependencies.loadInsights(state)
+
+        guard state != nil || !activatedInsights.isEmpty else {
             return AgentLoopMemoryBootstrapComposition()
         }
 
-        let activatedInsights = try await dependencies.loadInsights(state)
-        let effectiveBudget = max(insightBudget ?? defaultInsightBudget(for: state), 1)
-        let selectedInsights = RMSSelector().select(for: state, insights: activatedInsights, budget: effectiveBudget)
-        let renderedPrompt = RMSPromptComposer().compose(state: state, activatedInsights: selectedInsights)
+        let effectiveState = state ?? RMSState(taskID: "", sessionID: "", threadID: "", summary: "")
+        let effectiveBudget = max(insightBudget ?? defaultInsightBudget(for: effectiveState), 1)
+        let selectedInsights = RMSSelector().select(for: effectiveState, insights: activatedInsights, budget: effectiveBudget)
+        let renderedPrompt = RMSPromptComposer().compose(state: effectiveState, activatedInsights: selectedInsights)
         guard !renderedPrompt.isEmpty else {
             return AgentLoopMemoryBootstrapComposition()
         }
@@ -47,7 +50,7 @@ struct AgentLoopMemoryBootstrapComposer {
                         index: 1,
                         message: MessageParameter.Message(
                             role: .assistant,
-                            content: .text("已加载当前 RMS 状态，将优先处理未决前沿、约束与验证债务。")
+                            content: .text("已加载可用的 RMS 记忆上下文，将优先处理约束、前沿与验证债务。")
                         )
                     )
                 ],
