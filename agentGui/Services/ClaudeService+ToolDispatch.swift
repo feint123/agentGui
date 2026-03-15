@@ -566,6 +566,8 @@ extension ClaudeService {
                     LSPProcessSupervisor(processLauncher: ProcessLSPProcessLauncher())
                 }
             )
+        } else {
+            lspServerManager?.updateRegistry(registry)
         }
 
         return lspServerManager

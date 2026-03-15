@@ -89,6 +89,7 @@ struct AgentLoopPhaseOutcomeApplierTests {
         #expect(loopContext.phase == .executing)
         #expect(containsVerifierPrompt)
         #expect(outcome.projectedTextReset == nil)
+        #expect(outcome.shouldResetVerificationState)
     }
 }
 

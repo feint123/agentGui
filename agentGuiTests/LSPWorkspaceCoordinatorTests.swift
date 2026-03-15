@@ -10,7 +10,7 @@ struct LSPWorkspaceCoordinatorTests {
             "src/app.ts": "const answer: number = 42\n",
             "tools/script.py": "print('hi')\n"
         ])
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.enableLSPTools = true
         settings.autoStartLSPServers = true
         let registry = try LSPServerRegistry(settings: settings)
@@ -33,7 +33,7 @@ struct LSPWorkspaceCoordinatorTests {
     }
 
     @Test func workspaceBootstrapAvoidsDuplicateStartsForSameServer() async throws {
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.enableLSPTools = true
         settings.autoStartLSPServers = true
         let registry = try LSPServerRegistry(settings: settings)
@@ -60,7 +60,7 @@ struct LSPWorkspaceCoordinatorTests {
     }
 
     @Test func workspaceBootstrapUsesSelectedFileWhenWorkspaceIndexIsEmpty() async throws {
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.enableLSPTools = true
         settings.autoStartLSPServers = true
         let registry = try LSPServerRegistry(settings: settings)
@@ -83,7 +83,7 @@ struct LSPWorkspaceCoordinatorTests {
     }
 
     @Test func workspaceBootstrapPrewarmsIndexedFilesToPopulateProjectDiagnostics() async throws {
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.enableLSPTools = true
         settings.autoStartLSPServers = true
         let registry = try LSPServerRegistry(settings: settings)
@@ -108,9 +108,46 @@ struct LSPWorkspaceCoordinatorTests {
         )
 
         #expect(harness.fileLoader.loadedPaths == ["/repo/src/app.ts", "/repo/src/feature.ts"])
-        #expect(harness.process?.openedDocuments == [
+        #expect(harness.openedDocuments == [
             "file:///repo/src/app.ts",
             "file:///repo/src/feature.ts"
+        ])
+    }
+
+    @Test func workspaceBootstrapPrewarmsSupportedInstalledServers() async throws {
+        let settings = AppSettings.lspFixture(installedProviderIDs: [
+            "gopls",
+            "clangd"
+        ])
+        settings.enableLSPTools = true
+        settings.autoStartLSPServers = true
+        let registry = try LSPServerRegistry(settings: settings)
+        let harness = LSPWorkspaceCoordinatorHarness(settings: settings)
+        harness.indexer.stubbed = [
+            "gopls": ["/repo/cmd/main.go"],
+            "clangd": ["/repo/native/app.cpp"]
+        ]
+        let coordinator = LSPWorkspaceCoordinator(
+            registry: registry,
+            serverManager: harness.manager,
+            fileIndexer: harness.indexer,
+            fileLoader: harness.fileLoader.load
+        )
+
+        let result = try await coordinator.bootstrapWorkspace(
+            workingDirectory: "/repo",
+            selectedFilePath: nil,
+            settings: settings
+        )
+
+        #expect(Set(result.startedServerIDs) == ["gopls", "clangd"])
+        #expect(harness.fileLoader.loadedPaths.sorted() == [
+            "/repo/cmd/main.go",
+            "/repo/native/app.cpp"
+        ])
+        #expect(Set(harness.openedDocuments) == [
+            "file:///repo/cmd/main.go",
+            "file:///repo/native/app.cpp"
         ])
     }
 
@@ -157,7 +194,7 @@ private final class LSPWorkspaceCoordinatorHarness {
     let indexer = StubLSPProjectFileIndexer()
     let fileLoader = StubLSPWorkspaceFileLoader()
     private let processRecorder: WorkspaceCoordinatorProcessRecorder
-    var process: WorkspaceCoordinatorManagedProcess? { processRecorder.process }
+    var openedDocuments: [String] { processRecorder.openedDocuments }
 
     init(settings: AppSettings) {
         let registry = try! LSPServerRegistry(settings: settings)
@@ -177,7 +214,7 @@ private final class LSPWorkspaceCoordinatorHarness {
             },
             makeSupervisor: {
                 LSPProcessSupervisor(processLauncher: WorkspaceCoordinatorLauncher { process in
-                    processRecorder.process = process
+                    processRecorder.append(process)
                 })
             }
         )
@@ -185,7 +222,15 @@ private final class LSPWorkspaceCoordinatorHarness {
 }
 
 private final class WorkspaceCoordinatorProcessRecorder {
-    var process: WorkspaceCoordinatorManagedProcess?
+    private(set) var processes: [WorkspaceCoordinatorManagedProcess] = []
+
+    var openedDocuments: [String] {
+        processes.flatMap(\.openedDocuments)
+    }
+
+    func append(_ process: WorkspaceCoordinatorManagedProcess) {
+        processes.append(process)
+    }
 }
 
 private final class StubLSPProjectFileIndexer: LSPProjectFileIndexing, @unchecked Sendable {
@@ -204,7 +249,9 @@ private final class StubLSPProjectFileIndexer: LSPProjectFileIndexing, @unchecke
 private final class StubLSPWorkspaceFileLoader {
     var contentsByPath: [String: String] = [
         "/repo/src/app.ts": "const broken: string = 42\n",
-        "/repo/src/feature.ts": "export const feature = true\n"
+        "/repo/src/feature.ts": "export const feature = true\n",
+        "/repo/cmd/main.go": "package main\nfunc main() {}\n",
+        "/repo/native/app.cpp": "int main() { return 0; }\n"
     ]
     private(set) var loadedPaths: [String] = []
 

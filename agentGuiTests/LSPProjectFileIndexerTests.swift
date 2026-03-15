@@ -12,7 +12,7 @@ struct LSPProjectFileIndexerTests {
             "tools/script.py": "print('hi')\n",
             "docs/readme.md": "# ignored\n"
         ])
-        let registry = try LSPServerRegistry(settings: .testFixture())
+        let registry = try LSPServerRegistry(settings: .lspFixture(installedProviderIDs: ["typescript-language-server"]))
         let indexer = LSPProjectFileIndexer()
 
         let indexed = indexer.indexFiles(in: workspaceRoot.path, registry: registry)
@@ -24,7 +24,6 @@ struct LSPProjectFileIndexerTests {
         #expect(indexed["python-lsp"] == [
             workspaceRoot.appendingPathComponent("tools/script.py").path
         ])
-        #expect(indexed["swift-sourcekit-lsp"] == nil)
     }
 
     @Test func indexerSkipsUnsupportedAndHiddenFiles() throws {
@@ -33,12 +32,35 @@ struct LSPProjectFileIndexerTests {
             "Package.swift": "// ignored for V1\n",
             "README.md": "ignored\n"
         ])
-        let registry = try LSPServerRegistry(settings: .testFixture())
+        let registry = try LSPServerRegistry(settings: .lspFixture(installedProviderIDs: ["typescript-language-server"]))
         let indexer = LSPProjectFileIndexer()
 
         let indexed = indexer.indexFiles(in: workspaceRoot.path, registry: registry)
 
         #expect(indexed.isEmpty)
+    }
+
+    @Test func indexerIncludesInstalledGoAndClangFiles() throws {
+        let workspaceRoot = try makeWorkspace(files: [
+            "cmd/main.go": "package main\n",
+            "native/app.cpp": "int main() { return 0; }\n",
+            "native/header.h": "#pragma once\n"
+        ])
+        let registry = try LSPServerRegistry(settings: .lspFixture(installedProviderIDs: [
+            "gopls",
+            "clangd"
+        ]))
+        let indexer = LSPProjectFileIndexer()
+
+        let indexed = indexer.indexFiles(in: workspaceRoot.path, registry: registry)
+
+        #expect(indexed["gopls"] == [
+            workspaceRoot.appendingPathComponent("cmd/main.go").path
+        ])
+        #expect(indexed["clangd"]?.sorted() == [
+            workspaceRoot.appendingPathComponent("native/app.cpp").path,
+            workspaceRoot.appendingPathComponent("native/header.h").path
+        ])
     }
 
     @Test func indexerSkipsPythonVirtualEnvironmentPackages() throws {

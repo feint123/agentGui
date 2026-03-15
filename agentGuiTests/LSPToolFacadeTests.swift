@@ -6,7 +6,7 @@ import Testing
 struct LSPToolFacadeTests {
 
     @Test func listServersIncludesBuiltInProfiles() throws {
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         let registry = try LSPServerRegistry(settings: settings)
         let facade = LSPToolFacade(registry: registry, serverManager: nil)
 
@@ -19,7 +19,7 @@ struct LSPToolFacadeTests {
     @Test func serverStatusReflectsRunningSession() async throws {
         let harness = LSPToolFacadeHarness()
         let manager = harness.makeManager()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         let registry = try LSPServerRegistry(settings: settings)
         let facade = LSPToolFacade(registry: registry, serverManager: manager)
 
@@ -34,7 +34,7 @@ struct LSPToolFacadeTests {
     @Test func serverStatusIncludesRecentRuntimeLogs() async throws {
         let harness = LSPToolFacadeHarness()
         let manager = harness.makeManager()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         let registry = try LSPServerRegistry(settings: settings)
         let facade = LSPToolFacade(registry: registry, serverManager: manager)
 
@@ -51,7 +51,7 @@ struct LSPToolFacadeTests {
     @Test func diagnosticsRendersPublishedMessages() async throws {
         let harness = LSPToolFacadeHarness()
         let manager = harness.makeManager()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         let registry = try LSPServerRegistry(settings: settings)
         let facade = LSPToolFacade(registry: registry, serverManager: manager)
 
@@ -81,7 +81,7 @@ struct LSPToolFacadeTests {
             ]
         ]
         let manager = harness.makeManager()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         let registry = try LSPServerRegistry(settings: settings)
         let facade = LSPToolFacade(registry: registry, serverManager: manager)
 
@@ -106,7 +106,7 @@ private final class LSPToolFacadeHarness {
     private(set) var lastProcess: LSPToolFacadeManagedProcess?
 
     func makeManager() -> LSPServerManager {
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         let registry = try! LSPServerRegistry(settings: settings)
         let diagnosticsStore = LSPDiagnosticsStore()
 

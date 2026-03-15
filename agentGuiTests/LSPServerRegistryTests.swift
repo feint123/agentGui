@@ -5,38 +5,20 @@ import Testing
 @MainActor
 struct LSPServerRegistryTests {
 
-    @Test func builtInProfilesIncludeTypeScriptAndPython() throws {
+    @Test func builtInProfilesDefaultToPythonOnly() throws {
         let registry = try LSPServerRegistry(settings: .testFixture())
 
         let ids = Set(registry.allDefinitions().map(\.id))
 
-        #expect(ids.contains("typescript-language-server"))
-        #expect(ids.contains("python-lsp"))
+        #expect(ids == ["python-lsp"])
     }
 
-    @Test func builtInProfilesDeclareLanguagesAndFileGlobs() throws {
+    @Test func builtInPythonProfileDeclaresLanguagesAndFileGlobs() throws {
         let registry = try LSPServerRegistry(settings: .testFixture())
-        let typescript = try #require(registry.definition(for: "typescript-language-server"))
         let python = try #require(registry.definition(for: "python-lsp"))
-
-        #expect(typescript.supportedLanguageIDs.contains("typescript"))
-        #expect(typescript.supportedLanguageIDs.contains("javascript"))
-        #expect(typescript.defaultFileGlobs.contains("**/*.{ts,tsx,js,jsx}"))
 
         #expect(python.supportedLanguageIDs.contains("python"))
         #expect(python.defaultFileGlobs.contains("**/*.py"))
-    }
-
-    @Test func builtInTypeScriptProfileDeclaresLaunchAndRootMarkers() throws {
-        let registry = try LSPServerRegistry(settings: .testFixture())
-        let typescript = try #require(registry.definition(for: "typescript-language-server"))
-
-        #expect(typescript.launchCommand == "typescript-language-server")
-        #expect(typescript.launchArguments == ["--stdio"])
-        #expect(typescript.rootMarkers.contains("package.json"))
-        #expect(typescript.rootMarkers.contains("tsconfig.json"))
-        #expect(typescript.rootMarkers.contains("jsconfig.json"))
-        #expect(typescript.adapterKind == .generic)
     }
 
     @Test func builtInPythonProfileDeclaresLaunchAndRootMarkers() throws {
@@ -51,15 +33,27 @@ struct LSPServerRegistryTests {
         #expect(python.adapterKind == .generic)
     }
 
-    @Test func registryIncludesSwiftSourceKitStubProfile() throws {
-        let registry = try LSPServerRegistry(settings: .testFixture())
-        let swift = try #require(registry.definition(for: "swift-sourcekit-lsp"))
+    @Test func installedDefinitionsAreMergedIntoRegistry() throws {
+        let settings = AppSettings.testFixture()
+        settings.lspInstalledServerDefinitions = [
+            LSPServerDefinition(
+                id: "gopls",
+                displayName: "Go Language Server",
+                launchCommand: "/usr/local/bin/gopls",
+                launchArguments: [],
+                supportedLanguageIDs: ["go"],
+                defaultFileGlobs: ["**/*.go"],
+                rootMarkers: ["go.mod"],
+                adapterKind: .generic,
+                providerID: "gopls",
+                sourceKind: .installed
+            )
+        ]
 
-        #expect(swift.launchCommand == "xcrun")
-        #expect(swift.launchArguments == ["sourcekit-lsp"])
-        #expect(swift.adapterKind == .sourcekit)
-        #expect(swift.rootMarkers.contains("*.xcodeproj"))
-        #expect(swift.rootMarkers.contains("Package.swift"))
+        let registry = try LSPServerRegistry(settings: settings)
+
+        #expect(registry.definition(for: "python-lsp") != nil)
+        #expect(registry.definition(for: "gopls")?.sourceKind == .installed)
     }
 
     @Test func appSettingsExposeLSPDefaults() throws {
@@ -69,18 +63,29 @@ struct LSPServerRegistryTests {
         #expect(settings.autoStartLSPServers == true)
         #expect(settings.lspDefaultRoutingMode == "automatic")
         #expect(settings.lspCustomServerProfilesJSON == "[]")
+        #expect(settings.lspInstalledServerDefinitionsJSON == "[]")
     }
 
     @Test func duplicateCustomProfileIDsAreRejected() throws {
         let duplicateProfiles = [
             LSPServerDefinition(
-                id: "typescript-language-server",
-                displayName: "Duplicate TS",
-                launchCommand: "typescript-language-server",
+                id: "duplicate-profile",
+                displayName: "Duplicate Profile A",
+                launchCommand: "pylsp",
+                launchArguments: [],
+                supportedLanguageIDs: ["python"],
+                defaultFileGlobs: ["**/*.py"],
+                rootMarkers: ["pyproject.toml"],
+                adapterKind: .generic
+            ),
+            LSPServerDefinition(
+                id: "duplicate-profile",
+                displayName: "Duplicate Profile B",
+                launchCommand: "pylsp",
                 launchArguments: ["--stdio"],
-                supportedLanguageIDs: ["typescript"],
-                defaultFileGlobs: ["**/*.ts"],
-                rootMarkers: ["package.json"],
+                supportedLanguageIDs: ["python"],
+                defaultFileGlobs: ["**/*.py"],
+                rootMarkers: ["requirements.txt"],
                 adapterKind: .generic
             )
         ]

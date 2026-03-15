@@ -5,6 +5,14 @@ import Testing
 @MainActor
 struct LSPDiagnosticsPopoverPresentationTests {
 
+    @Test func statusToneMapsLocalizedRunningAndFailureStates() {
+        #expect(LSPStatusPresentationTone.tone(for: "运行中") == .positive)
+        #expect(LSPStatusPresentationTone.tone(for: "启动中") == .warning)
+        #expect(LSPStatusPresentationTone.tone(for: "未安装") == .negative)
+        #expect(LSPStatusPresentationTone.tone(for: "配置异常") == .negative)
+        #expect(LSPStatusPresentationTone.tone(for: "未启动") == .neutral)
+    }
+
     @Test func rowPresentationCombinesSourceAndLocationIntoSingleMetadataLine() {
         let item = LSPProjectDiagnosticsSummary.DiagnosticItem(
             uri: "file:///repo/src/app.ts",

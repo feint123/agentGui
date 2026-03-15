@@ -3,6 +3,7 @@ import SwiftAnthropic
 
 struct AgentLoopPhaseOutcomeApplication {
     var projectedTextReset: String?
+    var shouldResetVerificationState: Bool = false
 }
 
 enum AgentLoopPhaseOutcomeApplier {
@@ -61,6 +62,7 @@ enum AgentLoopPhaseOutcomeApplier {
                     """
                     messages.append(.init(role: .user, content: .text(obligation)))
                     loopContext.phase = .executing
+                    outcome.shouldResetVerificationState = true
                 case nil:
                     loopContext.phase = .executing
                 }

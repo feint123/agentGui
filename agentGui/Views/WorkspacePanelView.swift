@@ -33,6 +33,7 @@ struct WorkspacePanelView: View {
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
     @Environment(PersistenceCoordinator.self) private var persistenceCoordinator
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openWindow) private var openWindow
     private let launchOptions = TestLaunchOptions.current
 
     // MARK: - State
@@ -42,6 +43,7 @@ struct WorkspacePanelView: View {
     @State private var isLoading = false
     @State private var refreshCoordinator = WorkspaceTreeRefreshCoordinator()
     @State private var showsLSPDiagnosticsPopover = false
+    @State private var showsLSPManagementPopover = false
     @State private var treeSearchText = ""
     @State private var selectedTreeNodeID: URL?
     @State private var inlineEdit: WorkspaceTreeInlineEdit?
@@ -334,6 +336,23 @@ struct WorkspacePanelView: View {
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
+
+                Button {
+                    showsLSPManagementPopover.toggle()
+                } label: {
+                    Label("管理", systemImage: "slider.horizontal.3")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showsLSPManagementPopover, arrowEdge: .bottom) {
+                    LSPManagementPopoverView(
+                        viewModel: lspManagementViewModel,
+                        onOpenSettings: {
+                            openWindow(id: SettingsWindowScene.id)
+                            showsLSPManagementPopover = false
+                        }
+                    )
+                }
             }
 
             HStack(spacing: 8) {
@@ -579,17 +598,41 @@ struct WorkspacePanelView: View {
     }
 
     private func lspStateColor(_ stateText: String) -> Color {
-        let normalized = stateText.lowercased()
-        if normalized.contains("running") {
-            return .green
+        LSPStatusPresentationTone.tone(for: stateText).color
+    }
+
+    private var lspManagementViewModel: LSPManagementViewModel {
+        let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
+
+        return LSPManagementViewModel(
+            settings: settings,
+            serviceStateStore: LSPServiceStateStore(
+                catalog: .builtInCatalog(),
+                serverManager: claudeService.lspServerManager
+            ),
+            installCoordinator: claudeService.lspInstallCoordinator,
+            serverManager: claudeService.lspServerManager,
+            persistSettings: { userMessage, mutation in
+                persistSettingsMutation(userMessage: userMessage, mutation: mutation)
+            }
+        )
+    }
+
+    @discardableResult
+    private func persistSettingsMutation(userMessage: String, mutation: () -> Void) -> Bool {
+        mutation()
+
+        do {
+            try persistenceCoordinator.save(
+                modelContext,
+                domain: .settings,
+                userMessage: userMessage
+            )
+            return true
+        } catch {
+            errorMessage = userMessage
+            return false
         }
-        if normalized.contains("failed") || normalized.contains("crashed") || normalized.contains("无匹配") {
-            return .red
-        }
-        if normalized.contains("禁用") || normalized.contains("未启动") || normalized.contains("选择文件") {
-            return .secondary
-        }
-        return .secondary
     }
 
     private func lspCountChip(title: String, count: Int, color: Color) -> some View {

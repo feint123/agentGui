@@ -7,14 +7,15 @@ struct LSPWorkspaceResolverTests {
 
     @Test func resolverMatchesTypeScriptFilesByExtension() throws {
         let resolver = LSPWorkspaceResolver()
-        let registry = try LSPServerRegistry(settings: .testFixture())
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
+        let registry = try LSPServerRegistry(settings: settings)
 
         let binding = try #require(
             resolver.resolve(
                 filePath: "/repo/src/app.ts",
                 workingDirectory: "/repo",
                 registry: registry,
-                settings: .testFixture()
+                settings: settings
             )
         )
 
@@ -41,9 +42,36 @@ struct LSPWorkspaceResolverTests {
         #expect(binding.languageID == "python")
     }
 
+    @Test func resolverMatchesNonPythonInstalledServersByExtension() throws {
+        let resolver = LSPWorkspaceResolver()
+        let settings = AppSettings.lspFixture(installedProviderIDs: [
+            "gopls",
+            "clangd"
+        ])
+        let registry = try LSPServerRegistry(settings: settings)
+
+        let go = try #require(resolver.resolve(
+            filePath: "/repo/main.go",
+            workingDirectory: "/repo",
+            registry: registry,
+            settings: settings
+        ))
+        let cpp = try #require(resolver.resolve(
+            filePath: "/repo/native/app.cpp",
+            workingDirectory: "/repo",
+            registry: registry,
+            settings: settings
+        ))
+
+        #expect(go.serverID == "gopls")
+        #expect(go.languageID == "go")
+        #expect(cpp.serverID == "clangd")
+        #expect(cpp.languageID == "cpp")
+    }
+
     @Test func manualBindingOverridesAutomaticResolution() throws {
         let resolver = LSPWorkspaceResolver()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.lspManualWorkspaceBindingsJSON = #"[{"workspaceRoot":"/repo","serverID":"python-lsp"}]"#
         let registry = try LSPServerRegistry(settings: settings)
 
@@ -77,7 +105,7 @@ struct LSPWorkspaceResolverTests {
         )
     }
 
-    @Test func swiftStubProfileDoesNotParticipateInAutomaticRouting() throws {
+    @Test func swiftFilesDoNotParticipateInAutomaticRouting() throws {
         let resolver = LSPWorkspaceResolver()
         let registry = try LSPServerRegistry(settings: .testFixture())
 

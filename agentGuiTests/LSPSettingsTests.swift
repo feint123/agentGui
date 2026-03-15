@@ -9,6 +9,8 @@ struct LSPSettingsTests {
         #expect(settings.autoStartLSPServers == true)
         #expect(settings.lspDefaultRoutingMode == "automatic")
         #expect(settings.lspCustomServerProfilesJSON == "[]")
+        #expect(settings.lspInstalledServerDefinitionsJSON == "[]")
+        #expect(settings.lspInstalledProvidersJSON == "[]")
         #expect(settings.isLSPAutoStartEffective == false)
     }
 
@@ -51,5 +53,28 @@ struct LSPSettingsTests {
         settings.enableLSPTools = false
 
         #expect(settings.isLSPAutoStartEffective == false)
+    }
+
+    @Test func installedDefinitionsRoundTripThroughTypedAccessor() {
+        let settings = AppSettings()
+        let definitions = [
+            LSPServerDefinition(
+                id: "gopls",
+                displayName: "Go Language Server",
+                launchCommand: "/usr/local/bin/gopls",
+                launchArguments: [],
+                supportedLanguageIDs: ["go"],
+                defaultFileGlobs: ["**/*.go"],
+                rootMarkers: ["go.mod"],
+                adapterKind: .generic,
+                providerID: "gopls",
+                sourceKind: .installed
+            )
+        ]
+
+        settings.lspInstalledServerDefinitions = definitions
+
+        #expect(settings.lspInstalledServerDefinitions == definitions)
+        #expect(settings.lspInstalledServerDefinitionsJSON.contains("gopls"))
     }
 }

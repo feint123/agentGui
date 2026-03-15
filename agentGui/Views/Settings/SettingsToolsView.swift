@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsToolsView: View {
+    @Environment(ClaudeService.self) private var claudeService
     @Bindable var store: SettingsStore
 
     @State private var ollamaAPIKeyInput: String = ""
@@ -148,14 +149,11 @@ struct SettingsToolsView: View {
                     Text("禁用路由").tag("disabled")
                 }
 
-                LabeledContent("内建 Profiles") {
-                    Text(lspBuiltInProfilesSummary())
-                        .multilineTextAlignment(.trailing)
-                        .foregroundStyle(.secondary)
-                }
+                LSPManagementSectionView(viewModel: lspManagementViewModel)
+                    .id(claudeService.lspPresentationRevision)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("自定义 Profile JSON")
+                    Text("高级自定义 Profile JSON")
                         .font(.subheadline)
 
                     TextEditor(text: store.persistedSettingsBinding(
@@ -209,17 +207,18 @@ struct SettingsToolsView: View {
         }
     }
 
-    private func lspBuiltInProfilesSummary() -> String {
-        guard let registry = try? LSPServerRegistry(settings: settings) else {
-            return "内建 profile 不可用"
-        }
-
-        return registry
-            .allDefinitions()
-            .map { definition in
-                let languages = definition.supportedLanguageIDs.joined(separator: ", ")
-                return "\(definition.displayName) (\(languages))"
+    private var lspManagementViewModel: LSPManagementViewModel {
+        LSPManagementViewModel(
+            settings: settings,
+            serviceStateStore: LSPServiceStateStore(
+                catalog: .builtInCatalog(),
+                serverManager: claudeService.lspServerManager
+            ),
+            installCoordinator: claudeService.lspInstallCoordinator,
+            serverManager: claudeService.lspServerManager,
+            persistSettings: { userMessage, mutation in
+                store.persistSettingsMutation(userMessage, mutation: mutation)
             }
-            .joined(separator: "\n")
+        )
     }
 }

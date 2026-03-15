@@ -44,7 +44,7 @@ struct LSPProjectFileIndexer: LSPProjectFileIndexing {
                 continue
             }
 
-            guard let languageID = languageID(for: fileURL.pathExtension.lowercased()) else {
+            guard let languageID = LSPFileLanguageMapper.languageID(forExtension: fileURL.pathExtension.lowercased()) else {
                 continue
             }
 
@@ -54,22 +54,5 @@ struct LSPProjectFileIndexer: LSPProjectFileIndexing {
         }
 
         return filesByServerID.mapValues { $0.sorted() }
-    }
-
-    private func languageID(for fileExtension: String) -> String? {
-        switch fileExtension {
-        case "ts":
-            return "typescript"
-        case "tsx":
-            return "typescriptreact"
-        case "js":
-            return "javascript"
-        case "jsx":
-            return "javascriptreact"
-        case "py":
-            return "python"
-        default:
-            return nil
-        }
     }
 }

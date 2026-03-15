@@ -81,6 +81,13 @@ final class ClaudeService {
         }
     }
 
+    /// Shared managed installer state used by settings and workspace LSP management UI.
+    var lspInstallCoordinator: LSPInstallCoordinator = LSPInstallCoordinator(catalog: .builtInCatalog()) {
+        didSet {
+            bindLSPInstallPresentationObserver()
+        }
+    }
+
     /// Increments whenever LSP state or diagnostics change so views can refresh derived status.
     var lspPresentationRevision: Int = 0
 
@@ -116,6 +123,10 @@ final class ClaudeService {
 
     /// The Session currently being processed, used by start_workflow.
     var currentSession: Session?
+
+    init() {
+        bindLSPInstallPresentationObserver()
+    }
 
     // MARK: - Configuration
 
@@ -167,6 +178,12 @@ final class ClaudeService {
 
     private func bindLSPPresentationObserver() {
         lspServerManager?.onPresentationStateDidChange = { [weak self] in
+            self?.lspPresentationRevision &+= 1
+        }
+    }
+
+    private func bindLSPInstallPresentationObserver() {
+        lspInstallCoordinator.onStateDidChange = { [weak self] in
             self?.lspPresentationRevision &+= 1
         }
     }

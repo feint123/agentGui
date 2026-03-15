@@ -717,6 +717,26 @@ struct AgentLoopRoundExecutor {
                 )
             )
         }
+
+        if phaseOutcome.shouldResetVerificationState,
+           let verificationState = effectiveVerificationState {
+            let resetState = Self.resetVerificationStateForRepairLoop(verificationState)
+            state.verificationState = resetState
+            state.hookState.verificationState = resetState
+
+            let store = SessionTaskStateStore(modelContext: runtime.modelContext)
+            if var verification = inMemoryVerification ?? storedVerification {
+                verification.passed = true
+                verification.summary = "Repair loop reset verification gate"
+                verification.missingEvidence = []
+                verification.riskAreas = []
+                verification.recommendedNextAction = nil
+                verification.verificationState = resetState
+                verification.recordedAt = Date()
+                sharedState.writeVerification(runtime.sessionId, verification)
+                try? store.saveVerification(verification, for: runtime.sessionId)
+            }
+        }
     }
 
     private func primaryUserTaskText(from messages: [MessageParameter.Message]) -> String {
@@ -766,6 +786,28 @@ struct AgentLoopRoundExecutor {
         return .needsMoreEvidence(
             openClaims: resolvedOpenClaims,
             suggestedProbe: suggestedProbe
+        )
+    }
+
+    static func resetVerificationStateForRepairLoop(_ verificationState: VerificationState) -> VerificationState {
+        let certificate = ConvergenceCertificate(
+            decision: .pass,
+            supportedClaims: verificationState.certificate?.supportedClaims ?? [],
+            contradictedClaims: [],
+            openClaims: [],
+            residualRisks: [],
+            expectedValueOfMoreVerification: 0,
+            stopReason: "Repair loop reset verification gate"
+        )
+
+        return VerificationState(
+            riskScore: 0,
+            claims: verificationState.claims,
+            evidence: verificationState.evidence,
+            frontier: [],
+            repairQueue: [],
+            openQuestions: [],
+            certificate: certificate
         )
     }
 

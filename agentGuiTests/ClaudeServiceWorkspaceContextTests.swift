@@ -8,7 +8,7 @@ struct ClaudeServiceWorkspaceContextTests {
     @Test func ensureLSPServerStartedAutoStartsMatchingSessionWhenEnabled() async throws {
         let service = ClaudeService()
         let harness = ClaudeServiceWorkspaceContextHarness()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.enableLSPTools = true
         settings.autoStartLSPServers = true
         service.lspServerManager = harness.makeManager(settings: settings)
@@ -26,7 +26,7 @@ struct ClaudeServiceWorkspaceContextTests {
     @Test func ensureWorkspaceLSPStateBootstrapsProjectWithoutSelectedFile() async throws {
         let service = ClaudeService()
         let harness = ClaudeServiceWorkspaceContextHarness()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.enableLSPTools = true
         settings.autoStartLSPServers = true
         service.lspServerManager = harness.makeManager(settings: settings)
@@ -48,7 +48,7 @@ struct ClaudeServiceWorkspaceContextTests {
     @Test func ensureWorkspaceLSPStateUsesSelectedFileAsFallback() async throws {
         let service = ClaudeService()
         let harness = ClaudeServiceWorkspaceContextHarness()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.enableLSPTools = true
         settings.autoStartLSPServers = true
         service.lspServerManager = harness.makeManager(settings: settings)
@@ -66,7 +66,7 @@ struct ClaudeServiceWorkspaceContextTests {
     @Test func ensureWorkspaceLSPStateRestartsCrashedSession() async throws {
         let service = ClaudeService()
         let harness = ClaudeServiceWorkspaceContextHarness()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.enableLSPTools = true
         settings.autoStartLSPServers = true
         service.lspServerManager = harness.makeManager(settings: settings)
@@ -87,7 +87,7 @@ struct ClaudeServiceWorkspaceContextTests {
 
     @Test func workspaceContextCarriesSelectedFileAndSelection() {
         let service = ClaudeService()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
 
         let context = service.makeWorkflowWorkspaceContextForTests(
             workingDirectory: "/repo",
@@ -107,7 +107,7 @@ struct ClaudeServiceWorkspaceContextTests {
     @Test func workspaceContextIncludesLSPServerAndDiagnosticsSummaryWhenAvailable() async throws {
         let service = ClaudeService()
         let harness = ClaudeServiceWorkspaceContextHarness()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.enableLSPTools = true
         service.lspServerManager = harness.makeManager(settings: settings)
 
@@ -154,7 +154,7 @@ struct ClaudeServiceWorkspaceContextTests {
     @Test func workspacePanelStatusShowsRunningStateAndDiagnosticCounts() async throws {
         let service = ClaudeService()
         let harness = ClaudeServiceWorkspaceContextHarness()
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         settings.enableLSPTools = true
         service.lspServerManager = harness.makeManager(settings: settings)
 
@@ -178,9 +178,48 @@ struct ClaudeServiceWorkspaceContextTests {
 
         #expect(status.serverID == "typescript-language-server")
         #expect(status.selectedFileName == "app.ts")
-        #expect(status.stateText.contains("running") == true)
+        #expect(status.stateText == "运行中")
         #expect(status.errorCount == 1)
         #expect(status.warningCount == 2)
+    }
+
+    @Test func workspacePanelStatusShowsProviderNotInstalledWhenCatalogMatchesFile() {
+        let service = ClaudeService()
+        let settings = AppSettings.testFixture()
+        settings.enableLSPTools = true
+
+        let status = service.makeWorkspacePanelLSPStatusForTests(
+            workingDirectory: "/repo",
+            selectedFilePath: "/repo/main.go",
+            settings: settings
+        )
+
+        #expect(status.serverID == "gopls")
+        #expect(status.stateText == "未安装")
+    }
+
+    @Test func ensureWorkspaceLSPStateRefreshesExistingManagerRegistryForNewInstalledProviders() async throws {
+        let service = ClaudeService()
+        let harness = ClaudeServiceWorkspaceContextHarness()
+        let initialSettings = AppSettings.testFixture()
+        service.lspServerManager = harness.makeManager(settings: initialSettings)
+
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["gopls"])
+        settings.enableLSPTools = true
+        settings.autoStartLSPServers = true
+
+        let workspaceRoot = try makeWorkspace(files: [
+            "cmd/main.go": "package main\nfunc main() {}\n"
+        ])
+
+        let result = try await service.ensureWorkspaceLSPState(
+            workingDirectory: workspaceRoot.path,
+            selectedFilePath: nil,
+            settings: settings
+        )
+
+        #expect(result.startedServerIDs == ["gopls"])
+        #expect(service.lspServerManager?.state(for: workspaceRoot.path, serverID: "gopls")?.summaryText.contains("running") == true)
     }
 }
 

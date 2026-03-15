@@ -10,7 +10,7 @@ final class LSPServerManager {
     let diagnosticsStore: LSPDiagnosticsStore
     var onPresentationStateDidChange: (() -> Void)?
 
-    private let registry: LSPServerRegistry
+    private var registry: LSPServerRegistry
     private let makeClient: () -> LSPClient
     private let makeSupervisor: () -> LSPProcessSupervisor
     private var sessions: [SessionKey: SessionRecord] = [:]
@@ -32,6 +32,10 @@ final class LSPServerManager {
 
     var activeSessionCount: Int {
         sessions.count
+    }
+
+    func updateRegistry(_ registry: LSPServerRegistry) {
+        self.registry = registry
     }
 
     func startSession(workspaceRoot: String, serverID: String) async throws -> UUID {
@@ -83,6 +87,17 @@ final class LSPServerManager {
             notifyPresentationStateDidChange()
         }
         return try await startSession(workspaceRoot: workspaceRoot, serverID: serverID)
+    }
+
+    func stopSession(workspaceRoot: String, serverID: String) async {
+        let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
+        guard let existing = sessions[key] else {
+            return
+        }
+
+        await existing.supervisor.stop()
+        sessions.removeValue(forKey: key)
+        notifyPresentationStateDidChange()
     }
 
     @discardableResult

@@ -119,6 +119,9 @@ extension ClaudeService {
             )
         }
 
+        let catalog = LSPProviderCatalog.builtInCatalog()
+        let serviceStateStore = LSPServiceStateStore(catalog: catalog, serverManager: lspServerManager)
+
         guard let registry = try? LSPServerRegistry(settings: settings) else {
             return WorkspacePanelLSPStatusPresentation(
                 stateText: "Profile 配置无效",
@@ -131,15 +134,44 @@ extension ClaudeService {
         }
 
         let resolver = LSPWorkspaceResolver()
-        guard let binding = resolver.resolve(
+        if let binding = resolver.resolve(
             filePath: selectedFilePath,
             workingDirectory: workingDirectory,
             registry: registry,
             settings: settings
-        ) else {
+        ) {
+            let uri = URL(fileURLWithPath: selectedFilePath).absoluteString
+            let diagnostics = lspServerManager?.diagnosticsStore.snapshot(for: workingDirectory, uri: uri)?.diagnostics ?? []
+            let projectSummary = lspServerManager?.diagnosticsStore.workspaceSummary(for: workingDirectory)
+            let errorCount = diagnostics.filter { $0.severity == .error }.count
+            let warningCount = diagnostics.filter { $0.severity == .warning }.count
+            let serviceState = serviceStateStore.state(
+                providerID: binding.serverID,
+                settings: settings,
+                workingDirectory: workingDirectory,
+                selectedFilePath: selectedFilePath
+            )
+
             return WorkspacePanelLSPStatusPresentation(
-                stateText: "当前文件无匹配服务",
-                serverID: nil,
+                stateText: serviceState.runtimeStateSummary,
+                serverID: binding.serverID,
+                selectedFileName: fileName,
+                errorCount: projectSummary?.errorCount ?? errorCount,
+                warningCount: projectSummary?.warningCount ?? warningCount,
+                projectSummary: projectSummary
+            )
+        }
+
+        if let suggestedProvider = catalog.providerForFilePath(selectedFilePath) {
+            let serviceState = serviceStateStore.state(
+                providerID: suggestedProvider.id,
+                settings: settings,
+                workingDirectory: workingDirectory,
+                selectedFilePath: selectedFilePath
+            )
+            return WorkspacePanelLSPStatusPresentation(
+                stateText: serviceState.runtimeStateSummary,
+                serverID: suggestedProvider.id,
                 selectedFileName: fileName,
                 errorCount: 0,
                 warningCount: 0,
@@ -147,21 +179,13 @@ extension ClaudeService {
             )
         }
 
-        let uri = URL(fileURLWithPath: selectedFilePath).absoluteString
-        let diagnostics = lspServerManager?.diagnosticsStore.snapshot(for: workingDirectory, uri: uri)?.diagnostics ?? []
-        let projectSummary = lspServerManager?.diagnosticsStore.workspaceSummary(for: workingDirectory)
-        let errorCount = diagnostics.filter { $0.severity == .error }.count
-        let warningCount = diagnostics.filter { $0.severity == .warning }.count
-        let stateText = lspServerManager?.state(for: workingDirectory, serverID: binding.serverID)?.summaryText
-            ?? (settings.isLSPAutoStartEffective ? "未启动" : "未启动（自动启动已关闭）")
-
         return WorkspacePanelLSPStatusPresentation(
-            stateText: stateText,
-            serverID: binding.serverID,
+            stateText: "当前文件无匹配服务",
+            serverID: nil,
             selectedFileName: fileName,
-            errorCount: projectSummary?.errorCount ?? errorCount,
-            warningCount: projectSummary?.warningCount ?? warningCount,
-            projectSummary: projectSummary
+            errorCount: 0,
+            warningCount: 0,
+            projectSummary: lspServerManager?.diagnosticsStore.workspaceSummary(for: workingDirectory)
         )
     }
 

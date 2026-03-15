@@ -10,10 +10,19 @@ struct LSPServerRegistry {
 
     init(settings: AppSettings) throws {
         let builtIns = Self.builtInDefinitions()
+        let installedDefinitions = settings.lspInstalledServerDefinitions
         let customProfiles = try Self.decodeCustomProfiles(from: settings.lspCustomServerProfilesJSON)
         var merged: [String: LSPServerDefinition] = [:]
 
-        for definition in builtIns + customProfiles {
+        for definition in builtIns {
+            merged[definition.id] = definition
+        }
+
+        for definition in installedDefinitions {
+            merged[definition.id] = definition
+        }
+
+        for definition in customProfiles {
             if merged[definition.id] != nil {
                 throw RegistryError.duplicateDefinitionID(definition.id)
             }
@@ -46,16 +55,6 @@ struct LSPServerRegistry {
     private static func builtInDefinitions() -> [LSPServerDefinition] {
         [
             LSPServerDefinition(
-                id: "typescript-language-server",
-                displayName: "TypeScript Language Server",
-                launchCommand: "typescript-language-server",
-                launchArguments: ["--stdio"],
-                supportedLanguageIDs: ["typescript", "typescriptreact", "javascript", "javascriptreact"],
-                defaultFileGlobs: ["**/*.{ts,tsx,js,jsx}"],
-                rootMarkers: ["package.json", "tsconfig.json", "jsconfig.json"],
-                adapterKind: .generic
-            ),
-            LSPServerDefinition(
                 id: "python-lsp",
                 displayName: "Python LSP",
                 launchCommand: "pylsp",
@@ -63,17 +62,9 @@ struct LSPServerRegistry {
                 supportedLanguageIDs: ["python"],
                 defaultFileGlobs: ["**/*.py"],
                 rootMarkers: ["pyproject.toml", "requirements.txt", ".venv"],
-                adapterKind: .generic
-            ),
-            LSPServerDefinition(
-                id: "swift-sourcekit-lsp",
-                displayName: "Swift SourceKit-LSP (Stub)",
-                launchCommand: "xcrun",
-                launchArguments: ["sourcekit-lsp"],
-                supportedLanguageIDs: ["swift"],
-                defaultFileGlobs: ["**/*.swift"],
-                rootMarkers: ["*.xcodeproj", "Package.swift"],
-                adapterKind: .sourcekit
+                adapterKind: .generic,
+                providerID: "python-lsp",
+                sourceKind: .builtIn
             )
         ]
     }

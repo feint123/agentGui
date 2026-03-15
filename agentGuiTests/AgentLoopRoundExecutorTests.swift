@@ -90,4 +90,41 @@ struct AgentLoopRoundExecutorTests {
             Issue.record("Expected verification resolution")
         }
     }
+
+    @Test func reopeningExecutionMarksVerificationStateAsPassToAvoidStaleFailureLoop() {
+        let failedState = VerificationState(
+            riskScore: 0.72,
+            claims: [],
+            evidence: [],
+            frontier: [
+                VerificationFrontierItem(
+                    id: "frontier-1",
+                    claimID: "claim-1",
+                    claimType: .execution,
+                    openQuestion: "Need direct runtime proof",
+                    recommendedProbe: "Run targeted tests",
+                    riskScore: 0.9
+                )
+            ],
+            repairQueue: ["Run targeted tests"],
+            openQuestions: ["Need direct runtime proof"],
+            certificate: ConvergenceCertificate(
+                decision: .revise,
+                supportedClaims: [],
+                contradictedClaims: [],
+                openClaims: ["Need direct runtime proof"],
+                residualRisks: ["Verification not rerun yet"],
+                expectedValueOfMoreVerification: 0.8,
+                stopReason: "Verification failed"
+            )
+        )
+
+        let reset = AgentLoopRoundExecutor.resetVerificationStateForRepairLoop(failedState)
+
+        #expect(reset.certificate?.decision == .pass)
+        #expect(reset.frontier.isEmpty)
+        #expect(reset.openQuestions.isEmpty)
+        #expect(reset.repairQueue.isEmpty)
+        #expect(reset.certificate?.stopReason == "Repair loop reset verification gate")
+    }
 }

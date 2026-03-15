@@ -63,6 +63,12 @@ final class AppSettings {
     /// 用户自定义 LSP server profiles 的 JSON 数组
     var lspCustomServerProfilesJSON: String = "[]"
 
+    /// 已安装 provider 的记录数组
+    var lspInstalledProvidersJSON: String = "[]"
+
+    /// 已安装并注册到 runtime registry 的 server definitions
+    var lspInstalledServerDefinitionsJSON: String = "[]"
+
     /// 手动绑定 workspace 到 server profile 的 JSON 数组
     var lspManualWorkspaceBindingsJSON: String = "[]"
 
@@ -112,6 +118,8 @@ final class AppSettings {
         self.autoStartLSPServers = true
         self.lspDefaultRoutingMode = "automatic"
         self.lspCustomServerProfilesJSON = "[]"
+        self.lspInstalledProvidersJSON = "[]"
+        self.lspInstalledServerDefinitionsJSON = "[]"
         self.ollamaAPIKey = ""
         self.enableOllamaWebSearch = false
         self.enableNetworkProxy = false
@@ -147,6 +155,32 @@ extension AppSettings {
         }
         set {
             lspCustomServerProfilesJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]"
+        }
+    }
+
+    var lspInstalledProviders: [LSPInstalledProviderRecord] {
+        get {
+            guard let data = lspInstalledProvidersJSON.data(using: .utf8),
+                  let records = try? JSONDecoder().decode([LSPInstalledProviderRecord].self, from: data) else {
+                return []
+            }
+            return records
+        }
+        set {
+            lspInstalledProvidersJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]"
+        }
+    }
+
+    var lspInstalledServerDefinitions: [LSPServerDefinition] {
+        get {
+            guard let data = lspInstalledServerDefinitionsJSON.data(using: .utf8),
+                  let definitions = try? JSONDecoder().decode([LSPServerDefinition].self, from: data) else {
+                return []
+            }
+            return definitions
+        }
+        set {
+            lspInstalledServerDefinitionsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]"
         }
     }
 
@@ -199,14 +233,15 @@ extension AppSettings {
         return settings
     }
 
-    @MainActor
     static func testFixture(
         apiKey: String = "",
-        selectedModel: String = "claude-sonnet-4-6"
+        selectedModel: String = "claude-sonnet-4-6",
+        installedDefinitions: [LSPServerDefinition] = []
     ) -> AppSettings {
         let settings = AppSettings()
         settings.apiKey = apiKey
         settings.selectedModel = selectedModel
+        settings.lspInstalledServerDefinitions = installedDefinitions
         return settings
     }
 }

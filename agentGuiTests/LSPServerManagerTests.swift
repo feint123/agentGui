@@ -146,7 +146,7 @@ private final class LSPServerManagerHarness {
     private(set) var lastClientDocumentSnapshot: LSPDocumentSnapshot?
 
     func makeManager() -> LSPServerManager {
-        let settings = AppSettings.testFixture()
+        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
         let registry = try! LSPServerRegistry(settings: settings)
         let diagnosticsStore = LSPDiagnosticsStore()
 

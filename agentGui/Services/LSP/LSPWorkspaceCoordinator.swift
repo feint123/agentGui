@@ -123,21 +123,6 @@ final class LSPWorkspaceCoordinator {
     }
 
     private static func languageID(for filePath: String) -> String? {
-        switch URL(fileURLWithPath: filePath).pathExtension.lowercased() {
-        case "ts":
-            return "typescript"
-        case "tsx":
-            return "typescriptreact"
-        case "js":
-            return "javascript"
-        case "jsx":
-            return "javascriptreact"
-        case "py":
-            return "python"
-        case "swift":
-            return "swift"
-        default:
-            return nil
-        }
+        LSPFileLanguageMapper.languageID(for: filePath)
     }
 }

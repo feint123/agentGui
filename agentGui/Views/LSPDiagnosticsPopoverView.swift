@@ -1,5 +1,49 @@
 import SwiftUI
 
+enum LSPStatusPresentationTone: Equatable {
+    case positive
+    case warning
+    case negative
+    case neutral
+
+    static func tone(for statusText: String) -> LSPStatusPresentationTone {
+        let normalized = statusText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if normalized.contains("running") || normalized.contains("运行中") {
+            return .positive
+        }
+
+        if normalized.contains("starting") || normalized.contains("启动中") {
+            return .warning
+        }
+
+        if normalized.contains("failed")
+            || normalized.contains("crashed")
+            || normalized.contains("未安装")
+            || normalized.contains("启动失败")
+            || normalized.contains("运行崩溃")
+            || normalized.contains("配置异常")
+            || normalized.contains("无匹配") {
+            return .negative
+        }
+
+        return .neutral
+    }
+
+    var color: Color {
+        switch self {
+        case .positive:
+            return .green
+        case .warning:
+            return .orange
+        case .negative:
+            return .red
+        case .neutral:
+            return .secondary
+        }
+    }
+}
+
 struct LSPDiagnosticRowPresentation: Equatable {
     let severity: LSPDiagnosticSeverity
     let severityText: String
@@ -30,14 +74,7 @@ struct LSPDiagnosticsPopoverView: View {
     let status: WorkspacePanelLSPStatusPresentation
 
     private var stateColor: Color {
-        let normalized = status.stateText.lowercased()
-        if normalized.contains("running") {
-            return .green
-        }
-        if normalized.contains("failed") || normalized.contains("crashed") {
-            return .red
-        }
-        return .secondary
+        LSPStatusPresentationTone.tone(for: status.stateText).color
     }
 
     var body: some View {

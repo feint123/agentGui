@@ -2,7 +2,6 @@ import Foundation
 
 enum LSPAdapterKind: String, Codable, Sendable {
     case generic
-    case sourcekit
 }
 
 enum LSPTransportKind: String, Codable, Sendable {
