@@ -18,6 +18,12 @@ struct SettingsMenuCommands: Commands {
             }
             .keyboardShortcut(",", modifiers: .command)
         }
+
+        CommandGroup(after: .appSettings) {
+            Button("开始使用...") {
+                openWindow(id: OnboardingWindowScene.id)
+            }
+        }
     }
 }
 
@@ -123,6 +129,14 @@ struct agentGuiApp: App {
                 .environment(reliabilityCenterViewModel)
                 .environment(PersistenceCoordinator.shared)
         }
+        .modelContainer(sharedModelContainer)
+
+        Window("开始使用 agentGui", id: OnboardingWindowScene.id) {
+            OnboardingWindowView()
+                .environment(claudeService)
+                .environment(PersistenceCoordinator.shared)
+        }
+        .windowStyle(.hiddenTitleBar)
         .modelContainer(sharedModelContainer)
     }
 

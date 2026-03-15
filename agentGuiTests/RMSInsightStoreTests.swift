@@ -11,8 +11,8 @@ struct RMSInsightStoreTests {
             summary: "Inspect before editing",
             appliesWhen: "coding",
             changesDecision: "block speculative edits",
-            scope: .user,
-            rawContentFilePath: "/tmp/rms/raw/user-constraint.txt"
+            rawContentFilePath: "/tmp/rms/raw/user-constraint.txt",
+            scope: .user
         )
 
         try store.upsert(insight)

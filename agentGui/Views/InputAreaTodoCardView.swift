@@ -53,13 +53,7 @@ struct InputAreaTodoCardView: View {
                     .accessibilityIdentifier("chat.todoCard.collapsedHint")
             }
         }
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.10), radius: 8, y: -2)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
         .accessibilityIdentifier("chat.todoCard")
     }
 }

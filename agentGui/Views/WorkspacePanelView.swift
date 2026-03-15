@@ -33,6 +33,7 @@ struct WorkspacePanelView: View {
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
     @Environment(PersistenceCoordinator.self) private var persistenceCoordinator
     @Environment(\.modelContext) private var modelContext
+    private let launchOptions = TestLaunchOptions.current
 
     // MARK: - State
 
@@ -41,12 +42,18 @@ struct WorkspacePanelView: View {
     @State private var isLoading = false
     @State private var refreshCoordinator = WorkspaceTreeRefreshCoordinator()
     @State private var showsLSPDiagnosticsPopover = false
+    @State private var treeSearchText = ""
+    @State private var selectedTreeNodeID: URL?
+    @State private var inlineEdit: WorkspaceTreeInlineEdit?
+    @State private var pendingDeleteNode: FileNode?
+    @State private var errorMessage: String?
 
     // MARK: - Body
 
     var body: some View {
         VStack(spacing: 0) {
             directoryBar
+            workspaceActionBar
             GitPanelView()
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 8)
@@ -65,15 +72,31 @@ struct WorkspacePanelView: View {
             loadFromWorkspaceState()
             triggerWorkspaceLSPBootstrap()
         }
-        .onDisappear {
-            refreshCoordinator.setDirectory(nil)
-        }
         .onChange(of: workspaceState.selectedSession?.persistentModelID) { _, _ in
             loadFromWorkspaceState()
             triggerWorkspaceLSPBootstrap()
         }
         .onChange(of: workspaceState.selectedFile) { _, _ in
+            selectedTreeNodeID = workspaceState.selectedFile
             triggerWorkspaceLSPBootstrap()
+        }
+        .alert("删除项目", isPresented: Binding(
+            get: { pendingDeleteNode != nil },
+            set: { if !$0 { pendingDeleteNode = nil } }
+        ), presenting: pendingDeleteNode) { node in
+            Button("取消", role: .cancel) {
+                pendingDeleteNode = nil
+            }
+            Button("删除", role: .destructive) {
+                deleteNode(node)
+            }
+        } message: { node in
+            Text("确定要删除「\(node.name)」吗？此操作不可撤销。")
+        }
+        .alert("错误", isPresented: .constant(errorMessage != nil)) {
+            Button("确定") { errorMessage = nil }
+        } message: {
+            if let errorMessage { Text(errorMessage) }
         }
     }
 
@@ -105,26 +128,125 @@ struct WorkspacePanelView: View {
         .accessibilityIdentifier("workspace.selector")
     }
 
+    private var workspaceActionBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("搜索文件或文件夹", text: $treeSearchText)
+                    .textFieldStyle(.plain)
+                    .accessibilityIdentifier("workspace.searchField")
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+
+            Button(action: { beginCreate(kind: .file, from: selectedNode) }) {
+                Image(systemName: "doc.badge.plus")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .disabled(currentDirectory == nil)
+            .accessibilityLabel("新建文件")
+            .help("新建文件")
+            .accessibilityIdentifier("workspace.newFileButton")
+
+            Button(action: { beginCreate(kind: .folder, from: selectedNode) }) {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .disabled(currentDirectory == nil)
+            .accessibilityLabel("新建文件夹")
+            .help("新建文件夹")
+            .accessibilityIdentifier("workspace.newFolderButton")
+
+            Button(action: { beginRename(for: selectedNode) }) {
+                Image(systemName: "pencil")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .disabled(selectedNode == nil)
+            .accessibilityLabel("重命名")
+            .help("重命名")
+            .accessibilityIdentifier("workspace.renameButton")
+
+            Button(role: .destructive, action: { pendingDeleteNode = selectedNode }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .disabled(selectedNode == nil)
+            .accessibilityLabel("删除")
+            .help("删除")
+            .accessibilityIdentifier("workspace.deleteButton")
+
+            if launchOptions.isUITestMode {
+                Text("workspace.searchState.\(searchStateText)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("workspace.searchState")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
+        .accessibilityIdentifier("workspace.actionBar")
+    }
+
     // MARK: - Tree
 
     @ViewBuilder
     private var treeContent: some View {
+        let displayNodes = nodesForDisplay()
+        let filteredNodes = WorkspaceTreeSnapshotOps.filterNodes(displayNodes, query: treeSearchText)
+
         if isLoading {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if rootNodes.isEmpty {
+        } else if currentDirectory == nil {
             emptyState
+        } else if filteredNodes.isEmpty {
+            searchEmptyState
         } else {
-            List(rootNodes, children: \.optionalChildren) { node in
+            List(filteredNodes, children: \.optionalChildren) { node in
                 let gitChange = gitChangeMatch(for: node)
                 FileRowView(
                     node: node,
-                    isSelected: !node.isDirectory && (workspaceState.selectedFile == node.id || workspaceState.selectedGitDiffPath == node.id),
+                    isSelected: selectedTreeNodeID == node.id || (!node.isDirectory && workspaceState.selectedFile == node.id),
                     gitChange: gitChange,
                     onPreviewDiff: { change, staged in
                         Task { await gitPanelViewModel.selectDiff(for: change, staged: staged, workspaceState: workspaceState) }
+                    },
+                    onNewFile: {
+                        selectedTreeNodeID = node.id
+                        beginCreate(kind: .file, from: node)
+                    },
+                    onNewFolder: {
+                        selectedTreeNodeID = node.id
+                        beginCreate(kind: .folder, from: node)
+                    },
+                    onRename: {
+                        selectedTreeNodeID = node.id
+                        beginRename(for: node)
+                    },
+                    onDelete: {
+                        selectedTreeNodeID = node.id
+                        pendingDeleteNode = node
+                    },
+                    inlineEdit: inlineEdit,
+                    onInlineEditChange: { updatedName in
+                        guard let inlineEdit else { return }
+                        self.inlineEdit = inlineEdit.withDraftName(updatedName)
+                    },
+                    onInlineEditCommit: {
+                        commitInlineEdit()
+                    },
+                    onInlineEditCancel: {
+                        cancelInlineEdit()
                     }
                 ) {
+                    selectedTreeNodeID = node.id
                     if !node.isDirectory {
                         workspaceState.clearGitDiffSelection()
                         workspaceState.selectedFile = node.id
@@ -157,6 +279,24 @@ struct WorkspacePanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var searchEmptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "folder" : "magnifyingglass")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(.tertiary)
+            VStack(spacing: 4) {
+                Text(treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "当前目录为空" : "未找到匹配项")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Text(treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "使用上方按钮创建文件或文件夹" : "尝试更换关键字或清空搜索")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("workspace.searchEmptyState")
     }
 
     private var lspStatusFooter: some View {
@@ -270,12 +410,16 @@ struct WorkspacePanelView: View {
         guard !dir.isEmpty else {
             rootNodes = []
             currentDirectory = nil
+            selectedTreeNodeID = nil
             refreshCoordinator.setDirectory(nil)
             return
         }
         let url = URL(fileURLWithPath: dir).standardizedFileURL
         if url != currentDirectory {
             setDirectory(url)
+        }
+        if selectedTreeNodeID == nil {
+            selectedTreeNodeID = workspaceState.selectedFile
         }
     }
 
@@ -284,6 +428,140 @@ struct WorkspacePanelView: View {
             self.rootNodes = nodes
             self.isLoading = loading
         }
+    }
+
+    private var selectedNode: FileNode? {
+        guard let selectedTreeNodeID else { return nil }
+        return findNode(in: rootNodes, matching: selectedTreeNodeID)
+    }
+
+    private var searchStateText: String {
+        if currentDirectory == nil {
+            return "none"
+        }
+        let filteredNodes = WorkspaceTreeSnapshotOps.filterNodes(nodesForDisplay(), query: treeSearchText)
+        return filteredNodes.isEmpty ? "empty" : "results"
+    }
+
+    private func nodesForDisplay() -> [FileNode] {
+        WorkspaceTreeInlineEditApplier.apply(inlineEdit: inlineEdit, to: rootNodes, rootDirectory: currentDirectory)
+    }
+
+    private func findNode(in nodes: [FileNode], matching id: URL) -> FileNode? {
+        for node in nodes {
+            if node.id == id { return node }
+            if let child = findNode(in: node.children ?? [], matching: id) {
+                return child
+            }
+        }
+        return nil
+    }
+
+    private func beginCreate(kind: WorkspaceTreeInlineEdit.Kind, from node: FileNode?) {
+        guard let targetDirectory = targetDirectory(for: node) ?? currentDirectory else { return }
+        treeSearchText = ""
+        inlineEdit = WorkspaceTreeInlineEdit.makeCreate(kind: kind, targetDirectory: targetDirectory)
+        selectedTreeNodeID = inlineEdit?.editingNodeID
+    }
+
+    private func beginRename(for node: FileNode?) {
+        guard let node else { return }
+        inlineEdit = WorkspaceTreeInlineEdit.makeRename(targetURL: node.id, initialName: node.name, isDirectory: node.isDirectory)
+    }
+
+    private func commitInlineEdit() {
+        guard let inlineEdit else { return }
+        do {
+            switch inlineEdit.kind {
+            case .file:
+                let createdURL = try WorkspaceFileTreeOperations.createFile(named: inlineEdit.draftName, in: inlineEdit.parentDirectory)
+                selectedTreeNodeID = createdURL
+                workspaceState.clearGitDiffSelection()
+                workspaceState.selectedFile = createdURL
+                self.inlineEdit = nil
+                refreshCoordinator.refreshDirectories([inlineEdit.parentDirectory])
+            case .folder:
+                let createdURL = try WorkspaceFileTreeOperations.createDirectory(named: inlineEdit.draftName, in: inlineEdit.parentDirectory)
+                selectedTreeNodeID = createdURL
+                self.inlineEdit = nil
+                refreshCoordinator.refreshDirectories([inlineEdit.parentDirectory])
+            case .rename:
+                guard let targetURL = inlineEdit.targetURL else { return }
+                let renamedURL = try WorkspaceFileTreeOperations.renameItem(at: targetURL, to: inlineEdit.draftName)
+                let oldParent = targetURL.deletingLastPathComponent()
+                let newParent = renamedURL.deletingLastPathComponent()
+                updateSelectionsAfterRename(from: targetURL, to: renamedURL)
+                self.inlineEdit = nil
+                refreshCoordinator.refreshDirectories([oldParent, newParent])
+            }
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func cancelInlineEdit() {
+        inlineEdit = nil
+    }
+
+    private func deleteNode(_ node: FileNode) {
+        do {
+            try WorkspaceFileTreeOperations.deleteItem(at: node.id)
+            updateSelectionsAfterDeletion(of: node.id)
+            pendingDeleteNode = nil
+            refreshCoordinator.refreshDirectories([node.id.deletingLastPathComponent()])
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func targetDirectory(for node: FileNode?) -> URL? {
+        guard let node else { return currentDirectory }
+        return node.isDirectory ? node.id : node.id.deletingLastPathComponent()
+    }
+
+    private func updateSelectionsAfterRename(from originalURL: URL, to renamedURL: URL) {
+        selectedTreeNodeID = remapSelectionURL(selectedTreeNodeID, from: originalURL, to: renamedURL)
+        workspaceState.selectedFile = remapSelectionURL(workspaceState.selectedFile, from: originalURL, to: renamedURL)
+
+        if let selectedDiffPath = workspaceState.selectedGitDiffPath,
+           contains(originalURL, candidate: selectedDiffPath) {
+            workspaceState.clearGitDiffSelection()
+        }
+    }
+
+    private func updateSelectionsAfterDeletion(of deletedURL: URL) {
+        if let selectedTreeNodeID, contains(deletedURL, candidate: selectedTreeNodeID) {
+            self.selectedTreeNodeID = nil
+        }
+        if let selectedFile = workspaceState.selectedFile, contains(deletedURL, candidate: selectedFile) {
+            workspaceState.selectedFile = nil
+        }
+        if let selectedDiffPath = workspaceState.selectedGitDiffPath, contains(deletedURL, candidate: selectedDiffPath) {
+            workspaceState.clearGitDiffSelection()
+        }
+    }
+
+    private func remapSelectionURL(_ candidate: URL?, from originalURL: URL, to renamedURL: URL) -> URL? {
+        guard let candidate else { return nil }
+
+        let originalPath = originalURL.standardizedFileURL.path
+        let candidatePath = candidate.standardizedFileURL.path
+
+        if candidatePath == originalPath {
+            return renamedURL.standardizedFileURL
+        }
+        guard candidatePath.hasPrefix(originalPath + "/") else {
+            return candidate
+        }
+
+        let suffix = String(candidatePath.dropFirst(originalPath.count))
+        return URL(fileURLWithPath: renamedURL.path + suffix).standardizedFileURL
+    }
+
+    private func contains(_ containerURL: URL, candidate: URL) -> Bool {
+        let containerPath = containerURL.standardizedFileURL.path
+        let candidatePath = candidate.standardizedFileURL.path
+        return candidatePath == containerPath || candidatePath.hasPrefix(containerPath + "/")
     }
 
     private func gitChangeMatch(for node: FileNode) -> GitFileChange? {
@@ -345,6 +623,14 @@ private struct FileRowView: View {
     let isSelected: Bool
     let gitChange: GitFileChange?
     let onPreviewDiff: (GitFileChange, Bool) -> Void
+    let onNewFile: () -> Void
+    let onNewFolder: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+    let inlineEdit: WorkspaceTreeInlineEdit?
+    let onInlineEditChange: (String) -> Void
+    let onInlineEditCommit: () -> Void
+    let onInlineEditCancel: () -> Void
     let onTap: () -> Void
 
     @State private var isHovered = false
@@ -355,10 +641,22 @@ private struct FileRowView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(iconColor)
                 .frame(width: 14)
-            Text(node.name)
-                .font(.system(size: 12))
-                .foregroundStyle(isSelected ? Color.accentColor : .primary)
-                .lineLimit(1)
+            if isInlineEditing {
+                InlineTreeNameField(
+                    text: Binding(
+                        get: { inlineEdit?.draftName ?? node.name },
+                        set: onInlineEditChange
+                    ),
+                    onCommit: onInlineEditCommit,
+                    onCancel: onInlineEditCancel
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(node.name)
+                    .font(.system(size: 12))
+                    .foregroundStyle(isSelected ? Color.accentColor : .primary)
+                    .lineLimit(1)
+            }
             if let gitChange {
                 Text(gitChange.statusBadge)
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
@@ -389,6 +687,19 @@ private struct FileRowView: View {
                 Button("查看 Diff") {
                     onPreviewDiff(gitChange, gitChange.section == .staged)
                 }
+                Divider()
+            }
+            Button("新建文件") {
+                onNewFile()
+            }
+            Button("新建文件夹") {
+                onNewFolder()
+            }
+            Button("重命名") {
+                onRename()
+            }
+            Button("删除", role: .destructive) {
+                onDelete()
             }
         }
     }
@@ -421,6 +732,198 @@ private struct FileRowView: View {
         case .modified:
             return .secondary
         }
+    }
+
+    private var isInlineEditing: Bool {
+        inlineEdit?.editingNodeID == node.id
+    }
+}
+
+private struct WorkspaceTreeInlineEdit: Equatable {
+    enum Kind: Equatable {
+        case file
+        case folder
+        case rename
+    }
+
+    let kind: Kind
+    let parentDirectory: URL
+    let targetURL: URL?
+    let editingNodeID: URL
+    let draftName: String
+    let isDirectory: Bool
+
+    static func makeCreate(kind: Kind, targetDirectory: URL) -> WorkspaceTreeInlineEdit {
+        let tempURL = targetDirectory.appending(path: ".agentgui-inline-\(UUID().uuidString)")
+        return WorkspaceTreeInlineEdit(
+            kind: kind,
+            parentDirectory: targetDirectory,
+            targetURL: nil,
+            editingNodeID: tempURL,
+            draftName: "",
+            isDirectory: kind == .folder
+        )
+    }
+
+    static func makeRename(targetURL: URL, initialName: String, isDirectory: Bool) -> WorkspaceTreeInlineEdit {
+        WorkspaceTreeInlineEdit(
+            kind: .rename,
+            parentDirectory: targetURL.deletingLastPathComponent(),
+            targetURL: targetURL,
+            editingNodeID: targetURL,
+            draftName: initialName,
+            isDirectory: isDirectory
+        )
+    }
+
+    func withDraftName(_ draftName: String) -> WorkspaceTreeInlineEdit {
+        WorkspaceTreeInlineEdit(
+            kind: kind,
+            parentDirectory: parentDirectory,
+            targetURL: targetURL,
+            editingNodeID: editingNodeID,
+            draftName: draftName,
+            isDirectory: isDirectory
+        )
+    }
+}
+
+private enum WorkspaceTreeInlineEditApplier {
+    static func apply(inlineEdit: WorkspaceTreeInlineEdit?, to nodes: [FileNode], rootDirectory: URL?) -> [FileNode] {
+        guard let inlineEdit else { return nodes }
+        if inlineEdit.kind == .rename {
+            return nodes
+        }
+
+        let placeholderNode = FileNode(
+            id: inlineEdit.editingNodeID,
+            name: inlineEdit.draftName.isEmpty ? "未命名" : inlineEdit.draftName,
+            isDirectory: inlineEdit.isDirectory,
+            children: inlineEdit.isDirectory ? [] : nil
+        )
+
+        if inlineEdit.parentDirectory == rootDirectory?.standardizedFileURL {
+            return [placeholderNode] + nodes
+        }
+
+        return injectPlaceholder(placeholderNode, into: nodes, parentDirectory: inlineEdit.parentDirectory)
+    }
+
+    private static func injectPlaceholder(_ placeholderNode: FileNode, into nodes: [FileNode], parentDirectory: URL) -> [FileNode] {
+        nodes.map { node in
+            guard node.isDirectory else { return node }
+            if node.id == parentDirectory {
+                return FileNode(
+                    id: node.id,
+                    name: node.name,
+                    isDirectory: true,
+                    children: [placeholderNode] + (node.children ?? [])
+                )
+            }
+
+            let updatedChildren = injectPlaceholder(placeholderNode, into: node.children ?? [], parentDirectory: parentDirectory)
+            return FileNode(id: node.id, name: node.name, isDirectory: true, children: updatedChildren)
+        }
+    }
+}
+
+private struct InlineTreeNameField: NSViewRepresentable {
+    @Binding var text: String
+    let onCommit: () -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onCommit: onCommit, onCancel: onCancel)
+    }
+
+    func makeNSView(context: Context) -> InlineEditorTextField {
+        let textField = InlineEditorTextField()
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.focusRingType = .none
+        textField.font = NSFont.systemFont(ofSize: 12)
+        textField.lineBreakMode = .byTruncatingTail
+        textField.placeholderString = "输入名称"
+        textField.delegate = context.coordinator
+        textField.commitHandler = onCommit
+        textField.cancelHandler = onCancel
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textField.identifier = NSUserInterfaceItemIdentifier("workspace.inlineNameField")
+        return textField
+    }
+
+    func updateNSView(_ nsView: InlineEditorTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        nsView.commitHandler = onCommit
+        nsView.cancelHandler = onCancel
+        context.coordinator.text = $text
+
+        DispatchQueue.main.async {
+            nsView.focusIfNeeded()
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        let onCommit: () -> Void
+        let onCancel: () -> Void
+
+        init(text: Binding<String>, onCommit: @escaping () -> Void, onCancel: @escaping () -> Void) {
+            self.text = text
+            self.onCommit = onCommit
+            self.onCancel = onCancel
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let textField = notification.object as? NSTextField else { return }
+            text.wrappedValue = textField.stringValue
+        }
+    }
+}
+
+final class InlineEditorTextField: NSTextField {
+    enum EndEditingAction: Equatable {
+        case commit
+        case cancel
+    }
+
+    var commitHandler: (() -> Void)?
+    var cancelHandler: (() -> Void)?
+    private var didAutoFocus = false
+
+    override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+        switch Self.endEditingAction(for: notification.userInfo?["NSTextMovement"] as? Int) {
+        case .commit:
+            commitHandler?()
+        case .cancel:
+            cancelHandler?()
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 53:
+            cancelHandler?()
+        default:
+            super.keyDown(with: event)
+        }
+    }
+
+    func focusIfNeeded() {
+        guard !didAutoFocus, let window else { return }
+        didAutoFocus = true
+        window.makeFirstResponder(self)
+        currentEditor()?.selectedRange = NSRange(location: 0, length: stringValue.count)
+    }
+
+    static func endEditingAction(for movement: Int?) -> EndEditingAction {
+        if movement == NSReturnTextMovement {
+            return .commit
+        }
+        return .cancel
     }
 }
 

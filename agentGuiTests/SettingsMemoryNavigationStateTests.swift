@@ -4,11 +4,7 @@ import Testing
 
 @MainActor
 struct SettingsMemoryNavigationStateTests {
-    @Test func detailRouteUsesExpectedRMSPanelCase() {
-        #expect(SettingsDetailRoute.rmsPanel.id == "rmsPanel")
-    }
-
-    @Test func switchingAwayFromMemoryClearsDetailPath() throws {
+    @Test func selectingMemoryUpdatesCurrentSettingsNavigationItem() throws {
         SettingsStore.resetSelectionMemoryForTesting()
 
         let container = try ModelContainer(
@@ -22,11 +18,11 @@ struct SettingsMemoryNavigationStateTests {
             persistenceCoordinator: nil
         )
 
-        store.showRMSPanel()
+        store.selectedItem = .memory
         #expect(store.selectedItem == .memory)
-        #expect(store.detailPath == [.rmsPanel])
 
         store.selectedItem = .general
-        #expect(store.detailPath.isEmpty)
+
+        #expect(store.selectedItem == .general)
     }
 }

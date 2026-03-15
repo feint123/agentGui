@@ -15,6 +15,10 @@ struct SettingsGeneralView: View {
 
     private var settings: AppSettings { store.settings }
 
+    private var readiness: LaunchReadinessStatus {
+        LaunchReadinessEvaluator.evaluate(settings: settings)
+    }
+
     private var appearanceSection: some View {
         Section("外观") {
             Picker("主题", selection: store.persistedSettingsBinding(
@@ -31,6 +35,12 @@ struct SettingsGeneralView: View {
 
     private var aboutSection: some View {
         Section("关于") {
+            HStack {
+                Text("启动状态")
+                Spacer()
+                Text(readiness.isReadyForFirstMessage ? "可开始" : "需先配置")
+                    .foregroundStyle(readiness.isReadyForFirstMessage ? .green : .orange)
+            }
             HStack {
                 Text("版本")
                 Spacer()

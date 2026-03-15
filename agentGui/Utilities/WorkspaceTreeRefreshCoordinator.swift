@@ -105,6 +105,48 @@ final class WorkspaceTreeRefreshCoordinator {
         scheduleFullReload(for: standardizedURL, generation: currentGeneration)
     }
 
+    func refreshDirectories(_ urls: [URL]) {
+        guard let rootURL = currentDirectory else { return }
+
+        let normalizedTargets = Array(Set(urls.map(\.standardizedFileURL))).filter {
+            let path = $0.path
+            let rootPath = rootURL.path
+            return path == rootPath || path.hasPrefix(rootPath + "/")
+        }
+        guard !normalizedTargets.isEmpty else { return }
+
+        let snapshot = currentNodes
+        let generation = self.generation
+        let shallowScan = shallowScanClosure
+        let mergeNodes = mergeNodesClosure
+        let applyPartialUpdate = applyPartialUpdateClosure
+
+        scanTask?.cancel()
+        scanTask = Task.detached(priority: .userInitiated) { [weak self] in
+            var updated = snapshot
+
+            for targetURL in normalizedTargets.sorted(by: { $0.path.count < $1.path.count }) {
+                guard !Task.isCancelled else { return }
+                if targetURL == rootURL {
+                    let freshScan = await shallowScan(rootURL)
+                    updated = await mergeNodes(updated, freshScan)
+                } else if updated.isEmpty {
+                    let freshScan = await shallowScan(rootURL)
+                    updated = await mergeNodes([], freshScan)
+                } else {
+                    updated = await applyPartialUpdate(updated, targetURL)
+                }
+            }
+
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.generation == generation, self.currentDirectory == rootURL else { return }
+                self.currentNodes = updated
+                self.onNodesChanged?(updated, false)
+            }
+        }
+    }
+
     private func enqueue(paths: [String], generation: Int) {
         guard generation == self.generation else { return }
 
@@ -175,6 +217,13 @@ final class WorkspaceTreeRefreshCoordinator {
 
 enum WorkspaceTreeSnapshotOps {
     private static let scanResourceKeys: Set<URLResourceKey> = [.isDirectoryKey, .isHiddenKey]
+
+    static func filterNodes(_ nodes: [FileNode], query: String) -> [FileNode] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else { return nodes }
+
+        return nodes.compactMap { filter(node: $0, query: normalizedQuery) }
+    }
 
     static func refreshTargets(for paths: [String], rootURL: URL) -> [URL] {
         let rootStandardizedURL = rootURL.standardizedFileURL
@@ -295,6 +344,24 @@ enum WorkspaceTreeSnapshotOps {
             return true
         }
         return !isHidden
+    }
+
+    private static func filter(node: FileNode, query: String) -> FileNode? {
+        let matchesSelf = node.name.localizedCaseInsensitiveContains(query)
+
+        if !node.isDirectory {
+            return matchesSelf ? node : nil
+        }
+
+        let filteredChildren = (node.children ?? []).compactMap { filter(node: $0, query: query) }
+        guard matchesSelf || !filteredChildren.isEmpty else { return nil }
+
+        return FileNode(
+            id: node.id,
+            name: node.name,
+            isDirectory: true,
+            children: matchesSelf ? node.children : filteredChildren
+        )
     }
 }
 

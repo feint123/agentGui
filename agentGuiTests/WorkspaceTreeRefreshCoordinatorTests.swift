@@ -98,6 +98,69 @@ struct WorkspaceTreeRefreshCoordinatorTests {
         #expect(observation.stopCallCount == 1)
         #expect(updateCount == 3)
     }
+
+    @Test func refreshDirectoriesUpdatesAffectedBranchWithoutFullReload() async throws {
+        let observationFactory = RecordingWorkspaceDirectoryObservationFactory()
+        let root = URL(fileURLWithPath: "/tmp/workspace/root")
+        let sources = root.appending(path: "Sources")
+        let initialNodes = [
+            FileNode(id: sources, name: "Sources", isDirectory: true, children: [
+                FileNode(id: sources.appending(path: "Old.swift"), name: "Old.swift", isDirectory: false, children: nil)
+            ])
+        ]
+
+        let buildCounter = Counter()
+        let partialCounter = Counter()
+        let coordinator = WorkspaceTreeRefreshCoordinator(
+            observationFactory: observationFactory.makeFactory(),
+            debounceNanoseconds: 10_000_000,
+            buildNodes: { _ in
+                await buildCounter.increment()
+                return initialNodes
+            },
+            shallowScan: { _ in [] },
+            mergeNodes: { existing, _ in existing },
+            applyPartialUpdate: { nodes, targetURL in
+                await partialCounter.increment()
+                guard targetURL == sources else { return nodes }
+                return [
+                    FileNode(id: sources, name: "Sources", isDirectory: true, children: [
+                        FileNode(id: sources.appending(path: "New.swift"), name: "New.swift", isDirectory: false, children: nil)
+                    ])
+                ]
+            }
+        )
+
+        var loadingTransitions: [Bool] = []
+        var observedSnapshots: [[String]] = []
+        let initialLoad = AsyncSignal()
+        coordinator.onNodesChanged = { nodes, loading in
+            loadingTransitions.append(loading)
+            observedSnapshots.append(nodes.flatMap { [$0.name] + ($0.children?.map(\.name) ?? []) })
+            if !loading {
+                Task { await initialLoad.fire() }
+            }
+        }
+
+        coordinator.setDirectory(root)
+        await initialLoad.wait()
+
+        coordinator.refreshDirectories([sources])
+        try await Task.sleep(nanoseconds: 80_000_000)
+
+        #expect(await buildCounter.value == 1)
+        #expect(await partialCounter.value == 1)
+        #expect(loadingTransitions == [true, false, false])
+        #expect(observedSnapshots.last == ["Sources", "New.swift"])
+    }
+}
+
+private actor Counter {
+    private(set) var value = 0
+
+    func increment() {
+        value += 1
+    }
 }
 
 private actor DelayedTreeBuilder {

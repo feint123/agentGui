@@ -9,6 +9,7 @@ struct SettingsToolsView: View {
     var body: some View {
         Form {
             toolsSection
+            permissionGuidanceSection
         }
         .formStyle(.grouped)
         .navigationTitle("工具")
@@ -18,6 +19,39 @@ struct SettingsToolsView: View {
     }
 
     private var settings: AppSettings { store.settings }
+
+    private var toolGuidanceItems: [(title: String, detail: String, risk: String)] {
+        [
+            (
+                title: "文本编辑器工具",
+                detail: settings.enableTextEditorTool
+                    ? "已启用。允许 Agent 读取、创建和修改文件。"
+                    : "未启用。Agent 不能直接修改文件。",
+                risk: "会产生真实文件改动"
+            ),
+            (
+                title: "Bash 工具",
+                detail: settings.enableBashTool
+                    ? "已启用。命令会在受管终端中运行。\(settings.workingDirectory.isEmpty ? "当前未指定工作目录，将回退到 HOME。" : "当前工作目录已配置。")"
+                    : "未启用。Agent 不能执行 shell 命令。",
+                risk: "会执行真实系统命令"
+            ),
+            (
+                title: "Web Search / Web Fetch",
+                detail: settings.enableWebSearchTool || settings.enableWebFetchTool
+                    ? "已启用网络读取能力。若搜索走 Ollama，需要补充 API Key。"
+                    : "未启用。Agent 无法主动联网搜索或抓取网页。",
+                risk: "会访问外部网络"
+            ),
+            (
+                title: "LSP 工具",
+                detail: settings.enableLSPTools
+                    ? "已启用。建议同时配置工作目录，方便绑定语言服务器。"
+                    : "未启用。Agent 无法使用语义跳转、引用和诊断能力。",
+                risk: "读取代码结构与诊断信息"
+            )
+        ]
+    }
 
     private var toolsSection: some View {
         Section {
@@ -147,6 +181,31 @@ struct SettingsToolsView: View {
             Text("工具")
         } footer: {
             Text("工具让 Claude 能够读写文件、执行终端命令。仅在可信环境中启用。")
+        }
+    }
+
+    private var permissionGuidanceSection: some View {
+        Section {
+            ForEach(Array(toolGuidanceItems.enumerated()), id: \.offset) { _, item in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(item.title)
+                            .font(.subheadline.weight(.medium))
+                        Spacer()
+                        Text(item.risk)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(item.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
+            }
+        } header: {
+            Text("权限与前提说明")
+        } footer: {
+            Text("首版推荐从最小组合开始：先配置 API Key，再按任务需要逐步打开文件、Bash、联网和 LSP 能力。")
         }
     }
 

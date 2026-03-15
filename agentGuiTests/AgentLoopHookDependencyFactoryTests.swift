@@ -83,73 +83,61 @@ struct AgentLoopHookDependencyFactoryTests {
     }
 
     private func makeRequest(service: any AnthropicService) -> AgentLoopRunRequest {
-        makeRequest(service: service, toolExecutionContext: .mainAgent)
-    }
-
-    private func makeRequest(
-        service: any AnthropicService,
-            """#.utf8)
+        AgentLoopRunRequest(
+            service: service,
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            maxRounds: 2,
+            toolExecutionContext: .mainAgent
         )
     }
 
-    func streamMessage(_ parameter: MessageParameter) async throws -> AsyncThrowingStream<MessageStreamResponse, Error> { throw TestError.unused }
-    func countTokens(parameter: MessageTokenCountParameter) async throws -> MessageInputTokens { throw TestError.unused }
-    func createTextCompletion(_ parameter: TextCompletionParameter) async throws -> TextCompletionResponse { throw TestError.unused }
-    func createStreamTextCompletion(_ parameter: TextCompletionParameter) async throws -> AsyncThrowingStream<TextCompletionStreamResponse, Error> { throw TestError.unused }
-    func createSkill(_ parameter: SkillCreateParameter) async throws -> SkillResponse { throw TestError.unused }
-    func listSkills(parameter: ListSkillsParameter?) async throws -> ListSkillsResponse { throw TestError.unused }
-    func retrieveSkill(skillId: String) async throws -> SkillResponse { throw TestError.unused }
-    func deleteSkill(skillId: String) async throws { throw TestError.unused }
-    func createSkillVersion(skillId: String, _ parameter: SkillVersionCreateParameter) async throws -> SkillVersionResponse { throw TestError.unused }
-    func listSkillVersions(skillId: String, parameter: ListSkillVersionsParameter?) async throws -> ListSkillVersionsResponse { throw TestError.unused }
-    func retrieveSkillVersion(skillId: String, version: String) async throws -> SkillVersionResponse { throw TestError.unused }
-    func deleteSkillVersion(skillId: String, version: String) async throws { throw TestError.unused }
-}
+    private func makeRuntime(modelContext: ModelContext) -> AgentLoopRuntime {
+        AgentLoopRuntime(
+            settings: AppSettings(),
+            session: nil,
+            sessionId: "session-1",
+            modelContext: modelContext,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none,
+            toolInterceptor: nil
+        )
+    }
 
-private actor CreateMessageCounter {
-    private(set) var count: Int = 0
+    private func makeHookContext(phase: String) -> AgentLoopHookContext {
+        AgentLoopHookContext(
+            runID: "run-1",
+            sessionID: "session-1",
+            workflowID: nil,
+            executionContext: .mainAgent,
+            modelId: "claude-test",
+            roundIndex: 0,
+            phase: phase
+        )
+    }
 
-    func increment() {
-        count += 1
+    private func makeModelContext() throws -> ModelContext {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(
+            for: AppSettings.self,
+            Session.self,
+            SessionTaskState.self,
+            Message.self,
+            ToolCall.self,
+            AgentRound.self,
+            configurations: config
+        )
+        return ModelContext(container)
     }
 }
 
-private final class CountingExtractionAnthropicService: AnthropicService {
+private final class TestAnthropicService: AnthropicService {
     let httpClient: HTTPClient = URLSessionHTTPClientAdapter()
     let decoder: JSONDecoder = JSONDecoder()
-    private let counter = CreateMessageCounter()
 
-    var createMessageInvocationCount: Int {
-        get async {
-            await counter.count
-        }
-    }
-
-    func createMessage(_ parameter: MessageParameter) async throws -> MessageResponse {
-        _ = parameter
-        await counter.increment()
-        return try JSONDecoder().decode(
-            MessageResponse.self,
-            from: Data(#"""
-            {
-                "id": "msg_counting",
-                "type": "message",
-                "role": "assistant",
-                "model": "claude-test",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "{\"objects\":[],\"rejected\":[],\"missingEvidence\":[],\"decisionImpactNote\":\"noop\"}"
-                    }
-                ],
-                "stop_reason": "end_turn",
-                "stop_sequence": null,
-                "usage": { "input_tokens": 10, "output_tokens": 10 }
-            }
-            """#.utf8)
-        )
-    }
-
+    func createMessage(_ parameter: MessageParameter) async throws -> MessageResponse { throw TestError.unused }
     func streamMessage(_ parameter: MessageParameter) async throws -> AsyncThrowingStream<MessageStreamResponse, Error> { throw TestError.unused }
     func countTokens(parameter: MessageTokenCountParameter) async throws -> MessageInputTokens { throw TestError.unused }
     func createTextCompletion(_ parameter: TextCompletionParameter) async throws -> TextCompletionResponse { throw TestError.unused }
@@ -162,4 +150,8 @@ private final class CountingExtractionAnthropicService: AnthropicService {
     func listSkillVersions(skillId: String, parameter: ListSkillVersionsParameter?) async throws -> ListSkillVersionsResponse { throw TestError.unused }
     func retrieveSkillVersion(skillId: String, version: String) async throws -> SkillVersionResponse { throw TestError.unused }
     func deleteSkillVersion(skillId: String, version: String) async throws { throw TestError.unused }
+}
+
+private enum TestError: Error {
+    case unused
 }

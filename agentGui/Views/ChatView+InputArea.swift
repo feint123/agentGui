@@ -64,20 +64,8 @@ extension ChatView {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.regularMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(
-                                isDropTargeted
-                                    ? Color.accentColor.opacity(0.6)
-                                    : Color.primary.opacity(0.08),
-                                lineWidth: isDropTargeted ? 2 : 1
-                            )
-                    )
-                    .shadow(color: .black.opacity(0.06), radius: 8, y: -2)
-            )
+            .glassEffect(isDropTargeted ? .regular.interactive().tint(Color.accentColor.opacity(0.3)): .regular,
+                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .padding(.horizontal, 16)
         .padding(.bottom, 6)
         .padding(.top, 8)
@@ -377,13 +365,7 @@ var fileChipsRow: some View {
                 }
             }
         }
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.10), radius: 8, y: -2)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
         .accessibilityIdentifier("chat.slashPopup")
@@ -430,7 +412,7 @@ var fileChipsRow: some View {
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 16)
                     .fill(isHighlighted ? Color.accentColor.opacity(0.12) : .clear)
             )
             .contentShape(Rectangle())
@@ -447,13 +429,7 @@ var fileChipsRow: some View {
                 mentionRow(url: url)
             }
         }
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.10), radius: 8, y: -2)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
         .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)))

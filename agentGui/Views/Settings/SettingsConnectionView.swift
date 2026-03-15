@@ -12,9 +12,13 @@ struct SettingsConnectionView: View {
     @State private var showAPIKey: Bool = false
     @State private var isSaved: Bool = false
     @State private var isProxySaved: Bool = false
+    @State private var isValidating = false
+    @State private var validationMessage: String?
+    @State private var validationStatus: ConnectionValidationStatus?
 
     var body: some View {
         Form {
+            readinessSection
             apiKeySection
             proxySection
             modelSection
@@ -25,6 +29,37 @@ struct SettingsConnectionView: View {
     }
 
     private var settings: AppSettings { store.settings }
+
+    private var readiness: LaunchReadinessStatus {
+        LaunchReadinessEvaluator.evaluate(settings: settings)
+    }
+
+    private var readinessSection: some View {
+        Section("启动就绪状态") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(readiness.title)
+                    .font(.headline)
+                    .accessibilityIdentifier("settings.connection.readinessSummary")
+                Text(readiness.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach(readiness.items) { item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: item.isSatisfied ? "checkmark.circle.fill" : (item.isRequired ? "exclamationmark.circle.fill" : "circle.dashed"))
+                            .foregroundStyle(item.isSatisfied ? .green : (item.isRequired ? .orange : .secondary))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title)
+                                .font(.subheadline.weight(.medium))
+                            Text(item.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     private var apiKeySection: some View {
         Section {
@@ -57,6 +92,24 @@ struct SettingsConnectionView: View {
             .disabled(apiKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
             .foregroundStyle(isSaved ? .green : .accentColor)
             .accessibilityIdentifier("settings.connection.saveButton")
+
+            Button {
+                validateConnectionSettings()
+            } label: {
+                if isValidating {
+                    Label("验证中...", systemImage: "hourglass")
+                } else {
+                    Label("验证配置", systemImage: "checkmark.shield")
+                }
+            }
+            .disabled(isValidating)
+            .accessibilityIdentifier("settings.connection.validateButton")
+
+            if let validationMessage, let validationStatus {
+                Label(validationMessage, systemImage: validationStatus == .passed ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                    .font(.caption)
+                    .foregroundStyle(validationStatus == .passed ? .green : .red)
+            }
         } header: {
             Text("Anthropic API 配置")
         } footer: {
@@ -104,7 +157,18 @@ struct SettingsConnectionView: View {
 
     private var isProxyConfigurationValid: Bool {
         let trimmed = proxyURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !proxyEnabled || (!trimmed.isEmpty && URL(string: trimmed) != nil)
+        return !proxyEnabled || (!trimmed.isEmpty && isWellFormedURL(trimmed))
+    }
+
+    private func isWellFormedURL(_ rawValue: String) -> Bool {
+        guard let components = URLComponents(string: rawValue),
+              let scheme = components.scheme,
+              !scheme.isEmpty,
+              let host = components.host,
+              !host.isEmpty else {
+            return false
+        }
+        return true
     }
 
     private func loadInputs() {
@@ -129,6 +193,8 @@ struct SettingsConnectionView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation { isSaved = false }
         }
+        validationMessage = nil
+        validationStatus = nil
     }
 
     private func saveProxySettings() {
@@ -144,6 +210,30 @@ struct SettingsConnectionView: View {
         withAnimation { isProxySaved = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation { isProxySaved = false }
+        }
+        validationMessage = nil
+        validationStatus = nil
+    }
+
+    private func validateConnectionSettings() {
+        isValidating = true
+
+        let previewSettings = AppSettings.testFixture(
+            apiKey: apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines),
+            selectedModel: settings.selectedModel
+        )
+        previewSettings.baseURL = baseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        previewSettings.enableNetworkProxy = proxyEnabled
+        previewSettings.networkProxyURL = proxyURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        previewSettings.networkProxyBypassList = proxyBypassInput.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        Task {
+            let result = await ConnectionValidationService().validate(settings: previewSettings)
+            await MainActor.run {
+                validationStatus = result.status
+                validationMessage = result.messages.joined(separator: " ")
+                isValidating = false
+            }
         }
     }
 }
