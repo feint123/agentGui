@@ -136,12 +136,6 @@ struct ChatView: View {
         .sheet(item: $viewingMedia) { item in
             MediaViewerView(item: item)
         }
-        .sheet(isPresented: $showingRMSPanel) {
-            NavigationStack {
-                RMSPanel(sessionID: session.sessionId)
-            }
-            .frame(minWidth: 720, minHeight: 520)
-        }
         .confirmationDialog(
             "删除此消息及之后的所有对话？",
             isPresented: Binding(

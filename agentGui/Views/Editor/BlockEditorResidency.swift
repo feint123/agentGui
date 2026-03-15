@@ -4,7 +4,7 @@ struct BlockEditorResidency: Equatable {
     private(set) var mountedEditorIDs: [UUID] = []
     let maxMountedEditors: Int
 
-    init(maxMountedEditors: Int = 3) {
+    init(maxMountedEditors: Int = 1) {
         self.maxMountedEditors = max(1, maxMountedEditors)
     }
 

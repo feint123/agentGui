@@ -65,11 +65,11 @@ struct SettingsConnectionView: View {
         Section {
             HStack {
                 if showAPIKey {
-                    TextField("sk-ant-...", text: $apiKeyInput)
+                    TextField("sk-ant-preview", text: $apiKeyInput)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("settings.connection.apiKeyField")
                 } else {
-                    SecureField("sk-ant-...", text: $apiKeyInput)
+                    SecureField("sk-ant-preview", text: $apiKeyInput)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("settings.connection.apiKeyField")
                 }
@@ -86,25 +86,26 @@ struct SettingsConnectionView: View {
             TextField("https://api.anthropic.com（留空使用默认）", text: $baseURLInput)
                 .textFieldStyle(.roundedBorder)
 
-            Button(isSaved ? "已保存 ✓" : "保存") {
-                saveConnectionSettings()
-            }
-            .disabled(apiKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
-            .foregroundStyle(isSaved ? .green : .accentColor)
-            .accessibilityIdentifier("settings.connection.saveButton")
-
-            Button {
-                validateConnectionSettings()
-            } label: {
-                if isValidating {
-                    Label("验证中...", systemImage: "hourglass")
-                } else {
-                    Label("验证配置", systemImage: "checkmark.shield")
+            HStack(alignment: .center, spacing: 12) {
+                Button(isSaved ? "已保存 ✓" : "保存") {
+                    saveConnectionSettings()
                 }
-            }
-            .disabled(isValidating)
-            .accessibilityIdentifier("settings.connection.validateButton")
+                .disabled(apiKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                .foregroundStyle(isSaved ? .green : .accentColor)
+                .accessibilityIdentifier("settings.connection.saveButton")
 
+                Button {
+                    validateConnectionSettings()
+                } label: {
+                    if isValidating {
+                        Label("验证中...", systemImage: "hourglass")
+                    } else {
+                        Label("验证配置", systemImage: "checkmark.shield")
+                    }
+                }
+                .disabled(isValidating)
+                .accessibilityIdentifier("settings.connection.validateButton")
+            }
             if let validationMessage, let validationStatus {
                 Label(validationMessage, systemImage: validationStatus == .passed ? "checkmark.circle.fill" : "xmark.octagon.fill")
                     .font(.caption)

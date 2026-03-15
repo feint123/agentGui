@@ -124,7 +124,7 @@ struct WorkspacePanelView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(.bar)
+        // .background(.bar)
         .accessibilityIdentifier("workspace.selector")
     }
 
@@ -190,7 +190,7 @@ struct WorkspacePanelView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.bar)
+        // .background(.bar)
         .accessibilityIdentifier("workspace.actionBar")
     }
 
@@ -357,7 +357,7 @@ struct WorkspacePanelView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.bar)
+        // .background(.bar)
         .accessibilityIdentifier("workspace.lspStatusFooter")
     }
 

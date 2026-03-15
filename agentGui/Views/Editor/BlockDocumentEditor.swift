@@ -29,7 +29,7 @@ struct BlockDocumentEditor: View {
     @State private var dropTargetBlockID: UUID?
     @State private var focusRequest: BlockEditorFocusRequest?
     @State private var activeBlockID: UUID?
-    @State private var editorResidency = BlockEditorResidency(maxMountedEditors: 3)
+    @State private var editorResidency = BlockEditorResidency(maxMountedEditors: 1)
     @State private var selectionState: InlineSelectionState?
     @State private var pendingFormats: [UUID: InlineFormatRequest] = [:]
     @State private var syncGate = BlockDocumentSyncGate()
