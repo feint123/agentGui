@@ -4,6 +4,38 @@ import Testing
 
 struct WorkspaceTreeSnapshotOpsTests {
 
+    @Test func fileNodeEqualityDetectsChildTreeChanges() {
+        let directoryURL = URL(fileURLWithPath: "/tmp/workspace/Sources")
+        let original = FileNode(
+            id: directoryURL,
+            name: "Sources",
+            isDirectory: true,
+            children: [
+                FileNode(
+                    id: directoryURL.appending(path: "Old.swift"),
+                    name: "Old.swift",
+                    isDirectory: false,
+                    children: nil
+                )
+            ]
+        )
+        let updated = FileNode(
+            id: directoryURL,
+            name: "Sources",
+            isDirectory: true,
+            children: [
+                FileNode(
+                    id: directoryURL.appending(path: "New.swift"),
+                    name: "New.swift",
+                    isDirectory: false,
+                    children: nil
+                )
+            ]
+        )
+
+        #expect(original != updated)
+    }
+
     @Test func shallowScanIncludesHiddenDirectoriesButSkipsHiddenFiles() throws {
         let rootURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: rootURL) }

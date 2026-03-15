@@ -7,10 +7,6 @@ import SwiftUI
 import AppKit
 import PDFKit
 
-// MARK: - File viewer type
-
-private enum FileViewerType { case text, image, pdf }
-
 /// 中间栏：文件编辑器，显示并可编辑当前在文件树中选中的文件
 struct FileEditorView: View {
 
@@ -23,20 +19,7 @@ struct FileEditorView: View {
 
     // MARK: - State
 
-    @State private var textContent: String = ""
-    @State private var loadedFileURL: URL?
-    /// Snapshot of the file content at last load/save; used for dirty detection.
-    @State private var fileContent: String = ""
-    @State private var errorMessage: String?
-    @State private var isSaving = false
-    @State private var hasUnsavedChanges: Bool = false
-    @State private var viewerType: FileViewerType = .text
-    @State private var viewerImage: NSImage? = nil
-    @State private var isLoadingFile = false
-    @State private var fileLoadTask: Task<Void, Never>?
-    @State private var requestTracker = FileEditorRequestTracker()
-    @State private var openFileRefreshMonitor = OpenFileRefreshMonitor()
-    @State private var externalConflictCoordinator = FileEditorExternalConflictCoordinator()
+    @State private var sessionController = FileEditorSessionController()
     private let launchOptions = TestLaunchOptions.current
 
     // MARK: - Body
@@ -53,47 +36,37 @@ struct FileEditorView: View {
             }
         }
         .onAppear {
-            openFileRefreshMonitor.onExternalChange = { changedURL in
-                workspaceState.externallyModifiedFile = changedURL
+            sessionController.activate()
+            if let selectedFile = workspaceState.selectedFile,
+               sessionController.document.fileURL != selectedFile.standardizedFileURL || sessionController.document.phase == .idle {
+                Task {
+                    await sessionController.open(selectedFile)
+                }
             }
-            openFileRefreshMonitor.watch(workspaceState.selectedFile)
         }
         .onDisappear {
-            fileLoadTask?.cancel()
-            requestTracker.invalidate()
-            openFileRefreshMonitor.watch(nil)
-        }
-        .onChange(of: textContent) { _, newValue in
-            hasUnsavedChanges = loadedFileURL != nil && newValue != fileContent
-            syncOpenDocumentToLSPIfNeeded(text: newValue)
+            sessionController.deactivate()
         }
         .onChange(of: workspaceState.selectedFile) { _, newURL in
             workspaceState.editorSelection = nil
-            externalConflictCoordinator.clear()
+            Task {
+                await sessionController.open(newURL)
+            }
             if let url = newURL {
-                openFileRefreshMonitor.watch(url)
-                loadFile(url)
                 triggerWorkspaceLSPBootstrap(for: url)
-            } else {
-                openFileRefreshMonitor.watch(nil)
-                clearEditor()
             }
         }
-        .onChange(of: workspaceState.externallyModifiedFile) { _, url in
-            guard let url, url == loadedFileURL else { return }
-            workspaceState.externallyModifiedFile = nil
-            applyExternalConflictOutcome(
-                externalConflictCoordinator.handleExternalChange(
-                    changedURL: url,
-                    loadedURL: loadedFileURL,
-                    hasUnsavedChanges: hasUnsavedChanges
-                )
-            )
-        }
-        .alert("错误", isPresented: .constant(errorMessage != nil)) {
-            Button("确定") { errorMessage = nil }
+        .alert("错误", isPresented: Binding(
+            get: { sessionController.document.errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    sessionController.clearErrorMessage()
+                }
+            }
+        )) {
+            Button("确定") { sessionController.clearErrorMessage() }
         } message: {
-            if let msg = errorMessage { Text(msg) }
+            if let msg = sessionController.document.errorMessage { Text(msg) }
         }
     }
 
@@ -103,41 +76,43 @@ struct FileEditorView: View {
         VStack(spacing: 0) {
             // Title bar
             HStack(spacing: 6) {
-                Image(systemName: viewerType == .pdf ? "doc.richtext" : viewerType == .image ? "photo" : "doc.text")
+                Image(systemName: sessionController.document.viewer == .pdf ? "doc.richtext" : sessionController.document.viewer == .image ? "photo" : "doc.text")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(url.lastPathComponent + (hasUnsavedChanges ? " •" : ""))
+                Text(url.lastPathComponent + (sessionController.document.hasUnsavedChanges ? " •" : ""))
                     .font(.caption.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if launchOptions.isUITestMode, viewerType == .text {
-                    Text(hasUnsavedChanges ? "dirty" : "clean")
+                if launchOptions.isUITestMode, sessionController.document.viewer == .text {
+                    Text(sessionController.document.hasUnsavedChanges ? "dirty" : "clean")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("fileEditor.dirtyState")
-                    Text(textContent)
+                    Text(sessionController.document.textContent)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: 260, alignment: .trailing)
                         .accessibilityIdentifier("fileEditor.testMirror")
-                        .accessibilityLabel(textContent)
-                        .accessibilityValue(textContent)
+                        .accessibilityLabel(sessionController.document.textContent)
+                        .accessibilityValue(sessionController.document.textContent)
                 }
-                if viewerType == .text {
+                if sessionController.document.viewer == .text {
                     Button {
-                        saveFile(url)
+                        Task {
+                            await sessionController.save()
+                        }
                     } label: {
-                        if isSaving {
+                        if sessionController.document.isSaving {
                             ProgressView().scaleEffect(0.6).frame(width: 16, height: 16)
                         } else {
                             Image(systemName: "square.and.arrow.down")
                         }
                     }
                     .buttonStyle(.borderless)
-                    .disabled(!hasUnsavedChanges || isSaving)
+                    .disabled(!sessionController.document.hasUnsavedChanges || sessionController.document.isSaving)
                     .accessibilityIdentifier("fileEditor.saveButton")
                     .help("保存 (⌘S)")
                     .keyboardShortcut("s", modifiers: .command)
@@ -149,7 +124,7 @@ struct FileEditorView: View {
 
             Divider()
 
-            if let conflict = externalConflictCoordinator.pendingConflict {
+            if let conflict = sessionController.document.pendingConflict {
                 externalConflictBanner(conflict)
                 Divider()
             }
@@ -158,10 +133,10 @@ struct FileEditorView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
-            openFileRefreshMonitor.watch(url)
-            externalConflictCoordinator.clear()
-            if loadedFileURL != url || isLoadingFile {
-                loadFile(url)
+            if sessionController.document.fileURL != url.standardizedFileURL || sessionController.document.phase == .idle {
+                Task {
+                    await sessionController.open(url)
+                }
             }
             triggerWorkspaceLSPBootstrap(for: url)
         }
@@ -182,11 +157,15 @@ struct FileEditorView: View {
             }
             Spacer(minLength: 8)
             Button("保留当前编辑") {
-                applyExternalConflictOutcome(externalConflictCoordinator.resolve(.keepLocalChanges))
+                Task {
+                    await sessionController.resolveConflict(.keepLocalChanges)
+                }
             }
             .buttonStyle(.borderless)
             Button("重新加载") {
-                applyExternalConflictOutcome(externalConflictCoordinator.resolve(.reloadFromDisk))
+                Task {
+                    await sessionController.resolveConflict(.reloadFromDisk)
+                }
             }
             .buttonStyle(.borderedProminent)
         }
@@ -197,21 +176,31 @@ struct FileEditorView: View {
 
     @ViewBuilder
     private func fileContentView(for url: URL) -> some View {
-        switch viewerType {
+        switch sessionController.document.viewer {
         case .text:
             Group {
-                if isLoadingFile {
+                if sessionController.document.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    BlockDocumentEditor(text: $textContent, fileURL: url, onSelectionChange: { snapshot in
-                        workspaceState.editorSelection = snapshot
-                    })
+                    BlockDocumentEditor(
+                        text: Binding(
+                            get: { sessionController.document.textContent },
+                            set: { newValue in
+                                sessionController.updateText(newValue)
+                                syncOpenDocumentToLSPIfNeeded(text: newValue)
+                            }
+                        ),
+                        fileURL: url,
+                        onSelectionChange: { snapshot in
+                            workspaceState.editorSelection = snapshot
+                        }
+                    )
                 }
             }
         case .image:
             Group {
-                if let img = viewerImage {
+                if let img = sessionController.document.viewerImage {
                     ScrollView([.horizontal, .vertical]) {
                         Image(nsImage: img)
                             .resizable()
@@ -242,62 +231,6 @@ struct FileEditorView: View {
 
     // MARK: - File I/O
 
-    private func loadFile(_ url: URL) {
-        let standardizedURL = url.standardizedFileURL
-        fileLoadTask?.cancel()
-
-        let requestToken = requestTracker.beginRequest(for: standardizedURL)
-        prepareForLoading(url: standardizedURL)
-
-        fileLoadTask = Task {
-            if AttachedFile.pathIsImage(standardizedURL.path) {
-                let image = await Task.detached(priority: .userInitiated) {
-                    NSImage(contentsOf: standardizedURL)
-                }.value
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    guard requestTracker.isCurrent(requestToken, for: loadedFileURL) else { return }
-                    viewerImage = image
-                    isLoadingFile = false
-                }
-                return
-            }
-
-            if AttachedFile.pathIsPDF(standardizedURL.path) {
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    guard requestTracker.isCurrent(requestToken, for: loadedFileURL) else { return }
-                    isLoadingFile = false
-                }
-                return
-            }
-
-            do {
-                let normalizedText = try await FileEditorLoadedTextState.loadNormalizedText(from: standardizedURL)
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    guard requestTracker.isCurrent(requestToken, for: loadedFileURL) else { return }
-                    fileContent = normalizedText
-                    textContent = normalizedText
-                    hasUnsavedChanges = false
-                    isLoadingFile = false
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                await MainActor.run {
-                    guard requestTracker.isCurrent(requestToken, for: loadedFileURL) else { return }
-                    fileContent = ""
-                    textContent = ""
-                    hasUnsavedChanges = false
-                    viewerImage = nil
-                    isLoadingFile = false
-                    errorMessage = "无法读取文件：\(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
     private func triggerWorkspaceLSPBootstrap(for url: URL) {
         let settings = AppSettings.getOrCreate(in: modelContext)
         let workingDirectory = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
@@ -310,77 +243,10 @@ struct FileEditorView: View {
         }
     }
 
-    private func clearEditor() {
-        fileLoadTask?.cancel()
-        requestTracker.invalidate()
-        externalConflictCoordinator.clear()
-        textContent = ""
-        fileContent = ""
-        loadedFileURL = nil
-        hasUnsavedChanges = false
-        viewerType = .text
-        viewerImage = nil
-        isLoadingFile = false
-        isSaving = false
-    }
-
-    private func saveFile(_ url: URL) {
-        let standardizedURL = url.standardizedFileURL
-        let saveToken = requestTracker.snapshot(for: standardizedURL)
-        isSaving = true
-        let textToSave = textContent
-        Task.detached(priority: .userInitiated) {
-            do {
-                try textToSave.write(to: standardizedURL, atomically: true, encoding: .utf8)
-                await MainActor.run {
-                    guard requestTracker.isCurrent(saveToken, for: loadedFileURL) else { return }
-                    self.externalConflictCoordinator.handleSuccessfulSave(for: standardizedURL)
-                    self.fileContent = textToSave
-                    self.hasUnsavedChanges = false
-                    self.isSaving = false
-                }
-            } catch {
-                await MainActor.run {
-                    guard requestTracker.isCurrent(saveToken, for: loadedFileURL) else { return }
-                    self.errorMessage = "保存失败：\(error.localizedDescription)"
-                    self.isSaving = false
-                }
-            }
-        }
-    }
-
-    private func prepareForLoading(url: URL) {
-        loadedFileURL = url
-        textContent = ""
-        fileContent = ""
-        hasUnsavedChanges = false
-        viewerImage = nil
-        isSaving = false
-        isLoadingFile = true
-        errorMessage = nil
-
-        if AttachedFile.pathIsImage(url.path) {
-            viewerType = .image
-        } else if AttachedFile.pathIsPDF(url.path) {
-            viewerType = .pdf
-        } else {
-            viewerType = .text
-        }
-    }
-
-    private func applyExternalConflictOutcome(_ outcome: FileEditorExternalConflictOutcome) {
-        switch outcome {
-        case .none, .presentConflict:
-            break
-        case .reload(let url):
-            loadFile(url)
-        }
-    }
-
     private func syncOpenDocumentToLSPIfNeeded(text: String) {
-        guard viewerType == .text,
-              let loadedFileURL,
-              text != fileContent else {
+        guard sessionController.document.viewer == .text,
+              let loadedFileURL = sessionController.document.fileURL,
+              text != sessionController.document.persistedText else {
             return
         }
 
