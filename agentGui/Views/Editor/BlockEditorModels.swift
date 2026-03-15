@@ -149,6 +149,48 @@ struct BlockDocument: Equatable {
     static let empty = BlockDocument(blocks: [.empty(.paragraph)])
 }
 
+struct BlockDocumentSyncGate {
+    private var skipNextAutomaticSync = false
+
+    mutating func markManualSyncCommitted() {
+        skipNextAutomaticSync = true
+    }
+
+    mutating func consumeAutomaticSyncRequest() -> Bool {
+        if skipNextAutomaticSync {
+            skipNextAutomaticSync = false
+            return false
+        }
+        return true
+    }
+}
+
+enum BlockListIndexMap {
+    static func make(for blocks: [DocumentBlock]) -> [UUID: Int] {
+        var indices: [UUID: Int] = [:]
+        var counters: [Int: Int] = [:]
+
+        for block in blocks {
+            let indentLevel = max(0, block.metadata.indentLevel)
+
+            for level in counters.keys where level > indentLevel {
+                counters[level] = nil
+            }
+
+            guard block.kind == .numberedList else {
+                counters[indentLevel] = nil
+                continue
+            }
+
+            let nextIndex = (counters[indentLevel] ?? 0) + 1
+            counters[indentLevel] = nextIndex
+            indices[block.id] = nextIndex
+        }
+
+        return indices
+    }
+}
+
 struct SlashCommandItem: Identifiable, Equatable {
     let kind: DocumentBlockKind
 

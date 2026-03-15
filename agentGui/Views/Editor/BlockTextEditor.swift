@@ -11,15 +11,75 @@ import OSLog
 
 private let perfTextEditor = PerformanceMonitor.self
 
-// MARK: - 正则表达式缓存（避免每次创建）
-private enum MarkdownRegexCache {
-    static let bold = try? NSRegularExpression(pattern: #"(\*\*)(.+?)(\*\*)"#, options: [])
-    static let boldUnderscore = try? NSRegularExpression(pattern: #"(__)(.+?)(__)"#, options: [])
-    static let italic = try? NSRegularExpression(pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#, options: [])
-    static let italicUnderscore = try? NSRegularExpression(pattern: #"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)"#, options: [])
-    static let code = try? NSRegularExpression(pattern: #"(`)(.+?)(`)"#, options: [])
-    static let strikethrough = try? NSRegularExpression(pattern: #"(~~)(.+?)(~~)"#, options: [])
-    static let link = try? NSRegularExpression(pattern: #"(\[)(.+?)(\]\((.+?)\))"#, options: [])
+struct EditorInlineMarkdownMatch: Equatable {
+    let fullRange: NSRange
+    let contentRange: NSRange
+    let markerRanges: [NSRange]
+}
+
+struct EditorInlineMarkdownRule {
+    let regex: NSRegularExpression
+    let contentCaptureIndex: Int
+    let markerCaptureIndexes: [Int]
+
+    func matches(in text: String) -> [EditorInlineMarkdownMatch] {
+        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        return regex.matches(in: text, options: [], range: fullRange).compactMap { match in
+            let contentRange = match.range(at: contentCaptureIndex)
+            guard contentRange.location != NSNotFound else { return nil }
+            let markerRanges = markerCaptureIndexes.compactMap { index -> NSRange? in
+                let range = match.range(at: index)
+                return range.location == NSNotFound ? nil : range
+            }
+            return EditorInlineMarkdownMatch(
+                fullRange: match.range(at: 0),
+                contentRange: contentRange,
+                markerRanges: markerRanges
+            )
+        }
+    }
+
+    static let bold = EditorInlineMarkdownRule(
+        regex: try! NSRegularExpression(pattern: #"(\*\*)(.+?)(\*\*)"#, options: []),
+        contentCaptureIndex: 2,
+        markerCaptureIndexes: [1, 3]
+    )
+
+    static let boldUnderscore = EditorInlineMarkdownRule(
+        regex: try! NSRegularExpression(pattern: #"(__)(.+?)(__)"#, options: []),
+        contentCaptureIndex: 2,
+        markerCaptureIndexes: [1, 3]
+    )
+
+    static let italic = EditorInlineMarkdownRule(
+        regex: try! NSRegularExpression(pattern: #"(?<!\*)(\*)(?!\*)(.+?)(?<!\*)(\*)(?!\*)"#, options: []),
+        contentCaptureIndex: 2,
+        markerCaptureIndexes: [1, 3]
+    )
+
+    static let italicUnderscore = EditorInlineMarkdownRule(
+        regex: try! NSRegularExpression(pattern: #"(?<!_)(_)(?!_)(.+?)(?<!_)(_)(?!_)"#, options: []),
+        contentCaptureIndex: 2,
+        markerCaptureIndexes: [1, 3]
+    )
+
+    static let code = EditorInlineMarkdownRule(
+        regex: try! NSRegularExpression(pattern: #"(`)(.+?)(`)"#, options: []),
+        contentCaptureIndex: 2,
+        markerCaptureIndexes: [1, 3]
+    )
+
+    static let strikethrough = EditorInlineMarkdownRule(
+        regex: try! NSRegularExpression(pattern: #"(~~)(.+?)(~~)"#, options: []),
+        contentCaptureIndex: 2,
+        markerCaptureIndexes: [1, 3]
+    )
+
+    static let link = EditorInlineMarkdownRule(
+        regex: try! NSRegularExpression(pattern: #"(\[)(.+?)(\]\((.+?)\))"#, options: []),
+        contentCaptureIndex: 2,
+        markerCaptureIndexes: [1, 3]
+    )
 }
 
 enum BlockEditorCommand {
@@ -233,73 +293,59 @@ struct BlockTextEditor: NSViewRepresentable {
         textStorage.setAttributes(base, range: fullRange)
 
         // 使用缓存的正则表达式，避免每次创建
-        applyMarkdownPatternCached(MarkdownRegexCache.bold, in: textStorage, baseFont: baseFont) { whole, inner in
-            textStorage.addAttributes([.foregroundColor: markerColor], range: whole)
-            textStorage.addAttributes([.font: boldFont(from: baseFont)], range: inner)
+        applyMarkdownRule(.bold, in: textStorage) { match in
+            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
+            textStorage.addAttributes([.font: boldFont(from: baseFont)], range: match.contentRange)
         }
 
-        applyMarkdownPatternCached(MarkdownRegexCache.boldUnderscore, in: textStorage, baseFont: baseFont) { whole, inner in
-            textStorage.addAttributes([.foregroundColor: markerColor], range: whole)
-            textStorage.addAttributes([.font: boldFont(from: baseFont)], range: inner)
+        applyMarkdownRule(.boldUnderscore, in: textStorage) { match in
+            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
+            textStorage.addAttributes([.font: boldFont(from: baseFont)], range: match.contentRange)
         }
 
-        applyMarkdownPatternCached(MarkdownRegexCache.italic, in: textStorage, baseFont: baseFont) { whole, inner in
-            textStorage.addAttributes([.foregroundColor: markerColor], range: whole)
-            textStorage.addAttributes([.font: italicFont(from: baseFont)], range: inner)
+        applyMarkdownRule(.italic, in: textStorage) { match in
+            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
+            textStorage.addAttributes([.font: italicFont(from: baseFont)], range: match.contentRange)
         }
 
-        applyMarkdownPatternCached(MarkdownRegexCache.italicUnderscore, in: textStorage, baseFont: baseFont) { whole, inner in
-            textStorage.addAttributes([.foregroundColor: markerColor], range: whole)
-            textStorage.addAttributes([.font: italicFont(from: baseFont)], range: inner)
+        applyMarkdownRule(.italicUnderscore, in: textStorage) { match in
+            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
+            textStorage.addAttributes([.font: italicFont(from: baseFont)], range: match.contentRange)
         }
 
-        applyMarkdownPatternCached(MarkdownRegexCache.code, in: textStorage, baseFont: baseFont) { whole, inner in
-            textStorage.addAttributes([.foregroundColor: markerColor], range: whole)
+        applyMarkdownRule(.code, in: textStorage) { match in
+            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
             textStorage.addAttributes([
                 .font: NSFont.monospacedSystemFont(ofSize: max(baseFont.pointSize - 1, 12), weight: .regular),
                 .backgroundColor: NSColor.textBackgroundColor.withAlphaComponent(0.9)
-            ], range: inner)
+            ], range: match.contentRange)
         }
 
-        applyMarkdownPatternCached(MarkdownRegexCache.strikethrough, in: textStorage, baseFont: baseFont) { whole, inner in
-            textStorage.addAttributes([.foregroundColor: markerColor], range: whole)
-            textStorage.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue], range: inner)
+        applyMarkdownRule(.strikethrough, in: textStorage) { match in
+            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
+            textStorage.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue], range: match.contentRange)
         }
 
-        applyMarkdownPatternCached(MarkdownRegexCache.link, in: textStorage, baseFont: baseFont) { whole, inner in
-            textStorage.addAttributes([.foregroundColor: markerColor], range: whole)
+        applyMarkdownRule(.link, in: textStorage) { match in
+            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
             textStorage.addAttributes([
                 .foregroundColor: accentColor,
                 .underlineStyle: NSUnderlineStyle.single.rawValue
-            ], range: inner)
+            ], range: match.contentRange)
         }
 
         textStorage.endEditing()
     }
 
-    // 使用缓存的正则表达式的版本
-    private func applyMarkdownPatternCached(_ regex: NSRegularExpression?, in textStorage: NSTextStorage, baseFont: NSFont, handler: (NSRange, NSRange) -> Void) {
-        guard let regex = regex else { return }
-        let fullRange = NSRange(location: 0, length: textStorage.length)
-        let matches = regex.matches(in: textStorage.string, options: [], range: fullRange)
-        for match in matches {
-            let whole = match.range(at: 0)
-            guard whole.location != NSNotFound else { continue }
+    private func applyMarkdownRule(_ rule: EditorInlineMarkdownRule, in textStorage: NSTextStorage, handler: (EditorInlineMarkdownMatch) -> Void) {
+        for match in rule.matches(in: textStorage.string) {
+            handler(match)
+        }
+    }
 
-            // Determine which capture group contains the inner content
-            // Pattern can have 1, 3, or 4 capture groups:
-            // - 1 group: the content itself (e.g., single-star italic)
-            // - 3 groups: wrapper start, content, wrapper end (e.g., **bold**)
-            // - 4 groups: wrapper start, content, wrapper end, url part (e.g., [text](url))
-            let numberOfRanges = match.numberOfRanges
-            let inner: NSRange
-            if numberOfRanges >= 4 {
-                inner = match.range(at: 1)  // First capture group (content part)
-            } else {
-                inner = match.range(at: 1)  // Fallback to first capture group
-            }
-
-            handler(whole, inner)
+    private func colorMarkdownMarkers(_ markerRanges: [NSRange], in textStorage: NSTextStorage, markerColor: NSColor) {
+        for range in markerRanges where range.location != NSNotFound {
+            textStorage.addAttributes([.foregroundColor: markerColor], range: range)
         }
     }
 

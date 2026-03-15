@@ -9,6 +9,7 @@ struct BlockRowView: View {
     @Binding var block: DocumentBlock
     let focusRequest: BlockEditorFocusRequest?
     let isActive: Bool
+    let mountHeavyEditor: Bool
     let isSlashPresented: Bool
     let slashQuery: String
     let selectedSlashKind: DocumentBlockKind?
@@ -110,19 +111,30 @@ struct BlockRowView: View {
                     .padding(.top, block.kind.isHeading ? 7 : 6)
             }
 
-            BlockTextEditor(
-                blockID: block.id,
-                text: $block.text,
-                placeholder: block.placeholder,
-                kind: block.kind,
-                focusRequest: focusRequest,
-                onTextChange: onTextChange,
-                onCommand: onEditorCommand,
-                onFileDrop: onFileDrop,
-                onFocusChange: onFocusChange,
-                onSelectionChange: onSelectionChange,
-                pendingFormatRequest: pendingFormatRequest
-            )
+            Group {
+                if mountHeavyEditor {
+                    BlockTextEditor(
+                        blockID: block.id,
+                        text: $block.text,
+                        placeholder: block.placeholder,
+                        kind: block.kind,
+                        focusRequest: focusRequest,
+                        onTextChange: onTextChange,
+                        onCommand: onEditorCommand,
+                        onFileDrop: onFileDrop,
+                        onFocusChange: onFocusChange,
+                        onSelectionChange: onSelectionChange,
+                        pendingFormatRequest: pendingFormatRequest
+                    )
+                } else {
+                    BlockReadOnlyTextContent(
+                        text: block.text,
+                        placeholder: block.placeholder,
+                        kind: block.kind,
+                        isChecked: block.metadata.checked
+                    )
+                }
+            }
             .frame(maxWidth: .infinity)
         }
         .padding(.leading, contentLeadingInset)
@@ -360,17 +372,28 @@ struct BlockRowView: View {
                     }
                     .foregroundStyle(calloutColor)
 
-                    BlockTextEditor(
-                        blockID: block.id,
-                        text: $block.text,
-                        placeholder: block.placeholder,
-                        kind: .paragraph,
-                        focusRequest: focusRequest,
-                        onTextChange: onTextChange,
-                        onCommand: onEditorCommand,
-                        onFileDrop: onFileDrop,
-                        onFocusChange: onFocusChange
-                    )
+                    Group {
+                        if mountHeavyEditor {
+                            BlockTextEditor(
+                                blockID: block.id,
+                                text: $block.text,
+                                placeholder: block.placeholder,
+                                kind: .paragraph,
+                                focusRequest: focusRequest,
+                                onTextChange: onTextChange,
+                                onCommand: onEditorCommand,
+                                onFileDrop: onFileDrop,
+                                onFocusChange: onFocusChange
+                            )
+                        } else {
+                            BlockReadOnlyTextContent(
+                                text: block.text,
+                                placeholder: block.placeholder,
+                                kind: .paragraph,
+                                isChecked: false
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -399,17 +422,28 @@ struct BlockRowView: View {
             .buttonStyle(.plain)
 
             if !block.metadata.isCollapsed {
-                BlockTextEditor(
-                    blockID: block.id,
-                    text: $block.text,
-                    placeholder: block.placeholder,
-                    kind: .paragraph,
-                    focusRequest: focusRequest,
-                    onTextChange: onTextChange,
-                    onCommand: onEditorCommand,
-                    onFileDrop: onFileDrop,
-                    onFocusChange: onFocusChange
-                )
+                Group {
+                    if mountHeavyEditor {
+                        BlockTextEditor(
+                            blockID: block.id,
+                            text: $block.text,
+                            placeholder: block.placeholder,
+                            kind: .paragraph,
+                            focusRequest: focusRequest,
+                            onTextChange: onTextChange,
+                            onCommand: onEditorCommand,
+                            onFileDrop: onFileDrop,
+                            onFocusChange: onFocusChange
+                        )
+                    } else {
+                        BlockReadOnlyTextContent(
+                            text: block.text,
+                            placeholder: block.placeholder,
+                            kind: .paragraph,
+                            isChecked: false
+                        )
+                    }
+                }
                 .padding(.leading, 19)
             }
         }
@@ -485,7 +519,7 @@ struct BlockRowView: View {
                 .frame(width: 3)
 
             Group {
-                if isEditingRawQuote {
+                if isEditingRawQuote || mountHeavyEditor {
                     BlockTextEditor(
                         blockID: block.id,
                         text: $block.text,
@@ -574,6 +608,72 @@ struct BlockRowView: View {
     }
 }
 
+private struct BlockReadOnlyTextContent: View {
+    let text: String
+    let placeholder: String
+    let kind: DocumentBlockKind
+    let isChecked: Bool
+
+    var body: some View {
+        Group {
+            if trimmedText.isEmpty {
+                Text(placeholder)
+                    .font(displayFont)
+                    .foregroundStyle(BlockEditorTheme.subtleText)
+            } else if kind == .code || kind == .source {
+                Text(text)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Color.primary.opacity(0.88))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(10)
+                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+                    )
+            } else {
+                InlineMarkdownText(
+                    text: text,
+                    font: displayFont,
+                    color: textColor,
+                    strikethrough: kind == .todo && isChecked
+                )
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, kind.isHeading ? 2 : 4)
+    }
+
+    private var trimmedText: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var displayFont: Font {
+        switch kind {
+        case .heading1:
+            return .system(size: 26, weight: .bold)
+        case .heading2:
+            return .system(size: 20, weight: .semibold)
+        case .heading3:
+            return .system(size: 16, weight: .semibold)
+        default:
+            return .system(size: 14)
+        }
+    }
+
+    private var textColor: Color {
+        if kind == .todo && isChecked {
+            return BlockEditorTheme.subtleText
+        }
+        return .primary
+    }
+}
+
 // MARK: - Quote inline renderers
 
 /// Read-only view that parses `text` as a BlockDocument and renders each block
@@ -643,9 +743,7 @@ private struct QuoteInlineBlockView: View {
     // MARK: Inline renderers
 
     private var inlineParagraph: some View {
-        Text(block.text)
-            .font(.system(size: 14))
-            .foregroundStyle(Color.primary)
+        InlineMarkdownText(text: block.text, font: .system(size: 14), color: .primary)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
@@ -653,9 +751,7 @@ private struct QuoteInlineBlockView: View {
 
     @ViewBuilder
     private func inlineHeading(size: CGFloat, weight: Font.Weight) -> some View {
-        Text(block.text)
-            .font(.system(size: size, weight: weight))
-            .foregroundStyle(Color.primary)
+        InlineMarkdownText(text: block.text, font: .system(size: size, weight: weight), color: .primary)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
@@ -667,8 +763,7 @@ private struct QuoteInlineBlockView: View {
                 .fill(BlockEditorTheme.subtleText)
                 .frame(width: 5, height: 5)
                 .padding(.top, 6)
-            Text(block.text)
-                .font(.system(size: 14))
+            InlineMarkdownText(text: block.text, font: .system(size: 14))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -681,8 +776,7 @@ private struct QuoteInlineBlockView: View {
             Text("\u{2022}")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(BlockEditorTheme.subtleText)
-            Text(block.text)
-                .font(.system(size: 14))
+            InlineMarkdownText(text: block.text, font: .system(size: 14))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -695,10 +789,12 @@ private struct QuoteInlineBlockView: View {
             Image(systemName: block.metadata.checked ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(block.metadata.checked ? Color.accentColor : BlockEditorTheme.subtleText)
                 .font(.system(size: 14))
-            Text(block.text)
-                .font(.system(size: 14))
-                .foregroundStyle(block.metadata.checked ? BlockEditorTheme.subtleText : Color.primary)
-                .strikethrough(block.metadata.checked)
+            InlineMarkdownText(
+                text: block.text,
+                font: .system(size: 14),
+                color: block.metadata.checked ? BlockEditorTheme.subtleText : .primary,
+                strikethrough: block.metadata.checked
+            )
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -759,16 +855,19 @@ private struct QuoteInlineBlockView: View {
 private struct BlockImagePreview: View {
     let resource: URL
 
-    @State private var loadImageError: Error?
-    @State private var isLoading = true
+    @StateObject private var thumbnailLoader = EditorLocalThumbnailLoader()
+    @State private var targetWidth: CGFloat = BlockEditorTheme.contentWidth
 
     var body: some View {
         Group {
             if resource.isFileURL {
-                if let image = NSImage(contentsOf: resource) {
+                if let image = thumbnailLoader.image {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
+                } else if thumbnailLoader.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 120)
                 } else {
                     errorPlaceholder("无法加载本地图片")
                 }
@@ -798,6 +897,23 @@ private struct BlockImagePreview: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.primary.opacity(0.04), lineWidth: 1)
         )
+        .background(widthReader)
+        .onAppear(perform: refreshThumbnail)
+        .onChange(of: targetWidth) { _, _ in
+            refreshThumbnail()
+        }
+    }
+
+    private var widthReader: some View {
+        GeometryReader { geo in
+            Color.clear
+                .onAppear {
+                    updateTargetWidth(geo.size.width)
+                }
+                .onChange(of: geo.size.width) { _, newValue in
+                    updateTargetWidth(newValue)
+                }
+        }
     }
 
     @ViewBuilder
@@ -818,6 +934,22 @@ private struct BlockImagePreview: View {
         }
         .frame(maxWidth: .infinity, minHeight: 120)
         .padding()
+    }
+
+    private func updateTargetWidth(_ width: CGFloat) {
+        let resolvedWidth = max(120, width)
+        if abs(targetWidth - resolvedWidth) > 1 {
+            targetWidth = resolvedWidth
+        }
+    }
+
+    private func refreshThumbnail() {
+        guard resource.isFileURL else {
+            thumbnailLoader.reset()
+            return
+        }
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        thumbnailLoader.load(fileURL: resource, targetWidth: targetWidth, scale: scale)
     }
 
     private func networkErrorDescription(_ error: Error) -> String {

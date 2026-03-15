@@ -141,6 +141,94 @@ struct agentGuiTests {
         #expect(reparsed.blocks.first?.metadata.isCollapsed == false)
     }
 
+    @Test func syncGateSkipsAutomaticSyncAfterManualCommit() async throws {
+        var gate = BlockDocumentSyncGate()
+
+        gate.markManualSyncCommitted()
+
+        #expect(gate.consumeAutomaticSyncRequest() == false)
+        #expect(gate.consumeAutomaticSyncRequest() == true)
+    }
+
+    @Test func orderedListIndexMapResetsPerIndentLevel() async throws {
+        let blocks: [DocumentBlock] = [
+            {
+                var block = DocumentBlock(kind: .numberedList, text: "一级 1")
+                block.metadata.indentLevel = 0
+                return block
+            }(),
+            {
+                var block = DocumentBlock(kind: .numberedList, text: "一级 2")
+                block.metadata.indentLevel = 0
+                return block
+            }(),
+            {
+                var block = DocumentBlock(kind: .numberedList, text: "二级 1")
+                block.metadata.indentLevel = 1
+                return block
+            }(),
+            {
+                var block = DocumentBlock(kind: .numberedList, text: "二级 2")
+                block.metadata.indentLevel = 1
+                return block
+            }(),
+            {
+                var block = DocumentBlock(kind: .paragraph, text: "断开")
+                block.metadata.indentLevel = 0
+                return block
+            }(),
+            {
+                var block = DocumentBlock(kind: .numberedList, text: "重新开始")
+                block.metadata.indentLevel = 0
+                return block
+            }()
+        ]
+
+        let indexMap = BlockListIndexMap.make(for: blocks)
+
+        #expect(indexMap[blocks[0].id] == 1)
+        #expect(indexMap[blocks[1].id] == 2)
+        #expect(indexMap[blocks[2].id] == 1)
+        #expect(indexMap[blocks[3].id] == 2)
+        #expect(indexMap[blocks[5].id] == 1)
+    }
+
+    @Test func numberedListSerializationUsesPrecomputedIndices() async throws {
+        let url = URL(fileURLWithPath: "/tmp/ordered.md")
+        let blocks: [DocumentBlock] = [
+            {
+                var block = DocumentBlock(kind: .numberedList, text: "一级 1")
+                block.metadata.indentLevel = 0
+                return block
+            }(),
+            {
+                var block = DocumentBlock(kind: .numberedList, text: "一级 2")
+                block.metadata.indentLevel = 0
+                return block
+            }(),
+            {
+                var block = DocumentBlock(kind: .numberedList, text: "二级 1")
+                block.metadata.indentLevel = 1
+                return block
+            }(),
+            {
+                var block = DocumentBlock(kind: .paragraph, text: "间隔")
+                return block
+            }(),
+            {
+                var block = DocumentBlock(kind: .numberedList, text: "重新开始")
+                block.metadata.indentLevel = 0
+                return block
+            }()
+        ]
+
+        let serialized = BlockMarkdownCodec.serialize(BlockDocument(blocks: blocks), fileURL: url)
+
+        #expect(serialized.contains("1. 一级 1\n2. 一级 2"))
+        #expect(serialized.contains("  1. 二级 1"))
+        #expect(serialized.contains("间隔\n\n1. 重新开始"))
+    }
+
 }
 
 private struct BlockSignature: Equatable {

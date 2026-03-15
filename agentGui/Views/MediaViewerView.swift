@@ -193,7 +193,7 @@ struct FileThumbnailView: View {
             .buttonStyle(.plain)
             .offset(x: 6, y: -6)
         }
-        .task { thumbnail = await mediaThumbImage(url: file.url) }
+        .task { thumbnail = await mediaThumbImage(url: file.url, targetWidth: 72) }
     }
 
     @ViewBuilder
@@ -272,13 +272,13 @@ struct MediaThumbnailCell: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 1))
         .onTapGesture { onTap() }
-        .task { thumbnail = await mediaThumbImage(url: URL(fileURLWithPath: path)) }
+        .task { thumbnail = await mediaThumbImage(url: URL(fileURLWithPath: path), targetWidth: 80) }
     }
 }
 
 // MARK: - Shared thumbnail loading
 
-func mediaThumbImage(url: URL) async -> NSImage? {
+func mediaThumbImage(url: URL, targetWidth: CGFloat = 144) async -> NSImage? {
     // For network URLs, download first then create thumbnail
     if url.scheme?.hasPrefix("http") == true {
         do {
@@ -288,11 +288,9 @@ func mediaThumbImage(url: URL) async -> NSImage? {
             return nil
         }
     } else {
-        // For local files, read directly
-        if let data = try? Data(contentsOf: url) {
-            return await createThumbnail(from: data, originalURL: url)
-        }
-        return nil
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let request = EditorLocalThumbnailRequest(fileURL: url, targetWidth: targetWidth, scale: scale)
+        return await EditorLocalThumbnailPipeline.shared.image(for: request)
     }
 }
 

@@ -29,8 +29,10 @@ struct BlockDocumentEditor: View {
     @State private var dropTargetBlockID: UUID?
     @State private var focusRequest: BlockEditorFocusRequest?
     @State private var activeBlockID: UUID?
+    @State private var editorResidency = BlockEditorResidency(maxMountedEditors: 3)
     @State private var selectionState: InlineSelectionState?
     @State private var pendingFormats: [UUID: InlineFormatRequest] = [:]
+    @State private var syncGate = BlockDocumentSyncGate()
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -62,68 +64,13 @@ struct BlockDocumentEditor: View {
     }
 
     private var scrollContent: some View {
-        ScrollView {
+        let orderedListIndices = BlockListIndexMap.make(for: document.blocks)
+
+        return ScrollView {
             VStack(alignment: .center, spacing: 0) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(document.blocks.enumerated()), id: \.element.id) { index, block in
-                        BlockRowView(
-                            block: $document.blocks[index],
-                            focusRequest: focusRequest,
-                            isActive: activeBlockID == block.id,
-                            isSlashPresented: activeSlashBlockID == block.id,
-                            slashQuery: activeSlashBlockID == block.id ? slashQuery : "",
-                            selectedSlashKind: activeSlashBlockID == block.id ? selectedSlashItem?.kind : nil,
-                            listIndex: orderedListIndex(at: index),
-                            onTextChange: { newValue in
-                                handleTextChange(for: block.id, text: newValue)
-                            },
-                            onEditorCommand: { command in
-                                handleEditorCommand(command, for: block.id)
-                            },
-                            onFocusChange: { isFocused in
-                                if isFocused {
-                                    activeBlockID = block.id
-                                } else if activeBlockID == block.id {
-                                    activeBlockID = nil
-                                }
-                            },
-                            onConvert: { kind in
-                                convertBlock(id: block.id, to: kind)
-                            },
-                            onFileDrop: { urls in
-                                addResources(urls, after: block.id)
-                            },
-                            onSelectionChange: { state in
-                                withAnimation(.spring(response: 0.18, dampingFraction: 0.85)) {
-                                    if state.hasSelection {
-                                        selectionState = state
-                                    } else if selectionState?.blockID == block.id {
-                                        selectionState = nil
-                                    }
-                                }
-                                onSelectionChange?(selectionSnapshot(for: state))
-                            },
-                            onSlashMenuPositionChange: { rect in
-                                slashMenuPosition = rect
-                            },
-                            pendingFormatRequest: pendingFormats[block.id]
-                        )
-                        .overlay(alignment: .top) {
-                            if dropTargetBlockID == block.id {
-                                RoundedRectangle(cornerRadius: BlockEditorTheme.blockCornerRadius)
-                                    .fill(Color.accentColor.opacity(0.08))
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            activeBlockID = block.id
-                            focusRequest = BlockEditorFocusRequest(blockID: block.id, position: .end)
-                        }
-                        .onDrag {
-                            draggedBlockID = block.id
-                            return NSItemProvider(object: block.id.uuidString as NSString)
-                        }
-                        .onDrop(of: [.text], delegate: BlockReorderDropDelegate(targetID: block.id, blocks: $document.blocks, draggedBlockID: $draggedBlockID, dropTargetBlockID: $dropTargetBlockID, onCommit: syncText))
+                        blockRow(for: block, at: index, orderedListIndices: orderedListIndices)
                     }
                 }
                 .frame(maxWidth: BlockEditorTheme.contentWidth, alignment: .leading)
@@ -135,7 +82,9 @@ struct BlockDocumentEditor: View {
         .background(editorBackground)
         .onAppear {
             document = BlockMarkdownCodec.parse(text, fileURL: fileURL)
-            activeBlockID = document.blocks.first?.id
+            if let firstBlockID = document.blocks.first?.id {
+                activateBlock(firstBlockID)
+            }
         }
         .onChange(of: text) { _, newValue in
             guard !isApplyingInternalChange else { return }
@@ -144,18 +93,92 @@ struct BlockDocumentEditor: View {
             if serialized != newValue {
                 span.addMetadata("parseNeeded", value: true)
                 document = BlockMarkdownCodec.parse(newValue, fileURL: fileURL)
-                if activeBlockID == nil {
-                    activeBlockID = document.blocks.first?.id
+                pruneEditorResidency()
+                if activeBlockID == nil,
+                   let firstBlockID = document.blocks.first?.id {
+                    activateBlock(firstBlockID)
                 }
             }
             span.end()
         }
         .onChange(of: document.blocks) { _, _ in
-            syncText()
+            pruneEditorResidency()
+            if syncGate.consumeAutomaticSyncRequest() {
+                syncText()
+            }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleExternalFileDrop(providers)
         }
+    }
+
+    private func blockRow(for block: DocumentBlock, at index: Int, orderedListIndices: [UUID: Int]) -> some View {
+        BlockRowView(
+            block: $document.blocks[index],
+            focusRequest: focusRequest,
+            isActive: activeBlockID == block.id,
+            mountHeavyEditor: editorResidency.shouldMountEditor(for: block.id),
+            isSlashPresented: activeSlashBlockID == block.id,
+            slashQuery: activeSlashBlockID == block.id ? slashQuery : "",
+            selectedSlashKind: activeSlashBlockID == block.id ? selectedSlashItem?.kind : nil,
+            listIndex: orderedListIndices[block.id],
+            onTextChange: { newValue in
+                activateBlock(block.id)
+                handleTextChange(for: block.id, text: newValue)
+            },
+            onEditorCommand: { command in
+                handleEditorCommand(command, for: block.id)
+            },
+            onFocusChange: { isFocused in
+                if isFocused {
+                    activateBlock(block.id)
+                }
+            },
+            onConvert: { kind in
+                convertBlock(id: block.id, to: kind)
+            },
+            onFileDrop: { urls in
+                addResources(urls, after: block.id)
+            },
+            onSelectionChange: { state in
+                withAnimation(.spring(response: 0.18, dampingFraction: 0.85)) {
+                    if state.hasSelection {
+                        selectionState = state
+                    } else if selectionState?.blockID == block.id {
+                        selectionState = nil
+                    }
+                }
+                onSelectionChange?(selectionSnapshot(for: state))
+            },
+            onSlashMenuPositionChange: { rect in
+                slashMenuPosition = rect
+            },
+            pendingFormatRequest: pendingFormats[block.id]
+        )
+        .overlay(alignment: .top) {
+            if dropTargetBlockID == block.id {
+                RoundedRectangle(cornerRadius: BlockEditorTheme.blockCornerRadius)
+                    .fill(Color.accentColor.opacity(0.08))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            activateBlock(block.id, focusPosition: .end)
+        }
+        .onDrag {
+            draggedBlockID = block.id
+            return NSItemProvider(object: block.id.uuidString as NSString)
+        }
+        .onDrop(
+            of: [.text],
+            delegate: BlockReorderDropDelegate(
+                targetID: block.id,
+                blocks: $document.blocks,
+                draggedBlockID: $draggedBlockID,
+                dropTargetBlockID: $dropTargetBlockID,
+                onCommit: { syncText() }
+            )
+        )
     }
 
     private func applyFormat(_ action: InlineStyleAction, blockID: UUID) {
@@ -213,7 +236,6 @@ struct BlockDocumentEditor: View {
                 slashSelectionIndex = 0
             }
         }
-        syncText()
     }
 
     private func handleEditorCommand(_ command: BlockEditorCommand, for blockID: UUID) {
@@ -268,9 +290,8 @@ struct BlockDocumentEditor: View {
         }
         document.blocks[index] = block
         dismissSlash(blockID: id)
-        activeBlockID = id
-        focusRequest = BlockEditorFocusRequest(blockID: id, position: .start)
-        syncText()
+        activateBlock(id, focusPosition: .start)
+        syncText(manualCommit: true)
     }
 
     private func splitBlock(id: UUID, selectedRange: NSRange) {
@@ -306,9 +327,8 @@ struct BlockDocumentEditor: View {
             document.blocks[index] = updatedCurrent
             document.blocks.insert(next, at: index + 1)
         }
-        activeBlockID = next.id
-        focusRequest = BlockEditorFocusRequest(blockID: next.id, position: .start)
-        syncText()
+        activateBlock(next.id, focusPosition: .start)
+        syncText(manualCommit: true)
     }
 
     private func mergeBlockBackward(id: UUID) {
@@ -323,9 +343,8 @@ struct BlockDocumentEditor: View {
             _ = withAnimation(.easeInOut(duration: 0.18)) {
                 document.blocks.remove(at: index)
             }
-            activeBlockID = previous.id
-            focusRequest = BlockEditorFocusRequest(blockID: previous.id, position: .end)
-            syncText()
+            activateBlock(previous.id, focusPosition: .end)
+            syncText(manualCommit: true)
             return
         }
 
@@ -339,9 +358,8 @@ struct BlockDocumentEditor: View {
             document.blocks[index - 1] = merged
             document.blocks.remove(at: index)
         }
-        activeBlockID = merged.id
-        focusRequest = BlockEditorFocusRequest(blockID: merged.id, position: .end)
-        syncText()
+        activateBlock(merged.id, focusPosition: .end)
+        syncText(manualCommit: true)
     }
 
     private func insertBlock(after blockID: UUID) {
@@ -358,9 +376,8 @@ struct BlockDocumentEditor: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             document.blocks.insert(next, at: index + 1)
         }
-        activeBlockID = next.id
-        focusRequest = BlockEditorFocusRequest(blockID: next.id, position: .start)
-        syncText()
+        activateBlock(next.id, focusPosition: .start)
+        syncText(manualCommit: true)
     }
 
     private func deleteBlock(id: UUID) {
@@ -375,8 +392,12 @@ struct BlockDocumentEditor: View {
                 document.blocks = [.empty(.paragraph)]
             }
         }
-        activeBlockID = fallbackID ?? document.blocks.first?.id
-        syncText()
+        if let fallbackID {
+            activateBlock(fallbackID)
+        } else if let firstBlockID = document.blocks.first?.id {
+            activateBlock(firstBlockID)
+        }
+        syncText(manualCommit: true)
     }
 
     private func duplicateBlock(id: UUID) {
@@ -386,9 +407,8 @@ struct BlockDocumentEditor: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             document.blocks.insert(copy, at: index + 1)
         }
-        activeBlockID = copy.id
-        focusRequest = BlockEditorFocusRequest(blockID: copy.id, position: .end)
-        syncText()
+        activateBlock(copy.id, focusPosition: .end)
+        syncText(manualCommit: true)
     }
 
     private func addResources(_ urls: [URL], after blockID: UUID?) {
@@ -403,19 +423,18 @@ struct BlockDocumentEditor: View {
         withAnimation(.easeInOut(duration: 0.22)) {
             document.blocks.insert(contentsOf: newBlocks, at: insertIndex)
         }
-        activeBlockID = newBlocks.first?.id
         if let first = newBlocks.first {
-            focusRequest = BlockEditorFocusRequest(blockID: first.id, position: .end)
+            activateBlock(first.id, focusPosition: .end)
         }
-        syncText()
+        syncText(manualCommit: true)
     }
 
     private func adjustIndentation(for blockID: UUID, delta: Int) {
         guard let index = document.blocks.firstIndex(where: { $0.id == blockID }) else { return }
         guard supportsIndentation(document.blocks[index].kind) else { return }
         document.blocks[index].metadata.indentLevel = max(0, document.blocks[index].metadata.indentLevel + delta)
-        activeBlockID = blockID
-        syncText()
+        activateBlock(blockID)
+        syncText(manualCommit: true)
     }
 
     private func moveFocus(from blockID: UUID, delta: Int) {
@@ -423,8 +442,23 @@ struct BlockDocumentEditor: View {
         let targetIndex = index + delta
         guard document.blocks.indices.contains(targetIndex) else { return }
         let targetID = document.blocks[targetIndex].id
-        activeBlockID = targetID
-        focusRequest = BlockEditorFocusRequest(blockID: targetID, position: delta < 0 ? .end : .start)
+        activateBlock(targetID, focusPosition: delta < 0 ? .end : .start)
+    }
+
+    private func activateBlock(_ blockID: UUID, focusPosition: BlockEditorFocusPosition? = nil) {
+        activeBlockID = blockID
+        editorResidency.recordInteraction(with: blockID)
+        if let focusPosition {
+            focusRequest = BlockEditorFocusRequest(blockID: blockID, position: focusPosition)
+        }
+    }
+
+    private func pruneEditorResidency() {
+        editorResidency.retain(document.blocks.map(\.id))
+        if let activeBlockID,
+           document.blocks.contains(where: { $0.id == activeBlockID }) == false {
+            self.activeBlockID = editorResidency.mountedEditorIDs.first ?? document.blocks.first?.id
+        }
     }
 
     private func moveSlashSelection(delta: Int, for blockID: UUID) {
@@ -501,13 +535,16 @@ struct BlockDocumentEditor: View {
         return true
     }
 
-    private func syncText() {
+    private func syncText(manualCommit: Bool = false) {
         let span = perfEditor.startSpan("BlockDocumentEditor.syncText", category: "Editor", level: .verbose)
         defer { span.end() }
 
         let serialized = BlockMarkdownCodec.serialize(document, fileURL: fileURL)
         guard serialized != text else { return }
         span.addMetadata("length", value: serialized.count)
+        if manualCommit {
+            syncGate.markManualSyncCommitted()
+        }
         isApplyingInternalChange = true
         text = serialized
         DispatchQueue.main.async {
@@ -524,34 +561,6 @@ struct BlockDocumentEditor: View {
         guard !items.isEmpty else { return nil }
         let index = min(max(slashSelectionIndex, 0), items.count - 1)
         return items[index]
-    }
-
-    private func orderedListIndex(at index: Int) -> Int? {
-        guard document.blocks.indices.contains(index) else { return nil }
-        let current = document.blocks[index]
-        guard current.kind == .numberedList else { return nil }
-
-        let indentLevel = current.metadata.indentLevel
-        var listIndex = 1
-        var cursor = index - 1
-
-        while cursor >= 0 {
-            let previous = document.blocks[cursor]
-
-            if previous.metadata.indentLevel > indentLevel {
-                cursor -= 1
-                continue
-            }
-
-            guard previous.metadata.indentLevel == indentLevel, previous.kind == .numberedList else {
-                break
-            }
-
-            listIndex += 1
-            cursor -= 1
-        }
-
-        return listIndex
     }
 
     private func followUpKind(for kind: DocumentBlockKind) -> DocumentBlockKind {

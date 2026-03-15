@@ -26,6 +26,7 @@ enum BlockMarkdownCodec {
         }
 
         return BlockEditorPerformance.measureSerialize(document.blocks.count) {
+            let orderedListIndices = BlockListIndexMap.make(for: document.blocks)
             var output = ""
 
             for (index, block) in document.blocks.enumerated() {
@@ -44,7 +45,7 @@ enum BlockMarkdownCodec {
                 case .bulletedList:
                     chunk = serializeListItem(prefix: "- ", body: block.text, indentLevel: block.metadata.indentLevel)
                 case .numberedList:
-                    let orderedIndex = orderedListIndex(for: index, in: document.blocks)
+                    let orderedIndex = orderedListIndices[block.id] ?? 1
                     chunk = serializeListItem(prefix: "\(orderedIndex). ", body: block.text, indentLevel: block.metadata.indentLevel)
                 case .todo:
                     chunk = serializeListItem(prefix: "- [\(block.metadata.checked ? "x" : " ")] ", body: block.text, indentLevel: block.metadata.indentLevel)
@@ -478,32 +479,6 @@ enum BlockMarkdownCodec {
     private static func requiresTightSpacing(previous: DocumentBlockKind, next: DocumentBlockKind) -> Bool {
         let tightKinds: Set<DocumentBlockKind> = [.bulletedList, .numberedList, .todo, .quote]
         return previous == next && tightKinds.contains(previous)
-    }
-
-    private static func orderedListIndex(for index: Int, in blocks: [DocumentBlock]) -> Int {
-        guard blocks.indices.contains(index), blocks[index].kind == .numberedList else { return 1 }
-
-        let indentLevel = blocks[index].metadata.indentLevel
-        var orderedIndex = 1
-        var cursor = index - 1
-
-        while cursor >= 0 {
-            let previous = blocks[cursor]
-
-            if previous.metadata.indentLevel > indentLevel {
-                cursor -= 1
-                continue
-            }
-
-            guard previous.metadata.indentLevel == indentLevel, previous.kind == .numberedList else {
-                break
-            }
-
-            orderedIndex += 1
-            cursor -= 1
-        }
-
-        return orderedIndex
     }
 
     private static func serializeListItem(prefix: String, body: String, indentLevel: Int) -> String {
