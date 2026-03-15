@@ -47,26 +47,13 @@ struct SettingsWindowView: View {
     @ViewBuilder
     private var detailView: some View {
         if let store {
-            NavigationStack(path: detailPathBinding(for: store)) {
+            NavigationStack {
                 rootDetailView(store: store)
-                    .navigationDestination(for: SettingsDetailRoute.self) { route in
-                        switch route {
-                        case .rmsPanel:
-                            RMSPanel()
-                        }
-                    }
             }
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    private func detailPathBinding(for store: SettingsStore) -> Binding<[SettingsDetailRoute]> {
-        Binding(
-            get: { store.detailPath },
-            set: { store.detailPath = $0 }
-        )
     }
 
     @ViewBuilder

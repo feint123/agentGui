@@ -20,14 +20,14 @@ struct AgentLoopMemoryBootstrapComposer {
 
     let dependencies: Dependencies
 
-    func compose(bootstrapMessageCount _: Int) async throws -> AgentLoopMemoryBootstrapComposition {
+    func compose(bootstrapMessageCount _: Int, insightBudget: Int? = nil) async throws -> AgentLoopMemoryBootstrapComposition {
         guard let state = try await dependencies.loadRMSState()?.stableSnapshot() else {
             return AgentLoopMemoryBootstrapComposition()
         }
 
         let activatedInsights = try await dependencies.loadInsights(state)
-        let budget = max(0, 3 - min(state.frontiers.count, 2))
-        let selectedInsights = RMSSelector().select(for: state, insights: activatedInsights, budget: max(budget, 1))
+        let effectiveBudget = max(insightBudget ?? defaultInsightBudget(for: state), 1)
+        let selectedInsights = RMSSelector().select(for: state, insights: activatedInsights, budget: effectiveBudget)
         let renderedPrompt = RMSPromptComposer().compose(state: state, activatedInsights: selectedInsights)
         guard !renderedPrompt.isEmpty else {
             return AgentLoopMemoryBootstrapComposition()
@@ -57,5 +57,9 @@ struct AgentLoopMemoryBootstrapComposer {
                 ]
             )
         )
+    }
+
+    private func defaultInsightBudget(for state: RMSState) -> Int {
+        max(0, 3 - min(state.frontiers.count, 2))
     }
 }

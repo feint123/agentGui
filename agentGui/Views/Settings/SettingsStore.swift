@@ -11,13 +11,9 @@ final class SettingsStore {
     @ObservationIgnored private let persistenceCoordinator: PersistenceCoordinator?
 
     var settings: AppSettings
-    var detailPath: [SettingsDetailRoute] = []
     var selectedItem: SettingsNavigationItem {
         didSet {
             Self.lastSelectedItem = selectedItem
-            if selectedItem != .memory {
-                detailPath.removeAll()
-            }
         }
     }
 
@@ -62,15 +58,6 @@ final class SettingsStore {
                 }
             }
         )
-    }
-
-    func showRMSPanel() {
-        selectedItem = .memory
-        detailPath = [.rmsPanel]
-    }
-
-    func dismissDetailRoute() {
-        detailPath.removeAll()
     }
 
     static func resetSelectionMemoryForTesting() {

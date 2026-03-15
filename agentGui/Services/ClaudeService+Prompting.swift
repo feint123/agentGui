@@ -175,11 +175,6 @@ extension ClaudeService {
 
         parts.append(runtimeContext.promptSection)
 
-        let memory = ConfigDirectoryManager.shared.readMemory()
-        if !memory.isEmpty {
-            parts.append("## Long-term Memory\n\(memory)")
-        }
-
         if !skills.isEmpty {
             var lines = [
                 "## Available Skills",

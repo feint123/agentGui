@@ -62,6 +62,7 @@ struct ChatView: View {
     @State var highlightedSlashItemID: String? = nil
     @State var activeInputDirectives: [ChatInputDirective] = []
     @State var didApplyUITestInitialComposerText = false
+    @State var showingRMSPanel = false
 
     @FocusState var isInputFocused: Bool
 
@@ -134,6 +135,12 @@ struct ChatView: View {
         }
         .sheet(item: $viewingMedia) { item in
             MediaViewerView(item: item)
+        }
+        .sheet(isPresented: $showingRMSPanel) {
+            NavigationStack {
+                RMSPanel(sessionID: session.sessionId)
+            }
+            .frame(minWidth: 720, minHeight: 520)
         }
         .confirmationDialog(
             "删除此消息及之后的所有对话？",

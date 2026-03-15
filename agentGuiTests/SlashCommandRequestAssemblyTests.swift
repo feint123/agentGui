@@ -100,6 +100,38 @@ struct SlashCommandRequestAssemblyTests {
         #expect(prompt.contains("Reality constraints:"))
     }
 
+    @Test func systemPromptOmitsLegacyMemoryFileInjection() throws {
+        let service = ClaudeService()
+        let manager = ConfigDirectoryManager.shared
+        manager.setup()
+        let originalMemory = manager.readMemory()
+        defer {
+            _ = manager.writeMemory(content: originalMemory, mode: .overwrite)
+        }
+
+        _ = manager.writeMemory(content: "LEGACY_MEMORY_SENTINEL", mode: .overwrite)
+
+        let prompt = service.makeSystemPromptForTests(
+            skills: [],
+            workingDirectory: "/tmp/project",
+            settings: AppSettings(),
+            session: nil,
+            runtimeContextOverride: SystemPromptRuntimeContext(
+                currentDateTimeText: "2026-03-15T10:00:00+08:00",
+                timezoneIdentifier: "Asia/Shanghai",
+                localeIdentifier: "zh_CN",
+                operatingSystemText: "macOS 26.0 (25A100)",
+                hostName: "feint-macbook",
+                workingDirectory: "/tmp/project",
+                workingDirectorySource: "global default working directory",
+                proxySummary: nil
+            )
+        )
+
+        #expect(!prompt.contains("LEGACY_MEMORY_SENTINEL"))
+        #expect(!prompt.contains("## Long-term Memory"))
+    }
+
     @Test func missingExplicitSkillFailsBeforeSend() throws {
         let service = ClaudeService()
         service.skillService = SkillService()

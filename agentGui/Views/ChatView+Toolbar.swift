@@ -54,6 +54,18 @@ extension ChatView {
                 .help(showWorkflowPanel ? "隐藏 Workflow 面板" : "显示 Workflow 面板")
             }
         }
+
+        ToolbarItem(placement: .primaryAction) {
+            if rmsRuntimeEnabled {
+                Button {
+                    showingRMSPanel = true
+                } label: {
+                    Image(systemName: "brain")
+                }
+                .help("查看当前会话的 RMS 状态")
+                .accessibilityIdentifier("chat.rmsPanelButton")
+            }
+        }
     }
 
     // MARK: - Session Picker

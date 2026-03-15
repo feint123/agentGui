@@ -333,7 +333,7 @@ struct AgentLoopRoundExecutor {
         roundSpan.addMetadata("phase", value: state.loopCtx.phase.label)
         roundSpan.addMetadata("textBytes", value: currentRoundText.count)
 
-        recordEpistemicInputEnvelope(
+        await recordEpistemicInputEnvelope(
             sessionId: sessionId,
             roundIndex: roundIdx,
             messages: messages,
@@ -601,7 +601,7 @@ struct AgentLoopRoundExecutor {
 
         messages.append(.init(role: .assistant, content: .list(assistantObjects)))
         messages.append(.init(role: .user, content: .list(toolResultObjects)))
-        recordEpistemicInputEnvelope(
+        await recordEpistemicInputEnvelope(
             sessionId: runtime.sessionId,
             roundIndex: outcome.roundIndex,
             messages: messages,
@@ -791,7 +791,7 @@ struct AgentLoopRoundExecutor {
         currentRoundText: String? = nil,
         toolObservations: [String] = [],
         events: [AtomicEpistemicEvent] = []
-    ) {
+    ) async {
         let envelope = makeEpistemicInputEnvelope(
             sessionId: sessionId,
             roundIndex: roundIndex,
@@ -806,14 +806,29 @@ struct AgentLoopRoundExecutor {
 
         let store = SessionTaskStateStore(modelContext: runtime.modelContext)
         let existingState = store.rmsState(for: sessionId)
-        if let nextState = RMSStateReducer().reduce(existing: existingState, envelope: envelope) {
-            try? store.saveRMSState(nextState, for: sessionId)
-        }
 
-        let extraction = RMSExtractor().extract(existing: existingState, envelope: envelope)
         let insightStore = RMSInsightStore()
-        for proposal in extraction.proposals where proposal.insight.confidence >= 0.75 {
-            try? insightStore.upsert(proposal.insight)
+        let generator = LLMRMSInsightGenerator(
+            service: request.service,
+            modelId: request.modelId
+        )
+        if let extraction = try? await RMSExtractor().extract(
+            existing: existingState,
+            envelope: envelope,
+            generator: generator
+        ) {
+            if let nextState = RMSStateReducer().reduce(
+                existing: existingState,
+                delta: extraction.delta,
+                sessionID: sessionId,
+                threadID: sessionId,
+                taskID: sessionId
+            ) {
+                try? store.saveRMSState(nextState, for: sessionId)
+            }
+            for proposal in extraction.proposals where proposal.insight.confidence >= 0.75 {
+                try? insightStore.upsert(proposal.insight)
+            }
         }
     }
 

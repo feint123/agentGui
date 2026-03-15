@@ -138,7 +138,7 @@ extension ClaudeService {
         case "read_pdf":
             return await executeReadPDFTool(input: input)
         case "memory_write":
-            return .detect(await executeGovernedMemoryWrite(input: input, session: session, modelContext: modelContext), toolName: name)
+            return .detect(await executeGovernedMemoryWrite(input: input, settings: settings, session: session, modelContext: modelContext), toolName: name)
         case "create_execution_plan":
             return .detect(executeCreateExecutionPlan(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "verify_completion":
@@ -213,7 +213,7 @@ extension ClaudeService {
         case "read_pdf":
             return await executeReadPDFTool(input: input)
         case "memory_write":
-            return .detect(await executeGovernedMemoryWrite(input: input, session: nil, modelContext: modelContext), toolName: name)
+            return .detect(await executeGovernedMemoryWrite(input: input, settings: settings, session: nil, modelContext: modelContext), toolName: name)
         case "create_execution_plan":
             return .detect(executeCreateExecutionPlan(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "verify_completion":
@@ -331,8 +331,35 @@ extension ClaudeService {
         }
     }
 
+    /// Persists a user- or agent-authored long-term RMS insight through the `memory_write` tool.
+    ///
+    /// This is the simplified replacement for the older governed memory pipeline.
+    /// Instead of routing through admission scoring, background jobs, confirmation,
+    /// or archive-only branches, the method performs a direct classification and
+    /// store write with a small amount of overwrite behavior.
+    ///
+    /// Current behavior:
+    /// - Reads the required `content` parameter from the tool input.
+    /// - Uses the current session scope when available, otherwise falls back to `.user`.
+    /// - Supports a lightweight `mode` switch:
+    ///   - `append`: always write a new insight ID.
+    ///   - `overwrite`: try to find a prior insight in the same scope whose summary starts with the same normalized title.
+    /// - Converts raw text into a typed `RMSInsight` via `makeMemoryWriteInsight(...)`.
+    /// - Persists the result immediately to `RMSInsightStore`.
+    ///
+    /// The method returns human-readable tool output rather than throwing because it
+    /// is part of tool dispatch and needs to surface a model-friendly success or error message.
+    ///
+    /// - Parameters:
+    ///   - input: Tool arguments supplied by the model, expected to contain at least `content`.
+    ///   - settings: App settings providing the active model choice for LLM classification.
+    ///   - session: Current active session if the tool is invoked from a bound chat session.
+    ///   - modelContext: SwiftData context carried by the tool dispatch path. It is unused here,
+    ///     but kept in the signature to match the surrounding tool execution API.
+    /// - Returns: A success or error string suitable for the tool result channel.
     private func executeGovernedMemoryWrite(
         input: MessageResponse.Content.Input,
+        settings: AppSettings,
         session: Session?,
         modelContext _: ModelContext
     ) async -> String {
@@ -351,6 +378,10 @@ extension ClaudeService {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let normalizedTitle = firstLine.isEmpty ? "Memory" : String(firstLine.prefix(80))
         let store = RMSInsightStore()
+        guard let service else {
+            return "Error: Claude service is not configured"
+        }
+        let generator = LLMRMSInsightGenerator(service: service, modelId: settings.selectedModel)
 
         do {
             let existingInsight: RMSInsight?
@@ -362,12 +393,13 @@ extension ClaudeService {
                 existingInsight = nil
             }
 
-            let insight = makeMemoryWriteInsight(
+            let insight = try await makeMemoryWriteInsight(
                 id: existingInsight?.id ?? UUID().uuidString,
                 content: rawContent,
                 normalizedTitle: normalizedTitle,
                 scope: scope,
-                updatedAt: now
+                updatedAt: now,
+                generator: generator
             )
 
             try store.upsert(insight)
@@ -378,56 +410,46 @@ extension ClaudeService {
         }
     }
 
-    private func makeMemoryWriteInsight(
+    /// Converts raw `memory_write` content into one of the supported `RMSInsight` kinds.
+    ///
+    /// This method is intentionally heuristic and lightweight. The input is free-form text,
+    /// so the classifier looks for a few high-signal phrases to decide whether the memory is:
+    /// - a `counterexample`: text describes a regression, failure, avoidance rule, or "do X instead" pattern
+    /// - a `tactic`: text describes a reusable action such as run/use/inspect/verify/rerun
+    /// - a `constraint`: fallback classification when the content is better treated as a rule or boundary
+    ///
+    /// Classification priority matters:
+    /// 1. Counterexamples are detected first because remembered failure modes are stronger than generic tactics.
+    /// 2. Tactics are detected next for reusable action sequences.
+    /// 3. Constraints are the default fallback when the text is neither obviously a failure mode nor a tactic.
+    ///
+    /// The returned insight always includes:
+    /// - the provided stable identifier
+    /// - the computed scope
+    /// - a synthetic provenance reference of `tool:memory_write`
+    /// - a default confidence of `0.8`
+    ///
+    /// - Parameters:
+    ///   - id: Insight identifier to preserve on overwrite or create for first insert.
+    ///   - content: Raw text to convert into an RMS insight.
+    ///   - normalizedTitle: First-line summary extracted from the content and used as a compact applicability hint.
+    ///   - scope: Reuse boundary for the stored insight.
+    ///   - updatedAt: Timestamp prepared by the caller for this write operation.
+    /// - Returns: A typed `RMSInsight` ready for persistence.
+    func makeMemoryWriteInsight(
         id: String,
         content: String,
         normalizedTitle: String,
         scope: MemoryScope,
-        updatedAt: Date
-    ) -> RMSInsight {
-        let lowercased = content.lowercased()
-        let appliesWhen = normalizedTitle == "Memory" ? "general" : normalizedTitle
-
-        if lowercased.contains("regress") ||
-            lowercased.contains("failed") ||
-            lowercased.contains("avoid") ||
-            lowercased.contains("instead") {
-            return RMSInsight.counterexample(
-                id: id,
-                summary: content,
-                appliesWhen: appliesWhen,
-                changesDecision: "avoid repeating the remembered failure mode",
-                replacementAction: "Inspect current state before acting",
-                evidenceRefs: ["tool:memory_write"],
-                scope: scope,
-                confidence: 0.8
-            )
-        }
-
-        if lowercased.contains("run ") ||
-            lowercased.contains("use ") ||
-            lowercased.contains("inspect ") ||
-            lowercased.contains("verify ") ||
-            lowercased.contains("rerun") {
-            return RMSInsight.tactic(
-                id: id,
-                summary: content,
-                appliesWhen: appliesWhen,
-                changesDecision: "prefer this remembered tactic when the same situation recurs",
-                evidenceRefs: ["tool:memory_write"],
-                scope: scope,
-                confidence: 0.8
-            )
-        }
-
-        return RMSInsight.constraint(
+        updatedAt: Date,
+        generator: any RMSInsightGenerating
+    ) async throws -> RMSInsight {
+        try await generator.generateRequiredInsight(
             id: id,
-            summary: content,
-            appliesWhen: appliesWhen,
-            changesDecision: "apply the remembered constraint before taking the next action",
-            evidenceRefs: ["tool:memory_write"],
+            content: content,
+            normalizedTitle: normalizedTitle,
             scope: scope,
-            confidence: 0.8
+            updatedAt: updatedAt
         )
     }
 

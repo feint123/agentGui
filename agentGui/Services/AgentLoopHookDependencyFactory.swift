@@ -43,7 +43,10 @@ struct AgentLoopHookDependencyFactory {
                 }
             )
         )
-        let composition = try await composer.compose(bootstrapMessageCount: bootstrapMessagesSnapshot.count)
+        let composition = try await composer.compose(
+            bootstrapMessageCount: bootstrapMessagesSnapshot.count,
+            insightBudget: max(1, runtime.settings.memoryContextBudget / 4)
+        )
         state.memoryRuntimeProfiles = []
         state.memoryRuntimeLayers = []
         state.memoryRuntimeWarnings = composition.runtimeWarnings

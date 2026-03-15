@@ -209,7 +209,10 @@ extension ClaudeService {
                     )
                 }
             )
-        ).compose(bootstrapMessageCount: messages.count)
+        ).compose(
+            bootstrapMessageCount: messages.count,
+            insightBudget: normalizedInsightBudget(from: settings)
+        )
         guard let renderedPrompt = composition.patch?.insertions.first.map({ extractText(from: $0.message.content) }),
               !renderedPrompt.isEmpty else {
             return nil
@@ -259,6 +262,10 @@ extension ClaudeService {
 
         var seen: Set<String> = []
         return scopes.filter { seen.insert($0.namespace).inserted }
+    }
+
+    private func normalizedInsightBudget(from settings: AppSettings) -> Int {
+        max(1, settings.memoryContextBudget / 4)
     }
 
     func payloadReadRangeSummary(from input: MessageResponse.Content.Input) -> String? {

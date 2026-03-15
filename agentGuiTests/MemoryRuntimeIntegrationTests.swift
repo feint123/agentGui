@@ -172,6 +172,61 @@ struct MemoryRuntimeIntegrationTests {
         #expect(!renderedPrompt.contains("Unrelated session guidance"))
     }
 
+    @Test func bootstrapUsesMemoryContextBudgetToLimitActivatedInsights() async throws {
+        let service = ClaudeService()
+        let settings = AppSettings.testFixture()
+        settings.memoryContextBudget = 4
+        let modelContext = try makeModelContext()
+        let taskStateStore = SessionTaskStateStore(modelContext: modelContext, persistenceCoordinator: .shared)
+        let insightStore = RMSInsightStore(baseDirectory: try makeTemporaryDirectory())
+
+        try taskStateStore.saveRMSState(
+            RMSState.fixture(
+                taskID: "task-1",
+                sessionID: "s1",
+                threadID: "s1",
+                summary: "Fix xcodebuild smoke failure"
+            ),
+            for: "s1"
+        )
+        try insightStore.upsert(.constraint(
+            id: "constraint-1",
+            summary: "Inspect before editing",
+            appliesWhen: "coding",
+            changesDecision: "block speculative edits",
+            scope: .user
+        ))
+        try insightStore.upsert(.counterexample(
+            id: "counterexample-1",
+            summary: "Edit-first caused regression",
+            appliesWhen: "coding",
+            changesDecision: "inspect current state first",
+            replacementAction: "Read failure output first",
+            scope: .user
+        ))
+        try insightStore.upsert(.tactic(
+            id: "tactic-1",
+            summary: "Use targeted xcodebuild probes",
+            appliesWhen: "xcodebuild",
+            changesDecision: "narrow verification scope",
+            scope: .user
+        ))
+
+        let context = try await service.buildUnifiedMemoryBootstrap(
+            settings: settings,
+            session: Session.fixture(sessionId: "s1", title: "Budget Session"),
+            sessionId: "s1",
+            messages: [MessageParameter.Message(role: .user, content: .text("Fix xcodebuild smoke failure"))],
+            modelContext: modelContext,
+            insightStore: insightStore
+        )
+
+        let renderedPrompt = try #require(context?.renderedPrompt)
+        #expect(renderedPrompt.contains("Inspect before editing"))
+        #expect(!renderedPrompt.contains("Edit-first caused regression"))
+        #expect(!renderedPrompt.contains("Use targeted xcodebuild probes"))
+    }
+
     @Test func unifiedMemoryRuntimeEmitsBusinessLogsOnProductionPath() async throws {
         let sink = InMemoryBusinessLogSink()
         let service = ClaudeService()

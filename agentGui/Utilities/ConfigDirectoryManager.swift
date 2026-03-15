@@ -4,7 +4,8 @@
 //
 //  Manages the app's file-system configuration directory at ~/.agentgui/.
 //  Currently stores:
-//   - memory.md  — long-term agent memory injected into every system prompt
+//   - memory.md  — legacy local memory file retained for compatibility/migration,
+//                  no longer injected directly into system prompts
 //
 
 import Foundation
@@ -38,7 +39,7 @@ final class ConfigDirectoryManager {
 
     // MARK: - Setup
 
-    /// Creates `~/.agentgui/` and an empty `memory.md` if they do not yet exist.
+    /// Creates `~/.agentgui/` and an empty legacy `memory.md` if they do not yet exist.
     /// Call once at app launch.
     func setup() {
         let fm = FileManager.default
@@ -61,14 +62,14 @@ final class ConfigDirectoryManager {
 
     // MARK: - Read
 
-    /// Returns the current contents of `memory.md`, or `""` on failure.
+    /// Returns the current contents of the legacy `memory.md`, or `""` on failure.
     func readMemory() -> String {
         (try? String(contentsOf: memoryFileURL, encoding: .utf8)) ?? ""
     }
 
     // MARK: - Write
 
-    /// Writes `content` to `memory.md`.
+    /// Writes `content` to the legacy `memory.md` compatibility file.
     /// - `.overwrite`: replaces the entire file.
     /// - `.append`: adds a newline separator then `content` at the end.
     @discardableResult

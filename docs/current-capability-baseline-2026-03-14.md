@@ -90,14 +90,16 @@
 
 ### 3.5 统一记忆运行时与 RMS 认知展示
 
-- 已具备 unified memory store、runtime coordinator、prompt assembler 和治理相关基础设施。
+- 已具备 unified memory store 与 task-bound RMS state 主链；memory bootstrap 现在直接从 `SessionTaskStateStore` 与 `EpistemicState` 组合 prompt，不再依赖 legacy runtime coordinator。
 - 任务记忆已进入统一运行时主链，旧 TaskMemory 路径已不再是核心读路径。
-- 产品主路径中的 memory UI 已收敛为 RMS 认知面板，围绕 frontiers、counterexamples、constraints、verification debt、influence trace 与建议动作展示当前认知状态。
-- 当前基线认可“RMS 认知面板已落地”，但不把 2026-03-14 新提出的 agent-first memory / phase 1-3 gap closure 计划计入已完成能力。
+- 产品主路径中的 memory UI 已收敛为 `RMSPanel`，围绕 frontiers、counterexamples、constraints、verification debt 与建议动作展示当前认知状态。
+- 当前基线认可“RMS 产品面与 task-bound bootstrap 已落地”，但不把 2026-03-14 新提出的 agent-first memory / phase 1-3 gap closure 计划计入已完成能力。
 
 代表性证据：
 
-- `agentGui/Services/MemoryRuntimeCoordinator.swift`
+- `agentGui/Services/AgentLoopMemoryBootstrapComposer.swift`
+- `agentGui/Services/RMSPromptComposer.swift`
+- `agentGui/Services/RMSSelector.swift`
 - `agentGui/Services/EpistemicStateCoordinator.swift`
 - `agentGui/ViewModels/RMSCognitionPanelViewModel.swift`
 - `agentGui/Views/Memory/RMSCognitionPanel.swift`
