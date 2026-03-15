@@ -103,6 +103,7 @@ struct RMSInsightStore: RMSInsightStoring {
         normalized.changesDecision = trim(normalized.changesDecision)
         normalized.replacementAction = normalized.replacementAction.map(trim)
         normalized.evidenceRefs = normalized.evidenceRefs.map(trim).filter { !$0.isEmpty }
+        normalized.rawContentFilePath = normalized.rawContentFilePath.map(trim)
         normalized.updatedAt = normalized.updatedAt ?? Date()
         return normalized
     }

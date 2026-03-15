@@ -79,6 +79,9 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
     /// rendering explain where the memory came from without storing full raw logs.
     var evidenceRefs: [String]
 
+    /// File path containing the original raw content from which this insight was summarized.
+    var rawContentFilePath: String?
+
     /// Scope that limits where the insight can be reused.
     ///
     /// Examples:
@@ -121,6 +124,7 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
         changesDecision: String,
         replacementAction: String? = nil,
         evidenceRefs: [String] = [],
+        rawContentFilePath: String? = nil,
         scope: MemoryScope? = nil,
         confidence: Double = 1,
         updatedAt: Date? = nil
@@ -132,6 +136,7 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
         self.changesDecision = changesDecision
         self.replacementAction = replacementAction
         self.evidenceRefs = evidenceRefs
+        self.rawContentFilePath = rawContentFilePath
         self.scope = scope
         self.confidence = confidence
         self.updatedAt = updatedAt
@@ -158,6 +163,7 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
         appliesWhen: String,
         changesDecision: String,
         evidenceRefs: [String] = [],
+        rawContentFilePath: String? = nil,
         scope: MemoryScope? = nil,
         confidence: Double = 1
     ) -> RMSInsight {
@@ -168,6 +174,7 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
             appliesWhen: appliesWhen,
             changesDecision: changesDecision,
             evidenceRefs: evidenceRefs,
+            rawContentFilePath: rawContentFilePath,
             scope: scope,
             confidence: confidence
         )
@@ -196,6 +203,7 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
         changesDecision: String,
         replacementAction: String,
         evidenceRefs: [String] = [],
+        rawContentFilePath: String? = nil,
         scope: MemoryScope? = nil,
         confidence: Double = 1
     ) -> RMSInsight {
@@ -207,6 +215,7 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
             changesDecision: changesDecision,
             replacementAction: replacementAction,
             evidenceRefs: evidenceRefs,
+            rawContentFilePath: rawContentFilePath,
             scope: scope,
             confidence: confidence
         )
@@ -233,6 +242,7 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
         appliesWhen: String,
         changesDecision: String,
         evidenceRefs: [String] = [],
+        rawContentFilePath: String? = nil,
         scope: MemoryScope? = nil,
         confidence: Double = 1
     ) -> RMSInsight {
@@ -243,6 +253,7 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
             appliesWhen: appliesWhen,
             changesDecision: changesDecision,
             evidenceRefs: evidenceRefs,
+            rawContentFilePath: rawContentFilePath,
             scope: scope,
             confidence: confidence
         )

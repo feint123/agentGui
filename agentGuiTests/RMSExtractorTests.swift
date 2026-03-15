@@ -19,12 +19,14 @@ struct RMSExtractorTests {
             ]
         )
 
-        let result = try await RMSExtractor().extract(
+        let rawContentStore = RMSRawContentStore(baseDirectory: try makeTemporaryDirectory())
+        let result = try await RMSExtractor(rawContentStore: rawContentStore).extract(
             existing: nil,
             envelope: envelope,
             generator: StubRMSInsightGenerator(
                 generatedStateDelta: RMSStateDelta(
                     summary: "Smoke failure triage",
+                    summarySourceFilePath: nil,
                     frontiers: [
                         RMSFrontier(
                             id: "frontier-llm-1",
@@ -70,6 +72,9 @@ struct RMSExtractorTests {
         #expect(result.delta.verificationDebts.first?.claim == "Shared scheme status is still missing direct evidence")
         #expect(result.delta.candidateActions == ["Run xcodebuild -list"])
         #expect(result.delta.stopSignals == ["Scheme confirmed"])
+        #expect(result.delta.summarySourceFilePath != nil)
+        let deltaPath = try #require(result.delta.summarySourceFilePath)
+        #expect(FileManager.default.fileExists(atPath: deltaPath))
     }
 
     @Test func extractorFallsBackToHeuristicDeltaWhenGeneratorSkipsStateDelta() async throws {
@@ -85,7 +90,8 @@ struct RMSExtractorTests {
             ]
         )
 
-        let result = try await RMSExtractor().extract(
+        let rawContentStore = RMSRawContentStore(baseDirectory: try makeTemporaryDirectory())
+        let result = try await RMSExtractor(rawContentStore: rawContentStore).extract(
             existing: nil,
             envelope: envelope,
             generator: StubRMSInsightGenerator(generatedStateDelta: nil, optionalInsightsByContent: [:])
@@ -94,6 +100,7 @@ struct RMSExtractorTests {
         #expect(result.delta.summary == "Fix the smoke failure")
         #expect(result.delta.frontiers.first?.openClaim == "Need to confirm shared scheme")
         #expect(result.delta.stopSignals == ["Shared scheme confirmed"])
+        #expect(result.delta.summarySourceFilePath != nil)
     }
 
     @Test func extractorProducesGeneratedInsightsWithEvidenceRefs() async throws {
@@ -139,7 +146,8 @@ struct RMSExtractorTests {
             )
         ])
 
-        let result = try await RMSExtractor().extract(
+        let rawContentStore = RMSRawContentStore(baseDirectory: try makeTemporaryDirectory())
+        let result = try await RMSExtractor(rawContentStore: rawContentStore).extract(
             existing: RMSState.fixture(summary: "Fix smoke"),
             envelope: envelope,
             generator: generator
@@ -148,6 +156,7 @@ struct RMSExtractorTests {
         #expect(result.proposals.map(\.insight.kind) == [.constraint, .tactic, .counterexample])
         #expect(result.proposals.first?.insight.evidenceRefs == ["round:3"])
         #expect(result.proposals.last?.insight.evidenceRefs == ["round:3", "counterexample"])
+        #expect(result.proposals.allSatisfy { $0.insight.rawContentFilePath != nil })
     }
 
     @Test func extractorIgnoresSignalsDiscardedByGenerator() async throws {
@@ -166,6 +175,13 @@ struct RMSExtractorTests {
 
         #expect(result.proposals.isEmpty)
     }
+}
+
+private func makeTemporaryDirectory() throws -> URL {
+    let directory = FileManager.default.temporaryDirectory
+        .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
 }
 
 private struct StubRMSInsightGenerator: RMSInsightGenerating {

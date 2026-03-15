@@ -7,6 +7,7 @@ struct RMSInsightProposal: Codable, Equatable, Sendable, Identifiable {
 
 struct RMSStateDelta: Codable, Equatable, Sendable {
     var summary: String?
+    var summarySourceFilePath: String?
     var frontiers: [RMSFrontier]
     var constraints: [RMSConstraint]
     var counterexamples: [RMSCounterexample]
@@ -16,6 +17,7 @@ struct RMSStateDelta: Codable, Equatable, Sendable {
 
     init(
         summary: String? = nil,
+        summarySourceFilePath: String? = nil,
         frontiers: [RMSFrontier] = [],
         constraints: [RMSConstraint] = [],
         counterexamples: [RMSCounterexample] = [],
@@ -24,6 +26,7 @@ struct RMSStateDelta: Codable, Equatable, Sendable {
         stopSignals: [String] = []
     ) {
         self.summary = summary
+        self.summarySourceFilePath = summarySourceFilePath
         self.frontiers = frontiers
         self.constraints = constraints
         self.counterexamples = counterexamples

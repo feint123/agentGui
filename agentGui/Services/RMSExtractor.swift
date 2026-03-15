@@ -22,6 +22,12 @@ protocol RMSExtracting {
 }
 
 struct RMSExtractor: RMSExtracting {
+    private let rawContentStore: any RMSRawContentStoring
+
+    init(rawContentStore: any RMSRawContentStoring = RMSRawContentStore()) {
+        self.rawContentStore = rawContentStore
+    }
+
     func extract(
         existing: RMSState?,
         envelope: EpistemicInputEnvelope,
@@ -42,7 +48,13 @@ struct RMSExtractor: RMSExtracting {
                 scope: scope,
                 updatedAt: Date()
             ) {
-                proposals.append(RMSInsightProposal(insight: insight))
+                var storedInsight = insight
+                storedInsight.rawContentFilePath = try persistInsightRawContent(
+                    for: event,
+                    envelope: envelope,
+                    insightID: insight.id
+                )
+                proposals.append(RMSInsightProposal(insight: storedInsight))
             }
         }
 
@@ -57,15 +69,18 @@ struct RMSExtractor: RMSExtracting {
         envelope: EpistemicInputEnvelope,
         generator: any RMSInsightGenerating
     ) async throws -> RMSStateDelta {
-        if let generated = try await generator.generateStateDelta(
+        if var generated = try await generator.generateStateDelta(
             existing: existing,
             envelope: envelope,
             updatedAt: Date()
         ) {
+            generated.summarySourceFilePath = try persistDeltaRawContent(envelope: envelope)
             return generated
         }
 
-        return fallbackStateDelta(existing: existing, envelope: envelope)
+        var fallback = fallbackStateDelta(existing: existing, envelope: envelope)
+        fallback.summarySourceFilePath = try persistDeltaRawContent(envelope: envelope)
+        return fallback
     }
 
     private func fallbackStateDelta(existing: RMSState?, envelope: EpistemicInputEnvelope) -> RMSStateDelta {
@@ -191,5 +206,47 @@ struct RMSExtractor: RMSExtracting {
         values.lazy
             .map(trimmed)
             .first { !$0.isEmpty }
+    }
+
+    private func persistInsightRawContent(
+        for event: AtomicEpistemicEvent,
+        envelope: EpistemicInputEnvelope,
+        insightID: String
+    ) throws -> String {
+        let content = [
+            "Event kind: \(event.kind.rawValue)",
+            "Event summary:",
+            event.summary,
+            "",
+            "Recent user/assistant messages:",
+            envelope.userAgentMessages.isEmpty ? "- none" : envelope.userAgentMessages.map { "- \($0)" }.joined(separator: "\n"),
+            "",
+            "Tool observations:",
+            envelope.toolObservations.isEmpty ? "- none" : envelope.toolObservations.map { "- \($0)" }.joined(separator: "\n"),
+            "",
+            "Source refs: \(event.sourceRefs.joined(separator: ", "))"
+        ].joined(separator: "\n")
+        return try rawContentStore.persistInsightRawContent(content, insightID: insightID)
+    }
+
+    private func persistDeltaRawContent(envelope: EpistemicInputEnvelope) throws -> String {
+        let eventLines = envelope.events.map { event in
+            let refs = event.sourceRefs.isEmpty ? "" : " [refs: \(event.sourceRefs.joined(separator: ", "))]"
+            return "- \(event.kind.rawValue): \(event.summary)\(refs)"
+        }
+        let content = [
+            "Session ID: \(envelope.sessionID)",
+            "Round: \(envelope.roundIndex)",
+            "",
+            "User and assistant messages:",
+            envelope.userAgentMessages.isEmpty ? "- none" : envelope.userAgentMessages.map { "- \($0)" }.joined(separator: "\n"),
+            "",
+            "Tool observations:",
+            envelope.toolObservations.isEmpty ? "- none" : envelope.toolObservations.map { "- \($0)" }.joined(separator: "\n"),
+            "",
+            "Epistemic events:",
+            eventLines.isEmpty ? "- none" : eventLines.joined(separator: "\n")
+        ].joined(separator: "\n")
+        return try rawContentStore.persistDeltaRawContent(content, sessionID: envelope.sessionID, roundIndex: envelope.roundIndex)
     }
 }

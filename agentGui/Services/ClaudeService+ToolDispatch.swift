@@ -444,13 +444,15 @@ extension ClaudeService {
         updatedAt: Date,
         generator: any RMSInsightGenerating
     ) async throws -> RMSInsight {
-        try await generator.generateRequiredInsight(
+        var insight = try await generator.generateRequiredInsight(
             id: id,
             content: content,
             normalizedTitle: normalizedTitle,
             scope: scope,
             updatedAt: updatedAt
         )
+        insight.rawContentFilePath = try RMSRawContentStore().persistInsightRawContent(content, insightID: id)
+        return insight
     }
 
     func ensureLSPServerStartedIfNeeded(

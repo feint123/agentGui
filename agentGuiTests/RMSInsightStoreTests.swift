@@ -4,6 +4,23 @@ import Testing
 
 struct RMSInsightStoreTests {
 
+    @Test func storePersistsRawContentFilePath() throws {
+        let store = RMSInsightStore(baseDirectory: try makeTemporaryDirectory())
+        let insight = RMSInsight.constraint(
+            id: "user-constraint",
+            summary: "Inspect before editing",
+            appliesWhen: "coding",
+            changesDecision: "block speculative edits",
+            scope: .user,
+            rawContentFilePath: "/tmp/rms/raw/user-constraint.txt"
+        )
+
+        try store.upsert(insight)
+
+        let loaded = try #require(store.load(scopes: [.user]).first)
+        #expect(loaded.rawContentFilePath == "/tmp/rms/raw/user-constraint.txt")
+    }
+
     @Test func storeLoadsOnlyRequestedScopes() throws {
         let store = RMSInsightStore(baseDirectory: try makeTemporaryDirectory())
         try store.upsert(.constraint(
