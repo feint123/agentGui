@@ -47,7 +47,9 @@ struct AgentLoopToolExecutionCoordinator {
 
         let isBash = pendingTool.name == "bash"
         let bashRequest = isBash ? (try? dependencies.normalizeBashRequest(input)) : nil
-        let shouldObserveForegroundBash = bashRequest?.executionMode == .foreground && bashRequest?.restart != true
+        let shouldObserveForegroundBash = bashRequest?.executionMode == .attached
+            && bashRequest?.signal == nil
+            && bashRequest?.command != nil
 
         let pollTask = shouldObserveForegroundBash
             ? await dependencies.startForegroundBashObservation(bashRequest!, record)
@@ -57,7 +59,7 @@ struct AgentLoopToolExecutionCoordinator {
 
         pollTask?.cancel()
 
-        if let bashRequest, isBash, !bashRequest.restart {
+        if let bashRequest, isBash {
             await dependencies.finishBashObservation(bashRequest, record, result)
         }
 

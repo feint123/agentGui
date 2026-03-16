@@ -90,45 +90,38 @@ struct DefaultToolRegistry: ToolRegistry {
             executorKey: "builtin.bash",
             descriptionBuilder: { _ in
                 """
-                Execute shell commands in a persistent bash session. \
-                The session preserves working directory and environment variables across calls. \
-                Use restart: true to reset the session.
+                Execute shell commands in a persistent PTY-backed bash session. \
+                The session preserves working directory and environment variables across calls.
 
-                For interactive commands that prompt for confirmation or input, set \
-                interactive: true on the initial command. The tool will return once output \
-                becomes idle, even if the command is still running. Then send follow-up input \
-                with input: "..." and interactive: true. Use interrupt: true to send Ctrl-C \
-                to the currently running foreground command.
+                Preferred PTY runtime contract:
+                - `operation: "start"` with `command`, required unique `task_id`, and `execution_mode: attached|detached`
+                - `operation: "send_input"` with `task_id` and `input`
+                - `operation: "interrupt" | "terminate" | "status" | "read_output" | "cleanup"` with `task_id`
+                - `force: true` upgrades terminate to a hard kill
+                - `tail_lines` limits `read_output`
 
-                For commands that run indefinitely (servers, watchers, build monitors), set \
-                background: true. The process is forked to the background immediately and a \
-                log file path is returned — use `cat <logpath>` or `tail -n 50 <logpath>` in \
-                a subsequent bash call to inspect output. The log file persists until the \
-                session ends or you delete it.
+                Task ID rules:
+                - Choose a unique task_id for every new start within the current session.
+                - Reuse the same task_id with `status`, `read_output`, `send_input`, `interrupt`, `terminate`, and `cleanup`.
+                - If a start fails because the task_id already exists, inspect it with `status` or `read_output`, then `cleanup` it before starting again with the same ID.
+                - If you want a fresh command immediately, choose a different task_id instead of retrying start with the old one.
 
                 For large command output, inspect summary and preview first. When a payload_ref is returned, use read_tool_payload to read further chunks instead of re-requesting the entire transcript.
-
-                Use timeout to limit how long to wait for a foreground command (default 300s). \
-                If a command exceeds timeout, partial output is returned and the session restarts.
+                Use timeout to limit how long to wait for an attached command (default 300s).
                 """
             },
             inputSchemaBuilder: { _ in
                 .init(
                     type: .object,
                     properties: [
+                        "operation": .init(type: .string, description: "PTY runtime operation. One of: start, send_input, interrupt, terminate, status, read_output, cleanup."),
                         "command": .init(type: .string, description: "The bash command to execute"),
-                        "task_id": .init(type: .string, description: "Optional managed terminal task ID to continue or annotate an existing task."),
-                        "execution_mode": .init(type: .string, description: "Execution mode for the managed terminal task. One of: auto, foreground, background, interactive."),
-                        "input": .init(type: .string, description: "Text to send to the currently running interactive foreground command"),
-                        "signal": .init(type: .string, description: "Signal to send to the currently running foreground command. One of: interrupt, terminate."),
-                        "goal_hint": .init(type: .string, description: "Optional goal or intent hint used to classify how the command should run."),
-                        "scan_policy": .init(type: .string, description: "How aggressively the runtime should scan task state. One of: adaptive, manual."),
-                        "auto_reply_policy": .init(type: .string, description: "Prompt handling policy. One of: safeOnly, disabled."),
-                        "restart": .init(type: .boolean, description: "If true, restart the bash session and ignore command"),
-                        "interrupt": .init(type: .boolean, description: "If true, send Ctrl-C to the currently running foreground command"),
-                        "timeout": .init(type: .integer, description: "Max seconds to wait for the command to finish (default 300). Ignored when background is true."),
-                        "background": .init(type: .boolean, description: "If true, run the command in the background immediately and return PID + log file path. Use for servers/watchers that never exit."),
-                        "interactive": .init(type: .boolean, description: "If true, treat the command as interactive and return once output becomes idle so you can continue with input.")
+                        "task_id": .init(type: .string, description: "Managed terminal task ID. Required for every operation, and must be unique for each new start within the current session until cleaned up."),
+                        "execution_mode": .init(type: .string, description: "Execution mode for start operations. One of: attached, detached."),
+                        "input": .init(type: .string, description: "Text to send for send_input operations."),
+                        "force": .init(type: .boolean, description: "When true, terminate uses a hard kill instead of a graceful stop."),
+                        "tail_lines": .init(type: .integer, description: "Maximum transcript lines to return for read_output operations."),
+                        "timeout": .init(type: .integer, description: "Max seconds to wait for the command to finish (default 300).")
                     ],
                     required: []
                 )

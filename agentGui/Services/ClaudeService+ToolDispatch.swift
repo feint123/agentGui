@@ -110,12 +110,8 @@ extension ClaudeService {
             return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .file, sourceDescriptor: descriptor, settings: settings)
         case "bash":
             let wd = effectiveWorkingDirectory(session: session, settings: settings)
-            let bashSess = getBashSession(
-                for: sessionId,
-                workingDirectory: wd,
-                environmentOverrides: settings.proxyConfiguration.bashEnvironmentOverrides
-            )
-            let raw = await executeBashTool(input: input, session: bashSess, workingDirectory: wd, settings: settings)
+            let runtime = getTerminalTaskRuntime(for: sessionId, workingDirectory: wd)
+            let raw = await executeBashTool(input: input, runtime: runtime, workingDirectory: wd)
             let descriptor = input["command"]?.stringValue ?? name
             return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .bash, sourceDescriptor: descriptor, settings: settings)
         case "read_tool_payload":
@@ -185,12 +181,8 @@ extension ClaudeService {
             let descriptor = input["path"]?.stringValue ?? name
             return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .file, sourceDescriptor: descriptor, settings: settings)
         case "bash":
-            let bashSess = getBashSession(
-                for: sessionId,
-                workingDirectory: wd,
-                environmentOverrides: settings.proxyConfiguration.bashEnvironmentOverrides
-            )
-            let raw = await executeBashTool(input: input, session: bashSess, workingDirectory: wd, settings: settings)
+            let runtime = getTerminalTaskRuntime(for: sessionId, workingDirectory: wd)
+            let raw = await executeBashTool(input: input, runtime: runtime, workingDirectory: wd)
             let descriptor = input["command"]?.stringValue ?? name
             return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .bash, sourceDescriptor: descriptor, settings: settings)
         case "read_tool_payload":

@@ -5,40 +5,32 @@
 
 import Foundation
 import SwiftAnthropic
+import SwiftData
 
 enum TerminalSignal: String, Sendable {
     case interrupt
     case terminate
 }
 
-enum TerminalScanPolicy: String, Sendable {
-    case adaptive
-    case manual
+enum BashToolOperation: String, Equatable, Sendable {
+    case start
+    case sendInput = "send_input"
+    case interrupt
+    case terminate
+    case status
+    case readOutput = "read_output"
+    case cleanup
 }
 
-enum TerminalAutoReplyPolicy: String, Sendable {
-    case safeOnly
-    case disabled
-}
-
-enum BashToolRequestError: LocalizedError {
-    case invalidExecutionMode(String)
-    case invalidSignal(String)
-    case invalidScanPolicy(String)
-    case invalidAutoReplyPolicy(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidExecutionMode(let value):
-            return "Error: invalid execution_mode '\(value)'"
-        case .invalidSignal(let value):
-            return "Error: invalid signal '\(value)'"
-        case .invalidScanPolicy(let value):
-            return "Error: invalid scan_policy '\(value)'"
-        case .invalidAutoReplyPolicy(let value):
-            return "Error: invalid auto_reply_policy '\(value)'"
-        }
-    }
+struct BashToolOperationRequest: Equatable, Sendable {
+    var operation: BashToolOperation
+    var taskId: String?
+    var command: String?
+    var executionMode: TerminalExecutionMode
+    var input: String?
+    var timeout: TimeInterval?
+    var force: Bool
+    var tailLines: Int?
 }
 
 struct BashToolRequest: Equatable, Sendable {
@@ -47,11 +39,7 @@ struct BashToolRequest: Equatable, Sendable {
     var executionMode: TerminalExecutionMode
     var input: String?
     var signal: TerminalSignal?
-    var goalHint: String?
-    var scanPolicy: TerminalScanPolicy
-    var autoReplyPolicy: TerminalAutoReplyPolicy
     var timeout: TimeInterval?
-    var restart: Bool
 }
 
 enum TerminalPromptUserAction: Equatable, Sendable {
@@ -62,180 +50,148 @@ enum TerminalPromptUserAction: Equatable, Sendable {
 
 extension ClaudeService {
 
-    // MARK: - Bash Tool
+    func requestPromptUserAction(for decision: TerminalPromptDecision) async -> TerminalPromptUserAction {
+        let questions = makeAskUserQuestions(for: decision)
+        let response = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            self.pendingUserQuestion = AskUserQuestionRequest(
+                questions: questions,
+                continuation: continuation
+            )
+        }
+        self.pendingUserQuestion = nil
+        return resolvePromptUserAction(from: response, decision: decision)
+    }
+
+    func stopManagedTerminalTask(toolCall: ToolCall, modelContext: ModelContext?) async {
+        guard let taskId = toolCall.terminalTaskId,
+              let sessionId = toolCall.terminalSessionID else {
+            return
+        }
+
+        let runtime = getTerminalTaskRuntime(for: sessionId, workingDirectory: nil)
+        do {
+            try await runtime.interrupt(taskId: taskId)
+            let registry = getBashTaskRegistry(for: sessionId)
+            await registry.updateStatus(taskId: taskId, status: .interrupted, endedAt: Date())
+            await registry.appendEvent(
+                TerminalTaskEvent(taskId: taskId, kind: .signalSent, summary: "已手动停止")
+            )
+
+            toolCall.status = .cancelled
+            toolCall.terminalTaskStatus = TerminalTaskStatus.interrupted.rawValue
+            toolCall.terminalPromptSummary = "已手动停止"
+            toolCall.endTime = Date()
+            try? modelContext?.save()
+        } catch {
+            toolCall.terminalPromptSummary = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
 
     func executeBashTool(
         input: MessageResponse.Content.Input,
-        session: BashSession,
-        workingDirectory: String?,
-        settings: AppSettings
+        runtime: TerminalTaskRuntime,
+        workingDirectory: String?
     ) async -> String {
-        let request: BashToolRequest
+        let request: BashToolOperationRequest
         do {
-            request = try normalizeBashToolRequest(input: input)
+            request = try parseBashToolOperationRequest(input: input)
         } catch {
+            print("[bash-tool] parse failed error=\(error.localizedDescription)")
             return error.localizedDescription
         }
 
-        let environmentOverrides = settings.proxyConfiguration.bashEnvironmentOverrides
-        if request.restart {
-            await session.restart(
-                workingDirectory: workingDirectory,
-                environmentOverrides: environmentOverrides
-            )
-            return "Bash session restarted."
-        }
+        print("[bash-tool] execute operation=\(request.operation.rawValue) task_id=\(request.taskId ?? "nil") command=\(request.command ?? "nil") mode=\(request.executionMode.rawValue)")
 
-        let timeout: TimeInterval
-        if let t = request.timeout {
-            timeout = TimeInterval(max(1, t))
-        } else {
-            timeout = request.executionMode == .interactive ? 2 : 300
-        }
+        do {
+            switch request.operation {
+            case .start:
+                let taskId = request.taskId ?? UUID().uuidString
+                guard let command = request.command else {
+                    return BashToolOperationRouterError.missingCommand.localizedDescription
+                }
 
-        if let signal = request.signal {
-            switch signal {
+                if request.executionMode == .detached {
+                    let snapshot = try await runtime.startDetached(command: command, taskId: taskId, workingDirectory: workingDirectory)
+                    print("[bash-tool] start detached created task_id=\(snapshot.id) status=\(snapshot.status.rawValue)")
+                    return "Started detached task \(snapshot.id)"
+                }
+
+                let outcome = try await runtime.startAttached(command: command, taskId: taskId, workingDirectory: workingDirectory)
+                print("[bash-tool] start attached finished task_id=\(taskId) completion=\(outcome.completionReason.rawValue)")
+                return outcome.finalOutputSnippet
+            case .sendInput:
+                guard let taskId = request.taskId, let input = request.input else {
+                    return BashToolOperationRouterError.missingTaskID(.sendInput).localizedDescription
+                }
+                try await runtime.sendInput(taskId: taskId, input: input)
+                print("[bash-tool] send_input task_id=\(taskId) chars=\(input.count)")
+                return try await runtime.readOutput(taskId: taskId, tailLines: request.tailLines ?? 20)
             case .interrupt:
-                return await session.interrupt(timeout: timeout)
+                guard let taskId = request.taskId else {
+                    return BashToolOperationRouterError.missingTaskID(.interrupt).localizedDescription
+                }
+                try await runtime.interrupt(taskId: taskId)
+                print("[bash-tool] interrupt task_id=\(taskId)")
+                return "Interrupted task \(taskId)"
             case .terminate:
-                await session.terminateCurrentCommand()
-                return "Foreground bash command terminated."
+                guard let taskId = request.taskId else {
+                    return BashToolOperationRouterError.missingTaskID(.terminate).localizedDescription
+                }
+                try await runtime.terminate(taskId: taskId, force: request.force)
+                print("[bash-tool] terminate task_id=\(taskId) force=\(request.force)")
+                return request.force ? "Force terminated task \(taskId)" : "Terminated task \(taskId)"
+            case .status:
+                guard let taskId = request.taskId else {
+                    return BashToolOperationRouterError.missingTaskID(.status).localizedDescription
+                }
+                let snapshot = try await runtime.status(taskId: taskId)
+                print("[bash-tool] status task_id=\(taskId) found status=\(snapshot.status.rawValue) session=\(snapshot.sessionId)")
+                return "Task \(snapshot.id): \(snapshot.status.rawValue)"
+            case .readOutput:
+                guard let taskId = request.taskId else {
+                    return BashToolOperationRouterError.missingTaskID(.readOutput).localizedDescription
+                }
+                print("[bash-tool] read_output task_id=\(taskId) tail_lines=\(request.tailLines ?? 20)")
+                return try await runtime.readOutput(taskId: taskId, tailLines: request.tailLines ?? 20)
+            case .cleanup:
+                guard let taskId = request.taskId else {
+                    return BashToolOperationRouterError.missingTaskID(.cleanup).localizedDescription
+                }
+                try await runtime.cleanup(taskId: taskId)
+                print("[bash-tool] cleanup task_id=\(taskId)")
+                return "Cleaned up task \(taskId)"
             }
+        } catch {
+            print("[bash-tool] operation=\(request.operation.rawValue) task_id=\(request.taskId ?? "nil") failed error=\(error.localizedDescription)")
+            return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
 
-        if let followUpInput = request.input {
-            let output = await session.sendInput(followUpInput, timeout: timeout)
-            return await resolveInteractivePromptIfNeeded(
-                output: output,
-                request: request,
-                session: session,
-                timeout: timeout
-            )
-        }
-
-        guard let command = request.command else {
-            return "Error: missing 'command' parameter"
-        }
-
-        let background = request.executionMode == .background
-        let interactive = request.executionMode == .interactive
-        let output = await session.execute(command, timeout: timeout, background: background, interactive: interactive)
-        guard interactive else { return output }
-
-        return await resolveInteractivePromptIfNeeded(
-            output: output,
-            request: request,
-            session: session,
-            timeout: timeout
-        )
+    func parseBashToolOperationRequest(input: MessageResponse.Content.Input) throws -> BashToolOperationRequest {
+        try BashToolOperationRouter().parse(input: input)
     }
 
     func normalizeBashToolRequest(input: MessageResponse.Content.Input) throws -> BashToolRequest {
-        let command = input["command"]?.stringValue
-        let taskId = input["task_id"]?.stringValue
-        let followUpInput = input["input"]?.stringValue
-        let goalHint = input["goal_hint"]?.stringValue
-        let restart = input["restart"]?.boolValue ?? false
-        let timeout = input["timeout"]?.intValue.map(TimeInterval.init)
-        let legacyBackground = input["background"]?.boolValue ?? false
-        let legacyInteractive = input["interactive"]?.boolValue ?? false
-        let legacyInterrupt = input["interrupt"]?.boolValue ?? false
+        let operationRequest = try parseBashToolOperationRequest(input: input)
+        let signal: TerminalSignal?
 
-        let explicitExecutionMode: TerminalExecutionMode?
-        if let rawMode = input["execution_mode"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawMode.isEmpty {
-            guard let mode = TerminalExecutionMode(rawValue: rawMode) else {
-                throw BashToolRequestError.invalidExecutionMode(rawMode)
-            }
-            explicitExecutionMode = mode
-        } else {
-            explicitExecutionMode = nil
+        switch operationRequest.operation {
+        case .interrupt:
+            signal = .interrupt
+        case .terminate:
+            signal = .terminate
+        default:
+            signal = nil
         }
-
-        let explicitSignal: TerminalSignal?
-        if let rawSignal = input["signal"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawSignal.isEmpty {
-            guard let signal = TerminalSignal(rawValue: rawSignal) else {
-                throw BashToolRequestError.invalidSignal(rawSignal)
-            }
-            explicitSignal = signal
-        } else {
-            explicitSignal = nil
-        }
-
-        let scanPolicy: TerminalScanPolicy
-        if let rawScanPolicy = input["scan_policy"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawScanPolicy.isEmpty {
-            guard let parsed = TerminalScanPolicy(rawValue: rawScanPolicy) else {
-                throw BashToolRequestError.invalidScanPolicy(rawScanPolicy)
-            }
-            scanPolicy = parsed
-        } else {
-            scanPolicy = .adaptive
-        }
-
-        let autoReplyPolicy: TerminalAutoReplyPolicy
-        if let rawAutoReplyPolicy = input["auto_reply_policy"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawAutoReplyPolicy.isEmpty {
-            guard let parsed = TerminalAutoReplyPolicy(rawValue: rawAutoReplyPolicy) else {
-                throw BashToolRequestError.invalidAutoReplyPolicy(rawAutoReplyPolicy)
-            }
-            autoReplyPolicy = parsed
-        } else {
-            autoReplyPolicy = .safeOnly
-        }
-
-        let resolvedSignal = explicitSignal ?? (legacyInterrupt ? .interrupt : nil)
-        let resolvedExecutionMode = try resolvedExecutionMode(
-            explicitMode: explicitExecutionMode,
-            command: command,
-            goalHint: goalHint,
-            hasFollowUpInput: followUpInput != nil,
-            legacyBackground: legacyBackground,
-            legacyInteractive: legacyInteractive
-        )
 
         return BashToolRequest(
-            command: command,
-            taskId: taskId,
-            executionMode: resolvedExecutionMode,
-            input: followUpInput,
-            signal: resolvedSignal,
-            goalHint: goalHint,
-            scanPolicy: scanPolicy,
-            autoReplyPolicy: autoReplyPolicy,
-            timeout: timeout,
-            restart: restart
+            command: operationRequest.command,
+            taskId: operationRequest.taskId,
+            executionMode: operationRequest.executionMode,
+            input: operationRequest.input,
+            signal: signal,
+            timeout: operationRequest.timeout
         )
-    }
-
-    private func resolvedExecutionMode(
-        explicitMode: TerminalExecutionMode?,
-        command: String?,
-        goalHint: String?,
-        hasFollowUpInput: Bool,
-        legacyBackground: Bool,
-        legacyInteractive: Bool
-    ) throws -> TerminalExecutionMode {
-        if let explicitMode {
-            return explicitMode
-        }
-
-        if legacyBackground {
-            return .background
-        }
-
-        if legacyInteractive || hasFollowUpInput {
-            return .interactive
-        }
-
-        guard let command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .foreground
-        }
-
-        let classification = BashCommandClassifier().classify(command: command, goalHint: goalHint)
-        switch classification.executionMode {
-        case .auto:
-            return shouldAutoEnableInteractiveMode(for: command) ? .interactive : .foreground
-        default:
-            return classification.executionMode
-        }
     }
 
     func makeAskUserQuestions(for decision: TerminalPromptDecision) -> [AskUserQuestion] {
@@ -306,130 +262,10 @@ extension ClaudeService {
         return .reply(firstSelection)
     }
 
-    private func resolveInteractivePromptIfNeeded(
-        output: String,
-        request: BashToolRequest,
-        session: BashSession,
-        timeout: TimeInterval,
-        remainingRounds: Int = 4
-    ) async -> String {
-        guard remainingRounds > 0 else {
-            return joinedOutput([
-                output,
-                "[Managed bash] Prompt handling limit reached. Further input requires another bash tool call."
-            ])
+    func normalizedTerminalReply(_ reply: String) -> String {
+        if reply.isEmpty {
+            return "\n"
         }
-
-        guard let decision = BashPromptAnalyzer().analyze(output: output) else {
-            return output
-        }
-
-        if request.autoReplyPolicy == .safeOnly,
-           decision.shouldAutoReply,
-           let reply = decision.autoReplyText {
-            let nextOutput = await session.sendInput(reply, timeout: timeout)
-            let autoReplySummary = reply.isEmpty
-                ? "[Managed bash] Auto-replied by pressing Enter."
-                : "[Managed bash] Auto-replied with '\(reply)'."
-
-            let resolvedNext = await resolveInteractivePromptIfNeeded(
-                output: nextOutput,
-                request: request,
-                session: session,
-                timeout: timeout,
-                remainingRounds: remainingRounds - 1
-            )
-
-            return joinedOutput([output, autoReplySummary, resolvedNext])
-        }
-
-        let action = await askUserToResolvePrompt(decision: decision)
-        switch action {
-        case .reply(let reply):
-            let nextOutput = await session.sendInput(reply, timeout: timeout)
-            let resolvedNext = await resolveInteractivePromptIfNeeded(
-                output: nextOutput,
-                request: request,
-                session: session,
-                timeout: timeout,
-                remainingRounds: remainingRounds - 1
-            )
-            return joinedOutput([output, "[Managed bash] User replied with '\(reply)'.", resolvedNext])
-        case .interrupt:
-            let interruptOutput = await session.interrupt(timeout: timeout)
-            return joinedOutput([output, "[Managed bash] User chose to cancel the command.", interruptOutput])
-        case .wait:
-            return joinedOutput([output, "[Managed bash] Prompt left waiting for manual follow-up input."])
-        }
-    }
-
-    private func askUserToResolvePrompt(decision: TerminalPromptDecision) async -> TerminalPromptUserAction {
-        let questions = makeAskUserQuestions(for: decision)
-        let input: MessageResponse.Content.Input = [
-            "questions": .array(questions.map(dynamicContentQuestion(from:)))
-        ]
-        let response = await executeAskUserQuestion(input: input)
-        return resolvePromptUserAction(from: response, decision: decision)
-    }
-
-    private func dynamicContentQuestion(from question: AskUserQuestion) -> MessageResponse.Content.DynamicContent {
-        .dictionary([
-            "question": .string(question.question),
-            "header": .string(question.header),
-            "options": .array(question.options.map { option in
-                .dictionary([
-                    "label": .string(option.label),
-                    "description": .string(option.description)
-                ])
-            }),
-            "multiSelect": .bool(question.multiSelect)
-        ])
-    }
-
-    private func joinedOutput(_ segments: [String]) -> String {
-        segments
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
-    }
-
-    // MARK: - Interactive Mode Detection
-
-    private static let interactiveCommandRegexes: [NSRegularExpression] = {
-        let patterns = [
-            #"(^|\s)read\s+"#,
-            #"(^|\s)select\s+"#,
-            #"(^|\s)(sudo|su|passwd)(\s|$)"#,
-            #"(^|\s)(ssh|sftp|ftp)\s"#,
-            #"(^|\s)(mysql|psql|sqlite3)(\s|$)"#,
-            #"(^|\s)git\s+add\s+-p(\s|$)"#,
-            #"(^|\s)git\s+rebase\s+-i(\s|$)"#,
-            #"(^|\s)git\s+commit(\s|$)"#,
-            #"(^|\s)(npm|pnpm|yarn)\s+(init|login)(\s|$)"#,
-            #"(^|\s)(pnpm|yarn|npm|bunx|npx)\s+(create|dlx)\s"#,
-            #"(^|\s)(rails\s+console|python(3)?|node|irb)(\s|$)"#
-        ]
-
-        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
-    }()
-
-    private static let nonInteractiveGitCommitRegex = try? NSRegularExpression(
-        pattern: #"(^|\s)git\s+commit\s+.*(--message|-m|--amend\s+--no-edit|--no-edit)(\s|$)"#,
-        options: [.caseInsensitive]
-    )
-
-    private func shouldAutoEnableInteractiveMode(for command: String) -> Bool {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-
-        let range = NSRange(location: 0, length: trimmed.utf16.count)
-        if let regex = Self.nonInteractiveGitCommitRegex,
-           regex.firstMatch(in: trimmed, options: [], range: range) != nil {
-            return false
-        }
-
-        return Self.interactiveCommandRegexes.contains { regex in
-            regex.firstMatch(in: trimmed, options: [], range: range) != nil
-        }
+        return reply.hasSuffix("\n") ? reply : reply + "\n"
     }
 }

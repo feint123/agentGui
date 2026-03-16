@@ -268,7 +268,7 @@ extension ClaudeService {
         tools.append(makeEphemeralTool(
             name: "memory_write",
             description: """
-            Persist important long-term RMS insights for future task decisions. \
+            Persist important long-term RMS insights into the unified memory store for future task decisions. \
             Use this for durable constraints, remembered failure modes, and reusable tactics that should affect later action selection. \
             Keep entries concise, factual, and decision-relevant.
             """,

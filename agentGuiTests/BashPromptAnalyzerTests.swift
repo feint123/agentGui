@@ -36,6 +36,14 @@ struct BashPromptAnalyzerTests {
         #expect(decision?.autoReplyText == "")
     }
 
+    @Test func detectsPackageInstallProceedPromptAndAutoRepliesYes() async throws {
+        let decision = BashPromptAnalyzer().analyze(output: "Need to install the following packages:\ncreate-vue@3.22.0\nOk to proceed? (y)")
+
+        #expect(decision?.snapshot.kind == .yesNo)
+        #expect(decision?.shouldAutoReply == true)
+        #expect(decision?.autoReplyText == "y")
+    }
+
     @Test func returnsNilForPlainOutput() async throws {
         let decision = BashPromptAnalyzer().analyze(output: "Compiled 17 files successfully")
 

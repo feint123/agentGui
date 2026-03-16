@@ -72,7 +72,7 @@ struct AgentLoopToolExecutionCoordinatorTests {
         #expect(outcome.result.text == "workflow-started")
     }
 
-    @Test func foregroundBashStartsAndFinishesObservation() async {
+    @Test func attachedBashStartsAndFinishesObservation() async {
         final class Probe {
             var started = false
             var finished = false
@@ -86,14 +86,10 @@ struct AgentLoopToolExecutionCoordinatorTests {
                     BashToolRequest(
                         command: "pwd",
                         taskId: "task-1",
-                        executionMode: .foreground,
+                        executionMode: .attached,
                         input: nil,
                         signal: nil,
-                        goalHint: nil,
-                        scanPolicy: .adaptive,
-                        autoReplyPolicy: .safeOnly,
-                        timeout: nil,
-                        restart: false
+                        timeout: nil
                     )
                 },
                 startForegroundBashObservation: { _, _ in
@@ -112,6 +108,45 @@ struct AgentLoopToolExecutionCoordinatorTests {
 
         #expect(outcome.result.text == "bash-done")
         #expect(probe.started)
+        #expect(probe.finished)
+    }
+
+    @Test func detachedBashDoesNotStartAttachedObservation() async {
+        final class Probe {
+            var started = false
+            var finished = false
+        }
+
+        let probe = Probe()
+        let coordinator = AgentLoopToolExecutionCoordinator(
+            dependencies: .fixture(
+                executeTool: { _, _ in .success("detached-started") },
+                normalizeBashRequest: { _ in
+                    BashToolRequest(
+                        command: "npm run dev",
+                        taskId: "task-2",
+                        executionMode: .detached,
+                        input: nil,
+                        signal: nil,
+                        timeout: nil
+                    )
+                },
+                startForegroundBashObservation: { _, _ in
+                    probe.started = true
+                    return Task { }
+                },
+                finishBashObservation: { _, _, _ in
+                    probe.finished = true
+                }
+            )
+        )
+        let pendingTool = AgentLoopPendingTool(id: "call-detached", name: "bash", partialJson: "{\"operation\":\"start\",\"command\":\"npm run dev\",\"task_id\":\"task-2\",\"execution_mode\":\"detached\"}")
+        let record = ToolCall.fixture(toolCallId: "call-detached", kind: .execute)
+
+        let outcome = await coordinator.execute(pendingTool: pendingTool, record: record)
+
+        #expect(outcome.result.text == "detached-started")
+        #expect(!probe.started)
         #expect(probe.finished)
     }
 
@@ -139,14 +174,10 @@ private extension AgentLoopToolExecutionCoordinator.Dependencies {
             BashToolRequest(
                 command: "pwd",
                 taskId: nil,
-                executionMode: .foreground,
+                executionMode: .attached,
                 input: nil,
                 signal: nil,
-                goalHint: nil,
-                scanPolicy: .adaptive,
-                autoReplyPolicy: .safeOnly,
-                timeout: nil,
-                restart: false
+                timeout: nil
             )
         },
         startForegroundBashObservation: @escaping (BashToolRequest, ToolCall) async -> Task<Void, Never>? = { _, _ in nil },

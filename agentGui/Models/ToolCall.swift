@@ -82,6 +82,12 @@ final class ToolCall {
     /// Managed terminal execution mode raw value
     var terminalExecutionMode: String?
 
+    /// Managed terminal transcript path
+    var terminalTranscriptPath: String?
+
+    /// Managed terminal completion reason raw value
+    var terminalCompletionReason: String?
+
     /// 开始时间
     var startTime: Date?
 
@@ -170,6 +176,8 @@ final class ToolCall {
         self.terminalPromptSummary = nil
         self.terminalAgentActionsJSON = nil
         self.terminalExecutionMode = nil
+        self.terminalTranscriptPath = nil
+        self.terminalCompletionReason = nil
         self.startTime = Date()
         self.endTime = nil
         self.message = message
@@ -233,6 +241,10 @@ extension ToolCall {
 
     var isVerifierSubagent: Bool {
         kind == .subagent && subagentAgentName == "verifier"
+    }
+
+    var terminalSessionID: String? {
+        message?.session?.sessionId ?? agentRound?.message?.session?.sessionId
     }
 
     var verifierPassed: Bool? {

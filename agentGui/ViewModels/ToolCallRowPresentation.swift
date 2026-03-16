@@ -21,7 +21,7 @@ struct ToolCallRowPresentation: Equatable {
     let durationText: String?
     let isExpanded: Bool
 
-    nonisolated static func make(for toolCall: ToolCall, isExpanded: Bool = false) -> ToolCallRowPresentation {
+    static func make(for toolCall: ToolCall, isExpanded: Bool = false) -> ToolCallRowPresentation {
         let durationText = toolCall.duration.map { String(format: "%.1fs", $0) }
 
         switch toolCall.kind {
@@ -55,7 +55,9 @@ struct ToolCallRowPresentation: Equatable {
                 primaryText: toolCall.title ?? toolCall.kind.displayName,
                 secondaryText: toolCall.toolResultSummary ?? managedExecutionSummary(for: toolCall, status: managedStatus),
                 tertiaryText: managedTertiaryText(for: toolCall, status: managedStatus),
-                statusText: managedStatus.map(terminalStatusText(for:)) ?? toolCall.statusDisplay,
+                statusText: managedStatus.map {
+                    terminalStatusText(for: $0, executionMode: toolCall.terminalExecutionMode.flatMap(TerminalExecutionMode.init(rawValue:)))
+                } ?? toolCall.statusDisplay,
                 detailText: toolCall.terminalOutput,
                 durationText: durationText,
                 isExpanded: isExpanded
@@ -120,41 +122,37 @@ struct ToolCallRowPresentation: Equatable {
         }
     }
 
-    nonisolated private static func diffSummary(from diff: String) -> String {
+    private static func diffSummary(from diff: String) -> String {
         let inserted = diff.split(separator: "\n").filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count
         let removed = diff.split(separator: "\n").filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count
         if inserted == 0 && removed == 0 { return "已修改" }
         return "\(max(inserted, removed)) 处变更"
     }
 
-    nonisolated private static func executionSummary(for toolCall: ToolCall) -> String? {
+    private static func executionSummary(for toolCall: ToolCall) -> String? {
         if toolCall.status == .failed {
             return summaryLine(from: toolCall.terminalOutput) ?? "执行失败"
         }
         return summaryLine(from: toolCall.terminalOutput)
     }
 
-    nonisolated private static func managedExecutionSummary(
+    private static func managedExecutionSummary(
         for toolCall: ToolCall,
         status: TerminalTaskStatus?
     ) -> String? {
         if let mode = toolCall.terminalExecutionMode.flatMap(TerminalExecutionMode.init(rawValue:)) {
             switch mode {
-            case .background:
+            case .detached:
                 return "后台任务"
-            case .interactive:
-                return status == .waitingForPrompt || status == .needsUserDecision ? "等待交互" : "交互任务"
-            case .foreground:
-                return executionSummary(for: toolCall)
-            case .auto:
-                return executionSummary(for: toolCall)
+            case .attached:
+                return status == .waitingForInput ? "等待交互" : executionSummary(for: toolCall)
             }
         }
 
         return executionSummary(for: toolCall)
     }
 
-    nonisolated private static func managedTertiaryText(
+    private static func managedTertiaryText(
         for toolCall: ToolCall,
         status: TerminalTaskStatus?
     ) -> String? {
@@ -166,32 +164,32 @@ struct ToolCallRowPresentation: Equatable {
             return payloadRef
         }
 
-        if status == .runningBackground {
+        if status == .running, toolCall.terminalExecutionMode == TerminalExecutionMode.detached.rawValue {
             return summaryLine(from: toolCall.terminalOutput)
         }
 
         return nil
     }
 
-    nonisolated private static func terminalTaskStatus(from toolCall: ToolCall) -> TerminalTaskStatus? {
+    private static func terminalTaskStatus(from toolCall: ToolCall) -> TerminalTaskStatus? {
         guard let raw = toolCall.terminalTaskStatus else { return nil }
         return TerminalTaskStatus(rawValue: raw)
     }
 
-    nonisolated private static func terminalStatusText(for status: TerminalTaskStatus) -> String {
+    private static func terminalStatusText(
+        for status: TerminalTaskStatus,
+        executionMode: TerminalExecutionMode?
+    ) -> String {
         switch status {
-        case .queued:
-            return "已排队"
-        case .classifying:
-            return "分析中"
         case .launching:
             return "启动中"
-        case .runningForeground:
+        case .running:
+            if executionMode == .detached {
+                return "后台运行中"
+            }
             return "执行中"
-        case .waitingForPrompt:
+        case .waitingForInput:
             return "等待输入"
-        case .runningBackground:
-            return "后台运行中"
         case .completed:
             return "已完成"
         case .failed:
@@ -200,12 +198,12 @@ struct ToolCallRowPresentation: Equatable {
             return "已中断"
         case .timedOut:
             return "已超时"
-        case .needsUserDecision:
-            return "等待用户决策"
+        case .terminated:
+            return "已终止"
         }
     }
 
-    nonisolated private static func askUserSummary(for toolCall: ToolCall) -> String? {
+    private static func askUserSummary(for toolCall: ToolCall) -> String? {
         guard let output = toolCall.terminalOutput,
               let data = output.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -217,7 +215,7 @@ struct ToolCallRowPresentation: Equatable {
         return selected.isEmpty ? "等待或已取消" : selected.joined(separator: "、")
     }
 
-    nonisolated private static func summaryLine(from text: String?) -> String? {
+    private static func summaryLine(from text: String?) -> String? {
         guard let text else { return nil }
         return text
             .split(separator: "\n", omittingEmptySubsequences: true)

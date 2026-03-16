@@ -53,11 +53,7 @@ extension ClaudeService {
             }
         case "bash":
             kind = .execute
-            if input["restart"]?.boolValue == true {
-                title = "重启 bash session"
-            } else {
-                title = String((input["command"]?.stringValue ?? "").prefix(80))
-            }
+            title = String((input["command"]?.stringValue ?? toolName).prefix(80))
         case "code_execution":
             kind = .execute
             let code = input["code"]?.stringValue ?? ""
@@ -111,6 +107,7 @@ extension ClaudeService {
             record.terminalTaskId = metadata.taskId
             record.terminalTaskStatus = metadata.initialStatus.rawValue
             record.terminalExecutionMode = metadata.executionMode.rawValue
+            record.terminalTranscriptPath = metadata.transcriptPath
         }
 
         if kind == .subagent {
@@ -124,24 +121,24 @@ extension ClaudeService {
     private func bashTaskRecordMetadata(
         from input: MessageResponse.Content.Input,
         defaultTaskId: String
-    ) -> (taskId: String, executionMode: TerminalExecutionMode, initialStatus: TerminalTaskStatus)? {
-        guard let request = try? normalizeBashToolRequest(input: input), !request.restart else {
+    ) -> (taskId: String, executionMode: TerminalExecutionMode, initialStatus: TerminalTaskStatus, transcriptPath: String?)? {
+        guard let request = try? normalizeBashToolRequest(input: input) else {
             return nil
         }
 
         let taskId = request.taskId ?? defaultTaskId
         let status: TerminalTaskStatus
         if request.signal != nil {
-            status = .runningForeground
+            status = .running
         } else {
             switch request.executionMode {
-            case .background:
+            case .detached:
                 status = .launching
-            case .interactive, .foreground, .auto:
+            case .attached:
                 status = .launching
             }
         }
 
-        return (taskId: taskId, executionMode: request.executionMode, initialStatus: status)
+        return (taskId: taskId, executionMode: request.executionMode, initialStatus: status, transcriptPath: nil)
     }
 }

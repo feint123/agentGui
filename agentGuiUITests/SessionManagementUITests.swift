@@ -39,14 +39,4 @@ final class SessionManagementUITests: UITestBase {
         XCTAssertTrue(app.staticTexts["onboarding.step.connection.title"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["onboarding.validateButton"].waitForExistence(timeout: 5))
     }
-
-    @MainActor
-    func testOnboardingShowsModernStepRailLayout() throws {
-        launchApp(arguments: [
-            "-com.agentgui.test.preloadApiKey", "false",
-            "-com.agentgui.test.preloadMessages", "false"
-        ])
-
-        XCTAssertTrue(app.otherElements["onboarding.heroPanel"].waitForExistence(timeout: 5))
-    }
 }

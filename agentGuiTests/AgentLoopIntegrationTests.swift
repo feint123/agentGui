@@ -251,6 +251,119 @@ struct AgentLoopIntegrationTests {
         }))
     }
 
+    @Test func runCoreAgentLoopStartsForegroundBashWithExplicitTaskID() async throws {
+        let claudeService = ClaudeService()
+        let modelContext = try makeModelContext()
+        let service = SequencedFakeAnthropicService(streamBatches: [
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-bash-explicit","name":"bash"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\\"operation\\\":\\\"start\\\",\\\"command\\\":\\\"printf 'explicit task id\\\\n'\\\",\\\"task_id\\\":\\\"view-dir-20250316\\\",\\\"execution_mode\\\":\\\"attached\\\"}"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"explicit bash round complete"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ]
+        ])
+
+        let settings = AppSettings.testFixture()
+        settings.enableBashTool = true
+
+        var messages: [MessageParameter.Message] = [
+            .init(role: .user, content: .text("run bash with explicit task id"))
+        ]
+
+        let result = try await claudeService.runCoreAgentLoop(
+            messages: &messages,
+            service: service,
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            settings: settings,
+            sessionId: "session-bash-explicit",
+            modelContext: modelContext,
+            maxRounds: 4,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none
+        )
+
+        let toolCalls = try modelContext.fetch(FetchDescriptor<ToolCall>())
+        let record = try #require(toolCalls.first)
+
+        #expect(result.completedSuccessfully)
+        #expect(record.status != .failed)
+        #expect(record.terminalTaskId == "view-dir-20250316")
+        #expect(record.terminalTaskStatus == TerminalTaskStatus.completed.rawValue)
+        #expect((record.terminalOutput ?? record.toolResultSummary ?? "").contains("explicit task id"))
+    }
+
+    @Test func runCoreAgentLoopAutoRepliesToPackageInstallPrompt() async throws {
+        let claudeService = ClaudeService()
+        let modelContext = try makeModelContext()
+        let service = SequencedFakeAnthropicService(streamBatches: [
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-bash-install","name":"bash"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\\"operation\\\":\\\"start\\\",\\\"command\\\":\\\"printf 'Need to install the following packages:\\\\ncreate-vue@3.22.0\\\\nOk to proceed? (y)'; read answer; printf '\\\\nanswer:%s\\\\n' \\\"$answer\\\"\\\",\\\"task_id\\\":\\\"npm-create-vue\\\",\\\"execution_mode\\\":\\\"attached\\\"}"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
+                """)
+            ],
+            [
+                decodeStreamEvent("""
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"package install prompt handled"}}
+                """),
+                decodeStreamEvent("""
+                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+                """)
+            ]
+        ])
+
+        let settings = AppSettings.testFixture()
+        settings.enableBashTool = true
+
+        var messages: [MessageParameter.Message] = [
+            .init(role: .user, content: .text("bootstrap vue project"))
+        ]
+
+        let result = try await claudeService.runCoreAgentLoop(
+            messages: &messages,
+            service: service,
+            modelId: "claude-test",
+            tools: [],
+            system: nil,
+            settings: settings,
+            sessionId: "session-bash-auto-reply",
+            modelContext: modelContext,
+            maxRounds: 4,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none
+        )
+
+        let toolCalls = try modelContext.fetch(FetchDescriptor<ToolCall>())
+        let record = try #require(toolCalls.first)
+
+        #expect(result.completedSuccessfully)
+        #expect(record.terminalTaskStatus == TerminalTaskStatus.completed.rawValue)
+        #expect(record.terminalOutput?.contains("answer:y") == true)
+        #expect(record.terminalAgentActionsJSON?.contains("已自动回复 y") == true)
+    }
+
     @Test func runCoreAgentLoopFinishesAfterMainAgentExplicitlyInvokesVerifierSubagent() async throws {
         let claudeService = ClaudeService()
         let modelContext = try makeModelContext()

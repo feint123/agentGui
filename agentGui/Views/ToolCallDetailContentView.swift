@@ -75,6 +75,14 @@ enum ToolCallDetailPresentation {
             sections.append(.init(label: "当前状态", text: stateSummary, monospaced: false, lineLimit: 4))
         }
 
+        if let transcriptPath = toolCall.terminalTranscriptPath?.trimmingCharacters(in: .whitespacesAndNewlines), !transcriptPath.isEmpty {
+            sections.append(.init(label: "Transcript", text: transcriptPath, monospaced: true, lineLimit: 2))
+        }
+
+        if let completionReason = toolCall.terminalCompletionReason?.trimmingCharacters(in: .whitespacesAndNewlines), !completionReason.isEmpty {
+            sections.append(.init(label: "完成原因", text: completionReason, monospaced: false, lineLimit: 2))
+        }
+
         if let summary = executionResultSummary(for: toolCall, row: row) {
             sections.append(
                 .init(
@@ -171,31 +179,21 @@ enum ToolCallDetailPresentation {
 
     private static func executionModeText(_ mode: TerminalExecutionMode) -> String {
         switch mode {
-        case .auto:
-            return "自动模式"
-        case .foreground:
-            return "前台任务"
-        case .background:
+        case .attached:
+            return "附着任务"
+        case .detached:
             return "后台任务"
-        case .interactive:
-            return "交互任务"
         }
     }
 
     private static func taskStatusText(_ status: TerminalTaskStatus) -> String {
         switch status {
-        case .queued:
-            return "已排队"
-        case .classifying:
-            return "分析中"
         case .launching:
             return "启动中"
-        case .runningForeground:
+        case .running:
             return "执行中"
-        case .waitingForPrompt:
+        case .waitingForInput:
             return "等待输入"
-        case .runningBackground:
-            return "后台运行中"
         case .completed:
             return "已完成"
         case .failed:
@@ -204,8 +202,8 @@ enum ToolCallDetailPresentation {
             return "已中断"
         case .timedOut:
             return "已超时"
-        case .needsUserDecision:
-            return "等待用户决策"
+        case .terminated:
+            return "已终止"
         }
     }
 

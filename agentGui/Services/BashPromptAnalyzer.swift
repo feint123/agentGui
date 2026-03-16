@@ -15,6 +15,10 @@ struct BashPromptAnalyzer {
 
         let normalized = trimmed.lowercased()
 
+        if let packageInstallDecision = packageInstallProceedDecision(trimmed: trimmed, normalized: normalized) {
+            return packageInstallDecision
+        }
+
         if isSecretPrompt(normalized) {
             let snapshot = TerminalPromptSnapshot(
                 kind: .secret,
@@ -90,18 +94,71 @@ struct BashPromptAnalyzer {
     private func isYesNoPrompt(_ normalized: String) -> Bool {
         let tokens = [
             "(y/n)",
+            "(y)",
+            "(n)",
+            "(y/n/a)",
             "(y/n?)",
             "[y/n]",
+            "[y/n/o]",
+            "[y/n/o/a]",
+            "[y/n/c]",
+            "[y/n/q]",
+            "[y/n/e]",
+            "[y/n/d]",
+            "[y/n/h]",
             "[y/n?]",
+            "[y/n]:",
+            "[y/n]?",
+            "[y/n].",
+            "[y/n] ",
+            "[y/n]\n",
+            "[y/n]\r",
+            "[y/n]\t",
+            "[y/n]$",
+            "[y/n]",
+            "[y/N]",
+            "[Y/n]",
             "(yes/no)",
             "y/n",
             "yes/no"
         ]
 
-        return tokens.contains(where: normalized.contains)
+        if tokens.contains(where: normalized.contains) {
+            return true
+        }
+
+        return normalized.contains("ok to proceed?")
     }
 
     private func isPressEnterPrompt(_ normalized: String) -> Bool {
         normalized.contains("press enter to continue") || normalized.contains("press return to continue")
+    }
+
+    private func packageInstallProceedDecision(trimmed: String, normalized: String) -> TerminalPromptDecision? {
+        let packageManagerHints = [
+            "need to install the following packages",
+            "need to install",
+            "create-vue@",
+            "create-next-app@",
+            "create-vite@",
+            "ok to proceed?"
+        ]
+
+        guard packageManagerHints.contains(where: normalized.contains) else {
+            return nil
+        }
+
+        let snapshot = TerminalPromptSnapshot(
+            kind: .yesNo,
+            promptText: trimmed,
+            options: ["y", "n"],
+            recommendedReply: "y"
+        )
+        return TerminalPromptDecision(
+            snapshot: snapshot,
+            shouldAutoReply: true,
+            autoReplyText: "y",
+            escalationReason: nil
+        )
     }
 }

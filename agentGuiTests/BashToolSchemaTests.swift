@@ -16,45 +16,70 @@ struct BashToolSchemaTests {
 
         #expect(propertyNames.contains("execution_mode"))
         #expect(propertyNames.contains("task_id"))
-        #expect(propertyNames.contains("signal"))
-        #expect(propertyNames.contains("goal_hint"))
-        #expect(propertyNames.contains("scan_policy"))
-        #expect(propertyNames.contains("auto_reply_policy"))
+        #expect(propertyNames.contains("operation"))
+        #expect(propertyNames.contains("force"))
+        #expect(propertyNames.contains("tail_lines"))
     }
 
-    @Test func normalizeLegacyBackgroundInputMapsToManagedRequest() async throws {
-        let request = try ClaudeService().normalizeBashToolRequest(input: makeInput([
+    @Test func toolBuilderDoesNotExposeLegacyCompatibilityFields() async throws {
+        let settings = AppSettings()
+        settings.enableBashTool = true
+
+        let tools = ClaudeService().buildTools(modelId: "claude-sonnet-4-6", settings: settings)
+        let bash = try #require(toolNamed("bash", in: tools))
+        let propertyNames = schemaPropertyNames(from: bash)
+
+        #expect(!propertyNames.contains("background"))
+        #expect(!propertyNames.contains("interactive"))
+        #expect(!propertyNames.contains("interrupt"))
+        #expect(!propertyNames.contains("signal"))
+    }
+
+    @Test func bashToolDescriptionExplainsTaskIDReuseRules() async throws {
+        let settings = AppSettings()
+        settings.enableBashTool = true
+
+        let tools = ClaudeService().buildTools(modelId: "claude-sonnet-4-6", settings: settings)
+        let bash = try #require(toolNamed("bash", in: tools))
+        let description = try #require(encodedToolDictionary(from: bash)?["description"] as? String)
+
+        #expect(description.contains("unique task_id"))
+        #expect(description.contains("status"))
+        #expect(description.contains("read_output"))
+        #expect(description.contains("cleanup"))
+    }
+
+    @Test func parseOperationStartRequestMapsToPtyRuntimeContract() async throws {
+        let request = try ClaudeService().parseBashToolOperationRequest(input: makeInput([
+            "operation": .string("start"),
             "command": .string("npm run dev"),
-            "background": .bool(true),
-            "goal_hint": .string("启动开发服务器")
+            "task_id": .string("dev-server"),
+            "execution_mode": .string("detached")
         ]))
 
+        #expect(request.operation == .start)
+        #expect(request.taskId == "dev-server")
         #expect(request.command == "npm run dev")
-        #expect(request.executionMode == .background)
-        #expect(request.signal == nil)
-        #expect(request.goalHint == "启动开发服务器")
-        #expect(request.scanPolicy == .adaptive)
+        #expect(request.executionMode == .detached)
     }
 
-    @Test func normalizeLegacyInteractiveInputMapsToManagedRequest() async throws {
-        let request = try ClaudeService().normalizeBashToolRequest(input: makeInput([
-            "command": .string("git commit"),
-            "interactive": .bool(true),
-            "input": .string("feat: test")
+    @Test func parseOperationInterruptRequestRequiresTaskId() async throws {
+        let request = try ClaudeService().parseBashToolOperationRequest(input: makeInput([
+            "operation": .string("interrupt"),
+            "task_id": .string("task-1")
         ]))
 
-        #expect(request.command == "git commit")
-        #expect(request.executionMode == .interactive)
-        #expect(request.input == "feat: test")
+        #expect(request.operation == .interrupt)
+        #expect(request.taskId == "task-1")
     }
 
-    @Test func normalizeInterruptInputMapsToSignal() async throws {
-        let request = try ClaudeService().normalizeBashToolRequest(input: makeInput([
-            "interrupt": .bool(true)
-        ]))
-
-        #expect(request.command == nil)
-        #expect(request.signal == .interrupt)
+    @Test func parseOperationRejectsLegacyBackgroundFlag() async throws {
+        await #expect(throws: BashToolOperationRouterError.self) {
+            _ = try ClaudeService().parseBashToolOperationRequest(input: makeInput([
+                "command": .string("npm run dev"),
+                "background": .bool(true)
+            ]))
+        }
     }
 
     @Test func memoryWriteToolDescriptionMatchesUnifiedMemoryStore() async throws {
@@ -95,7 +120,7 @@ struct BashToolSchemaTests {
 
         #expect(propertyNames.contains("execution_mode"))
         #expect(propertyNames.contains("task_id"))
-        #expect(propertyNames.contains("signal"))
+        #expect(propertyNames.contains("operation"))
     }
 
     @Test func workflowWorkerBashSchemaMatchesUnifiedRegistry() async throws {
@@ -113,7 +138,7 @@ struct BashToolSchemaTests {
 
         #expect(propertyNames.contains("execution_mode"))
         #expect(propertyNames.contains("task_id"))
-        #expect(propertyNames.contains("signal"))
+        #expect(propertyNames.contains("operation"))
     }
 
     private func toolNamed(_ name: String, in tools: [MessageParameter.Tool]) -> MessageParameter.Tool? {

@@ -65,59 +65,138 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
         record: ToolCall
     ) async -> Task<Void, Never>? {
         let workingDirectory = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
-        let bashSession = claudeService.getBashSession(
-            for: sessionId,
-            workingDirectory: workingDirectory,
-            environmentOverrides: settings.proxyConfiguration.bashEnvironmentOverrides
-        )
+        let runtime = claudeService.getTerminalTaskRuntime(for: sessionId, workingDirectory: workingDirectory)
         let registry = claudeService.getBashTaskRegistry(for: sessionId)
         let taskId = record.terminalTaskId ?? bashRequest.taskId ?? record.toolCallId
-        var snapshot = TerminalTaskSnapshot(
-            id: taskId,
-            sessionId: sessionId,
-            command: bashRequest.command ?? record.title ?? "bash",
-            executionMode: bashRequest.executionMode,
-            status: .runningForeground,
-            startedAt: record.startTime
-        )
-        await registry.upsert(snapshot)
+
+        record.terminalTaskId = taskId
+        record.terminalTaskStatus = TerminalTaskStatus.launching.rawValue
+        record.terminalExecutionMode = bashRequest.executionMode.rawValue
 
         return Task { @MainActor in
-            var idleDuration: TimeInterval = 0
+            var lastPromptText: String?
+            var lastOutput = ""
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 if Task.isCancelled { break }
-                let liveOutput = await bashSession.currentOutput()
-                let delta = await bashSession.currentOutputDelta()
+
+                guard var liveSnapshot = try? await runtime.status(taskId: taskId) else {
+                    continue
+                }
+
+                let liveOutput = (try? await runtime.readOutput(taskId: taskId, tailLines: 40)) ?? ""
+                let delta: String
+                if liveOutput.hasPrefix(lastOutput) {
+                    delta = String(liveOutput.dropFirst(lastOutput.count))
+                } else {
+                    delta = liveOutput
+                }
+                lastOutput = liveOutput
+
                 if !liveOutput.isEmpty {
                     record.terminalOutput = liveOutput
                 }
 
-                idleDuration = delta.isEmpty ? (idleDuration + 0.1) : 0
                 let promptDecision = BashPromptAnalyzer().analyze(output: liveOutput)
-                let observation = TerminalTaskObservation(
-                    appendedOutput: delta,
-                    processIsAlive: await bashSession.isProcessAlive(),
-                    idleDuration: idleDuration,
-                    promptDecision: promptDecision,
-                    didBackgroundLaunch: false,
-                    didTimeout: false,
-                    exitCode: nil
-                )
-                let update = BashTaskEventReducer().reduce(previous: snapshot, observation: observation)
-                snapshot = update.snapshot
-                await registry.upsert(update.snapshot)
-                for event in update.events {
-                    await registry.appendEvent(event)
+
+                if let promptDecision {
+                    liveSnapshot.status = .waitingForInput
+                    liveSnapshot.prompt = promptDecision.snapshot
+                    liveSnapshot.latestOutputSnippet = promptDecision.snapshot.promptText
+                    if lastPromptText != promptDecision.snapshot.promptText {
+                        lastPromptText = promptDecision.snapshot.promptText
+                        await registry.appendEvent(
+                            TerminalTaskEvent(
+                                taskId: taskId,
+                                kind: .promptDetected,
+                                summary: promptDecision.snapshot.promptText
+                            )
+                        )
+
+                        if promptDecision.shouldAutoReply,
+                           let autoReply = promptDecision.autoReplyText {
+                            do {
+                                let reply = claudeService.normalizedTerminalReply(autoReply)
+                                try await runtime.sendInput(taskId: taskId, input: reply)
+                                liveSnapshot.status = .running
+                                liveSnapshot.prompt = nil
+                                await registry.appendEvent(
+                                    TerminalTaskEvent(taskId: taskId, kind: .agentInput, summary: "已自动回复 \(autoReply)")
+                                )
+                            } catch {
+                                liveSnapshot.status = .failed
+                                liveSnapshot.latestOutputSnippet = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                            }
+                        } else {
+                            await registry.appendEvent(
+                                TerminalTaskEvent(taskId: taskId, kind: .userDecisionRequested, summary: "等待用户处理终端提示")
+                            )
+                            let action = await claudeService.requestPromptUserAction(for: promptDecision)
+                            switch action {
+                            case .reply(let replyText):
+                                do {
+                                    try await runtime.sendInput(taskId: taskId, input: claudeService.normalizedTerminalReply(replyText))
+                                    liveSnapshot.status = .running
+                                    liveSnapshot.prompt = nil
+                                    await registry.appendEvent(
+                                        TerminalTaskEvent(taskId: taskId, kind: .agentInput, summary: "已发送用户输入")
+                                    )
+                                } catch {
+                                    liveSnapshot.status = .failed
+                                    liveSnapshot.latestOutputSnippet = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                                }
+                            case .interrupt:
+                                do {
+                                    try await runtime.interrupt(taskId: taskId)
+                                    liveSnapshot.status = .interrupted
+                                    liveSnapshot.prompt = nil
+                                    await registry.appendEvent(
+                                        TerminalTaskEvent(taskId: taskId, kind: .signalSent, summary: "用户取消了终端命令")
+                                    )
+                                } catch {
+                                    liveSnapshot.status = .failed
+                                    liveSnapshot.latestOutputSnippet = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                                }
+                            case .wait:
+                                await registry.appendEvent(
+                                    TerminalTaskEvent(taskId: taskId, kind: .stateChanged, summary: "继续等待终端提示")
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    lastPromptText = nil
+                    liveSnapshot.prompt = nil
+                    if !liveSnapshot.status.isTerminal {
+                        liveSnapshot.status = .running
+                    }
+                    if let summary = firstTerminalSummaryLine(from: liveOutput) {
+                        liveSnapshot.latestOutputSnippet = summary
+                    }
                 }
-                record.terminalTaskId = snapshot.id
-                record.terminalTaskStatus = snapshot.status.rawValue
-                record.terminalExecutionMode = snapshot.executionMode.rawValue
-                record.terminalPromptSummary = snapshot.prompt?.promptText ?? snapshot.latestOutputSnippet
-                if let data = try? JSONEncoder().encode(update.events),
+
+                await registry.upsert(liveSnapshot)
+                if !delta.isEmpty {
+                    await registry.appendEvent(
+                        TerminalTaskEvent(taskId: taskId, kind: .output, summary: firstTerminalSummaryLine(from: delta) ?? "terminal output", rawText: delta)
+                    )
+                }
+
+                let events = await registry.events(taskId: taskId)
+                record.terminalTaskId = liveSnapshot.id
+                record.terminalTaskStatus = liveSnapshot.status.rawValue
+                record.terminalExecutionMode = liveSnapshot.executionMode.rawValue
+                record.terminalPromptSummary = liveSnapshot.prompt?.promptText ?? liveSnapshot.latestOutputSnippet
+                record.terminalTranscriptPath = liveSnapshot.transcriptPath
+                record.terminalCompletionReason = liveSnapshot.completionReason?.rawValue
+                if let data = try? JSONEncoder().encode(events),
                    let json = String(data: data, encoding: .utf8),
                    !json.isEmpty {
                     record.terminalAgentActionsJSON = json
+                }
+
+                if liveSnapshot.status.isTerminal {
+                    break
                 }
             }
         }
@@ -131,12 +210,12 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
         let registry = claudeService.getBashTaskRegistry(for: sessionId)
         let taskId = record.terminalTaskId ?? bashRequest.taskId ?? record.toolCallId
         if var finalSnapshot = await registry.snapshot(taskId: taskId) {
-            if bashRequest.executionMode == .background && result.status == .success {
-                finalSnapshot.status = .runningBackground
-            } else if result.toolCallStatus == .failed {
+            if bashRequest.executionMode == .detached && result.status == .success && !finalSnapshot.status.isTerminal {
+                finalSnapshot.status = .running
+            } else if result.toolCallStatus == .failed && !finalSnapshot.status.isTerminal {
                 finalSnapshot.status = .failed
                 finalSnapshot.endedAt = Date()
-            } else if !(finalSnapshot.status == .waitingForPrompt || finalSnapshot.status == .needsUserDecision) {
+            } else if !finalSnapshot.status.isTerminal {
                 finalSnapshot.status = .completed
                 finalSnapshot.endedAt = Date()
             }
@@ -146,6 +225,13 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
             record.terminalTaskStatus = finalSnapshot.status.rawValue
             record.terminalExecutionMode = finalSnapshot.executionMode.rawValue
             record.terminalPromptSummary = finalSnapshot.prompt?.promptText ?? firstTerminalSummaryLine(from: result.text)
+            record.terminalTranscriptPath = finalSnapshot.transcriptPath
+            record.terminalCompletionReason = finalSnapshot.completionReason?.rawValue
+        } else if result.toolCallStatus == .failed {
+            record.terminalTaskId = taskId
+            record.terminalTaskStatus = TerminalTaskStatus.failed.rawValue
+            record.terminalExecutionMode = bashRequest.executionMode.rawValue
+            record.terminalPromptSummary = firstTerminalSummaryLine(from: result.text)
         }
     }
 

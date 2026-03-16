@@ -6,7 +6,7 @@ enum ShellEnvironmentResolver {
         environmentOverrides: [String: String] = [:]
     ) -> [String: String] {
         var environment = baseEnvironment
-        if let loginPath = resolveLoginShellPath(), !loginPath.isEmpty {
+        if let loginPath = resolveLoginShellPath(baseEnvironment: baseEnvironment), !loginPath.isEmpty {
             environment["PATH"] = loginPath
         }
         for (key, value) in environmentOverrides {
@@ -15,10 +15,11 @@ enum ShellEnvironmentResolver {
         return environment
     }
 
-    static func resolveLoginShellPath() -> String? {
+    static func resolveLoginShellPath(baseEnvironment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-l", "-c", "[ -f ~/.zshrc ] && source ~/.zshrc 2>/dev/null; echo $PATH"]
+        process.environment = baseEnvironment
         let outputPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = Pipe()

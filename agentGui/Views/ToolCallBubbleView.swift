@@ -44,33 +44,35 @@ enum ToolCallBubbleHeaderPresentation {
         return badges
     }
 
+    static func showsStopButton(for toolCall: ToolCall) -> Bool {
+        guard toolCall.kind == .execute,
+              toolCall.status == .inProgress,
+              let taskId = toolCall.terminalTaskId,
+              !taskId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let status = toolCall.terminalTaskStatus.flatMap(TerminalTaskStatus.init(rawValue:)) else {
+            return false
+        }
+
+        return !status.isTerminal
+    }
+
     private static func executionModeText(_ mode: TerminalExecutionMode) -> String {
         switch mode {
-        case .auto:
-            return "自动模式"
-        case .foreground:
-            return "前台任务"
-        case .background:
+        case .attached:
+            return "附着任务"
+        case .detached:
             return "后台任务"
-        case .interactive:
-            return "交互任务"
         }
     }
 
     private static func taskStatusText(_ status: TerminalTaskStatus) -> String {
         switch status {
-        case .queued:
-            return "已排队"
-        case .classifying:
-            return "分析中"
         case .launching:
             return "启动中"
-        case .runningForeground:
+        case .running:
             return "执行中"
-        case .waitingForPrompt:
+        case .waitingForInput:
             return "等待输入"
-        case .runningBackground:
-            return "后台运行中"
         case .completed:
             return "已完成"
         case .failed:
@@ -79,16 +81,16 @@ enum ToolCallBubbleHeaderPresentation {
             return "已中断"
         case .timedOut:
             return "已超时"
-        case .needsUserDecision:
-            return "等待用户决策"
+        case .terminated:
+            return "已终止"
         }
     }
 
     private static func badgeTone(for status: TerminalTaskStatus) -> ToolCallBubbleBadgeTone {
         switch status {
-        case .waitingForPrompt:
+        case .waitingForInput:
             return .active
-        case .needsUserDecision, .failed, .timedOut:
+        case .failed, .timedOut, .terminated:
             return .warning
         default:
             return .neutral
@@ -104,6 +106,9 @@ enum ToolCallBubbleHeaderPresentation {
 
 /// 工具调用卡片视图 — 显示单次工具调用的状态、输入和输出
 struct ToolCallBubbleView: View {
+
+    @Environment(ClaudeService.self) private var claudeService
+    @Environment(\.modelContext) private var modelContext
 
     let toolCall: ToolCall
     let rowPresentation: ToolCallRowPresentation
@@ -225,6 +230,21 @@ struct ToolCallBubbleView: View {
                         Text(duration)
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
+                    }
+                    if ToolCallBubbleHeaderPresentation.showsStopButton(for: toolCall) {
+                        Button {
+                            Task {
+                                await claudeService.stopManagedTerminalTask(toolCall: toolCall, modelContext: modelContext)
+                            }
+                        } label: {
+                            Image(systemName: "stop.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 18, height: 18)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("toolCall.stopButton")
+                        .help("停止当前终端任务")
                     }
                     if supportsExpansion {
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")

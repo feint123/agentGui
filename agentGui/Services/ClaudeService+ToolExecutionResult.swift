@@ -87,6 +87,19 @@ struct ToolExecutionResult {
         ToolExecutionResult("Error: unknown tool '\(name)'", status: .unknownTool)
     }
 
+    static func fromTerminalOutcome(_ outcome: TerminalExecutionOutcome) -> ToolExecutionResult {
+        switch outcome.completionReason {
+        case .exitedZero:
+            return ToolExecutionResult(outcome.finalOutputSnippet, status: .success)
+        case .timedOut:
+            return ToolExecutionResult(outcome.finalOutputSnippet, status: .timeout)
+        case .exitedNonZero, .terminatedBySignal, .runtimeFailure:
+            return ToolExecutionResult(outcome.finalOutputSnippet, status: .failure)
+        case .cancelledByAgent, .cancelledByUser:
+            return ToolExecutionResult(outcome.finalOutputSnippet, status: .failure)
+        }
+    }
+
     // MARK: String-based error detection
 
     /// Wraps a plain string returned by a tool implementation, automatically inferring the

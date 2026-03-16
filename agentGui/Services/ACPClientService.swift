@@ -47,11 +47,11 @@ final class ClaudeService {
 
     var service: (any AnthropicService)?
 
-    /// 每个 Session 对应一个持久化 bash session（key = sessionId）
-    var bashSessions: [String: BashSession] = [:]
-
     /// 每个 Session 对应一个 bash task registry（key = sessionId）
     var bashTaskRegistries: [String: BashTaskRegistry] = [:]
+
+    /// 每个 Session 对应一个 PTY terminal runtime（key = sessionId）
+    var terminalTaskRuntimes: [String: TerminalTaskRuntime] = [:]
 
     /// 每个 Session 的 TodoList（key = sessionId）
     var sessionTodoLists: [String: [TodoItem]] = [:]
@@ -166,14 +166,8 @@ final class ClaudeService {
     }
 
     func resetBashSessions() {
-        let existingSessions = Array(bashSessions.values)
-        bashSessions.removeAll()
         bashTaskRegistries.removeAll()
-        for session in existingSessions {
-            Task {
-                await session.terminate()
-            }
-        }
+        terminalTaskRuntimes.removeAll()
     }
 
     private func bindLSPPresentationObserver() {

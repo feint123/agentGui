@@ -4,11 +4,24 @@ import Testing
 
 struct TerminalTaskModelsTests {
 
+    @Test func executionModeAcceptsOnlyPtyModes() async throws {
+        #expect(TerminalExecutionMode(rawValue: "attached") != nil)
+        #expect(TerminalExecutionMode(rawValue: "detached") != nil)
+        #expect(TerminalExecutionMode(rawValue: "foreground") == nil)
+    }
+
+    @Test func statusKnowsNewPtyTerminalLifecycle() async throws {
+        #expect(TerminalTaskStatus(rawValue: "running") != nil)
+        #expect(TerminalTaskStatus(rawValue: "waitingForInput") != nil)
+        #expect(TerminalTaskStatus(rawValue: "terminated") != nil)
+        #expect(TerminalTaskStatus(rawValue: "runningForeground") == nil)
+    }
+
     @Test func statusKnowsWhetherTaskIsTerminal() async throws {
         #expect(TerminalTaskStatus.completed.isTerminal)
         #expect(TerminalTaskStatus.failed.isTerminal)
-        #expect(!TerminalTaskStatus.runningForeground.isTerminal)
-        #expect(!TerminalTaskStatus.waitingForPrompt.isTerminal)
+        #expect(!TerminalTaskStatus.running.isTerminal)
+        #expect(!TerminalTaskStatus.waitingForInput.isTerminal)
     }
 
     @Test func promptSnapshotMasksSensitiveKinds() async throws {
@@ -35,14 +48,14 @@ struct TerminalTaskModelsTests {
 
     @Test func registryStoresAndUpdatesTaskSnapshots() async throws {
         let registry = BashTaskRegistry()
-        let task = TerminalTaskSnapshot.fixture(id: "task-1", status: .queued)
+        let task = TerminalTaskSnapshot.fixture(id: "task-1", status: .launching)
 
         await registry.upsert(task)
-        await registry.updateStatus(taskId: "task-1", status: .runningForeground)
+        await registry.updateStatus(taskId: "task-1", status: .running)
 
         let loaded = await registry.snapshot(taskId: "task-1")
 
-        #expect(loaded?.status == .runningForeground)
+        #expect(loaded?.status == .running)
     }
 
     @MainActor
