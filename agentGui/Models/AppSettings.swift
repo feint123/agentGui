@@ -93,6 +93,24 @@ final class AppSettings {
     /// RMS memory 注入的上下文预算（千字符级近似预算）
     var memoryContextBudget: Int = 8
 
+    /// 启用后台 Agent 调度
+    var backgroundAgentEnabled: Bool = false
+
+    /// 后台 Agent 默认 QoS：background / utility
+    var backgroundAgentDefaultQoS: String = "utility"
+
+    /// 后台 Agent 是否默认要求外接电源
+    var backgroundAgentRequiresExternalPower: Bool = false
+
+    /// 后台 Agent 是否允许使用联网工具（在全局工具开关之外再做一道限制）
+    var backgroundAgentAllowNetworkTools: Bool = false
+
+    /// 后台 Agent 最大并发执行数
+    var backgroundAgentMaximumConcurrentRuns: Int = 1
+
+    /// 后台任务观测保留天数
+    var backgroundAgentObservationRetentionDays: Int = 30
+
 
     init() {
         self.apiKey = ""
@@ -121,6 +139,12 @@ final class AppSettings {
         self.networkProxyBypassList = ""
         self.memoryEnabled = true
         self.memoryContextBudget = 8
+        self.backgroundAgentEnabled = false
+        self.backgroundAgentDefaultQoS = "utility"
+        self.backgroundAgentRequiresExternalPower = false
+        self.backgroundAgentAllowNetworkTools = false
+        self.backgroundAgentMaximumConcurrentRuns = 1
+        self.backgroundAgentObservationRetentionDays = 30
         self.lspManualWorkspaceBindingsJSON = "[]"
     }
 }

@@ -148,7 +148,10 @@ struct WorkflowAgentRunner {
             tools: tools,
             system: system,
             maxRounds: role.maxTurnsPerActivation,
-            toolExecutionContext: .workflowWorker
+            toolExecutionContext: .workflowWorker,
+            runSource: "workflowWorker",
+            runLabel: role.name,
+            requestedBudgetSeconds: nil
         )
         let runtime = AgentLoopRuntime(
             settings: settings,

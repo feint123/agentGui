@@ -66,11 +66,9 @@ struct SettingsConnectionView: View {
             HStack {
                 if showAPIKey {
                     TextField("sk-ant-preview", text: $apiKeyInput)
-                        .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("settings.connection.apiKeyField")
                 } else {
                     SecureField("sk-ant-preview", text: $apiKeyInput)
-                        .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("settings.connection.apiKeyField")
                 }
 
@@ -84,7 +82,6 @@ struct SettingsConnectionView: View {
             }
 
             TextField("https://api.anthropic.com（留空使用默认）", text: $baseURLInput)
-                .textFieldStyle(.roundedBorder)
 
             HStack(alignment: .center, spacing: 12) {
                 Button(isSaved ? "已保存 ✓" : "保存") {
@@ -138,10 +135,8 @@ struct SettingsConnectionView: View {
 
             if proxyEnabled {
                 TextField("http://127.0.0.1:7890 或 socks5://127.0.0.1:1080", text: $proxyURLInput)
-                    .textFieldStyle(.roundedBorder)
 
                 TextField("NO_PROXY / 直连列表，例如 localhost,127.0.0.1,.corp.local", text: $proxyBypassInput)
-                    .textFieldStyle(.roundedBorder)
             }
 
             Button(isProxySaved ? "已应用 ✓" : "应用代理设置") {

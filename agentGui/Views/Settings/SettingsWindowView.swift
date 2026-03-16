@@ -65,6 +65,8 @@ struct SettingsWindowView: View {
             SettingsToolsView(store: store)
         case .intelligence:
             SettingsIntelligenceView(store: store)
+        case .background:
+            SettingsBackgroundTasksView(store: store)
         case .memory:
             SettingsMemoryView(store: store)
         case .general:

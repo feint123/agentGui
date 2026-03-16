@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import SwiftAnthropic
 
 struct SettingsMenuCommands: Commands {
     @Environment(\.openWindow) private var openWindow
@@ -29,6 +30,25 @@ struct SettingsMenuCommands: Commands {
 
 enum PersistenceSchema {
     static let currentVersion = 1
+
+    static let sharedModelTypes: [any PersistentModel.Type] = [
+        AppSettings.self,
+        Session.self,
+        Message.self,
+        ToolCall.self,
+        AgentRound.self,
+        SessionTaskState.self,
+        RecoverySnapshot.self,
+        IntegrityIssue.self,
+        BackgroundAgentTask.self,
+        BackgroundAgentTaskRun.self,
+        WorkflowInstance.self,
+        WorkflowMessageRecord.self,
+        WorkflowArtifactRecord.self,
+        WorkflowActivationRecord.self,
+    ]
+
+    static let sharedModelTypeNames: [String] = sharedModelTypes.map { String(describing: $0) }
 }
 
 @main
@@ -51,23 +71,10 @@ struct agentGuiApp: App {
     @State private var workflowRuntime: WorkflowRuntime?
     @State private var runtimeRecoveryService = RuntimeRecoveryService()
     @State private var reliabilityCenterViewModel = ReliabilityCenterViewModel()
+    @State private var backgroundActivityCoordinator: BackgroundActivityCoordinator?
 
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            AppSettings.self,
-            Session.self,
-            Message.self,
-            ToolCall.self,
-            AgentRound.self,
-            SessionTaskState.self,
-            RecoverySnapshot.self,
-            IntegrityIssue.self,
-            // Workflow orchestration models (Phase 1)
-            WorkflowInstance.self,
-            WorkflowMessageRecord.self,
-            WorkflowArtifactRecord.self,
-            WorkflowActivationRecord.self,
-        ])
+        let schema = Schema(PersistenceSchema.sharedModelTypes)
 
         let modelConfiguration: ModelConfiguration
         if Self.isRunningTests {
@@ -110,6 +117,26 @@ struct agentGuiApp: App {
                     let runtime = WorkflowRuntime(claudeService: claudeService)
                     workflowRuntime = runtime
                     claudeService.workflowRuntime = runtime
+                    let backgroundCoordinator = BackgroundActivityCoordinator(
+                        settingsProvider: { settings },
+                        registry: BackgroundTaskRegistry(observationService: BackgroundTaskObservationService()),
+                        executionCoordinator: BackgroundTaskExecutionCoordinator(
+                            evaluator: BackgroundTaskEligibilityEvaluator(),
+                            observationService: BackgroundTaskObservationService(),
+                            promptComposer: BackgroundPromptComposer(),
+                            adapter: BackgroundAgentLoopAdapter(),
+                            resultWriter: BackgroundSessionResultWriter()
+                        ),
+                        observationService: BackgroundTaskObservationService(),
+                        serviceProvider: { claudeService.service ?? AnthropicServiceFactory.service(apiKey: settings.apiKey, basePath: settings.baseURL.isEmpty ? "https://api.anthropic.com" : settings.baseURL, betaHeaders: nil) }
+                    )
+                    backgroundActivityCoordinator = backgroundCoordinator
+                    if settings.backgroundAgentEnabled {
+                        try? runtimeRecoveryService.normalizeBackgroundTaskRuns(in: context)
+                        Task { @MainActor in
+                            try? await backgroundCoordinator.bootstrap(modelContext: context)
+                        }
+                    }
                     try? runtimeRecoveryService.refresh(from: context)
                     reliabilityCenterViewModel.refresh(using: context)
                 }

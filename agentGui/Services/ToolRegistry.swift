@@ -49,7 +49,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "文本编辑器",
             category: .editor,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
             executorKey: "builtin.textEditor",
             descriptionBuilder: { _ in
                 """
@@ -86,7 +86,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "Bash",
             category: .shell,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
             executorKey: "builtin.bash",
             descriptionBuilder: { _ in
                 """
@@ -142,7 +142,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "Read Tool Payload",
             category: .system,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
             executorKey: "builtin.readToolPayload",
             descriptionBuilder: { _ in
                 """
@@ -175,7 +175,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "Web Search",
             category: .web,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
             executorKey: "builtin.webSearch",
             descriptionBuilder: { _ in
                 """
@@ -203,7 +203,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "Web Fetch",
             category: .web,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
             executorKey: "builtin.webFetch",
             descriptionBuilder: { _ in
                 """

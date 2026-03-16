@@ -94,7 +94,10 @@ private extension AgentLoopRunRequest {
             tools: [],
             system: nil,
             maxRounds: 2,
-            toolExecutionContext: .mainAgent
+            toolExecutionContext: .mainAgent,
+            runSource: "test",
+            runLabel: nil,
+            requestedBudgetSeconds: nil
         )
     }
 }

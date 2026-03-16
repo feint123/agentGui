@@ -34,7 +34,10 @@ extension ClaudeService {
             tools: tools,
             system: system,
             maxRounds: maxRounds,
-            toolExecutionContext: .mainAgent
+            toolExecutionContext: .mainAgent,
+            runSource: "mainAgent",
+            runLabel: assistantMessage.textContent,
+            requestedBudgetSeconds: nil
         )
         let runtime = AgentLoopRuntime(
             settings: settings,
@@ -94,7 +97,10 @@ extension ClaudeService {
             tools: tools,
             system: system,
             maxRounds: maxRounds,
-            toolExecutionContext: toolExecutionContext
+            toolExecutionContext: toolExecutionContext,
+            runSource: toolExecutionContext == .backgroundTask ? "backgroundTask" : "coreLoop",
+            runLabel: nil,
+            requestedBudgetSeconds: nil
         )
         let runtime = AgentLoopRuntime(
             settings: settings,

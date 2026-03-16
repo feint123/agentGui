@@ -114,6 +114,24 @@ final class RuntimeRecoveryService {
         try refresh(from: modelContext)
     }
 
+    func normalizeBackgroundTaskRuns(in modelContext: ModelContext) throws {
+        let runs = try modelContext.fetch(FetchDescriptor<BackgroundAgentTaskRun>())
+        var needsSave = false
+        for run in runs where run.status == .running {
+            run.status = .interrupted
+            run.finishedAt = Date()
+            needsSave = true
+        }
+
+        if needsSave {
+            try persistenceCoordinator.save(
+                modelContext,
+                domain: .sessionTaskState,
+                userMessage: "后台任务恢复状态未成功保存"
+            )
+        }
+    }
+
     private enum TerminalAction {
         case interrupted
         case cleared

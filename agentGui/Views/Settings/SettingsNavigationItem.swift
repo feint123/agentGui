@@ -4,6 +4,7 @@ enum SettingsNavigationItem: String, CaseIterable, Identifiable {
     case connection
     case tools
     case intelligence
+    case background
     case memory
     case general
 
@@ -19,6 +20,8 @@ enum SettingsNavigationItem: String, CaseIterable, Identifiable {
             return "工具"
         case .intelligence:
             return "智能"
+        case .background:
+            return "后台任务"
         case .memory:
             return "记忆"
         case .general:
@@ -34,6 +37,8 @@ enum SettingsNavigationItem: String, CaseIterable, Identifiable {
             return "hammer"
         case .intelligence:
             return "sparkles"
+        case .background:
+            return "clock.arrow.trianglehead.counterclockwise.rotate.90"
         case .memory:
             return "brain"
         case .general:

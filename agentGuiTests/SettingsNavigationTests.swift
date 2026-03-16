@@ -5,10 +5,11 @@ import Testing
 @MainActor
 struct SettingsNavigationTests {
     @Test func settingsNavigationUsesExpectedDefaultOrder() {
-        #expect(SettingsNavigationItem.allCases == [.connection, .tools, .intelligence, .memory, .general])
+        #expect(SettingsNavigationItem.allCases == [.connection, .tools, .intelligence, .background, .memory, .general])
         #expect(SettingsNavigationItem.defaultItem == .connection)
         #expect(SettingsNavigationItem.connection.title == "连接")
         #expect(SettingsNavigationItem.connection.symbolName == "network")
+        #expect(SettingsNavigationItem.background.title == "后台任务")
     }
 
     @Test func settingsStoreUsesConnectionAsDefaultSelection() throws {

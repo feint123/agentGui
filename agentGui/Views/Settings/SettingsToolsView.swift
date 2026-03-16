@@ -74,7 +74,6 @@ struct SettingsToolsView: View {
                     userMessage: "工作目录设置未成功保存",
                     set: { settings.workingDirectory = $0 }
                 ))
-                .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("settings.tools.workingDirectoryField")
             }
 
@@ -96,10 +95,8 @@ struct SettingsToolsView: View {
                     HStack {
                         if showOllamaAPIKey {
                             TextField("Ollama API Key", text: $ollamaAPIKeyInput)
-                                .textFieldStyle(.roundedBorder)
                         } else {
                             SecureField("Ollama API Key", text: $ollamaAPIKeyInput)
-                                .textFieldStyle(.roundedBorder)
                         }
                         Button {
                             showOllamaAPIKey.toggle()

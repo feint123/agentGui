@@ -1,3 +1,4 @@
+import Foundation
 import SwiftAnthropic
 
 /// 一次 agent loop 的纯输入。
@@ -9,4 +10,7 @@ struct AgentLoopRunRequest {
     let system: MessageParameter.System?
     let maxRounds: Int
     let toolExecutionContext: ToolContext
+    let runSource: String
+    let runLabel: String?
+    let requestedBudgetSeconds: TimeInterval?
 }

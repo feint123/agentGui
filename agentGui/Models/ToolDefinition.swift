@@ -14,6 +14,7 @@ enum ToolContext: String, Codable, Hashable {
     case mainAgent
     case subagent
     case workflowWorker
+    case backgroundTask
 }
 
 struct ToolDefinitionBuildContext {

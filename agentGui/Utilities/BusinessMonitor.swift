@@ -101,9 +101,9 @@ final class BusinessMonitor {
 
     private static func level(for event: AgentBusinessEvent) -> BusinessLogLevel {
         switch event {
-        case .loopFailed:
+        case .loopFailed, .backgroundTaskFailed:
             return .error
-        case .verificationSkipped, .workflowContractViolation:
+        case .verificationSkipped, .workflowContractViolation, .backgroundTaskSkipped, .backgroundTaskDeferred:
             return .warning
         default:
             return .info

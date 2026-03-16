@@ -1,6 +1,14 @@
 import Foundation
 
 enum AgentBusinessEvent: String, Sendable {
+    case backgroundTaskRegistered
+    case backgroundTaskTriggered
+    case backgroundTaskSkipped
+    case backgroundTaskDeferred
+    case backgroundTaskStarted
+    case backgroundTaskCompleted
+    case backgroundTaskFailed
+    case backgroundTaskPolicyAdjusted
     case loopStarted
     case memoryBootstrapLoaded
     case memoryContextPreparationStarted

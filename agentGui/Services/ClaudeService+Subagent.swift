@@ -102,7 +102,10 @@ extension ClaudeService {
             tools: buildSubagentTools(definition: definition, settings: settings),
             system: system,
             maxRounds: definition.maxRounds,
-            toolExecutionContext: .subagent
+            toolExecutionContext: .subagent,
+            runSource: "subagent",
+            runLabel: definition.name,
+            requestedBudgetSeconds: nil
         )
         let runtime = AgentLoopRuntime(
             settings: settings,

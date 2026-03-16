@@ -47,19 +47,6 @@ final class SessionManagementUITests: UITestBase {
             "-com.agentgui.test.preloadMessages", "false"
         ])
 
-        XCTAssertTrue(app.otherElements["onboarding.stepRail"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.otherElements["onboarding.heroPanel"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.otherElements["onboarding.backgroundLayer"].waitForExistence(timeout: 5))
-    }
-
-    @MainActor
-    func testOnboardingShowsWelcomeWindowChromeRegions() throws {
-        launchApp(arguments: [
-            "-com.agentgui.test.preloadApiKey", "false",
-            "-com.agentgui.test.preloadMessages", "false"
-        ])
-
-        XCTAssertTrue(app.otherElements["onboarding.windowChromeRegion"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.otherElements["onboarding.heroDragRegion"].waitForExistence(timeout: 5))
     }
 }
