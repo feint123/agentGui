@@ -19,8 +19,6 @@ enum AgentBusinessEvent: String, Sendable {
     case toolExecutionStarted
     case toolExecutionFinished
     case toolAuditRecorded
-    case reflectionStarted
-    case reflectionCompleted
     case continuationInjected
     case loopFinished
     case loopFailed

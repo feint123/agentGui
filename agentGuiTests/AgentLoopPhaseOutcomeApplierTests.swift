@@ -29,7 +29,7 @@ struct AgentLoopPhaseOutcomeApplierTests {
         #expect(outcome.projectedTextReset == nil)
     }
 
-    @Test func applierEntersReflectionOnlyWhenFailureTriggerExistsAndBudgetRemains() {
+    @Test func applierFinalizationDoesNotEnterStandaloneReflectionPass() {
         var messages: [MessageParameter.Message] = []
         var loopContext = AgentLoopContext(phase: .finalizing)
         loopContext.pendingFailureTrigger = .toolFailure(toolName: "bash", errorText: "boom")
@@ -41,26 +41,10 @@ struct AgentLoopPhaseOutcomeApplierTests {
             accumulatedTextBeforeRound: "before",
             currentRoundText: "",
             assistantObjects: [],
-            reflectionEnabled: true
-        )
-
-        #expect(loopContext.phase == .reflecting)
-        #expect(outcome.projectedTextReset == nil)
-
-        loopContext.phase = .finalizing
-        loopContext.reflectionCount = 3
-        _ = AgentLoopPhaseOutcomeApplier.apply(
-            phase: .finalizing,
-            loopContext: &loopContext,
-            messages: &messages,
-            accumulatedText: "current",
-            accumulatedTextBeforeRound: "before",
-            currentRoundText: "",
-            assistantObjects: [],
-            reflectionEnabled: true
         )
 
         #expect(loopContext.phase == .finalizing)
+        #expect(outcome.projectedTextReset == nil)
     }
 
     @Test func applierReopensExecutionWhenVerificationFrontierIsStillOpen() {
@@ -75,7 +59,6 @@ struct AgentLoopPhaseOutcomeApplierTests {
             accumulatedTextBeforeRound: "done",
             currentRoundText: "",
             assistantObjects: [],
-            reflectionEnabled: true,
             verificationEnabled: true,
             verificationResolution: .needsMoreEvidence(
                 openClaims: ["Need direct runtime proof"],

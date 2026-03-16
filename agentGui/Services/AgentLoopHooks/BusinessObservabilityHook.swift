@@ -43,10 +43,6 @@ struct BusinessObservabilityHook: AgentLoopHook {
             return .toolExecutionStarted
         case .didExecuteTool:
             return .toolExecutionFinished
-        case .willStartReflection:
-            return .reflectionStarted
-        case .didCompleteReflection:
-            return .reflectionCompleted
         case .prepareContinuation, .prepareResumeAfterPause:
             return .continuationInjected
         case .didFinishRun:

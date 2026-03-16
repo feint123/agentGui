@@ -87,12 +87,6 @@ final class AppSettings {
     /// 直连域名列表，逗号 / 空格 / 换行分隔
     var networkProxyBypassList: String = ""
 
-    /// 启用反思与自我修正循环（每次 end_turn 后触发，额外消耗一次 API 调用）
-    var enableReflection: Bool = false
-
-    /// 反思置信度阈值（低于此值时触发重试，0.5–1.0）
-    var reflectionConfidenceThreshold: Double = 0.7
-
     /// 是否启用简化后的 RMS memory 主链
     var memoryEnabled: Bool = true
 
@@ -125,8 +119,6 @@ final class AppSettings {
         self.enableNetworkProxy = false
         self.networkProxyURL = ""
         self.networkProxyBypassList = ""
-        self.enableReflection = false
-        self.reflectionConfidenceThreshold = 0.7
         self.memoryEnabled = true
         self.memoryContextBudget = 8
         self.lspManualWorkspaceBindingsJSON = "[]"

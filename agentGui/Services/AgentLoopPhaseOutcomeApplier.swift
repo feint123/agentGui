@@ -15,7 +15,6 @@ enum AgentLoopPhaseOutcomeApplier {
         accumulatedTextBeforeRound: String,
         currentRoundText: String,
         assistantObjects: [MessageParameter.Message.Content.ContentObject],
-        reflectionEnabled: Bool = false,
         verificationEnabled: Bool = false,
         verificationResolution: VerificationGateResolution? = nil
     ) -> AgentLoopPhaseOutcomeApplication {
@@ -66,13 +65,6 @@ enum AgentLoopPhaseOutcomeApplier {
                 case nil:
                     loopContext.phase = .executing
                 }
-            }
-
-            if loopContext.phase == .finalizing,
-               reflectionEnabled,
-               loopContext.pendingFailureTrigger != nil,
-               loopContext.reflectionCount < 3 {
-                loopContext.phase = .reflecting
             }
 
         default:

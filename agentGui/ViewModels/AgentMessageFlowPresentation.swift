@@ -23,7 +23,6 @@ struct AgentMessageFlowSnapshot: Equatable {
 enum AgentMessageFlowStep: Equatable, Identifiable {
     case result(ResultStepPresentation)
     case thinking(ThinkingStepPresentation)
-    case reflection(ReflectionStepPresentation)
     case tool(ToolStepPresentation)
     case subagent(SubagentStepPresentation)
 
@@ -32,8 +31,6 @@ enum AgentMessageFlowStep: Equatable, Identifiable {
         case .result(let value):
             return value.id
         case .thinking(let value):
-            return value.id
-        case .reflection(let value):
             return value.id
         case .tool(let value):
             return value.id
@@ -47,8 +44,6 @@ enum AgentMessageFlowStep: Equatable, Identifiable {
         case .result:
             return false
         case .thinking(let value):
-            return value.isExpanded
-        case .reflection(let value):
             return value.isExpanded
         case .tool(let value):
             return value.row.isExpanded
@@ -70,14 +65,6 @@ struct ThinkingStepPresentation: Equatable, Identifiable {
     let summaryText: String
     let isExpanded: Bool
     let isActive: Bool
-}
-
-struct ReflectionStepPresentation: Equatable, Identifiable {
-    let id: String
-    let content: String
-    let summaryText: String
-    let retryRecommended: Bool
-    let isExpanded: Bool
 }
 
 struct ToolStepPresentation: Equatable, Identifiable {
@@ -166,10 +153,6 @@ enum AgentMessageFlowPresentation {
                 )
                 let textSubIndex = roundCalls.isEmpty ? 5 : 50
                 entries.append(FlowEntry(order: makeOrder(resultDate, round.roundIndex, textSubIndex, 0), step: .result(presentation)))
-
-                if let reflection = makeReflectionPresentation(for: round) {
-                    entries.append(FlowEntry(order: makeOrder(resultDate, round.roundIndex, textSubIndex + 5, 0), step: .reflection(reflection)))
-                }
             }
         }
 
@@ -256,44 +239,6 @@ enum AgentMessageFlowPresentation {
 
     nonisolated private static func makeOrder(_ date: Date, _ roundIndex: Int, _ subIndex: Int, _ tiebreaker: Int) -> FlowOrder {
         FlowOrder(date: date, roundIndex: roundIndex, subIndex: subIndex, tiebreaker: tiebreaker)
-    }
-
-    nonisolated private static func makeReflectionPresentation(for round: AgentRound) -> ReflectionStepPresentation? {
-        guard round.reflectionConfidence != nil
-            || !round.reflectionConcerns.isEmpty
-            || !round.reflectionSuggestedFixes.isEmpty
-            || round.reflectionShouldRetry else {
-            return nil
-        }
-
-        let confidenceText = round.reflectionConfidence.map { String(format: "%.0f%%", $0 * 100) } ?? "未知"
-        let retryText = round.reflectionShouldRetry ? "建议重试" : "不建议重试"
-        let summaryText = "反思 · \(retryText) · 置信度 \(confidenceText)"
-
-        var sections: [String] = [
-            "置信度: \(confidenceText)",
-            "结论: \(retryText)"
-        ]
-
-        if round.reflectionConcerns.isEmpty {
-            sections.append("问题:\n- 无")
-        } else {
-            sections.append("问题:\n" + round.reflectionConcerns.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        if round.reflectionSuggestedFixes.isEmpty {
-            sections.append("修复建议:\n- 无")
-        } else {
-            sections.append("修复建议:\n" + round.reflectionSuggestedFixes.map { "- \($0)" }.joined(separator: "\n"))
-        }
-
-        return ReflectionStepPresentation(
-            id: "reflection-\(round.id.uuidString)",
-            content: sections.joined(separator: "\n\n"),
-            summaryText: summaryText,
-            retryRecommended: round.reflectionShouldRetry,
-            isExpanded: false
-        )
     }
 
     nonisolated private static func entrySort(lhs: FlowEntry, rhs: FlowEntry) -> Bool {

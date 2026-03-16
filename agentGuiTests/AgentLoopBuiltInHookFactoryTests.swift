@@ -20,7 +20,6 @@ struct AgentLoopBuiltInHookFactoryTests {
             "memory-bootstrap",
             "tool-audit",
             "failure-classification",
-            "reflection-handling",
             "business-observability"
         ])
     }
@@ -103,33 +102,6 @@ struct AgentLoopBuiltInHookFactoryTests {
             Issue.record("Expected tool call record")
         }
     }
-
-    @Test func reflectionHandlingHookUsesSharedLastRound() async throws {
-        let factory = AgentLoopBuiltInHookFactory()
-        let state = AgentLoopBuiltInHookFactory.State()
-        state.lastRound = AgentRound(roundIndex: 1)
-
-        let hooks = factory.makeHooks(
-            dependencies: .testValue(
-                reflectionResolver: { _, state in
-                    let roundIndex = state.lastRound?.roundIndex ?? -1
-                    return AgentLoopReflectionResolution(
-                        shouldRetry: true,
-                        correctionPrompt: "round-\(roundIndex)"
-                    )
-                }
-            ),
-            state: state
-        )
-
-        let hook = try #require(hooks.first(where: { $0.id == "reflection-handling" }))
-        let result = try await hook.perform(
-            stage: .processReflection,
-            context: .testFactoryReflectionContext()
-        )
-
-        #expect(result == .reflection(.init(shouldRetry: true, correctionPrompt: "round-1")))
-    }
 }
 
 private extension AgentLoopBuiltInHookFactory.Dependencies {
@@ -139,17 +111,13 @@ private extension AgentLoopBuiltInHookFactory.Dependencies {
         createToolCallRecord: @escaping (AgentLoopHookContext, AgentLoopBuiltInHookFactory.State) async throws -> ToolCall = { _, _ in
             ToolCall(toolCallId: "call-default", kind: .execute)
         },
-        updateToolCallRecord: @escaping (AgentLoopHookContext, AgentLoopBuiltInHookFactory.State) async throws -> Void = { _, _ in },
-        reflectionResolver: @escaping (AgentLoopHookContext, AgentLoopBuiltInHookFactory.State) async throws -> AgentLoopReflectionResolution? = { _, _ in
-            nil
-        }
+        updateToolCallRecord: @escaping (AgentLoopHookContext, AgentLoopBuiltInHookFactory.State) async throws -> Void = { _, _ in }
     ) -> AgentLoopBuiltInHookFactory.Dependencies {
         AgentLoopBuiltInHookFactory.Dependencies(
             businessLogSink: businessLogSink,
             memoryBootstrapLoader: memoryBootstrapLoader,
             createToolCallRecord: createToolCallRecord,
-            updateToolCallRecord: updateToolCallRecord,
-            reflectionResolver: reflectionResolver
+            updateToolCallRecord: updateToolCallRecord
         )
     }
 }
@@ -179,17 +147,5 @@ private extension AgentLoopHookContext {
         )
         context.pendingToolName = "bash"
         return context
-    }
-
-    static func testFactoryReflectionContext() -> AgentLoopHookContext {
-        AgentLoopHookContext(
-            runID: "run-1",
-            sessionID: "session-1",
-            workflowID: nil,
-            executionContext: .mainAgent,
-            modelId: "claude-test",
-            roundIndex: 1,
-            phase: "reflecting"
-        )
     }
 }

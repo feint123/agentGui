@@ -74,6 +74,18 @@ struct RetiredCapabilityTests {
         #expect(!sessionPropertyNames.contains("activeWritingProjectId"))
     }
 
+    @Test func settingsAndRoundsDoNotExposeRetiredReflectionState() async throws {
+        let settingsPropertyNames = Set(Mirror(reflecting: AppSettings()).children.compactMap(\.label))
+        let roundPropertyNames = Set(Mirror(reflecting: AgentRound(roundIndex: 0)).children.compactMap(\.label))
+
+        #expect(!settingsPropertyNames.contains("enableReflection"))
+        #expect(!settingsPropertyNames.contains("reflectionConfidenceThreshold"))
+        #expect(!roundPropertyNames.contains("reflectionConfidence"))
+        #expect(!roundPropertyNames.contains("reflectionConcerns"))
+        #expect(!roundPropertyNames.contains("reflectionSuggestedFixes"))
+        #expect(!roundPropertyNames.contains("reflectionShouldRetry"))
+    }
+
     private func toolName(from tool: MessageParameter.Tool) -> String? {
         let encoder = JSONEncoder()
         guard let data = try? encoder.encode(tool),

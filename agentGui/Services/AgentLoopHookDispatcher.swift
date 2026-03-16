@@ -39,8 +39,6 @@ struct AgentLoopHookDispatcher {
                     result.toolCallRecord = record
                 case .failureTrigger(let trigger):
                     result.failureTrigger = trigger
-                case .reflection(let resolution):
-                    result.reflectionResolution = resolution
                 }
             } catch {
                 result.failures.append(

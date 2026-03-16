@@ -22,9 +22,6 @@ enum AgentLoopHookStage {
     case didClassifyToolFailure
     case didAppendToolResults
     case classifyFailureTrigger
-    case willStartReflection
-    case processReflection
-    case didCompleteReflection
     case prepareContinuation
     case prepareResumeAfterPause
     case decideFinalization
@@ -47,11 +44,6 @@ enum FinalizationDecision: Equatable {
 
 enum AgentLoopDecision: Equatable {
     case finalization(FinalizationDecision)
-}
-
-struct AgentLoopReflectionResolution: Equatable {
-    let shouldRetry: Bool
-    let correctionPrompt: String?
 }
 
 struct AgentLoopMessagePatch {
@@ -80,7 +72,6 @@ enum AgentLoopHookResult: Equatable {
     case messagePatch(AgentLoopMessagePatch)
     case toolCallRecord(ToolCall)
     case failureTrigger(FailureTrigger)
-    case reflection(AgentLoopReflectionResolution)
 
     static func == (lhs: AgentLoopHookResult, rhs: AgentLoopHookResult) -> Bool {
         switch (lhs, rhs) {
@@ -95,8 +86,6 @@ enum AgentLoopHookResult: Equatable {
             return lhsRecord.id == rhsRecord.id
         case (.failureTrigger(let lhsTrigger), .failureTrigger(let rhsTrigger)):
             return lhsTrigger == rhsTrigger
-        case (.reflection(let lhsResolution), .reflection(let rhsResolution)):
-            return lhsResolution == rhsResolution
         default:
             return false
         }
@@ -110,7 +99,6 @@ struct AgentLoopHookDispatchResult {
     var messagePatch: AgentLoopMessagePatch?
     var toolCallRecord: ToolCall?
     var failureTrigger: FailureTrigger?
-    var reflectionResolution: AgentLoopReflectionResolution?
 }
 
 struct AgentLoopHookContext {

@@ -54,62 +54,6 @@ struct AgentLoopRoundExecutor {
         }
     }
 
-    func executeReflection(
-        state: inout AgentLoopRunState,
-        messages: inout [MessageParameter.Message]
-    ) async {
-        // 进入 reflecting 时不会发起新的主模型请求，而是消费上一轮留下的 failure trigger。
-        let trigger = state.loopCtx.pendingFailureTrigger
-        await emitter.emit(
-            .willStartReflection,
-            state: state,
-            messages: messages,
-            overrides: .init(metadata: [
-                "reflectionPass": state.loopCtx.reflectionCount + 1,
-                "trigger": trigger?.description ?? "none"
-            ])
-        )
-        let reflectionHooks = (try? await emitter.dispatch(
-            .processReflection,
-            state: state,
-            messages: messages,
-            overrides: .init(metadata: [
-                "reflectionPass": state.loopCtx.reflectionCount + 1,
-                "trigger": trigger?.description ?? "none"
-            ])
-        )) ?? AgentLoopHookDispatchResult()
-        // reflection 只消费一次 trigger；无论 hook 给出何种结果，都不能把旧 trigger 带进下一轮。
-        state.loopCtx.pendingFailureTrigger = nil
-
-        if let resolution = reflectionHooks.reflectionResolution {
-            if let correctionPrompt = resolution.correctionPrompt {
-                messages.append(.init(role: .user, content: .text(correctionPrompt)))
-            }
-            await emitter.emit(
-                .didCompleteReflection,
-                state: state,
-                messages: messages,
-                overrides: .init(metadata: [
-                    "shouldRetry": resolution.shouldRetry,
-                    "hasCorrectionPrompt": resolution.correctionPrompt != nil
-                ])
-            )
-            state.loopCtx.reflectionComplete(shouldRetry: resolution.shouldRetry)
-            return
-        }
-
-        await emitter.emit(
-            .didCompleteReflection,
-            state: state,
-            messages: messages,
-            overrides: .init(metadata: [
-                "result": "missing",
-                "shouldRetry": false
-            ])
-        )
-        state.loopCtx.reflectionComplete(shouldRetry: false)
-    }
-
     private func verificationEvents(
         for verificationState: VerificationState,
         sessionId: String,
@@ -420,7 +364,7 @@ struct AgentLoopRoundExecutor {
         case .failed:
             break
 
-        case .idle, .cancelled, .reflecting:
+        case .idle, .cancelled:
             break
         }
     }
@@ -700,7 +644,6 @@ struct AgentLoopRoundExecutor {
             accumulatedTextBeforeRound: outcome.accumulatedTextBeforeRound,
             currentRoundText: outcome.currentRoundText,
             assistantObjects: outcome.assistantObjects,
-            reflectionEnabled: runtime.settings.enableReflection,
             verificationEnabled: verificationEnabled,
             verificationResolution: verificationResolution
         )

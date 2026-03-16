@@ -60,29 +60,4 @@ struct ModelResponseJSONExtractorTests {
 
         #expect(ModelResponseJSONExtractor.containsJSONObjectOrArray(in: text) == true)
     }
-
-    @Test func reflectionParsingRecoversFromMissingArrayCloserBeforeNextKey() {
-        let text = """
-        ```json
-        {
-          "confidence": 0.95,
-          "concerns": [
-            "Syntax error in user query: 'lsp' appears as a trailing token with no clear verb, making the intent ambiguous.",
-            "User likely meant 'is this file correct' or 'use LSP to check', but the parser could not resolve the command."
-          "suggestedFixes": [
-            "Interpret the intent as a request to validate the file using LSP diagnostics and execute that.",
-            "Ask the user to clarify the command: 'Do you want LSP diagnostics for this file?'"
-          ],
-          "shouldRetry": true
-        }
-        ```
-        """
-
-        let reflection = ReflectionJSONDecoder.parse(text: text, threshold: 0.99)
-
-        #expect(reflection?.confidence == 0.95)
-        #expect(reflection?.concerns.count == 2)
-        #expect(reflection?.suggestedFixes.count == 2)
-        #expect(reflection?.shouldRetry == true)
-    }
 }

@@ -42,9 +42,6 @@ enum AgentLoopPhase: Equatable {
     /// Model returned `end_turn`; loop is completing gracefully.
     case finalizing
 
-    /// Model has completed a turn; evaluating output quality before deciding whether to retry.
-    case reflecting
-
     /// Unrecoverable error; loop must stop.
     case failed
 
@@ -57,7 +54,7 @@ enum AgentLoopPhase: Equatable {
     var shouldContinue: Bool {
         switch self {
         case .idle, .executing, .awaitingToolResults,
-             .continuingTruncatedResponse, .resumingAfterPause, .reflecting:
+             .continuingTruncatedResponse, .resumingAfterPause:
             return true
         case .finalizing, .failed, .cancelled:
             return false
@@ -78,8 +75,6 @@ enum AgentLoopPhase: Equatable {
             return "resumingAfterPause"
         case .finalizing:
             return "finalizing"
-        case .reflecting:
-            return "reflecting"
         case .failed:
             return "failed"
         case .cancelled:
@@ -106,11 +101,9 @@ struct AgentLoopContext {
     /// Human-readable reason why the loop ended abnormally (available for UI / logging).
     var terminationReason: String? = nil
 
-    /// Number of reflection cycles completed in this run (capped at 3).
-    var reflectionCount: Int = 0
-
-    /// The most recently detected failure event; consumed by the reflection phase and then cleared.
-    /// Reflection is only triggered when this is non-nil.
+    /// The most recently detected failure event.
+    /// The standalone reflection pass has been removed, but failure classification still
+    /// records the latest trigger for verification and audit flows.
     var pendingFailureTrigger: FailureTrigger? = nil
 
     // MARK: Convenience
@@ -143,13 +136,6 @@ struct AgentLoopContext {
         phase = .executing
     }
 
-    /// Called after reflection is complete.
-    /// - Parameter shouldRetry: If true, loop re-enters `.executing`; otherwise moves to `.finalizing`.
-    mutating func reflectionComplete(shouldRetry: Bool) {
-        reflectionCount += 1
-        phase = shouldRetry ? .executing : .finalizing
-    }
-
     /// Called after a continuation or resume turn has been injected.
     mutating func continuationInjected() {
         phase = .executing
@@ -164,9 +150,7 @@ struct AgentLoopContext {
 
 // MARK: - FailureTrigger
 
-/// Describes the class of failure event that should trigger failure-driven reflection.
-/// Reflection is only initiated when one of these three events is detected — not on every
-/// successful end_turn.
+/// Describes the class of failure event detected during execution or verification.
 enum FailureTrigger: Equatable {
 
     /// A tool execution returned an error (isError == true).
@@ -197,7 +181,7 @@ enum FailureTrigger: Equatable {
         }
     }
 
-    /// Short label used when persisting reflection failures into session-scoped RMS records.
+    /// Short label used by failure audit and diagnostics.
     var actionLabel: String {
         switch self {
         case .toolFailure(let name, _):    return "tool:\(name)"

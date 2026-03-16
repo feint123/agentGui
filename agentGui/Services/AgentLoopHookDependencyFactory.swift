@@ -22,9 +22,6 @@ struct AgentLoopHookDependencyFactory {
             },
             updateToolCallRecord: { context, hookState in
                 try await updateToolCallRecord(context: context, state: hookState)
-            },
-            reflectionResolver: { context, hookState in
-                try await resolveReflection(context: context, state: hookState)
             }
         )
     }
@@ -152,62 +149,6 @@ struct AgentLoopHookDependencyFactory {
         }
         record.endTime = Date()
         try? runtime.modelContext.save()
-    }
-
-    private func resolveReflection(
-        context: AgentLoopHookContext,
-        state: AgentLoopBuiltInHookFactory.State
-    ) async throws -> AgentLoopReflectionResolution? {
-        // reflection 本身是 host-side 阶段，但它仍需要把分析结果写回 round 和 failure audit，保持历史可追溯。
-        let reflection = await claudeService.reflectOnRound(
-            messages: context.messagesSnapshot,
-            service: request.service,
-            modelId: request.modelId,
-            settings: runtime.settings,
-            failureTrigger: context.failureTrigger,
-            verificationState: state.verificationState
-        )
-
-        guard let reflection else {
-            return AgentLoopReflectionResolution(shouldRetry: false, correctionPrompt: nil)
-        }
-
-        if let round = state.lastRound {
-            round.reflectionConfidence = reflection.confidence
-            round.reflectionConcerns = reflection.concerns
-            round.reflectionSuggestedFixes = reflection.suggestedFixes
-            round.reflectionShouldRetry = reflection.shouldRetry
-            try? runtime.modelContext.save()
-        }
-
-        if (!reflection.concerns.isEmpty || !reflection.suggestedFixes.isEmpty), !runtime.sessionId.isEmpty {
-            try? claudeService.recordReflectionFailure(
-                sessionId: runtime.sessionId,
-                trigger: context.failureTrigger,
-                concerns: reflection.concerns,
-                suggestedFixes: reflection.suggestedFixes
-            )
-        }
-
-        let correctionPrompt: String?
-        if reflection.shouldRetry && !reflection.suggestedFixes.isEmpty {
-            let triggerContext = context.failureTrigger.map { "Triggered by: \($0.description)\n\n" } ?? ""
-            let fixList = reflection.suggestedFixes
-                .enumerated()
-                .map { "\($0.offset + 1). \($0.element)" }
-                .joined(separator: "\n")
-            correctionPrompt = """
-                \(triggerContext)A failure was detected and analysed. \
-                Please address the following corrections before retrying:\n\(fixList)
-                """
-        } else {
-            correctionPrompt = nil
-        }
-
-        return AgentLoopReflectionResolution(
-            shouldRetry: reflection.shouldRetry,
-            correctionPrompt: correctionPrompt
-        )
     }
 
     private func pendingToolID(from context: AgentLoopHookContext) -> String {

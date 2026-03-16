@@ -18,7 +18,6 @@ struct AgentLoopBuiltInHookFactory {
         let memoryBootstrapLoader: (State) async throws -> AgentLoopMessagePatch?
         let createToolCallRecord: (AgentLoopHookContext, State) async throws -> ToolCall
         let updateToolCallRecord: (AgentLoopHookContext, State) async throws -> Void
-        let reflectionResolver: (AgentLoopHookContext, State) async throws -> AgentLoopReflectionResolution?
     }
 
     func makeHooks(
@@ -40,9 +39,6 @@ struct AgentLoopBuiltInHookFactory {
                 }
             ),
             FailureClassificationHook(),
-            ReflectionHandlingHook { context in
-                try await dependencies.reflectionResolver(context, state)
-            },
             BusinessObservabilityHook(sink: dependencies.businessLogSink)
         ]
     }

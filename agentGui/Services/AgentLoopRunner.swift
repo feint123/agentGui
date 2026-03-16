@@ -40,11 +40,6 @@ struct AgentLoopRunner {
 		while state.loopCtx.shouldContinue && state.loopCtx.roundIndex < request.maxRounds {
 			try Task.checkCancellation()
 
-			if state.loopCtx.phase == .reflecting {
-				await roundExecutor.executeReflection(state: &state, messages: &messages)
-				continue
-			}
-
 			let outcome = try await roundExecutor.executeStreamingRound(state: &state, messages: &messages)
 			try await roundExecutor.applyPhaseOutcome(outcome: outcome, state: &state, messages: &messages)
 		}
