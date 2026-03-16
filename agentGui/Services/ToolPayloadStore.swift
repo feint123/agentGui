@@ -135,8 +135,9 @@ actor ToolPayloadStore {
         case .lines:
             let payload = try self.payload(for: payloadID)
             let lines = try loadText(payloadID: payloadID).components(separatedBy: "\n")
-            let lineStart = max(1, start ?? 1)
-            let lineEnd = max(lineStart, end ?? min(lineStart + 2, lines.count))
+            let cursorRange = try parseRangeCursor(cursor, expectedPrefix: "lines")
+            let lineStart = max(1, cursorRange?.start ?? start ?? 1)
+            let lineEnd = max(lineStart, cursorRange?.end ?? end ?? min(lineStart + 2, lines.count))
             let content = try readLines(payloadID: payloadID, start: lineStart, end: lineEnd)
             let windowSize = max(1, lineEnd - lineStart + 1)
             let nextStart = lineEnd + 1
@@ -153,8 +154,9 @@ actor ToolPayloadStore {
             )
         case .chars:
             let payload = try self.payload(for: payloadID)
-            let charStart = max(1, start ?? 1)
-            let charEnd = max(charStart, end ?? min(payload.rawCharCount, charStart + (maxChars ?? 4000) - 1))
+            let cursorRange = try parseRangeCursor(cursor, expectedPrefix: "chars")
+            let charStart = max(1, cursorRange?.start ?? start ?? 1)
+            let charEnd = max(charStart, cursorRange?.end ?? end ?? min(payload.rawCharCount, charStart + (maxChars ?? 4000) - 1))
             let content = try readChars(payloadID: payloadID, start: charStart, end: charEnd)
             let hasMore = charEnd < payload.rawCharCount
             let windowSize = max(1, charEnd - charStart + 1)
@@ -217,6 +219,29 @@ actor ToolPayloadStore {
         if !fileManager.fileExists(atPath: baseDirectory.path()) {
             try fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
         }
+    }
+
+    private func parseRangeCursor(
+        _ cursor: String?,
+        expectedPrefix: String
+    ) throws -> (start: Int, end: Int)? {
+        guard let cursor, !cursor.isEmpty else { return nil }
+        let prefix = "\(expectedPrefix):"
+        guard cursor.hasPrefix(prefix) else {
+            throw ToolPayloadStoreError.cursorInvalid(cursor)
+        }
+
+        let rangeText = String(cursor.dropFirst(prefix.count))
+        let parts = rangeText.split(separator: "-", maxSplits: 1).map(String.init)
+        guard parts.count == 2,
+              let start = Int(parts[0]),
+              let end = Int(parts[1]),
+              start > 0,
+              end >= start else {
+            throw ToolPayloadStoreError.cursorInvalid(cursor)
+        }
+
+        return (start, end)
     }
 
     private func loadPayload(payloadID: String) throws -> LargeTextPayload {

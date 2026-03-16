@@ -1,4 +1,5 @@
 import Testing
+import SwiftAnthropic
 @testable import agentGui
 
 @MainActor
@@ -126,5 +127,23 @@ struct AgentLoopRoundExecutorTests {
         #expect(reset.openQuestions.isEmpty)
         #expect(reset.repairQueue.isEmpty)
         #expect(reset.certificate?.stopReason == "Repair loop reset verification gate")
+    }
+
+    @Test func toolExecutionMetadataMarksPayloadReadCalls() {
+        let result = ToolExecutionResult.success("payload window")
+        let metadata = AgentLoopRoundExecutor.toolExecutionMetadata(
+            toolName: "read_tool_payload",
+            input: [
+                "payload_ref": .string("payload_123"),
+                "cursor": .string("lines:5-7")
+            ],
+            result: result,
+            roundIndex: 2,
+            claudeService: ClaudeService()
+        )
+
+        #expect(metadata["toolPayloadRef"] as? String == "payload_123")
+        #expect(metadata["toolPayloadLastReadRange"] as? String == "lines:5-7")
+        #expect(metadata["toolPayloadReadCount"] as? Int == 1)
     }
 }

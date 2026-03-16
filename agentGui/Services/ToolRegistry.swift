@@ -148,7 +148,8 @@ struct DefaultToolRegistry: ToolRegistry {
                 """
                 Read a large tool result incrementally using a payload_ref returned by another tool. \
                 Prefer this over requesting the original tool to print the full result again. \
-                Check summary, preview, and range_summary first, then read only the next relevant chunk.
+                Check summary, preview, and range_summary first, then read only the next relevant chunk. \
+                When a previous read returns next_cursor, pass that cursor back directly; for chars or lines reads, cursor overrides start/end.
                 """
             },
             inputSchemaBuilder: { _ in
@@ -159,7 +160,7 @@ struct DefaultToolRegistry: ToolRegistry {
                         "read_mode": .init(type: .string, description: "One of: summary, preview, chars, lines, chunk, head, tail."),
                         "start": .init(type: .integer, description: "Optional start offset or line number, depending on read_mode."),
                         "end": .init(type: .integer, description: "Optional end offset or line number, depending on read_mode."),
-                        "cursor": .init(type: .string, description: "Optional cursor returned by a previous payload read."),
+                        "cursor": .init(type: .string, description: "Optional cursor returned by a previous payload read. For chars, lines, or chunk reads, pass next_cursor back exactly as returned; when cursor is present it overrides start/end."),
                         "max_chars": .init(type: .integer, description: "Optional max characters to return for chunk or preview reads.")
                     ],
                     required: ["payload_ref"]

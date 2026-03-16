@@ -45,8 +45,8 @@ struct ToolResultBudgetController {
                 mode: .preview,
                 summary: summary,
                 preview: preview,
-                shouldPersistPayload: false,
-                retrievalHint: "Inspect summary and preview before asking for more content.",
+                shouldPersistPayload: true,
+                retrievalHint: "Inspect summary and preview first. If you need the remainder, use read_tool_payload with the returned payload_ref.",
                 rawCharCount: rawCharCount,
                 injectedCharCount: summary.count + preview.count
             )
@@ -58,7 +58,7 @@ struct ToolResultBudgetController {
             summary: summary,
             preview: preview,
             shouldPersistPayload: true,
-            retrievalHint: "Use read_tool_payload to continue reading this result in chunks.",
+            retrievalHint: "Use read_tool_payload with payload_ref to continue reading this result in chunks.",
             rawCharCount: rawCharCount,
             injectedCharCount: summary.count + preview.count
         )

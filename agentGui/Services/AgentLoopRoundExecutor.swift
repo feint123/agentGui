@@ -26,6 +26,36 @@ struct AgentLoopRoundExecutor {
     let emitter: AgentLoopHookEmitter
     let toolCoordinator: AgentLoopToolExecutionCoordinator
 
+    static func toolExecutionMetadata(
+        toolName: String,
+        input: MessageResponse.Content.Input,
+        result: ToolExecutionResult,
+        roundIndex: Int,
+        claudeService: ClaudeService
+    ) -> [String: Any] {
+        var metadata: [String: Any] = [
+            "toolName": toolName,
+            "status": result.toolCallStatus.rawValue,
+            "isError": result.isError,
+            "outputLength": result.text.count,
+            "roundIndex": roundIndex,
+            "toolStatus": result.toolCallStatus,
+            "toolResultSummary": result.envelope?.summary as Any,
+            "toolResultPreview": result.envelope?.preview ?? result.rawOutputText ?? result.text,
+            "toolPayloadRef": result.envelope?.payloadRef ?? input["payload_ref"]?.stringValue as Any,
+            "toolResultRawChars": result.envelope?.rawCharCount ?? result.rawOutputText?.count ?? result.text.count,
+            "toolResultInjectedChars": result.envelope?.injectedCharCount ?? result.text.count,
+            "toolResultInjectionMode": result.envelope?.injectionMode.rawValue as Any,
+            "toolPayloadLastReadRange": claudeService.payloadReadRangeSummary(from: input) as Any
+        ]
+
+        if toolName == "read_tool_payload" {
+            metadata["toolPayloadReadCount"] = 1
+        }
+
+        return metadata
+    }
+
     func applyBootstrap(
         state: inout AgentLoopRunState,
         messages: inout [MessageParameter.Message]
@@ -470,21 +500,13 @@ struct AgentLoopRoundExecutor {
                 state: state,
                 messages: messages,
                 overrides: .init(
-                    metadata: [
-                        "toolName": pending.name,
-                        "status": result.toolCallStatus.rawValue,
-                        "isError": result.isError,
-                        "outputLength": result.text.count,
-                        "roundIndex": outcome.roundIndex,
-                        "toolStatus": result.toolCallStatus,
-                        "toolResultSummary": result.envelope?.summary as Any,
-                        "toolResultPreview": result.envelope?.preview ?? result.rawOutputText ?? result.text,
-                        "toolPayloadRef": result.envelope?.payloadRef ?? input["payload_ref"]?.stringValue as Any,
-                        "toolResultRawChars": result.envelope?.rawCharCount ?? result.rawOutputText?.count ?? result.text.count,
-                        "toolResultInjectedChars": result.envelope?.injectedCharCount ?? result.text.count,
-                        "toolResultInjectionMode": result.envelope?.injectionMode.rawValue as Any,
-                        "toolPayloadLastReadRange": claudeService.payloadReadRangeSummary(from: input) as Any
-                    ],
+                    metadata: Self.toolExecutionMetadata(
+                        toolName: pending.name,
+                        input: input,
+                        result: result,
+                        roundIndex: outcome.roundIndex,
+                        claudeService: claudeService
+                    ),
                     toolName: pending.name,
                     toolInput: input,
                     toolResultText: result.text,

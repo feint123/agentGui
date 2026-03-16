@@ -29,8 +29,9 @@ struct ToolResultBudgetControllerTests {
         )
 
         #expect(decision.mode == .preview)
-        #expect(!decision.shouldPersistPayload)
+        #expect(decision.shouldPersistPayload)
         #expect((decision.preview?.count ?? 0) < 4_000)
+        #expect(decision.retrievalHint.contains("read_tool_payload"))
     }
 
     @Test func accumulatedRoundBudgetCanForceReferencedMode() throws {

@@ -30,30 +30,44 @@ extension ClaudeService {
 
         let payloadRef: String?
         if decision.shouldPersistPayload {
-            payloadRef = try? await toolPayloadStore.createPayload(
-                text: rawText,
-                sourceKind: sourceKind,
-                sourceDescriptor: sourceDescriptor
-            ).payloadID
+            do {
+                payloadRef = try await toolPayloadStore.createPayload(
+                    text: rawText,
+                    sourceKind: sourceKind,
+                    sourceDescriptor: sourceDescriptor
+                ).payloadID
+            } catch {
+                payloadRef = nil
+            }
         } else {
             payloadRef = nil
+        }
+
+        let effectiveMode: ToolResultEnvelope.InjectionMode
+        let effectiveRetrievalHint: String?
+        if decision.mode == .referenced, payloadRef == nil {
+            effectiveMode = .preview
+            effectiveRetrievalHint = "Inspect summary and preview before retrying the original tool. Payload persistence was unavailable for this result."
+        } else {
+            effectiveMode = decision.mode
+            effectiveRetrievalHint = decision.retrievalHint.isEmpty ? nil : decision.retrievalHint
         }
 
         let envelope = ToolResultEnvelope(
             summary: decision.summary,
             preview: decision.preview,
             payloadRef: payloadRef,
-            isTruncated: decision.mode != .inline,
+            isTruncated: effectiveMode != .inline,
             estimatedChars: rawText.count,
             estimatedTokens: ToolResultEnvelope.estimateTokens(for: rawText),
-            retrievalHint: decision.retrievalHint.isEmpty ? nil : decision.retrievalHint,
+            retrievalHint: effectiveRetrievalHint,
             sourceKind: sourceKind,
-            injectionMode: decision.mode,
+            injectionMode: effectiveMode,
             rawCharCount: decision.rawCharCount,
             injectedCharCount: decision.injectedCharCount
         )
 
-        let modelText = decision.mode == .inline ? rawText : envelope.renderForModel()
+        let modelText = effectiveMode == .inline ? rawText : envelope.renderForModel()
         return ToolExecutionResult(
             modelText,
             status: detected.status,
