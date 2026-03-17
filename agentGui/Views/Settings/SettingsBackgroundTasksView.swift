@@ -498,7 +498,7 @@ private struct BackgroundTaskEditorView: View {
 
     private var executionSection: some View {
         Section {
-            Stepper(value: $viewModel.draftExecutionPolicy.maxTurns, in: 1...20) {
+            Stepper(value: $viewModel.draftExecutionPolicy.maxTurns, in: 1...200) {
                 HStack {
                     Text("最大轮次")
                     Spacer()

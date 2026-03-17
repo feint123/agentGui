@@ -15,6 +15,9 @@ enum PtyProcessControllerError: Error {
 }
 
 final class PtyProcessController {
+    private static let defaultRows: UInt16 = 24
+    private static let defaultColumns: UInt16 = 80
+
     private let command: String
     private let shell: String
     private let workingDirectory: String?
@@ -44,7 +47,13 @@ final class PtyProcessController {
 
         var master: Int32 = -1
         var slave: Int32 = -1
-        if openpty(&master, &slave, nil, nil, nil) != 0 {
+        var windowSize = winsize(
+            ws_row: Self.defaultRows,
+            ws_col: Self.defaultColumns,
+            ws_xpixel: 0,
+            ws_ypixel: 0
+        )
+        if openpty(&master, &slave, nil, nil, &windowSize) != 0 {
             throw PtyProcessControllerError.openPtyFailed(errno)
         }
 
@@ -143,18 +152,26 @@ final class PtyProcessController {
         try sendSignal(force ? SIGKILL : SIGTERM)
     }
 
-    private func normalizedOutput() -> String {
+    private func rawOutput() -> String {
         outputLock.lock()
         let data = outputData
         outputLock.unlock()
 
         return String(decoding: data, as: UTF8.self)
+    }
+
+    private func normalizedOutput() -> String {
+        rawOutput()
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
     }
 
     func currentOutput() -> String {
         normalizedOutput()
+    }
+
+    func currentRawOutput() -> String {
+        rawOutput()
     }
 
     private func sendSignal(_ signal: Int32) throws {

@@ -152,7 +152,7 @@ enum ExecutionGuard {
     ) -> ExecutionEvidenceKind? {
         switch toolName {
         case "bash":
-            return .bash
+            return input["task_id"] == nil ? .bash : nil
         case "run_subagent":
             return input["agent_name"]?.stringValue == "worker" ? .executorSubagent : nil
         case "start_workflow":
@@ -219,6 +219,10 @@ enum ExecutionGuard {
         "execute ",
         "shell",
         "bash",
+        "proof",
+        "verify",
+        "verification",
+        "verify_completion",
         "删除",
         "移除",
         "重命名",
@@ -229,7 +233,9 @@ enum ExecutionGuard {
         "运行",
         "构建",
         "测试",
-        "执行"
+        "执行",
+        "证明",
+        "验证"
     ]
 
 }

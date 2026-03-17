@@ -92,6 +92,28 @@ struct AgentLoopRoundExecutorTests {
         }
     }
 
+    @Test func verificationGateRequiresMoreEvidenceForProofSeekingRequestsWithoutClassifier() {
+        let enabled = AgentLoopRoundExecutor.shouldEnableVerificationGate(
+            toolExecutionContext: .mainAgent,
+            accumulatedText: "candidate complete",
+            verificationState: nil,
+            autoVerificationAssessment: nil
+        )
+
+        #expect(enabled)
+    }
+
+    @Test func verificationGateRequiresMoreEvidenceForImplicitExecutionEvidence() {
+        let enabled = AgentLoopRoundExecutor.shouldEnableVerificationGate(
+            toolExecutionContext: .mainAgent,
+            accumulatedText: "bash round complete",
+            verificationState: nil,
+            autoVerificationAssessment: nil
+        )
+
+        #expect(enabled)
+    }
+
     @Test func reopeningExecutionMarksVerificationStateAsPassToAvoidStaleFailureLoop() {
         let failedState = VerificationState(
             riskScore: 0.72,

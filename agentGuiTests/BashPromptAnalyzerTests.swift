@@ -50,6 +50,69 @@ struct BashPromptAnalyzerTests {
         #expect(decision == nil)
     }
 
+    @Test func returnsNilForCreateVueMultiSelectScreen() async throws {
+        let decision = BashPromptAnalyzer().analyze(output: """
+        ◆  请选择要包含的功能： (↑/↓ 切换，空格选择，a 全选，回车确认)
+        │  ◻ JSX 支持
+        │  ◻ Router（单页面应用开发）
+        │  ◻ Pinia（状态管理）
+        │  ◻ Vitest（单元测试）
+        """)
+
+        #expect(decision == nil)
+    }
+
+    @Test func returnsNilWhenInteractiveMenuAppearsAfterInstallPromptInTranscript() async throws {
+        let decision = BashPromptAnalyzer().analyze(output: """
+        Need to install the following packages:
+        create-vue@3.22.0
+        Ok to proceed? (y)
+
+        ◆  请选择要包含的功能： (↑/↓ 切换，空格选择，a 全选，回车确认)
+        │  ◻ JSX 支持
+        │  ◻ Router（单页面应用开发）
+        │  ◻ Pinia（状态管理）
+        │  ◻ Vitest（单元测试）
+        """)
+
+        #expect(decision == nil)
+    }
+
+    @Test func terminalPlannerQuestionOffersApproveTakeoverWaitAndCancel() async throws {
+        let plan = TerminalInteractionPlan(
+            interactionType: "multi_select_menu",
+            intentSummary: "Resolve create-vue feature selection",
+            confidence: 0.42,
+            nextActions: [.key(.space), .key(.enter)],
+            requiresUserConfirmation: true,
+            reasoningSummary: "The current command alone does not say which features should be selected"
+        )
+
+        let questions = ClaudeService().makeAskUserQuestions(for: plan, summary: plan.reasoningSummary)
+
+        #expect(questions.count == 1)
+        #expect(questions[0].header == "Terminal Plan")
+        #expect(questions[0].options.map { $0.label } == ["Approve plan", "Take over manually", "Keep waiting", "Cancel command"])
+    }
+
+    @Test func selectedPlannerTakeoverMapsToUserTakeoverAction() async throws {
+        let payload = """
+        {
+            "answers": [
+                {
+                    "question": "planner",
+                    "header": "Terminal Plan",
+                    "selected": ["Take over manually"]
+                }
+            ]
+        }
+        """
+
+        let action = ClaudeService().resolveTerminalPlannerUserAction(from: payload)
+
+        #expect(action == .takeOver)
+    }
+
         @Test func userQuestionForDestructivePromptUsesPromptOptions() async throws {
                 let decision = try #require(BashPromptAnalyzer().analyze(output: "File exists. Overwrite? [y/N]"))
 

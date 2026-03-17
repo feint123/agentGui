@@ -1,447 +1,175 @@
-# Bash tool
-
----
-
-The bash tool enables Claude to execute shell commands in a persistent bash session, allowing system operations, script execution, and command-line automation. Shell access is a foundational agent capability. On [Terminal-Bench 2.0](https://github.com/terminal-bench/terminal-bench), a benchmark that evaluates real-world terminal tasks using shell-only validation, Claude shows strong performance gains with access to a persistent bash session.
-
-## Overview
-
-The bash tool provides Claude with:
-- Persistent bash session that maintains state
-- Ability to run any shell command
-- Access to environment variables and working directory
-- Command chaining and scripting capabilities
-
-## Model compatibility
+# Bash Tool
 
-| Model | Tool Version |
-|-------|--------------|
-| Claude 4 models and Sonnet 3.7 ([deprecated](/docs/en/about-claude/model-deprecations)) | `bash_20250124` |
+日期：2026-03-17
 
-<Warning>
-Older tool versions are not guaranteed to be backwards-compatible with newer models. Always use the tool version that corresponds to your model version.
-</Warning>
+本文描述本仓库中已经落地的 Bash tool 行为，而不是 Anthropic 官方通用示例。
 
-## Use cases
-
-- **Development workflows:** Run build commands, tests, and development tools
-- **System automation:** Execute scripts, manage files, automate tasks
-- **Data processing:** Process files, run analysis scripts, manage datasets
-- **Environment setup:** Install packages, configure environments
-
-## Quick start
+## 1. 当前定位
 
-<CodeGroup>
-```python Python
-import anthropic
+本项目的 Bash tool 已经不是“执行一条命令然后返回全部输出”的简单 shell 包装，而是一个受管 PTY 运行时，支持：
 
-client = anthropic.Anthropic()
+1. 任务级 `task_id` 生命周期管理。
+2. attached / detached 两种执行模式。
+3. 前台交互提示检测与自动回复。
+4. Shell integration 语义增强。
+5. 基于 terminal surface 的结构化交互规划。
+6. UI 中的停止、规划中、等待批准、用户接管等状态投影。
 
-response = client.messages.create(
-    model="claude-opus-4-6",
-    max_tokens=1024,
-    tools=[{"type": "bash_20250124", "name": "bash"}],
-    messages=[
-        {"role": "user", "content": "List all Python files in the current directory."}
-    ],
-)
-```
+## 2. 输入契约
 
-```bash Shell
-curl https://api.anthropic.com/v1/messages \
-  -H "content-type: application/json" \
-  -H "x-api-key: $ANTHROPIC_API_KEY" \
-  -H "anthropic-version: 2023-06-01" \
-  -d '{
-    "model": "claude-opus-4-6",
-    "max_tokens": 1024,
-    "tools": [
-      {
-        "type": "bash_20250124",
-        "name": "bash"
-      }
-    ],
-    "messages": [
-      {
-        "role": "user",
-        "content": "List all Python files in the current directory."
-      }
-    ]
-  }'
-```
-</CodeGroup>
-
-## How it works
-
-The bash tool maintains a persistent session:
-
-1. Claude determines what command to run
-2. You execute the command in a bash shell
-3. Return the output (stdout and stderr) to Claude
-4. Session state persists between commands (environment variables, working directory)
-
-## Parameters
-
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `command` | Yes* | The bash command to run |
-| `restart` | No | Set to `true` to restart the bash session |
-
-*Required unless using `restart`
-
-<section title="Example usage">
-
-Run a command:
-
-```json
-{
-  "command": "ls -la *.py"
-}
-```
-
-Restart the session:
-
-```json
-{
-  "restart": true
-}
-```
-
-</section>
-
-## Example: Multi-step automation
-
-Claude can chain commands to complete complex tasks:
-
-```python nocheck
-# User request
-"Install the requests library and create a simple Python script that fetches a joke from an API, then run it."
-
-# Claude's tool uses:
-# 1. Install package
-{"command": "pip install requests"}
-
-# 2. Create script
-{
-    "command": "cat > fetch_joke.py << 'EOF'\nimport requests\nresponse = requests.get('https://official-joke-api.appspot.com/random_joke')\njoke = response.json()\nprint(f\"Setup: {joke['setup']}\")\nprint(f\"Punchline: {joke['punchline']}\")\nEOF"
-}
-
-# 3. Run script
-{"command": "python fetch_joke.py"}
-```
-
-The session maintains state between commands, so files created in step 2 are available in step 3.
-
-***
-
-## Implement the bash tool
-
-The bash tool is implemented as a schema-less tool. When using this tool, you don't need to provide an input schema as with other tools; the schema is built into Claude's model and can't be modified.
-
-<Steps>
-  <Step title="Set up a bash environment">
-    Create a persistent bash session that Claude can interact with:
-
-    ```python nocheck
-    import subprocess
-    import threading
-    import queue
-
-
-    class BashSession:
-        def __init__(self):
-            self.process = subprocess.Popen(
-                ["/bin/bash"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=0,
-            )
-            self.output_queue = queue.Queue()
-            self.error_queue = queue.Queue()
-            self._start_readers()
-    ```
-  </Step>
-  <Step title="Handle command execution">
-    Create a function to execute commands and capture output:
-
-    ```python nocheck
-    def execute_command(self, command):
-        # Send command to bash
-        self.process.stdin.write(command + "\n")
-        self.process.stdin.flush()
-
-        # Capture output with timeout
-        output = self._read_output(timeout=10)
-        return output
-    ```
-  </Step>
-  <Step title="Process Claude's tool calls">
-    Extract and execute commands from Claude's responses:
-
-    ```python nocheck
-    for content in response.content:
-        if content.type == "tool_use" and content.name == "bash":
-            if content.input.get("restart"):
-                bash_session.restart()
-                result = "Bash session restarted"
-            else:
-                command = content.input.get("command")
-                result = bash_session.execute_command(command)
-
-            # Return result to Claude
-            tool_result = {
-                "type": "tool_result",
-                "tool_use_id": content.id,
-                "content": result,
-            }
-    ```
-  </Step>
-  <Step title="Implement safety measures">
-    Add validation and restrictions:
-    ```python
-    def validate_command(command):
-        # Block dangerous commands
-        dangerous_patterns = ["rm -rf /", "format", ":(){:|:&};:"]
-        for pattern in dangerous_patterns:
-            if pattern in command:
-                return False, f"Command contains dangerous pattern: {pattern}"
-
-        # Add more validation as needed
-        return True, None
-    ```
-  </Step>
-</Steps>
-
-### Handle errors
-
-When implementing the bash tool, handle various error scenarios:
-
-<section title="Command execution timeout">
-
-If a command takes too long to execute:
-
-```json
-{
-  "role": "user",
-  "content": [
-    {
-      "type": "tool_result",
-      "tool_use_id": "toolu_01A09q90qw90lq917835lq9",
-      "content": "Error: Command timed out after 30 seconds",
-      "is_error": true
-    }
-  ]
-}
-```
-
-</section>
-
-<section title="Command not found">
-
-If a command doesn't exist:
-
-```json
-{
-  "role": "user",
-  "content": [
-    {
-      "type": "tool_result",
-      "tool_use_id": "toolu_01A09q90qw90lq917835lq9",
-      "content": "bash: nonexistentcommand: command not found",
-      "is_error": true
-    }
-  ]
-}
-```
-
-</section>
-
-<section title="Permission denied">
-
-If there are permission issues:
-
-```json
-{
-  "role": "user",
-  "content": [
-    {
-      "type": "tool_result",
-      "tool_use_id": "toolu_01A09q90qw90lq917835lq9",
-      "content": "bash: /root/sensitive-file: Permission denied",
-      "is_error": true
-    }
-  ]
-}
-```
-
-</section>
-
-### Follow implementation best practices
-
-<section title="Use command timeouts">
-
-Implement timeouts to prevent hanging commands:
-
-```python nocheck
-def execute_with_timeout(command, timeout=30):
-    try:
-        result = subprocess.run(
-            command, shell=True, capture_output=True, text=True, timeout=timeout
-        )
-        return result.stdout + result.stderr
-    except subprocess.TimeoutExpired:
-        return f"Command timed out after {timeout} seconds"
-```
-
-</section>
-
-<section title="Maintain session state">
-
-Keep the bash session persistent to maintain environment variables and working directory:
-```python
-# Commands run in the same session maintain state
-commands = [
-    "cd /tmp",
-    "echo 'Hello' > test.txt",
-    "cat test.txt",  # This works because we're still in /tmp
-]
-```
-
-</section>
-
-<section title="Handle large outputs">
-
-Truncate very large outputs to prevent token limit issues:
-```python
-def truncate_output(output, max_lines=100):
-    lines = output.split("\n")
-    if len(lines) > max_lines:
-        truncated = "\n".join(lines[:max_lines])
-        return f"{truncated}\n\n... Output truncated ({len(lines)} total lines) ..."
-    return output
-```
-
-</section>
-
-<section title="Log all commands">
-
-Keep an audit trail of executed commands:
-```python
-import logging
-
-
-def log_command(command, output, user_id):
-    logging.info(f"User {user_id} executed: {command}")
-    logging.info(f"Output: {output[:200]}...")  # Log first 200 chars
-```
-
-</section>
-
-<section title="Sanitize outputs">
-
-Remove sensitive information from command outputs:
-```python
-def sanitize_output(output):
-    # Remove potential secrets or credentials
-    import re
-
-    # Example: Remove AWS credentials
-    output = re.sub(r"aws_access_key_id\s*=\s*\S+", "aws_access_key_id=***", output)
-    output = re.sub(
-        r"aws_secret_access_key\s*=\s*\S+", "aws_secret_access_key=***", output
-    )
-    return output
-```
-
-</section>
-
-## Security
-
-<Warning>
-The bash tool provides direct system access. Implement these essential safety measures:
-- Running in isolated environments (Docker/VM)
-- Implementing command filtering and allowlists
-- Setting resource limits (CPU, memory, disk)
-- Logging all executed commands
-</Warning>
-
-### Key recommendations
-- Use `ulimit` to set resource constraints
-- Filter dangerous commands (`sudo`, `rm -rf`, etc.)
-- Run with minimal user permissions
-- Monitor and log all command execution
-
-## Pricing
-
-The bash tool adds **245 input tokens** to your API calls.
-
-Additional tokens are consumed by:
-- Command outputs (stdout/stderr)
-- Error messages
-- Large file contents
-
-See [tool use pricing](/docs/en/agents-and-tools/tool-use/overview#pricing) for complete pricing details.
-
-## Common patterns
-
-### Development workflows
-- Running tests: `pytest && coverage report`
-- Building projects: `npm install && npm run build`
-- Git operations: `git status && git add . && git commit -m "message"`
-
-#### Git-based checkpointing
-
-Git serves as a structured recovery mechanism in long-running agent workflows, not just a way to save changes:
-
-- **Capture a baseline:** Before any agent work begins, commit the current state. This is the known-good starting point.
-- **Commit per feature:** Each completed feature gets its own commit. These serve as rollback points if something goes wrong later.
-- **Reconstruct state at session start:** Read `git log` alongside a progress file to understand what has already been done and what comes next.
-- **Revert on failure:** If work goes sideways, `git checkout` reverts to the last good commit instead of trying to debug a broken state.
-
-### File operations
-- Processing data: `wc -l *.csv && ls -lh *.csv`
-- Searching files: `find . -name "*.py" | xargs grep "pattern"`
-- Creating backups: `tar -czf backup.tar.gz ./data`
-
-### System tasks
-- Checking resources: `df -h && free -m`
-- Process management: `ps aux | grep python`
-- Environment setup: `export PATH=$PATH:/new/path && echo $PATH`
-
-## Limitations
-
-- **No interactive commands:** Cannot handle `vim`, `less`, or password prompts
-- **No GUI applications:** Command-line only
-- **Session scope:** Persists within conversation, lost between API calls
-- **Output limits:** Large outputs may be truncated
-- **No streaming:** Results returned after completion
-
-## Combining with other tools
-
-The bash tool is most powerful when combined with the [text editor](/docs/en/agents-and-tools/tool-use/text-editor-tool) and other tools.
-
-<Note>
-If you're also using the [code execution tool](/docs/en/agents-and-tools/tool-use/code-execution-tool), Claude has access to two separate execution environments: your local bash session and Anthropic's sandboxed container. State is not shared between them. See [Using code execution with other execution tools](/docs/en/agents-and-tools/tool-use/code-execution-tool#using-code-execution-with-other-execution-tools) for guidance on prompting Claude to distinguish between environments.
-</Note>
-
-## Next steps
-
-<CardGroup cols={2}>
-  <Card
-    title="Tool use overview"
-    icon="tool"
-    href="/docs/en/agents-and-tools/tool-use/overview"
-  >
-    Learn about tool use with Claude
-  </Card>
-
-  <Card
-    title="Text editor tool"
-    icon="file"
-    href="/docs/en/agents-and-tools/tool-use/text-editor-tool"
-  >
-    View and edit text files with Claude
-  </Card>
-</CardGroup>
+当前推荐输入字段为：
+
+1. `operation`
+2. `command`
+3. `task_id`
+4. `execution_mode`
+5. `input`
+6. `timeout`
+7. `force`
+8. `tail_lines`
+
+### 2.1 已支持的 `operation`
+
+1. `start`
+2. `sendInput`
+3. `interrupt`
+4. `terminate`
+5. `status`
+6. `readOutput`
+7. `cleanup`
+
+### 2.2 兼容行为
+
+为了兼容旧调用路径，若输入只包含 `command` 而未提供 `operation`，系统会按隐式 `start` 处理。
+
+这条兼容逻辑只用于保留旧 agent loop 行为；新调用应优先显式传递 `operation` 与 `task_id`。
+
+### 2.3 已废弃的 legacy 字段
+
+以下字段会被明确拒绝：
+
+1. `background`
+2. `interactive`
+3. `interrupt`
+4. `signal`
+5. `goal_hint`
+6. `scan_policy`
+7. `auto_reply_policy`
+8. `restart`
+
+## 3. 运行时行为
+
+### 3.1 前台任务
+
+`execution_mode == attached` 时：
+
+1. 使用 PTY 启动真实交互式进程。
+2. 观测线程持续读取输出 tail。
+3. 简单 prompt 先走 `BashPromptAnalyzer` fallback。
+4. 若输出表现为菜单/TUI 屏幕，则进入 surface extraction + planner 分流。
+5. 非终态期间 UI 一直保留停止按钮。
+
+### 3.2 后台任务
+
+`execution_mode == detached` 时：
+
+1. 运行时返回 task snapshot。
+2. transcript 写入任务日志。
+3. 后续通过 `status` / `readOutput` / `cleanup` 查询和回收。
+
+## 4. Fallback prompt analyzer 范围
+
+`BashPromptAnalyzer` 当前只负责低成本、低歧义场景：
+
+1. package-manager 安装确认。
+2. 常规 yes/no prompt。
+3. `press enter to continue`。
+4. 密码输入。
+5. 覆盖/删除等破坏性确认。
+
+它不负责菜单式交互，不承担复杂 TUI 理解。
+
+## 5. Terminal planner 行为
+
+当输出被 `TerminalSurfaceExtractor` 识别为单选、多选或文本输入屏幕时：
+
+1. runtime 构建 `TerminalSurfaceSnapshot`。
+2. planner 输出结构化 `TerminalInteractionPlan`。
+3. host 根据 `confidence` 与 `requiresUserConfirmation` 决定自动执行还是等待批准。
+4. planner 决策与动作历史会写入 `TerminalTaskEvent`。
+
+当前自动执行阈值为：
+
+1. `requiresUserConfirmation == false`
+2. `confidence >= 0.8`
+
+否则任务进入 `awaitingUserApproval`。
+
+## 6. UI 状态
+
+当前 UI 已支持以下受管终端状态：
+
+1. `启动中`
+2. `执行中`
+3. `等待输入`
+4. `规划中`
+5. `等待批准`
+6. `用户接管`
+7. `已完成`
+8. `失败`
+9. `已中断`
+10. `已超时`
+11. `已终止`
+
+同时 `ToolCall` 会记录：
+
+1. `terminalTaskId`
+2. `terminalTaskStatus`
+3. `terminalInteractionPhase`
+4. `terminalPlannerSummary`
+5. `terminalApprovalPending`
+6. `terminalUserTakeoverActive`
+7. `terminalAgentActionsJSON`
+8. `terminalTranscriptPath`
+9. `terminalCompletionReason`
+
+## 7. Shell integration 语义增强
+
+当前 runtime 已支持解析 `OSC 633` 的以下事件：
+
+1. prompt start / end
+2. command start
+3. command finished + exit code
+4. command line
+5. cwd property
+
+这些事件会回写到 `TerminalTaskSnapshot`，用于改进：
+
+1. 当前工作目录显示。
+2. 命令边界识别。
+3. planner 输入压缩。
+4. 终端任务事件审计。
+
+## 8. 当前限制
+
+截至 2026-03-17，仍有以下限制：
+
+1. planner 还是 deterministic fallback contract，尚未接入真实 LLM planner。
+2. 批准 / 接管的状态和展示已经落地，但完整的人机接管闭环还在继续收口。
+3. end-to-end interactive fixture 已开始抽象，但覆盖面还未达到所有安装器和 REPL 场景。
+
+## 9. 测试覆盖
+
+当前相关测试覆盖以下层次：
+
+1. `TerminalTaskModelsTests`
+2. `TerminalKeyEncoderTests`
+3. `TerminalSurfaceExtractorTests`
+4. `TerminalShellIntegrationParserTests`
+5. `TerminalTaskRuntimeTests`
+6. `BashPromptAnalyzerTests`
+7. `TerminalInteractionPlannerTests`
+8. `BashToolCallPresentationTests`
+9. `AgentLoopIntegrationTests`
+
+后续若继续扩展复杂交互能力，应优先补 fixture 和集成测试，再改 planner 或 runtime 行为。

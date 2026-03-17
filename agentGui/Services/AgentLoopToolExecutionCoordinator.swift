@@ -46,7 +46,20 @@ struct AgentLoopToolExecutionCoordinator {
         }
 
         let isBash = pendingTool.name == "bash"
-        let bashRequest = isBash ? (try? dependencies.normalizeBashRequest(input)) : nil
+        var effectiveInput = input
+        var bashRequest = isBash ? (try? dependencies.normalizeBashRequest(input)) : nil
+
+        if isBash,
+           var normalizedBashRequest = bashRequest,
+           normalizedBashRequest.signal == nil,
+           normalizedBashRequest.command != nil,
+           normalizedBashRequest.taskId == nil {
+            normalizedBashRequest.taskId = record.toolCallId
+            bashRequest = normalizedBashRequest
+            effectiveInput["task_id"] = .string(record.toolCallId)
+            record.terminalTaskId = record.toolCallId
+        }
+
         let shouldObserveForegroundBash = bashRequest?.executionMode == .attached
             && bashRequest?.signal == nil
             && bashRequest?.command != nil
@@ -55,7 +68,7 @@ struct AgentLoopToolExecutionCoordinator {
             ? await dependencies.startForegroundBashObservation(bashRequest!, record)
             : nil
 
-        let result = await dependencies.executeTool(pendingTool.name, input)
+        let result = await dependencies.executeTool(pendingTool.name, effectiveInput)
 
         pollTask?.cancel()
 

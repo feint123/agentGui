@@ -140,6 +140,19 @@ struct ToolCallRowPresentation: Equatable {
         for toolCall: ToolCall,
         status: TerminalTaskStatus?
     ) -> String? {
+        if let interactionPhase = toolCall.terminalInteractionPhase.flatMap(TerminalInteractionPhase.init(rawValue:)) {
+            switch interactionPhase {
+            case .planning:
+                return "规划交互"
+            case .autoExecuting:
+                return "执行交互计划"
+            case .awaitingApproval:
+                return "等待批准"
+            case .userTakeover:
+                return "用户接管中"
+            }
+        }
+
         if let mode = toolCall.terminalExecutionMode.flatMap(TerminalExecutionMode.init(rawValue:)) {
             switch mode {
             case .detached:
@@ -156,6 +169,10 @@ struct ToolCallRowPresentation: Equatable {
         for toolCall: ToolCall,
         status: TerminalTaskStatus?
     ) -> String? {
+        if let plannerSummary = toolCall.terminalPlannerSummary, !plannerSummary.isEmpty {
+            return plannerSummary
+        }
+
         if let promptSummary = toolCall.terminalPromptSummary, !promptSummary.isEmpty {
             return promptSummary
         }
@@ -190,6 +207,12 @@ struct ToolCallRowPresentation: Equatable {
             return "执行中"
         case .waitingForInput:
             return "等待输入"
+        case .planningInteraction:
+            return "规划中"
+        case .awaitingUserApproval:
+            return "等待批准"
+        case .userTakeover:
+            return "用户接管"
         case .completed:
             return "已完成"
         case .failed:

@@ -25,6 +25,18 @@ struct ToolCallDetailSection: Identifiable, Equatable {
 }
 
 enum ToolCallDetailPresentation {
+    static func showsPrimaryTerminalScreen(for toolCall: ToolCall, row: ToolCallRowPresentation) -> Bool {
+        guard row.style == .execute,
+              toolCall.kind == .execute,
+              let taskId = toolCall.terminalTaskId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !taskId.isEmpty,
+              let executionMode = toolCall.terminalExecutionMode.flatMap(TerminalExecutionMode.init(rawValue:)) else {
+            return false
+        }
+
+        return executionMode == .attached
+    }
+
     static func sections(for toolCall: ToolCall, row: ToolCallRowPresentation) -> [ToolCallDetailSection] {
         switch row.style {
         case .read:
@@ -71,6 +83,19 @@ enum ToolCallDetailPresentation {
             .init(label: "命令", text: toolCall.title ?? toolCall.kind.displayName, monospaced: true)
         ]
 
+        let isUserTakeoverActive = toolCall.terminalUserTakeoverActive
+            || toolCall.terminalTaskStatus.flatMap(TerminalTaskStatus.init(rawValue:)) == .userTakeover
+
+        if let interactionPhase = toolCall.terminalInteractionPhase
+            .flatMap(TerminalInteractionPhase.init(rawValue:))
+            .map(interactionPhaseText) {
+            sections.append(.init(label: "交互阶段", text: interactionPhase, monospaced: false, lineLimit: 2))
+        }
+
+        if let plannerSummary = toolCall.terminalPlannerSummary?.trimmingCharacters(in: .whitespacesAndNewlines), !plannerSummary.isEmpty {
+            sections.append(.init(label: "规划摘要", text: plannerSummary, monospaced: false, lineLimit: 4))
+        }
+
         if let stateSummary = executionStateSummary(for: toolCall) {
             sections.append(.init(label: "当前状态", text: stateSummary, monospaced: false, lineLimit: 4))
         }
@@ -90,6 +115,25 @@ enum ToolCallDetailPresentation {
                     text: summary,
                     monospaced: false,
                     lineLimit: 4
+                )
+            )
+        }
+
+        if isUserTakeoverActive {
+            sections.append(
+                .init(
+                    label: "接管说明",
+                    text: "当前终端任务已进入用户接管。可使用下方输入区直接发送文本，或使用方向键、Space、Enter、Ctrl-C 继续完成 TUI 导航。",
+                    monospaced: false,
+                    lineLimit: 4
+                )
+            )
+            sections.append(
+                .init(
+                    label: "快捷键",
+                    text: "↑ / ↓: 移动焦点\nSpace: 切换勾选\nEnter: 确认当前界面\nCtrl-C: 取消当前命令",
+                    monospaced: true,
+                    lineLimit: 6
                 )
             )
         }
@@ -194,6 +238,12 @@ enum ToolCallDetailPresentation {
             return "执行中"
         case .waitingForInput:
             return "等待输入"
+        case .planningInteraction:
+            return "规划中"
+        case .awaitingUserApproval:
+            return "等待批准"
+        case .userTakeover:
+            return "用户接管"
         case .completed:
             return "已完成"
         case .failed:
@@ -218,6 +268,19 @@ enum ToolCallDetailPresentation {
         return summary
     }
 
+    private static func interactionPhaseText(_ phase: TerminalInteractionPhase) -> String {
+        switch phase {
+        case .planning:
+            return "规划中"
+        case .autoExecuting:
+            return "自动执行"
+        case .awaitingApproval:
+            return "等待批准"
+        case .userTakeover:
+            return "用户接管"
+        }
+    }
+
     private static func detailSummaryText(for row: ToolCallRowPresentation) -> String? {
         if let secondary = row.secondaryText?.trimmingCharacters(in: .whitespacesAndNewlines), !secondary.isEmpty {
             return secondary
@@ -236,22 +299,34 @@ enum ToolCallDetailPresentation {
 }
 
 struct ToolCallDetailContentView: View {
+    @Environment(ClaudeService.self) private var claudeService
+    @Environment(\.modelContext) private var modelContext
+
     let toolCall: ToolCall
     let row: ToolCallRowPresentation
 
+    @State private var terminalInputDraft = ""
+    @State private var isSendingTerminalInput = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(ToolCallDetailPresentation.sections(for: toolCall, row: row)) { section in
-                detailTextBlock(
-                    label: section.label,
-                    text: section.text,
-                    monospaced: section.monospaced,
-                    lineLimit: section.lineLimit,
-                    maxHeight: section.maxHeight
-                )
+            if ToolCallDetailPresentation.showsPrimaryTerminalScreen(for: toolCall, row: row) {
+                ManagedTerminalScreenDetailView(toolCall: toolCall)
+            }
+
+            if showsManualTakeoverInput {
+                manualTakeoverComposer
             }
         }
         .accessibilityIdentifier("toolDetail.panel")
+    }
+
+    private var showsManualTakeoverInput: Bool {
+        guard toolCall.kind == .execute else { return false }
+        guard let status = toolCall.terminalTaskStatus.flatMap(TerminalTaskStatus.init(rawValue:)) else {
+            return toolCall.terminalUserTakeoverActive
+        }
+        return toolCall.terminalUserTakeoverActive || status == .userTakeover
     }
 
     private func detailTextBlock(
@@ -277,6 +352,76 @@ struct ToolCallDetailContentView: View {
             .frame(maxHeight: maxHeight)
             .background(Color.primary.opacity(0.03))
             .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private var manualTakeoverComposer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("终端输入")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
+            HStack(spacing: 6) {
+                manualActionButton("↑", actions: [.key(.up)])
+                manualActionButton("↓", actions: [.key(.down)])
+                manualActionButton("Space", actions: [.key(.space)])
+                manualActionButton("Enter", actions: [.key(.enter)])
+                manualActionButton("Ctrl-C", actions: [.signal(.interrupt)])
+            }
+
+            HStack(spacing: 8) {
+                TextField("输入要发送到当前终端任务的文本", text: $terminalInputDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(isSendingTerminalInput)
+
+                Button("发送") {
+                    sendTextInput(appendEnter: false)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSendingTerminalInput || terminalInputDraft.isEmpty)
+
+                Button("发送并回车") {
+                    sendTextInput(appendEnter: true)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isSendingTerminalInput || terminalInputDraft.isEmpty)
+            }
+        }
+        .padding(8)
+        .background(Color.primary.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func manualActionButton(_ title: String, actions: [TerminalInteractionAction]) -> some View {
+        Button(title) {
+            Task {
+                isSendingTerminalInput = true
+                await claudeService.applyManagedTerminalActions(
+                    toolCall: toolCall,
+                    actions: actions,
+                    modelContext: modelContext
+                )
+                isSendingTerminalInput = false
+            }
+        }
+        .buttonStyle(.bordered)
+        .disabled(isSendingTerminalInput)
+    }
+
+    private func sendTextInput(appendEnter: Bool) {
+        let text = terminalInputDraft
+        guard !text.isEmpty else { return }
+        terminalInputDraft = ""
+
+        let payload = appendEnter ? text + "\n" : text
+        Task {
+            isSendingTerminalInput = true
+            await claudeService.applyManagedTerminalActions(
+                toolCall: toolCall,
+                actions: [.text(payload)],
+                modelContext: modelContext
+            )
+            isSendingTerminalInput = false
         }
     }
 }

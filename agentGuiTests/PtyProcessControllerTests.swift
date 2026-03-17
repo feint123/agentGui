@@ -80,4 +80,65 @@ struct PtyProcessControllerTests {
         #expect(result.exitCode == 0)
         #expect(result.output.contains("from-zshrc"))
     }
+
+    @Test func ptyControllerRecognizesCarriageReturnAsEnterKey() async throws {
+        let controller = try PtyProcessController(
+            command: "stty raw -echo; dd bs=1 count=1 2>/dev/null | od -An -t u1",
+            shell: "/bin/zsh",
+            workingDirectory: nil,
+            environment: ProcessInfo.processInfo.environment
+        )
+
+        try controller.start()
+        try await Task.sleep(for: .milliseconds(80))
+        try controller.sendInput(TerminalKeyEncoder().encode(.enter))
+
+        let result = try await controller.waitForExit()
+        let codeLine = result.output
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .last
+
+        #expect(result.exitCode == 0)
+        #expect(codeLine == "13")
+    }
+
+    @Test func ptyControllerPreservesRawCarriageReturnsForScreenConsumers() async throws {
+        let controller = try PtyProcessController(
+            command: #"printf 'A\rB'; sleep 0.2"#,
+            shell: "/bin/zsh",
+            workingDirectory: nil,
+            environment: ProcessInfo.processInfo.environment
+        )
+
+        try controller.start()
+        try await Task.sleep(for: .milliseconds(80))
+
+        let rawOutput = controller.currentRawOutput()
+        let normalizedOutput = controller.currentOutput()
+        let result = try await controller.waitForExit()
+
+        #expect(rawOutput.contains("\r"))
+        #expect(normalizedOutput.contains("\n"))
+        #expect(result.output.contains("\n"))
+    }
+
+    @Test func ptyControllerReportsNonZeroTerminalSize() async throws {
+        let controller = try PtyProcessController(
+            command: "stty size",
+            shell: "/bin/zsh",
+            workingDirectory: nil,
+            environment: ProcessInfo.processInfo.environment
+        )
+
+        let result = try await controller.runUntilExit()
+        let sizeLine = result.output
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+            .first(where: { $0.first?.isNumber == true })
+
+        #expect(result.exitCode == 0)
+        #expect(sizeLine == "24 80")
+    }
 }

@@ -17,8 +17,12 @@ enum TerminalRuntimeError: Error, Equatable, LocalizedError {
 actor TerminalTaskRuntime {
     private let registry: TerminalRuntimeRegistry
     private let transcriptStore: TerminalTranscriptStore
+    private let shellIntegrationParser = TerminalShellIntegrationParser()
+    private let vtParser = TerminalVTParser()
+    private let keyEncoder = TerminalKeyEncoder()
     private var controllers: [String: PtyProcessController] = [:]
     private var detachedTasks: [String: Task<TerminalExecutionOutcome, Error>] = [:]
+    private var screenModels: [String: TerminalScreenModel] = [:]
     private let sessionId: String
 
     init(
@@ -116,7 +120,50 @@ actor TerminalTaskRuntime {
 
     func sendInput(taskId: String, input: String) async throws {
         guard let controller = controllers[taskId] else { throw TerminalRuntimeError.taskNotFound }
+        print("[bash-runtime] sendInput session=\(sessionId) task_id=\(taskId) chars=\(input.count) payload=\(input.debugDescription)")
         try controller.sendInput(input)
+    }
+
+    func applyInteractionActions(taskId: String, actions: [TerminalInteractionAction]) async throws {
+        guard let controller = controllers[taskId] else { throw TerminalRuntimeError.taskNotFound }
+
+        print("[bash-runtime] applyInteractionActions session=\(sessionId) task_id=\(taskId) actions=\(actions.map(actionLabel).joined(separator: ", "))")
+
+        for action in actions {
+            switch action {
+            case .key(let key):
+                print("[bash-runtime] applyInteractionAction key session=\(sessionId) task_id=\(taskId) key=\(key.rawValue)")
+                try controller.sendInput(keyEncoder.encode(key))
+            case .text(let text):
+                print("[bash-runtime] applyInteractionAction text session=\(sessionId) task_id=\(taskId) payload=\(text.debugDescription)")
+                try controller.sendInput(text)
+            case .wait(let milliseconds):
+                print("[bash-runtime] applyInteractionAction wait session=\(sessionId) task_id=\(taskId) milliseconds=\(milliseconds)")
+                let duration = UInt64(max(milliseconds, 0)) * 1_000_000
+                try await Task.sleep(nanoseconds: duration)
+            case .signal(let signal):
+                print("[bash-runtime] applyInteractionAction signal session=\(sessionId) task_id=\(taskId) signal=\(signal.rawValue)")
+                switch signal {
+                case .interrupt:
+                    try controller.interrupt()
+                case .terminate:
+                    try controller.terminate(force: false)
+                }
+            }
+        }
+    }
+
+    private func actionLabel(_ action: TerminalInteractionAction) -> String {
+        switch action {
+        case .key(let key):
+            return key.rawValue
+        case .text(let text):
+            return "text:\(text)"
+        case .wait(let milliseconds):
+            return "wait:\(milliseconds)ms"
+        case .signal(let signal):
+            return signal.rawValue
+        }
     }
 
     func interrupt(taskId: String) async throws {
@@ -132,6 +179,56 @@ actor TerminalTaskRuntime {
     func cleanup(taskId: String) async throws {
         controllers[taskId] = nil
         detachedTasks[taskId] = nil
+        screenModels[taskId] = nil
+    }
+
+    func screenSnapshot(taskId: String) async throws -> TerminalScreenSnapshot {
+        guard screenModels[taskId] != nil else {
+            throw TerminalRuntimeError.taskNotFound
+        }
+
+        try await syncScreenModel(taskId: taskId)
+
+        if let initialSnapshot = screenModels[taskId]?.snapshot(),
+           initialSnapshot.plainTextLines.joined().isEmpty,
+           controllers[taskId] != nil {
+            for _ in 0..<5 {
+                try await Task.sleep(nanoseconds: 50_000_000)
+                try await syncScreenModel(taskId: taskId)
+                if let updatedSnapshot = screenModels[taskId]?.snapshot(),
+                   !updatedSnapshot.plainTextLines.joined().isEmpty {
+                    return updatedSnapshot
+                }
+            }
+        }
+
+        guard let screenModel = screenModels[taskId] else {
+            throw TerminalRuntimeError.taskNotFound
+        }
+
+        return screenModel.snapshot()
+    }
+
+    func ingestShellIntegrationOutput(taskId: String, output: String) async throws {
+        var snapshot = try await requireSnapshot(taskId: taskId)
+        let events = shellIntegrationParser.parse(output)
+
+        for event in events {
+            switch event {
+            case .property(let name, let value):
+                if name == "Cwd" {
+                    snapshot.currentWorkingDirectory = value
+                }
+            case .commandLine(let line):
+                snapshot.shellCommandLine = line
+            case .commandFinished(let exitCode):
+                snapshot.exitCode = exitCode
+            case .promptStart, .promptEnd, .commandStart:
+                break
+            }
+        }
+
+        await registry.upsert(snapshot)
     }
 
     func waitForDetachedTask(taskId: String) async throws -> TerminalExecutionOutcome {
@@ -162,6 +259,7 @@ actor TerminalTaskRuntime {
         try transcriptStore.createTranscript(taskId: taskId)
         let transcriptPath = transcriptStore.transcriptURL(taskId: taskId).path
         print("[bash-runtime] prepareTask session=\(sessionId) task_id=\(taskId) mode=\(executionMode.rawValue) transcript=\(transcriptPath)")
+        screenModels[taskId] = TerminalScreenModel()
         let snapshot = TerminalTaskSnapshot(
             id: taskId,
             sessionId: sessionId,
@@ -178,6 +276,11 @@ actor TerminalTaskRuntime {
     private func finalizeTask(taskId: String, transcriptPath: String, result: PtyProcessResult) async throws -> TerminalExecutionOutcome {
         print("[bash-runtime] finalizeTask session=\(sessionId) task_id=\(taskId) exit=\(result.exitCode) outputChars=\(result.output.count)")
         try transcriptStore.append(result.output, to: taskId)
+        var screenModel = TerminalScreenModel()
+        for event in vtParser.parse(result.output) {
+            screenModel.apply(event)
+        }
+        screenModels[taskId] = screenModel
 
         let completionReason: TerminalCompletionReason = result.exitCode == 0 ? .exitedZero : .exitedNonZero
         let outcome = TerminalExecutionOutcome(
@@ -202,5 +305,26 @@ actor TerminalTaskRuntime {
         }
 
         return outcome
+    }
+
+    private func syncScreenModel(taskId: String) async throws {
+        guard var screenModel = screenModels[taskId] else {
+            throw TerminalRuntimeError.taskNotFound
+        }
+
+        let sourceOutput: String
+        if let controller = controllers[taskId] {
+            sourceOutput = controller.currentOutput()
+        } else if let snapshot = await registry.snapshot(taskId: taskId), let latestOutputSnippet = snapshot.latestOutputSnippet {
+            sourceOutput = latestOutputSnippet
+        } else {
+            sourceOutput = ""
+        }
+
+        screenModel = TerminalScreenModel()
+        for event in vtParser.parse(sourceOutput) {
+            screenModel.apply(event)
+        }
+        screenModels[taskId] = screenModel
     }
 }

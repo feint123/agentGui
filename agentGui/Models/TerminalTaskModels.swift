@@ -14,6 +14,9 @@ enum TerminalTaskStatus: String, Codable, Equatable, Sendable {
     case launching
     case running
     case waitingForInput
+    case planningInteraction
+    case awaitingUserApproval
+    case userTakeover
     case completed
     case failed
     case interrupted
@@ -68,6 +71,7 @@ enum TerminalCompletionReason: String, Codable, Equatable, Sendable {
 enum TerminalTaskEventKind: String, Codable, Equatable, Sendable {
     case output
     case promptDetected
+    case plannerDecision
     case agentInput
     case stateChanged
     case backgroundRegistered
@@ -96,6 +100,8 @@ struct TerminalTaskSnapshot: Codable, Equatable, Sendable, Identifiable {
     var id: String
     var sessionId: String
     var command: String
+    var shellCommandLine: String?
+    var currentWorkingDirectory: String?
     var executionMode: TerminalExecutionMode
     var status: TerminalTaskStatus
     var riskLevel: TerminalRiskLevel
@@ -115,6 +121,8 @@ struct TerminalTaskSnapshot: Codable, Equatable, Sendable, Identifiable {
         id: String,
         sessionId: String,
         command: String,
+        shellCommandLine: String? = nil,
+        currentWorkingDirectory: String? = nil,
         executionMode: TerminalExecutionMode = .attached,
         status: TerminalTaskStatus = .launching,
         riskLevel: TerminalRiskLevel = .low,
@@ -133,6 +141,8 @@ struct TerminalTaskSnapshot: Codable, Equatable, Sendable, Identifiable {
         self.id = id
         self.sessionId = sessionId
         self.command = command
+        self.shellCommandLine = shellCommandLine
+        self.currentWorkingDirectory = currentWorkingDirectory
         self.executionMode = executionMode
         self.status = status
         self.riskLevel = riskLevel
@@ -155,6 +165,8 @@ extension TerminalTaskSnapshot {
         id: String = "task-fixture",
         sessionId: String = "session-fixture",
         command: String = "echo hello",
+        shellCommandLine: String? = nil,
+        currentWorkingDirectory: String? = nil,
         executionMode: TerminalExecutionMode = .attached,
         status: TerminalTaskStatus = .launching,
         riskLevel: TerminalRiskLevel = .low,
@@ -174,6 +186,8 @@ extension TerminalTaskSnapshot {
             id: id,
             sessionId: sessionId,
             command: command,
+            shellCommandLine: shellCommandLine,
+            currentWorkingDirectory: currentWorkingDirectory,
             executionMode: executionMode,
             status: status,
             riskLevel: riskLevel,

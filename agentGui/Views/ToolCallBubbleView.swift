@@ -37,6 +37,14 @@ enum ToolCallBubbleHeaderPresentation {
             badges.append(.init(text: taskStatusText(status), tone: badgeTone(for: status)))
         }
 
+        if toolCall.terminalApprovalPending {
+            badges.append(.init(text: "需要批准", tone: .warning))
+        }
+
+        if toolCall.terminalUserTakeoverActive {
+            badges.append(.init(text: "手动接管", tone: .active))
+        }
+
         if let actionSummary = latestAgentActionSummary(from: toolCall.terminalAgentActionsJSON) {
             badges.append(.init(text: actionSummary, tone: .active))
         }
@@ -73,6 +81,12 @@ enum ToolCallBubbleHeaderPresentation {
             return "执行中"
         case .waitingForInput:
             return "等待输入"
+        case .planningInteraction:
+            return "规划中"
+        case .awaitingUserApproval:
+            return "等待批准"
+        case .userTakeover:
+            return "用户接管"
         case .completed:
             return "已完成"
         case .failed:
@@ -90,6 +104,8 @@ enum ToolCallBubbleHeaderPresentation {
         switch status {
         case .waitingForInput:
             return .active
+        case .planningInteraction, .awaitingUserApproval, .userTakeover:
+            return .warning
         case .failed, .timedOut, .terminated:
             return .warning
         default:
@@ -158,7 +174,10 @@ struct ToolCallBubbleView: View {
     }
 
     private var supportsExpansion: Bool {
-        rowPresentation.detailText != nil || rowPresentation.secondaryText != nil || rowPresentation.tertiaryText != nil
+        ToolCallDetailPresentation.showsPrimaryTerminalScreen(for: toolCall, row: rowPresentation)
+            || rowPresentation.detailText != nil
+            || rowPresentation.secondaryText != nil
+            || rowPresentation.tertiaryText != nil
     }
 
     private var shouldShowDetails: Bool {
@@ -335,6 +354,7 @@ struct ToolCallBubbleView: View {
                 .foregroundStyle(.secondary)
         }
     }
+
 }
 
 private struct FlowLayout<Content: View>: View {

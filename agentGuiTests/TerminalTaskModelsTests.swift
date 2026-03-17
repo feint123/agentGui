@@ -4,6 +4,46 @@ import Testing
 
 struct TerminalTaskModelsTests {
 
+    @Test func terminalInteractionActionSupportsKeyAndTextInput() async throws {
+        let enter = TerminalInteractionAction.key(.enter)
+        let text = TerminalInteractionAction.text("vue3-demo")
+
+        #expect(enter.isKeyboardAction)
+        #expect(!text.isKeyboardAction)
+    }
+
+    @Test func terminalSurfaceSnapshotCapturesVisibleOptions() async throws {
+        let snapshot = TerminalSurfaceSnapshot(
+            plainTextFrame: "feature menu",
+            rawANSISnippet: "\u{001B}[32mfeature menu\u{001B}[0m",
+            visibleOptions: [
+                .init(label: "JSX 支持", isSelected: false, isFocused: true),
+                .init(label: "Router", isSelected: true, isFocused: false)
+            ],
+            focusedOptionIndex: 0,
+            selectionMode: .multiSelect,
+            isAlternateScreen: true
+        )
+
+        #expect(snapshot.visibleOptions.count == 2)
+        #expect(snapshot.selectionMode == .multiSelect)
+        #expect(snapshot.isAlternateScreen)
+    }
+
+    @Test func terminalInteractionPlanTracksApprovalRequirement() async throws {
+        let plan = TerminalInteractionPlan(
+            interactionType: "multi_select_menu",
+            intentSummary: "select vue features",
+            confidence: 0.83,
+            nextActions: [.key(.space), .key(.enter)],
+            requiresUserConfirmation: false,
+            reasoningSummary: "Matches requested feature set"
+        )
+
+        #expect(plan.nextActions.count == 2)
+        #expect(plan.requiresUserConfirmation == false)
+    }
+
     @Test func executionModeAcceptsOnlyPtyModes() async throws {
         #expect(TerminalExecutionMode(rawValue: "attached") != nil)
         #expect(TerminalExecutionMode(rawValue: "detached") != nil)

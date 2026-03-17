@@ -7,6 +7,97 @@ import Testing
 @MainActor
 struct AgentLoopIntegrationTests {
 
+    @Test func plannerHelperAutoExecutesHighConfidenceTerminalPlan() async throws {
+        let registry = BashTaskRegistry()
+        let transcriptDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let runtime = TerminalTaskRuntime(
+            registry: registry,
+            transcriptStore: TerminalTranscriptStore(baseDirectory: transcriptDirectory),
+            sessionId: "planner-helper-high-confidence"
+        )
+        let session = Session.fixture(title: "Planner Session")
+        let message = Message.agentFixture(text: "Create a Vue app with JSX, Router, Pinia, and Vitest", session: session, status: .pending)
+        let record = ToolCall(toolCallId: "tool-bash-planner", kind: .execute, message: message)
+        record.title = "Create a Vue app with JSX, Router, Pinia, and Vitest"
+        record.terminalTaskId = "planner-high-confidence"
+        record.status = .inProgress
+
+        _ = try await runtime.startDetached(
+            command: #"python3 -c \"import sys; sys.stdout.write('◆  请选择要包含的功能： (↑/↓ 切换，空格选择，a 全选，回车确认)\\n│  ◻ JSX 支持\\n│  ◻ Router（单页面应用开发）\\n│  ◻ Pinia（状态管理）\\n│  ◻ Vitest（单元测试）\\n'); sys.stdout.flush(); data = sys.stdin.buffer.read(6); print('input-bytes:' + ' '.join(str(b) for b in data))\""#,
+            taskId: "planner-high-confidence"
+        )
+        var snapshot = try await runtime.status(taskId: "planner-high-confidence")
+        let screenSnapshot = try await runtime.screenSnapshot(taskId: "planner-high-confidence")
+
+        let handled = try await AgentLoopToolExecutionCoordinatorBuilder.processInteractiveTerminalSurfaceForTests(
+            command: "Create a Vue app with JSX, Router, Pinia, and Vitest",
+            screenSnapshot: screenSnapshot,
+            liveSnapshot: &snapshot,
+            record: record,
+            runtime: runtime,
+            registry: registry,
+            planner: .stubForTests()
+        )
+        let outcome = try await runtime.waitForDetachedTask(taskId: "planner-high-confidence")
+        let events = await registry.events(taskId: "planner-high-confidence")
+
+        #expect(handled)
+        #expect(snapshot.status == .running)
+        #expect(record.terminalInteractionPhase == TerminalInteractionPhase.autoExecuting.rawValue)
+        #expect(record.terminalApprovalPending == false)
+        #expect(outcome.finalOutputSnippet.contains("input-bytes:32 27 91 66 32 10"))
+        #expect(events.contains(where: { $0.kind == .plannerDecision }))
+        #expect(events.contains(where: { $0.kind == .agentInput && $0.summary.contains("space") }))
+    }
+
+    @Test func plannerHelperEscalatesLowConfidencePlanToApproval() async throws {
+        let registry = BashTaskRegistry()
+        let transcriptDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let runtime = TerminalTaskRuntime(
+            registry: registry,
+            transcriptStore: TerminalTranscriptStore(baseDirectory: transcriptDirectory),
+            sessionId: "planner-helper-low-confidence"
+        )
+        let session = Session.fixture(title: "Planner Session")
+        let message = Message.agentFixture(text: "interactive selection", session: session, status: .pending)
+        let record = ToolCall(toolCallId: "tool-bash-planner-low", kind: .execute, message: message)
+        record.title = "custom interactive installer"
+        record.terminalTaskId = "planner-low-confidence"
+        record.status = .inProgress
+
+        _ = try await runtime.startDetached(command: "sleep 5", taskId: "planner-low-confidence")
+        var snapshot = try await runtime.status(taskId: "planner-low-confidence")
+        let screenSnapshot = TerminalScreenSnapshot(
+            plainTextLines: TerminalInteractiveFixtures.createVueFeatureSelectionScreen
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init),
+            activeBuffer: .alternate,
+            cursor: .init(row: 4, column: 0),
+            width: 80,
+            height: 24
+        )
+
+        let handled = try await AgentLoopToolExecutionCoordinatorBuilder.processInteractiveTerminalSurfaceForTests(
+            command: "custom interactive installer",
+            screenSnapshot: screenSnapshot,
+            liveSnapshot: &snapshot,
+            record: record,
+            runtime: runtime,
+            registry: registry,
+            planner: .stubForTests()
+        )
+        let events = await registry.events(taskId: "planner-low-confidence")
+
+        #expect(handled)
+        #expect(snapshot.status == .awaitingUserApproval)
+        #expect(record.terminalInteractionPhase == TerminalInteractionPhase.awaitingApproval.rawValue)
+        #expect(record.terminalApprovalPending)
+        #expect(events.contains(where: { $0.kind == .userDecisionRequested && $0.summary.contains("批准") }))
+
+        try await runtime.terminate(taskId: "planner-low-confidence", force: true)
+        _ = try await runtime.waitForDetachedTask(taskId: "planner-low-confidence")
+    }
+
     @Test func runCoreAgentLoopReturnsMaxRoundsFailureWhenLoopNeverExecutes() async throws {
         let claudeService = ClaudeService()
         let modelContext = try makeModelContext()
@@ -107,7 +198,7 @@ struct AgentLoopIntegrationTests {
             ],
             [
                 decodeStreamEvent("""
-                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\"passed\":true,\"summary\":\"delegated verification passed\",\"verified_items\":[\"subagent plan observed\"],\"failed_items\":[],\"missing_evidence\":[],\"risk_areas\":[],\"recommended_next_action\":\"finish\",\"confidence\":0.98}"}}
+                {"type":"content_block_delta","delta":{"type":"text_delta","text":"{\\\"passed\\\":true,\\\"summary\\\":\\\"delegated verification passed\\\",\\\"verified_items\\\":[\\\"subagent plan observed\\\"],\\\"failed_items\\\":[],\\\"missing_evidence\\\":[],\\\"risk_areas\\\":[],\\\"recommended_next_action\\\":\\\"finish\\\",\\\"confidence\\\":0.98}"}}
                 """),
                 decodeStreamEvent("""
                 {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
@@ -313,23 +404,13 @@ struct AgentLoopIntegrationTests {
         let modelContext = try makeModelContext()
         let service = SequencedFakeAnthropicService(streamBatches: [
             [
-                decodeStreamEvent("""
-                {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-bash-install","name":"bash"}}
-                """),
-                decodeStreamEvent("""
-                {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\\"operation\\\":\\\"start\\\",\\\"command\\\":\\\"printf 'Need to install the following packages:\\\\ncreate-vue@3.22.0\\\\nOk to proceed? (y)'; read answer; printf '\\\\nanswer:%s\\\\n' \\\"$answer\\\"\\\",\\\"task_id\\\":\\\"npm-create-vue\\\",\\\"execution_mode\\\":\\\"attached\\\"}"}}
-                """),
-                decodeStreamEvent("""
-                {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
-                """)
+                TerminalInteractiveFixtures.toolUseStart(id: "tool-bash-install", name: "bash"),
+                TerminalInteractiveFixtures.inputJSONDelta(#"{"operation":"start","command":"printf 'Need to install the following packages:\ncreate-vue@3.22.0\nOk to proceed? (y)'; read answer; echo answer:$answer","task_id":"npm-create-vue","execution_mode":"attached"}"#),
+                TerminalInteractiveFixtures.stopReason("tool_use")
             ],
             [
-                decodeStreamEvent("""
-                {"type":"content_block_delta","delta":{"type":"text_delta","text":"package install prompt handled"}}
-                """),
-                decodeStreamEvent("""
-                {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
-                """)
+                TerminalInteractiveFixtures.textDelta("package install prompt handled"),
+                TerminalInteractiveFixtures.stopReason("end_turn")
             ]
         ])
 

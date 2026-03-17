@@ -4,6 +4,8 @@ import SwiftData
 
 @MainActor
 struct AgentLoopToolExecutionCoordinatorBuilder {
+    static let terminalPlannerAutoExecuteThreshold = 0.8
+
     let claudeService: ClaudeService
     let service: any AnthropicService
     let modelId: String
@@ -73,9 +75,14 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
         record.terminalTaskStatus = TerminalTaskStatus.launching.rawValue
         record.terminalExecutionMode = bashRequest.executionMode.rawValue
 
+        let observedCommand = bashRequest.command ?? record.title ?? "nil"
+        print("[bash-observer] start foreground observation session=\(sessionId) task_id=\(taskId) mode=\(bashRequest.executionMode.rawValue) command=\(observedCommand)")
+
         return Task { @MainActor in
             var lastPromptText: String?
             var lastOutput = ""
+            var lastInteractiveSurfaceFingerprint: String?
+            var lastSurfaceDiagnosticKey: String?
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 if Task.isCancelled { break }
@@ -93,13 +100,24 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                 }
                 lastOutput = liveOutput
 
+                if !delta.isEmpty {
+                    try? await runtime.ingestShellIntegrationOutput(taskId: taskId, output: delta)
+                    if let refreshedSnapshot = try? await runtime.status(taskId: taskId) {
+                        liveSnapshot = refreshedSnapshot
+                    }
+                }
+
                 if !liveOutput.isEmpty {
                     record.terminalOutput = liveOutput
                 }
 
-                let promptDecision = BashPromptAnalyzer().analyze(output: liveOutput)
+                let screenSnapshot = try? await runtime.screenSnapshot(taskId: taskId)
+                let projectedSurface = screenSnapshot.map { TerminalSurfaceProjector().project($0, rawANSISnippet: liveOutput) }
+                    ?? TerminalSurfaceSnapshot(plainTextFrame: liveOutput, rawANSISnippet: liveOutput)
+                let promptDecision = BashPromptAnalyzer().analyze(output: projectedSurface.plainTextFrame)
 
                 if let promptDecision {
+                    print("[bash-observer] prompt detected task_id=\(taskId) kind=\(promptDecision.snapshot.kind.rawValue) autoReply=\(promptDecision.shouldAutoReply) prompt=\(promptDecision.snapshot.promptText)")
                     liveSnapshot.status = .waitingForInput
                     liveSnapshot.prompt = promptDecision.snapshot
                     liveSnapshot.latestOutputSnippet = promptDecision.snapshot.promptText
@@ -117,6 +135,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                            let autoReply = promptDecision.autoReplyText {
                             do {
                                 let reply = claudeService.normalizedTerminalReply(autoReply)
+                                print("[bash-observer] auto replying prompt task_id=\(taskId) reply=\(autoReply.debugDescription)")
                                 try await runtime.sendInput(taskId: taskId, input: reply)
                                 liveSnapshot.status = .running
                                 liveSnapshot.prompt = nil
@@ -128,10 +147,12 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                                 liveSnapshot.latestOutputSnippet = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                             }
                         } else {
+                            print("[bash-observer] waiting for prompt user action task_id=\(taskId)")
                             await registry.appendEvent(
                                 TerminalTaskEvent(taskId: taskId, kind: .userDecisionRequested, summary: "等待用户处理终端提示")
                             )
                             let action = await claudeService.requestPromptUserAction(for: promptDecision)
+                            print("[bash-observer] prompt user action resolved task_id=\(taskId) action=\(String(describing: action))")
                             switch action {
                             case .reply(let replyText):
                                 do {
@@ -164,13 +185,140 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                             }
                         }
                     }
+                    lastInteractiveSurfaceFingerprint = nil
                 } else {
+                    let interactiveFingerprint = Self.interactiveSurfaceFingerprint(for: projectedSurface)
+                    let shouldProcessInteractiveSurface = interactiveFingerprint != nil
+                        && interactiveFingerprint != lastInteractiveSurfaceFingerprint
+
+                    let surfaceDiagnosticKey = "\(projectedSurface.selectionMode.rawValue)|\(projectedSurface.visibleOptions.count)|\(projectedSurface.plainTextFrame.hashValue)"
+                    let surfaceChanged = surfaceDiagnosticKey != lastSurfaceDiagnosticKey
+                    if surfaceChanged {
+                        lastSurfaceDiagnosticKey = surfaceDiagnosticKey
+                        print(
+                            "[bash-observer] surface snapshot task_id=\(taskId) selectionMode=\(projectedSurface.selectionMode.rawValue) options=\(projectedSurface.visibleOptions.count) altScreen=\(projectedSurface.isAlternateScreen) preview=\(Self.terminalPreview(projectedSurface.plainTextFrame))"
+                        )
+                        if projectedSurface.visibleOptions.isEmpty {
+                            print("[bash-observer] surface options empty task_id=\(taskId) rawPreview=\(Self.terminalPreview(projectedSurface.rawANSISnippet))")
+                        } else {
+                            print("[bash-observer] surface options task_id=\(taskId) labels=\(projectedSurface.visibleOptions.map { $0.label }.joined(separator: " | "))")
+                        }
+                    }
+
+                    if let interactiveFingerprint {
+                        print("[bash-observer] interactive surface candidate task_id=\(taskId) fingerprintHash=\(interactiveFingerprint.hashValue) changed=\(shouldProcessInteractiveSurface)")
+                    } else if !liveOutput.isEmpty, surfaceChanged {
+                        print("[bash-observer] interactive surface not detected task_id=\(taskId) selectionMode=\(projectedSurface.selectionMode.rawValue) options=\(projectedSurface.visibleOptions.count)")
+                    }
+
+                    if shouldProcessInteractiveSurface {
+                        print("[bash-observer] processing interactive surface task_id=\(taskId)")
+                        guard let screenSnapshot else {
+                            print("[bash-observer] screen snapshot unavailable task_id=\(taskId)")
+                            lastInteractiveSurfaceFingerprint = nil
+                            await registry.upsert(liveSnapshot)
+                            continue
+                        }
+                        let handledInteractiveSurface = (try? await Self.processInteractiveTerminalSurfaceForTests(
+                            command: bashRequest.command ?? record.title ?? liveSnapshot.command,
+                            screenSnapshot: screenSnapshot,
+                            liveSnapshot: &liveSnapshot,
+                            record: record,
+                            runtime: runtime,
+                            registry: registry,
+                            planner: .deterministicFallback()
+                        )) ?? false
+
+                        let interactionPhase = record.terminalInteractionPhase ?? "nil"
+                        print("[bash-observer] interactive surface processed task_id=\(taskId) handled=\(handledInteractiveSurface) status=\(liveSnapshot.status.rawValue) phase=\(interactionPhase) approvalPending=\(record.terminalApprovalPending)")
+
+                        if handledInteractiveSurface,
+                           liveSnapshot.status == .awaitingUserApproval,
+                           let plannedInteraction = await Self.latestPlannedInteraction(for: liveSnapshot.id, registry: registry) {
+                            print("[bash-observer] planner awaiting approval task_id=\(taskId) confidence=\(plannedInteraction.confidence) requiresConfirmation=\(plannedInteraction.requiresUserConfirmation) actions=\(Self.terminalActionSummary(plannedInteraction.nextActions))")
+                            let action = await claudeService.requestTerminalPlannerUserAction(
+                                for: plannedInteraction,
+                                summary: record.terminalPlannerSummary ?? plannedInteraction.reasoningSummary
+                            )
+
+                            print("[bash-observer] planner approval resolved task_id=\(taskId) action=\(String(describing: action))")
+
+                            switch action {
+                            case .approve:
+                                do {
+                                    print("[bash-observer] executing approved planner actions task_id=\(taskId) actions=\(Self.terminalActionSummary(plannedInteraction.nextActions))")
+                                    try await runtime.applyInteractionActions(taskId: liveSnapshot.id, actions: plannedInteraction.nextActions)
+                                    liveSnapshot.status = .running
+                                    liveSnapshot.latestOutputSnippet = record.terminalPlannerSummary
+                                    record.terminalInteractionPhase = TerminalInteractionPhase.autoExecuting.rawValue
+                                    record.terminalApprovalPending = false
+                                    record.terminalUserTakeoverActive = false
+                                    await registry.appendEvent(
+                                        TerminalTaskEvent(
+                                            taskId: liveSnapshot.id,
+                                            kind: .agentInput,
+                                            summary: "已按用户批准执行交互计划: \(Self.terminalActionSummary(plannedInteraction.nextActions))"
+                                        )
+                                    )
+                                } catch {
+                                    liveSnapshot.status = .failed
+                                    liveSnapshot.latestOutputSnippet = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                                }
+                            case .takeOver:
+                                liveSnapshot.status = .userTakeover
+                                record.terminalInteractionPhase = TerminalInteractionPhase.userTakeover.rawValue
+                                record.terminalApprovalPending = false
+                                record.terminalUserTakeoverActive = true
+                                print("[bash-observer] switching to user takeover task_id=\(taskId) terminalUserTakeoverActive=\(record.terminalUserTakeoverActive)")
+                                await registry.appendEvent(
+                                    TerminalTaskEvent(
+                                        taskId: liveSnapshot.id,
+                                        kind: .stateChanged,
+                                        summary: "终端任务已交给用户接管"
+                                    )
+                                )
+                            case .interrupt:
+                                do {
+                                    print("[bash-observer] interrupting planner flow task_id=\(taskId)")
+                                    try await runtime.interrupt(taskId: liveSnapshot.id)
+                                    liveSnapshot.status = .interrupted
+                                    record.terminalApprovalPending = false
+                                    record.terminalUserTakeoverActive = false
+                                    await registry.appendEvent(
+                                        TerminalTaskEvent(
+                                            taskId: liveSnapshot.id,
+                                            kind: .signalSent,
+                                            summary: "用户取消了终端交互计划"
+                                        )
+                                    )
+                                } catch {
+                                    liveSnapshot.status = .failed
+                                    liveSnapshot.latestOutputSnippet = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                                }
+                            case .wait:
+                                print("[bash-observer] planner approval deferred task_id=\(taskId)")
+                                break
+                            }
+                        }
+
+                        if handledInteractiveSurface {
+                            lastInteractiveSurfaceFingerprint = interactiveFingerprint
+                        } else {
+                            lastInteractiveSurfaceFingerprint = nil
+                        }
+                    } else if interactiveFingerprint == nil {
+                        lastInteractiveSurfaceFingerprint = nil
+                    }
+
                     lastPromptText = nil
                     liveSnapshot.prompt = nil
-                    if !liveSnapshot.status.isTerminal {
+                    if !liveSnapshot.status.isTerminal,
+                       liveSnapshot.status != .awaitingUserApproval,
+                       liveSnapshot.status != .userTakeover {
                         liveSnapshot.status = .running
                     }
-                    if let summary = firstTerminalSummaryLine(from: liveOutput) {
+                    if liveSnapshot.status == .running,
+                       let summary = firstTerminalSummaryLine(from: liveOutput) {
                         liveSnapshot.latestOutputSnippet = summary
                     }
                 }
@@ -196,6 +344,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                 }
 
                 if liveSnapshot.status.isTerminal {
+                    print("[bash-observer] observation finished task_id=\(taskId) terminalStatus=\(liveSnapshot.status.rawValue)")
                     break
                 }
             }
@@ -227,11 +376,17 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
             record.terminalPromptSummary = finalSnapshot.prompt?.promptText ?? firstTerminalSummaryLine(from: result.text)
             record.terminalTranscriptPath = finalSnapshot.transcriptPath
             record.terminalCompletionReason = finalSnapshot.completionReason?.rawValue
+            if finalSnapshot.status.isTerminal {
+                record.terminalApprovalPending = false
+                record.terminalUserTakeoverActive = false
+            }
         } else if result.toolCallStatus == .failed {
             record.terminalTaskId = taskId
             record.terminalTaskStatus = TerminalTaskStatus.failed.rawValue
             record.terminalExecutionMode = bashRequest.executionMode.rawValue
             record.terminalPromptSummary = firstTerminalSummaryLine(from: result.text)
+            record.terminalApprovalPending = false
+            record.terminalUserTakeoverActive = false
         }
     }
 
@@ -250,5 +405,169 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init)
             .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    }
+
+    static func shouldAutoExecuteTerminalPlan(_ plan: TerminalInteractionPlan) -> Bool {
+        !plan.requiresUserConfirmation && plan.confidence >= terminalPlannerAutoExecuteThreshold
+    }
+
+    static func interactiveSurfaceFingerprint(for output: String) -> String? {
+        let screenSnapshot = TerminalScreenSnapshot(
+            plainTextLines: output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init),
+            activeBuffer: .primary,
+            cursor: .init(),
+            width: 80,
+            height: 24
+        )
+        let surface = TerminalSurfaceProjector().project(screenSnapshot, rawANSISnippet: output)
+        return interactiveSurfaceFingerprint(for: surface)
+    }
+
+    static func interactiveSurfaceFingerprint(for surface: TerminalSurfaceSnapshot) -> String? {
+        guard surface.selectionMode == .singleSelect || surface.selectionMode == .multiSelect || surface.selectionMode == .textInput else {
+            return nil
+        }
+
+        return surface.plainTextFrame.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func processInteractiveTerminalSurfaceForTests(
+        command: String,
+        screenSnapshot: TerminalScreenSnapshot,
+        liveSnapshot: inout TerminalTaskSnapshot,
+        record: ToolCall,
+        runtime: TerminalTaskRuntime,
+        registry: BashTaskRegistry,
+        planner: TerminalInteractionPlanner
+    ) async throws -> Bool {
+        let surface = TerminalSurfaceProjector().project(screenSnapshot)
+        guard surface.selectionMode == .singleSelect || surface.selectionMode == .multiSelect || surface.selectionMode == .textInput else {
+            print("[bash-planner] ignoring non-interactive surface command=\(command)")
+            return false
+        }
+
+        let optionsSummary = surface.visibleOptions.map { $0.label }.joined(separator: " | ")
+        let focusedIndex = surface.focusedOptionIndex.map(String.init) ?? "nil"
+        print("[bash-planner] extracted surface task_id=\(liveSnapshot.id) selectionMode=\(surface.selectionMode.rawValue) options=\(optionsSummary) focusedIndex=\(focusedIndex) altScreen=\(surface.isAlternateScreen)")
+
+        liveSnapshot.status = .planningInteraction
+        record.terminalInteractionPhase = TerminalInteractionPhase.planning.rawValue
+        record.terminalApprovalPending = false
+        record.terminalUserTakeoverActive = false
+
+        let plan = try await planner.plan(
+            goal: command,
+            command: command,
+            surface: surface,
+            recentOutput: surface.plainTextFrame
+        )
+
+        let planJSON: String?
+        if let data = try? JSONEncoder().encode(plan) {
+            planJSON = String(data: data, encoding: .utf8)
+        } else {
+            planJSON = nil
+        }
+
+        let plannerSummary = plan.reasoningSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? plan.intentSummary
+            : plan.reasoningSummary
+
+        print("[bash-planner] plan ready task_id=\(liveSnapshot.id) interactionType=\(plan.interactionType) confidence=\(plan.confidence) requiresConfirmation=\(plan.requiresUserConfirmation) actions=\(terminalActionSummary(plan.nextActions)) summary=\(plannerSummary)")
+
+        await registry.appendEvent(
+            TerminalTaskEvent(
+                taskId: liveSnapshot.id,
+                kind: .plannerDecision,
+                summary: plannerSummary,
+                rawText: surface.plainTextFrame,
+                structuredPayloadJSON: planJSON
+            )
+        )
+
+        if shouldAutoExecuteTerminalPlan(plan) {
+            print("[bash-planner] auto executing plan task_id=\(liveSnapshot.id)")
+            try await runtime.applyInteractionActions(taskId: liveSnapshot.id, actions: plan.nextActions)
+            liveSnapshot.status = .running
+            liveSnapshot.latestOutputSnippet = plannerSummary
+            record.terminalInteractionPhase = TerminalInteractionPhase.autoExecuting.rawValue
+            record.terminalPlannerSummary = plannerSummary
+            record.terminalPromptSummary = plannerSummary
+            record.terminalApprovalPending = false
+            await registry.appendEvent(
+                TerminalTaskEvent(
+                    taskId: liveSnapshot.id,
+                    kind: .agentInput,
+                    summary: "已执行交互计划: \(terminalActionSummary(plan.nextActions))",
+                    structuredPayloadJSON: planJSON
+                )
+            )
+        } else {
+            print("[bash-planner] plan requires user approval task_id=\(liveSnapshot.id)")
+            liveSnapshot.status = .awaitingUserApproval
+            liveSnapshot.latestOutputSnippet = plannerSummary
+            record.terminalInteractionPhase = TerminalInteractionPhase.awaitingApproval.rawValue
+            record.terminalPlannerSummary = plannerSummary
+            record.terminalPromptSummary = plannerSummary
+            record.terminalApprovalPending = true
+            await registry.appendEvent(
+                TerminalTaskEvent(
+                    taskId: liveSnapshot.id,
+                    kind: .userDecisionRequested,
+                    summary: "等待用户批准终端交互方案",
+                    structuredPayloadJSON: planJSON
+                )
+            )
+        }
+
+        await registry.upsert(liveSnapshot)
+        record.terminalTaskId = liveSnapshot.id
+        record.terminalTaskStatus = liveSnapshot.status.rawValue
+        record.terminalExecutionMode = liveSnapshot.executionMode.rawValue
+        return true
+    }
+
+    private static func terminalActionSummary(_ actions: [TerminalInteractionAction]) -> String {
+        actions.map { action in
+            switch action {
+            case .key(let key):
+                return key.rawValue
+            case .text(let text):
+                return "text:\(text)"
+            case .wait(let milliseconds):
+                return "wait:\(milliseconds)ms"
+            case .signal(let signal):
+                return signal.rawValue
+            }
+        }
+        .joined(separator: ", ")
+    }
+
+    private static func terminalPreview(_ text: String, limit: Int = 240) -> String {
+        let normalized = text
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        if normalized.count <= limit {
+            return normalized
+        }
+        return String(normalized.prefix(limit)) + "..."
+    }
+
+    private static func latestPlannedInteraction(
+        for taskId: String,
+        registry: BashTaskRegistry
+    ) async -> TerminalInteractionPlan? {
+        let decoder = JSONDecoder()
+        let latestPlannerPayload = await registry.events(taskId: taskId)
+            .reversed()
+            .first(where: { $0.kind == .plannerDecision })?
+            .structuredPayloadJSON
+
+        guard let latestPlannerPayload,
+              let data = latestPlannerPayload.data(using: .utf8) else {
+            return nil
+        }
+
+        return try? decoder.decode(TerminalInteractionPlan.self, from: data)
     }
 }

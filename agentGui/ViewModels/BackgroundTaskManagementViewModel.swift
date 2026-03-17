@@ -607,9 +607,17 @@ final class BackgroundTaskManagementViewModel {
 
 extension BackgroundTaskManagementViewModel {
     private static let defaultScheduleIntervalPresets: [ScheduleIntervalPreset] = [
+        //30
+        ScheduleIntervalPreset(id: "30m", seconds: 1_800, toleranceSeconds: 300, title: "每 30 分钟", detail: "适合高频巡检，建议容差 5 分钟。"),
+        //1h
+        ScheduleIntervalPreset(id: "1h", seconds: 3_600, toleranceSeconds: 600, title: "每 1 小时", detail: "适合频繁巡检，建议容差 10 分钟。"),
+        //2h
         ScheduleIntervalPreset(id: "2h", seconds: 7_200, toleranceSeconds: 1_800, title: "每 2 小时", detail: "适合较频繁巡检，建议容差 30 分钟。"),
+        //6h
         ScheduleIntervalPreset(id: "6h", seconds: 21_600, toleranceSeconds: 3_600, title: "每 6 小时", detail: "默认日常档，兼顾时效和资源占用。"),
+        //12h
         ScheduleIntervalPreset(id: "12h", seconds: 43_200, toleranceSeconds: 7_200, title: "每 12 小时", detail: "适合半天一次的维护或汇总任务。"),
+        //24h
         ScheduleIntervalPreset(id: "24h", seconds: 86_400, toleranceSeconds: 7_200, title: "每天一次", detail: "适合日报、归档和低频后台维护。")
     ]
 

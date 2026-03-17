@@ -106,6 +106,73 @@ struct BashToolCallPresentationTests {
         #expect(!ToolCallBubbleHeaderPresentation.showsStopButton(for: tool))
     }
 
+    @Test func rowProjectsPlannerAndApprovalStates() async throws {
+        let tool = ToolCall(toolCallId: "exec-planner", kind: .execute)
+        tool.title = "npm create vue@latest demo"
+        tool.status = .inProgress
+        tool.terminalExecutionMode = "attached"
+        tool.terminalTaskStatus = TerminalTaskStatus.awaitingUserApproval.rawValue
+        tool.terminalInteractionPhase = TerminalInteractionPhase.awaitingApproval.rawValue
+        tool.terminalPlannerSummary = "Select JSX, Router, Pinia, Vitest"
+        tool.terminalApprovalPending = true
+
+        let row = ToolCallRowPresentation.make(for: tool)
+        let badges = ToolCallBubbleHeaderPresentation.badges(for: tool, row: row)
+
+        #expect(row.statusText == "等待批准")
+        #expect(row.secondaryText == "等待批准")
+        #expect(row.tertiaryText == "Select JSX, Router, Pinia, Vitest")
+        #expect(badges.map(\.text).contains("等待批准"))
+        #expect(badges.map(\.text).contains("需要批准"))
+    }
+
+    @Test func detailPresentationShowsTakeoverAndPlannerSummary() async throws {
+        let tool = ToolCall(toolCallId: "exec-takeover", kind: .execute)
+        tool.title = "npm create vue@latest demo"
+        tool.status = .inProgress
+        tool.terminalExecutionMode = "attached"
+        tool.terminalTaskId = "task-takeover"
+        tool.terminalTaskStatus = TerminalTaskStatus.userTakeover.rawValue
+        tool.terminalInteractionPhase = TerminalInteractionPhase.userTakeover.rawValue
+        tool.terminalPlannerSummary = "Planner paused for manual takeover"
+        tool.terminalUserTakeoverActive = true
+
+        let row = ToolCallRowPresentation.make(for: tool, isExpanded: true)
+        let sections = ToolCallDetailPresentation.sections(for: tool, row: row)
+
+        #expect(sections.contains(where: { $0.label == "交互阶段" && $0.text == "用户接管" }))
+        #expect(sections.contains(where: { $0.label == "规划摘要" && $0.text == "Planner paused for manual takeover" }))
+        #expect(sections.contains(where: { $0.label == "接管说明" && $0.text.contains("方向键") }))
+        #expect(sections.contains(where: { $0.label == "快捷键" && $0.text.contains("Space") && $0.text.contains("Ctrl-C") }))
+        #expect(ToolCallBubbleHeaderPresentation.showsStopButton(for: tool))
+    }
+
+    @Test func attachedExecuteTaskUsesPrimaryTerminalScreenPresentation() async throws {
+        let tool = ToolCall(toolCallId: "exec-screen", kind: .execute)
+        tool.title = "npm create vue@latest demo"
+        tool.status = .inProgress
+        tool.terminalTaskId = "task-screen"
+        tool.terminalExecutionMode = TerminalExecutionMode.attached.rawValue
+        tool.terminalTaskStatus = TerminalTaskStatus.userTakeover.rawValue
+
+        let row = ToolCallRowPresentation.make(for: tool, isExpanded: true)
+
+        #expect(ToolCallDetailPresentation.showsPrimaryTerminalScreen(for: tool, row: row))
+    }
+
+    @Test func detachedExecuteTaskKeepsMetadataFirstPresentation() async throws {
+        let tool = ToolCall(toolCallId: "exec-bg-screen", kind: .execute)
+        tool.title = "npm run dev"
+        tool.status = .inProgress
+        tool.terminalTaskId = "task-bg-screen"
+        tool.terminalExecutionMode = TerminalExecutionMode.detached.rawValue
+        tool.terminalTaskStatus = TerminalTaskStatus.running.rawValue
+
+        let row = ToolCallRowPresentation.make(for: tool, isExpanded: true)
+
+        #expect(!ToolCallDetailPresentation.showsPrimaryTerminalScreen(for: tool, row: row))
+    }
+
     private func encodedAgentActions(_ events: [TerminalTaskEvent]) throws -> String {
         let data = try JSONEncoder().encode(events)
         return String(decoding: data, as: UTF8.self)

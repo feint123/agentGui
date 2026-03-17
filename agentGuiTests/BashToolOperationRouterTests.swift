@@ -5,6 +5,19 @@ import Testing
 
 struct BashToolOperationRouterTests {
 
+    @Test func commandOnlyInputDefaultsToStartOperationForCompatibility() throws {
+        let router = BashToolOperationRouter()
+
+        let request = try router.parse(input: [
+            "command": .string("printf 'hello'")
+        ])
+
+        #expect(request.operation == .start)
+        #expect(request.command == "printf 'hello'")
+        #expect(request.taskId == nil)
+        #expect(request.executionMode == .attached)
+    }
+
     @Test func startRequiresTaskIdAndCommand() throws {
         let router = BashToolOperationRouter()
 
@@ -65,5 +78,16 @@ struct BashToolOperationRouterTests {
         #expect(attached.operation == .start)
         #expect(attached.executionMode == .attached)
         #expect(detached.executionMode == .detached)
+    }
+
+    @Test func explicitStartStillRequiresTaskId() throws {
+        let router = BashToolOperationRouter()
+
+        #expect(throws: BashToolOperationRouterError.self) {
+            _ = try router.parse(input: [
+                "operation": .string("start"),
+                "command": .string("echo hello")
+            ])
+        }
     }
 }

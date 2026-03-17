@@ -29,17 +29,26 @@ struct BashToolOperationRouter {
         print("[bash-router] parse input keys=\(Array(input.keys).sorted()) operation=\(input["operation"]?.stringValue ?? "nil") task_id=\(input["task_id"]?.stringValue ?? "nil")")
         try rejectLegacyFields(in: input)
 
-        guard let rawOperation = input["operation"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawOperation.isEmpty else {
-            throw BashToolOperationRouterError.invalidOperation("")
-        }
-        guard let operation = BashToolOperation(rawValue: rawOperation) else {
-            throw BashToolOperationRouterError.invalidOperation(rawOperation)
-        }
-
         let taskId = input["task_id"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedTaskId = taskId?.isEmpty == true ? nil : taskId
         let command = input["command"]?.stringValue
+        let rawOperation = input["operation"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let usesImplicitStart = (rawOperation == nil || rawOperation?.isEmpty == true)
+            && command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+
+        let operation: BashToolOperation
+        if usesImplicitStart {
+            operation = .start
+        } else {
+            guard let rawOperation, !rawOperation.isEmpty else {
+                throw BashToolOperationRouterError.invalidOperation("")
+            }
+            guard let parsedOperation = BashToolOperation(rawValue: rawOperation) else {
+                throw BashToolOperationRouterError.invalidOperation(rawOperation)
+            }
+            operation = parsedOperation
+        }
+
         let executionMode = try parseExecutionMode(input["execution_mode"]?.stringValue)
         let timeout = input["timeout"]?.intValue.map(TimeInterval.init)
         let inputText = input["input"]?.stringValue
@@ -59,11 +68,14 @@ struct BashToolOperationRouter {
 
         switch operation {
         case .start:
-            guard let taskId = request.taskId, !taskId.isEmpty else {
-                print("[bash-router] start missing task_id")
-                throw BashToolOperationRouterError.missingTaskID(operation)
+            if !usesImplicitStart {
+                guard let taskId = request.taskId, !taskId.isEmpty else {
+                    print("[bash-router] start missing task_id")
+                    throw BashToolOperationRouterError.missingTaskID(operation)
+                }
             }
             guard let command = request.command?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
+                print("[bash-router] start missing task_id")
                 print("[bash-router] start missing command task_id=\(request.taskId ?? "nil")")
                 throw BashToolOperationRouterError.missingCommand
             }

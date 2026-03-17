@@ -73,6 +73,18 @@ final class ToolCall {
     /// Managed bash task status raw value
     var terminalTaskStatus: String?
 
+    /// Managed terminal interaction phase raw value
+    var terminalInteractionPhase: String?
+
+    /// Latest planner summary shown alongside managed terminal state
+    var terminalPlannerSummary: String?
+
+    /// Whether the current planner proposal is waiting for user approval
+    var terminalApprovalPending: Bool=false
+
+    /// Whether manual terminal takeover is active
+    var terminalUserTakeoverActive: Bool=false
+
     /// Latest prompt or task summary shown in the UI
     var terminalPromptSummary: String?
 
@@ -173,6 +185,10 @@ final class ToolCall {
         self.toolExecutionContext = nil
         self.terminalTaskId = nil
         self.terminalTaskStatus = nil
+        self.terminalInteractionPhase = nil
+        self.terminalPlannerSummary = nil
+        self.terminalApprovalPending = false
+        self.terminalUserTakeoverActive = false
         self.terminalPromptSummary = nil
         self.terminalAgentActionsJSON = nil
         self.terminalExecutionMode = nil

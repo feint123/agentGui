@@ -13,6 +13,10 @@ struct BashPromptAnalyzer {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
+        if containsInteractiveMenu(in: trimmed) {
+            return nil
+        }
+
         let normalized = trimmed.lowercased()
 
         if let packageInstallDecision = packageInstallProceedDecision(trimmed: trimmed, normalized: normalized) {
@@ -160,5 +164,20 @@ struct BashPromptAnalyzer {
             autoReplyText: "y",
             escalationReason: nil
         )
+    }
+
+    private func containsInteractiveMenu(in text: String) -> Bool {
+        let menuHints = [
+            "空格选择",
+            "回车确认",
+            "↑/↓ 切换",
+            "请选择要包含的功能",
+            "◻",
+            "◼",
+            "☐",
+            "☑"
+        ]
+
+        return menuHints.contains(where: text.contains)
     }
 }
