@@ -108,6 +108,16 @@ struct DocumentBlockMetadata: Equatable, Codable {
     var indentLevel = 0
 }
 
+enum BlockRowEdit: Equatable {
+    case setText(String)
+    case setChecked(Bool)
+    case setLanguage(String)
+    case setResource(String)
+    case setSecondaryText(String)
+    case setTone(String)
+    case setCollapsed(Bool)
+}
+
 struct DocumentBlock: Identifiable, Equatable, Codable {
     var id = UUID()
     var kind: DocumentBlockKind
@@ -194,6 +204,7 @@ enum BlockListIndexMap {
 enum BlockEditorFocusPosition: Equatable {
     case start
     case end
+    case offset(Int)
 }
 
 struct BlockEditorFocusRequest: Equatable {

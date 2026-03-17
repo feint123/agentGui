@@ -58,9 +58,6 @@ enum BlockEditorTheme {
         if emphasis {
             return AnyShapeStyle(emphasisBackground(scheme: scheme))
         }
-        if isActive {
-            return AnyShapeStyle(blockSelectionTint)
-        }
         if isHovered {
             return AnyShapeStyle(blockHoverTint(scheme: scheme))
         }
@@ -70,9 +67,9 @@ enum BlockEditorTheme {
     static func specialBlockFill(tint: Color, isActive: Bool, isHovered: Bool, scheme: ColorScheme = .light) -> some ShapeStyle {
         let baseOpacity: Double
         if scheme == .dark {
-            baseOpacity = isActive ? 0.18 : isHovered ? 0.14 : 0.10
+            baseOpacity = isHovered ? 0.14 : 0.10
         } else {
-            baseOpacity = isActive ? 0.085 : isHovered ? 0.062 : 0.045
+            baseOpacity = isHovered ? 0.062 : 0.045
         }
         return tint.opacity(baseOpacity)
     }
@@ -80,9 +77,9 @@ enum BlockEditorTheme {
     static func specialBlockBorder(tint: Color, isActive: Bool, isHovered: Bool, scheme: ColorScheme = .light) -> Color {
         let baseOpacity: Double
         if scheme == .dark {
-            baseOpacity = isActive ? 0.32 : isHovered ? 0.22 : 0.15
+            baseOpacity = isHovered ? 0.22 : 0.15
         } else {
-            baseOpacity = isActive ? 0.18 : isHovered ? 0.12 : 0.08
+            baseOpacity = isHovered ? 0.12 : 0.08
         }
         return tint.opacity(baseOpacity)
     }

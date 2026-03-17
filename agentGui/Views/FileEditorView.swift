@@ -192,6 +192,7 @@ struct FileEditorView: View {
                             }
                         ),
                         fileURL: url,
+                        persistedText: sessionController.document.persistedText,
                         onSelectionChange: { snapshot in
                             workspaceState.editorSelection = snapshot
                         }

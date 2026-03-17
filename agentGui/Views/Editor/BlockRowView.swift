@@ -3,6 +3,7 @@
 //  agentGui
 //
 
+import AppKit
 import SwiftUI
 
 struct BlockRowView: View {
@@ -15,6 +16,9 @@ struct BlockRowView: View {
     let onEditorCommand: (BlockEditorCommand) -> Void
     let onFocusChange: (Bool) -> Void
     let onConvert: (DocumentBlockKind) -> Void
+    let onEditRequest: (BlockRowEdit) -> Void
+    let onReadOnlyActivate: (Int) -> Void
+    let onDragRequest: () -> NSItemProvider
     let onFileDrop: ([URL]) -> Void
     var onSelectionChange: ((InlineSelectionState) -> Void)? = nil
     var onSlashContextChange: ((BlockEditorSlashContext?) -> Void)? = nil
@@ -87,6 +91,7 @@ struct BlockRowView: View {
         .opacity(isHovered || isActive ? 0.95 : 0.08)
         .frame(width: BlockEditorTheme.gutterWidth)
         .padding(.top, 2)
+        .onDrag(onDragRequest)
     }
 
     private var editableTextBlock: some View {
@@ -118,7 +123,8 @@ struct BlockRowView: View {
                         text: block.text,
                         placeholder: block.placeholder,
                         kind: block.kind,
-                        isChecked: block.metadata.checked
+                        isChecked: block.metadata.checked,
+                        onActivate: onReadOnlyActivate
                     )
                 }
             }
@@ -165,34 +171,32 @@ struct BlockRowView: View {
             switch block.kind {
             case .todo:
                 Button {
-                    block.metadata.checked.toggle()
-                    onTextChange(block.text)
+                    onEditRequest(.setChecked(!block.metadata.checked))
                 } label: {
                     Image(systemName: block.metadata.checked ? "checkmark.circle.fill" : "circle")
                 }
                 .buttonStyle(.plain)
             case .code, .source:
-                TextField("语言", text: $block.metadata.language)
+                TextField("语言", text: rowEditBinding(block.metadata.language) { .setLanguage($0) })
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(Color.primary.opacity(0.04), in: Capsule())
                     .frame(width: 120)
             case .callout:
-                TextField("类型", text: $block.metadata.tone)
+                TextField("类型", text: rowEditBinding(block.metadata.tone) { .setTone($0) })
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(Color.primary.opacity(0.04), in: Capsule())
                     .frame(width: 100)
-                TextField("标题", text: $block.metadata.secondaryText)
+                TextField("标题", text: rowEditBinding(block.metadata.secondaryText) { .setSecondaryText($0) })
                     .textFieldStyle(.plain)
             case .toggle:
-                TextField("标题", text: $block.metadata.secondaryText)
+                TextField("标题", text: rowEditBinding(block.metadata.secondaryText) { .setSecondaryText($0) })
                     .textFieldStyle(.plain)
                 Button(block.metadata.isCollapsed ? "展开" : "折叠") {
-                    block.metadata.isCollapsed.toggle()
-                    onTextChange(block.text)
+                    onEditRequest(.setCollapsed(!block.metadata.isCollapsed))
                 }
                 .buttonStyle(.borderless)
             default:
@@ -218,8 +222,7 @@ struct BlockRowView: View {
                 .foregroundStyle(BlockEditorTheme.subtleText)
         case .todo:
             Button {
-                block.metadata.checked.toggle()
-                onTextChange(block.text)
+                onEditRequest(.setChecked(!block.metadata.checked))
             } label: {
                 Image(systemName: block.metadata.checked ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(block.metadata.checked ? Color.accentColor : BlockEditorTheme.subtleText)
@@ -253,9 +256,9 @@ struct BlockRowView: View {
                         .foregroundStyle(BlockEditorTheme.subtleText)
                     Spacer(minLength: 0)
                 }
-                TextField("图片地址或本地路径", text: $block.metadata.resource)
+                TextField("图片地址或本地路径", text: rowEditBinding(block.metadata.resource) { .setResource($0) })
                     .textFieldStyle(.roundedBorder)
-                TextField("图片说明", text: $block.metadata.secondaryText)
+                TextField("图片说明", text: rowEditBinding(block.metadata.secondaryText) { .setSecondaryText($0) })
                     .textFieldStyle(.roundedBorder)
             }
             if let resourceURL = resourceURL(from: block.metadata.resource), AttachedFile.pathIsImage(resourceURL.path) || resourceURL.scheme?.hasPrefix("http") == true {
@@ -281,9 +284,9 @@ struct BlockRowView: View {
                 Label("链接卡片", systemImage: "link")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(BlockEditorTheme.subtleText)
-                TextField("URL", text: $block.metadata.resource)
+                TextField("URL", text: rowEditBinding(block.metadata.resource) { .setResource($0) })
                     .textFieldStyle(.roundedBorder)
-                TextField("标题", text: $block.text)
+                TextField("标题", text: rowEditBinding(block.text) { .setText($0) })
                     .textFieldStyle(.roundedBorder)
             }
             Link(destination: URL(string: block.metadata.resource) ?? URL(string: "https://example.com")!) {
@@ -316,9 +319,9 @@ struct BlockRowView: View {
             Label("文件附件", systemImage: "doc")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(BlockEditorTheme.subtleText)
-            TextField("标题", text: $block.text)
+            TextField("标题", text: rowEditBinding(block.text) { .setText($0) })
                 .textFieldStyle(.roundedBorder)
-            TextField("文件路径", text: $block.metadata.resource)
+            TextField("文件路径", text: rowEditBinding(block.metadata.resource) { .setResource($0) })
                 .textFieldStyle(.roundedBorder)
             HStack(spacing: 10) {
                 Image(systemName: AttachedFile.pathIsPDF(block.metadata.resource) ? "doc.richtext" : "doc")
@@ -377,7 +380,8 @@ struct BlockRowView: View {
                                 text: block.text,
                                 placeholder: block.placeholder,
                                 kind: .paragraph,
-                                isChecked: false
+                                isChecked: false,
+                                onActivate: onReadOnlyActivate
                             )
                         }
                     }
@@ -393,8 +397,7 @@ struct BlockRowView: View {
     private var toggleBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
-                block.metadata.isCollapsed.toggle()
-                onTextChange(block.text)
+                onEditRequest(.setCollapsed(!block.metadata.isCollapsed))
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: block.metadata.isCollapsed ? "chevron.right" : "chevron.down")
@@ -427,7 +430,8 @@ struct BlockRowView: View {
                             text: block.text,
                             placeholder: block.placeholder,
                             kind: .paragraph,
-                            isChecked: false
+                            isChecked: false,
+                            onActivate: onReadOnlyActivate
                         )
                     }
                 }
@@ -593,6 +597,15 @@ struct BlockRowView: View {
     private var secondarySurface: Color {
         colorScheme == .dark ? Color.white.opacity(0.06) : Color.primary.opacity(0.028)
     }
+
+    private func rowEditBinding(_ currentValue: String, edit: @escaping (String) -> BlockRowEdit) -> Binding<String> {
+        Binding(
+            get: { currentValue },
+            set: { newValue in
+                onEditRequest(edit(newValue))
+            }
+        )
+    }
 }
 
 private struct BlockReadOnlyTextContent: View {
@@ -600,6 +613,7 @@ private struct BlockReadOnlyTextContent: View {
     let placeholder: String
     let kind: DocumentBlockKind
     let isChecked: Bool
+    var onActivate: ((Int) -> Void)? = nil
 
     var body: some View {
         Group {
@@ -607,6 +621,7 @@ private struct BlockReadOnlyTextContent: View {
                 Text(placeholder)
                     .font(displayFont)
                     .foregroundStyle(BlockEditorTheme.subtleText)
+                        .overlay(readOnlyHitTarget(sourceText: placeholder, displayText: placeholder))
             } else if kind == .code || kind == .source {
                 Text(text)
                     .font(.system(size: 12, design: .monospaced))
@@ -620,6 +635,7 @@ private struct BlockReadOnlyTextContent: View {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(Color.primary.opacity(0.06), lineWidth: 1)
                     )
+                    .overlay(readOnlyHitTarget(sourceText: text, displayText: text, font: nsDisplayFont))
             } else {
                 InlineMarkdownText(
                     text: text,
@@ -630,6 +646,7 @@ private struct BlockReadOnlyTextContent: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
+                    .overlay(readOnlyHitTarget(sourceText: text, displayText: BlockInlineMarkdownProjection(sourceText: text).visibleText))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -658,6 +675,102 @@ private struct BlockReadOnlyTextContent: View {
             return BlockEditorTheme.subtleText
         }
         return .primary
+    }
+
+    private var nsDisplayFont: NSFont {
+        switch kind {
+        case .heading1:
+            return .systemFont(ofSize: 26, weight: .bold)
+        case .heading2:
+            return .systemFont(ofSize: 20, weight: .semibold)
+        case .heading3:
+            return .systemFont(ofSize: 16, weight: .semibold)
+        case .code, .source:
+            return .monospacedSystemFont(ofSize: 12, weight: .regular)
+        default:
+            return .systemFont(ofSize: 14)
+        }
+    }
+
+    @ViewBuilder
+    private func readOnlyHitTarget(sourceText: String, displayText: String, font: NSFont? = nil) -> some View {
+        if let onActivate {
+            BlockReadOnlyTextHitTarget(
+                sourceText: sourceText,
+                text: displayText,
+                font: font ?? nsDisplayFont,
+                onActivate: onActivate
+            )
+        }
+    }
+}
+
+private struct BlockReadOnlyTextHitTarget: NSViewRepresentable {
+    let sourceText: String
+    let text: String
+    let font: NSFont
+    let onActivate: (Int) -> Void
+
+    func makeNSView(context: Context) -> BlockReadOnlyTextHitTestingView {
+        let view = BlockReadOnlyTextHitTestingView()
+        view.sourceText = sourceText
+        view.text = text
+        view.font = font
+        view.onActivate = onActivate
+        return view
+    }
+
+    func updateNSView(_ nsView: BlockReadOnlyTextHitTestingView, context: Context) {
+        nsView.sourceText = sourceText
+        nsView.text = text
+        nsView.font = font
+        nsView.onActivate = onActivate
+    }
+}
+
+final class BlockReadOnlyTextHitTestingView: NSView {
+    var sourceText: String = "" {
+        didSet { needsLayout = true }
+    }
+
+    var text: String = "" {
+        didSet { needsLayout = true }
+    }
+
+    var font: NSFont = .systemFont(ofSize: 14) {
+        didSet { needsLayout = true }
+    }
+
+    var onActivate: ((Int) -> Void)?
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        onActivate?(characterOffset(at: point))
+    }
+
+    private func characterOffset(at point: NSPoint) -> Int {
+        let textStorage = NSTextStorage(string: text, attributes: [.font: font])
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer(size: bounds.size)
+        textContainer.lineFragmentPadding = 0
+        textContainer.maximumNumberOfLines = 0
+        textContainer.lineBreakMode = .byWordWrapping
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+
+        let clampedPoint = NSPoint(
+            x: max(0, min(point.x, bounds.width)),
+            y: max(0, min(point.y, max(bounds.height - 1, 0)))
+        )
+        let index = layoutManager.characterIndex(for: clampedPoint, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+        let visibleOffset = max(0, min(index, text.utf16.count))
+        return BlockInlineMarkdownProjection(sourceText: sourceText).sourceOffset(forVisibleUTF16Offset: visibleOffset)
     }
 }
 

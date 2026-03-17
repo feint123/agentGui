@@ -3,6 +3,7 @@
 //  agentGui
 //
 
+import AppKit
 import SwiftUI
 
 struct BlockTableCellID: Hashable {
@@ -48,7 +49,8 @@ struct BlockTableEditor: View {
     @State private var rows: [[String]] = []
     @State private var isApplyingInternalChange = false
     @State private var residency = BlockTableCellResidency(maxMountedEditors: 1)
-    @FocusState private var focusedCellID: BlockTableCellID?
+    @State private var focusedCellID: BlockTableCellID?
+    @State private var focusedCellRequest: BlockEditorFocusRequest?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -96,23 +98,33 @@ struct BlockTableEditor: View {
 
         return Group {
             if isMounted {
-                TextField(cellPlaceholder(forRow: row), text: bindingForCell(row: row, column: column))
-                    .textFieldStyle(.plain)
-                    .focused($focusedCellID, equals: cellID)
-                    .onAppear {
-                        guard focusedCellID != cellID else { return }
-                        DispatchQueue.main.async {
+                BlockTableCellTextEditor(
+                    blockID: blockID(for: cellID),
+                    text: bindingForCell(row: row, column: column),
+                    placeholder: cellPlaceholder(forRow: row),
+                    focusRequest: focusedCellID == cellID ? focusedCellRequest : nil,
+                    onFocusChange: { isFocused in
+                        if isFocused {
                             focusedCellID = cellID
+                        } else if focusedCellID == cellID {
+                            focusedCellID = nil
                         }
                     }
+                )
             } else {
                 Button {
                     activateCell(cellID)
                 } label: {
-                    Text(cellDisplayText(row: row, column: column))
-                        .foregroundStyle(cellTextIsPlaceholder(row: row, column: column) ? BlockEditorTheme.subtleText : .primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .lineLimit(1)
+                    Group {
+                        if cellTextIsPlaceholder(row: row, column: column) {
+                            Text(cellPlaceholder(forRow: row))
+                                .foregroundStyle(BlockEditorTheme.subtleText)
+                        } else {
+                            InlineMarkdownText(text: rows[row][column], font: .system(size: 14), color: .primary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(1)
                 }
                 .buttonStyle(.plain)
             }
@@ -167,18 +179,29 @@ struct BlockTableEditor: View {
     private func activateCell(_ cellID: BlockTableCellID) {
         guard isValidCell(cellID) else { return }
         residency.recordInteraction(with: cellID)
-        if focusedCellID != cellID {
-            DispatchQueue.main.async {
-                focusedCellID = cellID
-            }
-        }
+        focusedCellID = cellID
+        focusedCellRequest = BlockEditorFocusRequest(blockID: blockID(for: cellID), position: .end)
     }
 
     private func pruneCellResidency() {
         residency.retain(in: rows)
         if let focusedCellID, !isValidCell(focusedCellID) {
             self.focusedCellID = nil
+            focusedCellRequest = nil
         }
+    }
+
+    private func blockID(for cellID: BlockTableCellID) -> UUID {
+        let source = "table-cell-\(cellID.row)-\(cellID.column)"
+        let utf8 = Array(source.utf8)
+        let bytes = (utf8 + Array(repeating: UInt8(0), count: 16)).prefix(16)
+        let tuple = (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        )
+        return UUID(uuid: tuple)
     }
 
     private func isValidCell(_ cellID: BlockTableCellID) -> Bool {
@@ -205,6 +228,100 @@ struct BlockTableEditor: View {
         markdown = serialized
         DispatchQueue.main.async {
             isApplyingInternalChange = false
+        }
+    }
+}
+
+private struct BlockTableCellTextEditor: NSViewRepresentable {
+    let blockID: UUID
+    @Binding var text: String
+    let placeholder: String
+    let focusRequest: BlockEditorFocusRequest?
+    let onFocusChange: (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let textView = BlockEditorTextView()
+        textView.delegate = context.coordinator
+        textView.drawsBackground = false
+        textView.backgroundColor = .clear
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.isVerticallyResizable = false
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.interceptsEditorCommands = false
+        textView.textContainerInset = NSSize(width: 0, height: 2)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineBreakMode = .byTruncatingTail
+        textView.textContainer?.maximumNumberOfLines = 1
+        textView.layoutManager?.delegate = textView
+        textView.string = text
+        textView.placeholder = placeholder
+        textView.blockKind = .paragraph
+        textView.onFocusChange = onFocusChange
+        textView.setAccessibilityIdentifier("blockTable.cellTextView")
+        BlockInlineMarkdownStyler.apply(to: textView, kind: .paragraph)
+
+        let scrollView = NSScrollView()
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.documentView = textView
+        scrollView.heightAnchor.constraint(equalToConstant: 28).isActive = true
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? BlockEditorTextView else { return }
+        context.coordinator.parent = self
+        textView.placeholder = placeholder
+
+        if textView.string != text {
+            let selectedRanges = textView.selectedRanges
+            textView.string = text
+            textView.selectedRanges = selectedRanges
+        }
+
+        BlockInlineMarkdownStyler.apply(to: textView, kind: .paragraph)
+
+        if let focusRequest, focusRequest.blockID == blockID, textView.lastAppliedFocusToken != focusRequest.token {
+            textView.lastAppliedFocusToken = focusRequest.token
+            DispatchQueue.main.async {
+                guard let window = textView.window else { return }
+                window.makeFirstResponder(textView)
+                let projection = BlockInlineMarkdownProjection(sourceText: textView.string)
+                let location: Int
+                switch focusRequest.position {
+                case .start:
+                    location = 0
+                case .end:
+                    location = projection.normalizedSourceOffset(for: textView.string.utf16.count)
+                case .offset(let offset):
+                    location = projection.normalizedSourceOffset(for: max(0, min(offset, textView.string.utf16.count)))
+                }
+                textView.setSelectedRange(NSRange(location: location, length: 0))
+                textView.scrollRangeToVisible(NSRange(location: location, length: 0))
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: BlockTableCellTextEditor
+
+        init(_ parent: BlockTableCellTextEditor) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? BlockEditorTextView else { return }
+            parent.text = textView.string
+            BlockInlineMarkdownStyler.apply(to: textView, kind: .paragraph)
         }
     }
 }

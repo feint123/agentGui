@@ -11,10 +11,7 @@ enum BlockInlineMarkdownRendering {
     }
 
     static func displayPlainText(for text: String) -> String {
-        if let attributed = attributedString(for: text) {
-            return String(attributed.characters)
-        }
-        return text
+        BlockInlineMarkdownProjection(sourceText: text).visibleText
     }
 }
 

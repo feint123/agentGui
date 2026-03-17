@@ -87,6 +87,8 @@ enum BlockEditorCommand {
     case mergeBackward(selectedRange: NSRange)
     case indent
     case outdent
+    case undo
+    case redo
     case moveFocusUp
     case moveFocusDown
     case slashMoveUp
@@ -123,13 +125,14 @@ struct BlockTextEditor: NSViewRepresentable {
         textView.drawsBackground = false
         textView.backgroundColor = .clear
         textView.isRichText = false
-        textView.allowsUndo = true
+        textView.allowsUndo = false
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainerInset = NSSize(width: 0, height: 3)
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.layoutManager?.delegate = textView
         textView.string = text
         textView.placeholder = placeholder
         textView.blockKind = kind
@@ -155,8 +158,9 @@ struct BlockTextEditor: NSViewRepresentable {
         ) { [weak coordinator = context.coordinator] _ in
             guard let coordinator = coordinator,
                   let tv = scrollView.documentView as? BlockEditorTextView else { return }
-            // 宽度变化时强制重新计算（绕过缓存）
-            coordinator.forceRecalculateHeight(tv)
+            Task { @MainActor in
+                coordinator.forceRecalculateHeight(tv)
+            }
         }
 
         return scrollView
@@ -186,11 +190,6 @@ struct BlockTextEditor: NSViewRepresentable {
         textView.onFocusChange = onFocusChange
         context.coordinator.parent.onSlashChange = onSlashChange
 
-        // 只在 kind 变化或文本变化时应用样式
-        if kindChanged || textView.string != text {
-            applyStyle(to: textView)
-        }
-
         if textView.string != text {
             let ranges = textView.selectedRanges
             textView.string = text
@@ -198,12 +197,26 @@ struct BlockTextEditor: NSViewRepresentable {
             // 文本变化后需要重新计算高度
             context.coordinator.recalculateHeight(textView)
         }
+
+        // 只在 kind 变化或文本变化时应用样式
+        if kindChanged || textView.string == text {
+            applyStyle(to: textView)
+        }
         if let focusRequest, focusRequest.blockID == blockID, textView.lastAppliedFocusToken != focusRequest.token {
             textView.lastAppliedFocusToken = focusRequest.token
             DispatchQueue.main.async {
                 guard let window = textView.window else { return }
                 window.makeFirstResponder(textView)
-                let location = focusRequest.position == .end ? textView.string.utf16.count : 0
+                let projection = BlockInlineMarkdownProjection(sourceText: textView.string)
+                let location: Int
+                switch focusRequest.position {
+                case .start:
+                    location = 0
+                case .end:
+                    location = projection.normalizedSourceOffset(for: textView.string.utf16.count)
+                case .offset(let offset):
+                    location = projection.normalizedSourceOffset(for: max(0, min(offset, textView.string.utf16.count)))
+                }
                 textView.setSelectedRange(NSRange(location: location, length: 0))
                 textView.scrollRangeToVisible(NSRange(location: location, length: 0))
             }
@@ -231,140 +244,10 @@ struct BlockTextEditor: NSViewRepresentable {
     }
 
     private func applyStyle(to textView: BlockEditorTextView) {
-        textView.font = font(for: kind)
-        textView.textColor = .labelColor
-        textView.insertionPointColor = .controlAccentColor
-        textView.typingAttributes = baseAttributes(for: kind)
-        applyInlineMarkdownStyling(to: textView)
+        BlockInlineMarkdownStyler.apply(to: textView, kind: kind)
     }
 
-    private func baseAttributes(for kind: DocumentBlockKind) -> [NSAttributedString.Key: Any] {
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = lineSpacing(for: kind)
-        paragraphStyle.paragraphSpacing = 0
-        paragraphStyle.paragraphSpacingBefore = 0
-        return [
-            .font: font(for: kind),
-            .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: paragraphStyle
-        ]
-    }
-
-    private func font(for kind: DocumentBlockKind) -> NSFont {
-        switch kind {
-        case .heading1:
-            return .systemFont(ofSize: 26, weight: .bold)
-        case .heading2:
-            return .systemFont(ofSize: 20, weight: .semibold)
-        case .heading3:
-            return .systemFont(ofSize: 16, weight: .semibold)
-        case .code, .source, .table:
-            return .monospacedSystemFont(ofSize: 13, weight: .regular)
-        default:
-            return .systemFont(ofSize: 14, weight: .regular)
-        }
-    }
-
-    private func lineSpacing(for kind: DocumentBlockKind) -> CGFloat {
-        switch kind {
-        case .heading1: return 0
-        case .heading2: return 0.5
-        case .heading3: return 0.5
-        case .code, .source, .table: return 1
-        default: return 2
-        }
-    }
-
-    private func applyInlineMarkdownStyling(to textView: BlockEditorTextView) {
-        guard !kind.prefersMonospace,
-              let textStorage = textView.textStorage else { return }
-
-        // 性能监控：markdown 样式应用（仅在文本较长时监控）
-        #if DEBUG
-        if textStorage.length > 100 {
-            let span = perfTextEditor.startSpan("BlockTextEditor.applyInlineStyling", category: "Editor", level: .verbose)
-            defer {
-                span.addMetadata("length", value: textStorage.length)
-                span.addMetadata("kind", value: String(describing: kind))
-                span.end()
-            }
-        }
-        #endif
-
-        let fullRange = NSRange(location: 0, length: textStorage.length)
-        let baseFont = font(for: kind)
-        let base = baseAttributes(for: kind)
-        let markerColor = NSColor.secondaryLabelColor.withAlphaComponent(0.65)
-        let accentColor = NSColor.controlAccentColor
-
-        textStorage.beginEditing()
-        textStorage.setAttributes(base, range: fullRange)
-
-        // 使用缓存的正则表达式，避免每次创建
-        applyMarkdownRule(.bold, in: textStorage) { match in
-            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
-            textStorage.addAttributes([.font: boldFont(from: baseFont)], range: match.contentRange)
-        }
-
-        applyMarkdownRule(.boldUnderscore, in: textStorage) { match in
-            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
-            textStorage.addAttributes([.font: boldFont(from: baseFont)], range: match.contentRange)
-        }
-
-        applyMarkdownRule(.italic, in: textStorage) { match in
-            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
-            textStorage.addAttributes([.font: italicFont(from: baseFont)], range: match.contentRange)
-        }
-
-        applyMarkdownRule(.italicUnderscore, in: textStorage) { match in
-            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
-            textStorage.addAttributes([.font: italicFont(from: baseFont)], range: match.contentRange)
-        }
-
-        applyMarkdownRule(.code, in: textStorage) { match in
-            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
-            textStorage.addAttributes([
-                .font: NSFont.monospacedSystemFont(ofSize: max(baseFont.pointSize - 1, 12), weight: .regular),
-                .backgroundColor: NSColor.textBackgroundColor.withAlphaComponent(0.9)
-            ], range: match.contentRange)
-        }
-
-        applyMarkdownRule(.strikethrough, in: textStorage) { match in
-            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
-            textStorage.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue], range: match.contentRange)
-        }
-
-        applyMarkdownRule(.link, in: textStorage) { match in
-            colorMarkdownMarkers(match.markerRanges, in: textStorage, markerColor: markerColor)
-            textStorage.addAttributes([
-                .foregroundColor: accentColor,
-                .underlineStyle: NSUnderlineStyle.single.rawValue
-            ], range: match.contentRange)
-        }
-
-        textStorage.endEditing()
-    }
-
-    private func applyMarkdownRule(_ rule: EditorInlineMarkdownRule, in textStorage: NSTextStorage, handler: (EditorInlineMarkdownMatch) -> Void) {
-        for match in rule.matches(in: textStorage.string) {
-            handler(match)
-        }
-    }
-
-    private func colorMarkdownMarkers(_ markerRanges: [NSRange], in textStorage: NSTextStorage, markerColor: NSColor) {
-        for range in markerRanges where range.location != NSNotFound {
-            textStorage.addAttributes([.foregroundColor: markerColor], range: range)
-        }
-    }
-
-    private func boldFont(from font: NSFont) -> NSFont {
-        NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
-    }
-
-    private func italicFont(from font: NSFont) -> NSFont {
-        NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
-    }
-
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: BlockTextEditor
         var lastAppliedFormatToken: UUID?
@@ -376,6 +259,12 @@ struct BlockTextEditor: NSViewRepresentable {
         /// The most recent non-empty selection range; persists after focus loss so
         /// toolbar button taps can still apply formatting to the right range.
         var savedSelectionRange: NSRange = NSRange(location: 0, length: 0)
+        private lazy var selectionEmitter = BlockEditorDeferredEmitter<InlineSelectionState> { [weak self] state in
+            self?.parent.onSelectionChange?(state)
+        }
+        private lazy var slashEmitter = BlockEditorDeferredEmitter<BlockEditorSlashContext?> { [weak self] context in
+            self?.parent.onSlashChange?(context)
+        }
 
         init(_ parent: BlockTextEditor) {
             self.parent = parent
@@ -385,7 +274,7 @@ struct BlockTextEditor: NSViewRepresentable {
             guard let textView = notification.object as? BlockEditorTextView else { return }
             let selectedRange = textView.selectedRange()
             guard selectedRange.length > 0 else {
-                parent.onSelectionChange?(InlineSelectionState(
+                selectionEmitter.send(InlineSelectionState(
                     blockID: parent.blockID,
                     selectedRange: selectedRange,
                     selectionRect: .zero,
@@ -401,7 +290,7 @@ struct BlockTextEditor: NSViewRepresentable {
             let screenRect = textView.firstRect(forCharacterRange: selectedRange, actualRange: &actualRange)
             let activeActions = detectActiveActions(in: textView, range: selectedRange)
             let selectedText = (textView.string as NSString).substring(with: selectedRange)
-            parent.onSelectionChange?(InlineSelectionState(
+            selectionEmitter.send(InlineSelectionState(
                 blockID: parent.blockID,
                 selectedRange: selectedRange,
                 selectionRect: screenRect,
@@ -413,18 +302,7 @@ struct BlockTextEditor: NSViewRepresentable {
         }
 
         private func detectActiveActions(in textView: NSTextView, range: NSRange) -> Set<InlineStyleAction> {
-            var actions = Set<InlineStyleAction>()
-            guard let storage = textView.textStorage else { return actions }
-            storage.enumerateAttributes(in: range, options: []) { attrs, _, _ in
-                if let font = attrs[.font] as? NSFont {
-                    let traits = NSFontManager.shared.traits(of: font)
-                    if traits.contains(.boldFontMask) { actions.insert(.bold) }
-                    if traits.contains(.italicFontMask) { actions.insert(.italic) }
-                }
-                if attrs[.strikethroughStyle] != nil { actions.insert(.strikethrough) }
-                if attrs[.backgroundColor] != nil { actions.insert(.inlineCode) }
-            }
-            return actions
+            BlockInlineMarkdownProjection(sourceText: textView.string).activeActions(in: range)
         }
 
         func applyFormat(_ action: InlineStyleAction, to textView: NSTextView) {
@@ -457,11 +335,15 @@ struct BlockTextEditor: NSViewRepresentable {
         }
 
         func textDidBeginEditing(_ notification: Notification) {
-            parent.onFocusChange(true)
+            DispatchQueue.main.async { [parent] in
+                parent.onFocusChange(true)
+            }
         }
 
         func textDidEndEditing(_ notification: Notification) {
-            parent.onFocusChange(false)
+            DispatchQueue.main.async { [parent] in
+                parent.onFocusChange(false)
+            }
         }
 
           fileprivate func recalculateHeight(_ textView: BlockEditorTextView) {
@@ -522,11 +404,11 @@ struct BlockTextEditor: NSViewRepresentable {
 
         fileprivate func publishSlashContext(for textView: BlockEditorTextView) {
             guard let match = BlockEditorSlashQueryParser.detect(in: textView.string, selectedRange: textView.selectedRange()) else {
-                parent.onSlashChange?(nil)
+                slashEmitter.send(nil)
                 return
             }
 
-            parent.onSlashChange?(
+            slashEmitter.send(
                 BlockEditorSlashContext(
                     blockID: parent.blockID,
                     currentKind: parent.kind,
@@ -537,13 +419,16 @@ struct BlockTextEditor: NSViewRepresentable {
         }
 
         private func caretScreenRect(for textView: NSTextView, selectedRange: NSRange, match: BlockEditorSlashQueryParser.Match) -> CGRect {
+            let projection = BlockInlineMarkdownProjection(sourceText: textView.string)
+            let normalizedLocation = projection.normalizedSourceOffset(for: selectedRange.location)
+            let normalizedRange = NSRange(location: normalizedLocation, length: selectedRange.length)
             var actualRange = NSRange()
-            let directRect = textView.firstRect(forCharacterRange: selectedRange, actualRange: &actualRange)
+            let directRect = textView.firstRect(forCharacterRange: normalizedRange, actualRange: &actualRange)
             if !directRect.isEmpty {
                 return directRect
             }
 
-            let anchorLocation = min(match.tokenRange.location + match.tokenRange.length, textView.string.utf16.count)
+            let anchorLocation = projection.normalizedSourceOffset(for: min(match.tokenRange.location + match.tokenRange.length, textView.string.utf16.count))
             let fallbackRange = NSRange(location: anchorLocation, length: 0)
             let fallbackRect = textView.firstRect(forCharacterRange: fallbackRange, actualRange: &actualRange)
             if !fallbackRect.isEmpty {
@@ -571,18 +456,27 @@ struct BlockTextEditor: NSViewRepresentable {
     }
 }
 
-private final class BlockEditorTextView: NSTextView {
+final class BlockEditorTextView: NSTextView {
     var placeholder = ""
     var blockKind: DocumentBlockKind = .paragraph
+    var interceptsEditorCommands = true
+    var hiddenMarkdownMarkerIndexes = IndexSet()
     var onCommand: ((BlockEditorCommand) -> Void)?
     var onFileDropped: (([URL]) -> Void)?
     var onFocusChange: ((Bool) -> Void)?
     var lastAppliedFocusToken: UUID?
 
+    private func emitFocusChange(_ isFocused: Bool) {
+        guard let onFocusChange else { return }
+        DispatchQueue.main.async {
+            onFocusChange(isFocused)
+        }
+    }
+
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         if became {
-            onFocusChange?(true)
+            emitFocusChange(true)
         }
         return became
     }
@@ -590,7 +484,7 @@ private final class BlockEditorTextView: NSTextView {
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
         if resigned {
-            onFocusChange?(false)
+            emitFocusChange(false)
         }
         return resigned
     }
@@ -618,8 +512,23 @@ private final class BlockEditorTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        guard interceptsEditorCommands else {
+            super.keyDown(with: event)
+            return
+        }
+
         guard !isComposingMarkedText else {
             super.keyDown(with: event)
+            return
+        }
+
+        if shouldUndo(event) {
+            onCommand?(.undo)
+            return
+        }
+
+        if shouldRedo(event) {
+            onCommand?(.redo)
             return
         }
 
@@ -735,6 +644,11 @@ private final class BlockEditorTextView: NSTextView {
     }
 
     override func cancelOperation(_ sender: Any?) {
+        guard interceptsEditorCommands else {
+            super.cancelOperation(sender)
+            return
+        }
+
         if isSlashCommandContext(at: selectedRange()) {
             onCommand?(.slashDismiss)
             return
@@ -748,6 +662,86 @@ private final class BlockEditorTextView: NSTextView {
         }
 
         super.cancelOperation(sender)
+    }
+
+    @objc func undo(_ sender: Any?) {
+        onCommand?(.undo)
+    }
+
+    @objc func redo(_ sender: Any?) {
+        onCommand?(.redo)
+    }
+
+    override func doCommand(by selector: Selector) {
+        guard interceptsEditorCommands else {
+            super.doCommand(by: selector)
+            return
+        }
+
+        if selector == Selector(("undo:")) {
+            onCommand?(.undo)
+            return
+        }
+        if selector == Selector(("redo:")) {
+            onCommand?(.redo)
+            return
+        }
+        super.doCommand(by: selector)
+    }
+
+    private func shouldUndo(_ event: NSEvent) -> Bool {
+        event.keyCode == 6 && event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+    }
+
+    private func shouldRedo(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return event.keyCode == 6 && (flags == [.command, .shift] || flags == [.command, .option])
+    }
+}
+
+extension BlockEditorTextView: NSLayoutManagerDelegate {
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
+        properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
+        characterIndexes charIndexes: UnsafePointer<Int>,
+        font: NSFont,
+        forGlyphRange glyphRange: NSRange
+    ) -> Int {
+        guard !hiddenMarkdownMarkerIndexes.isEmpty else {
+            return 0
+        }
+
+        let count = glyphRange.length
+        let glyphBuffer = UnsafeMutablePointer<CGGlyph>.allocate(capacity: count)
+        let propertyBuffer = UnsafeMutablePointer<NSLayoutManager.GlyphProperty>.allocate(capacity: count)
+        let charIndexBuffer = UnsafeMutablePointer<Int>.allocate(capacity: count)
+
+        glyphBuffer.initialize(from: glyphs, count: count)
+        propertyBuffer.initialize(from: props, count: count)
+        charIndexBuffer.initialize(from: charIndexes, count: count)
+
+        for index in 0..<count where hiddenMarkdownMarkerIndexes.contains(charIndexBuffer[index]) {
+            propertyBuffer[index].insert(.null)
+            glyphBuffer[index] = 0
+        }
+
+        layoutManager.setGlyphs(
+            glyphBuffer,
+            properties: propertyBuffer,
+            characterIndexes: charIndexBuffer,
+            font: font,
+            forGlyphRange: glyphRange
+        )
+
+        glyphBuffer.deinitialize(count: count)
+        propertyBuffer.deinitialize(count: count)
+        charIndexBuffer.deinitialize(count: count)
+        glyphBuffer.deallocate()
+        propertyBuffer.deallocate()
+        charIndexBuffer.deallocate()
+
+        return count
     }
 }
 

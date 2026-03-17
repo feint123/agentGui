@@ -15,6 +15,7 @@ private let perfEditor = PerformanceMonitor.self
 struct BlockDocumentEditor: View {
     @Binding var text: String
     let fileURL: URL
+    var persistedText: String? = nil
     /// Called whenever the editor selection changes; passes the selected text and file line range.
     var onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil
 
@@ -24,14 +25,20 @@ struct BlockDocumentEditor: View {
     @State private var slashState = BlockEditorSlashState()
     @State private var draggedBlockID: UUID?
     @State private var dropTargetBlockID: UUID?
+    @State private var dragOriginBlocks: [DocumentBlock]?
     @State private var focusRequest: BlockEditorFocusRequest?
     @State private var activeBlockID: UUID?
     @State private var editorResidency = BlockEditorResidency(maxMountedEditors: 1)
     @State private var selectionState: InlineSelectionState?
     @State private var pendingFormats: [UUID: InlineFormatRequest] = [:]
     @State private var syncGate = BlockDocumentSyncGate()
+    @State private var historyController = BlockEditorHistoryController()
+    @State private var runtimeState = BlockEditorRuntimeState(document: .empty, fileURL: nil, activeBlockID: nil, focus: nil, selection: nil)
+    @State private var textEditSession: BlockEditorTextEditSession?
+    @State private var responderActivationToken = UUID()
 
     private let slashRegistry = BlockSlashCommandRegistry()
+    private let textEditCoalescingWindow: TimeInterval = 1.0
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -76,6 +83,12 @@ struct BlockDocumentEditor: View {
                     .zIndex(10)
                 }
             }
+            BlockEditorCommandResponder(
+                activationToken: responderActivationToken,
+                onUndo: undo,
+                onRedo: redo
+            )
+            .frame(width: 0, height: 0)
         }
     }
 
@@ -97,25 +110,14 @@ struct BlockDocumentEditor: View {
         }
         .background(editorBackground)
         .onAppear {
-            document = BlockMarkdownCodec.parse(text, fileURL: fileURL)
-            if let firstBlockID = document.blocks.first?.id {
-                activateBlock(firstBlockID)
-            }
+            initializeEditorState(from: text, resetHistory: true)
         }
         .onChange(of: text) { _, newValue in
             guard !isApplyingInternalChange else { return }
-            let span = perfEditor.startSpan("BlockDocumentEditor.textChange", category: "Editor", level: .verbose)
-            let serialized = BlockMarkdownCodec.serialize(document, fileURL: fileURL)
-            if serialized != newValue {
-                span.addMetadata("parseNeeded", value: true)
-                document = BlockMarkdownCodec.parse(newValue, fileURL: fileURL)
-                pruneEditorResidency()
-                if activeBlockID == nil,
-                   let firstBlockID = document.blocks.first?.id {
-                    activateBlock(firstBlockID)
-                }
-            }
-            span.end()
+            handleExternalTextChange(newValue)
+        }
+        .onChange(of: persistedText) { _, newValue in
+            handlePersistedTextChange(newValue)
         }
         .onChange(of: document.blocks) { _, _ in
             pruneEditorResidency()
@@ -136,7 +138,7 @@ struct BlockDocumentEditor: View {
             mountHeavyEditor: editorResidency.shouldMountEditor(for: block.id),
             listIndex: orderedListIndices[block.id],
             onTextChange: { newValue in
-                activateBlock(block.id)
+                handleTextChange(newValue, for: block.id)
             },
             onEditorCommand: { command in
                 handleEditorCommand(command, for: block.id)
@@ -144,10 +146,22 @@ struct BlockDocumentEditor: View {
             onFocusChange: { isFocused in
                 if isFocused {
                     activateBlock(block.id)
+                } else {
+                    flushTextEditSession()
                 }
             },
             onConvert: { kind in
                 convertBlock(id: block.id, to: kind)
+            },
+            onEditRequest: { edit in
+                handleRowEdit(edit, for: block.id)
+            },
+            onReadOnlyActivate: { offset in
+                activateBlock(block.id, focusPosition: .offset(offset))
+            },
+            onDragRequest: {
+                draggedBlockID = block.id
+                return NSItemProvider(object: block.id.uuidString as NSString)
             },
             onFileDrop: { urls in
                 addResources(urls, after: block.id)
@@ -161,6 +175,7 @@ struct BlockDocumentEditor: View {
                     }
                 }
                 onSelectionChange?(selectionSnapshot(for: state))
+                updateRuntimeSelection(from: state)
             },
             onSlashContextChange: { context in
                 handleSlashContextChange(context, for: block.id)
@@ -173,22 +188,17 @@ struct BlockDocumentEditor: View {
                     .fill(Color.accentColor.opacity(0.08))
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            activateBlock(block.id, focusPosition: .end)
-        }
-        .onDrag {
-            draggedBlockID = block.id
-            return NSItemProvider(object: block.id.uuidString as NSString)
-        }
         .onDrop(
             of: [.text],
             delegate: BlockReorderDropDelegate(
                 targetID: block.id,
                 blocks: $document.blocks,
                 draggedBlockID: $draggedBlockID,
+                dragOriginBlocks: $dragOriginBlocks,
                 dropTargetBlockID: $dropTargetBlockID,
-                onCommit: { syncText() }
+                onCommit: { beforeBlocks, draggedBlockID in
+                    commitReorderedBlocks(beforeBlocks: beforeBlocks, draggedBlockID: draggedBlockID)
+                }
             )
         )
     }
@@ -246,6 +256,10 @@ struct BlockDocumentEditor: View {
             adjustIndentation(for: blockID, delta: 1)
         case .outdent:
             adjustIndentation(for: blockID, delta: -1)
+        case .undo:
+            undo()
+        case .redo:
+            redo()
         case .moveFocusUp:
             moveFocus(from: blockID, delta: -1)
         case .moveFocusDown:
@@ -267,173 +281,76 @@ struct BlockDocumentEditor: View {
         }
     }
 
+    private func handleRowEdit(_ edit: BlockRowEdit, for blockID: UUID) {
+        applyStructuralEdit(title: historyTitle(for: edit)) { runtime in
+            runtime.applyRowEdit(id: blockID, edit: edit)
+        }
+    }
+
     private func convertBlock(id: UUID, to kind: DocumentBlockKind, removingSlashRange: NSRange? = nil) {
-        guard let index = document.blocks.firstIndex(where: { $0.id == id }) else { return }
-        var block = document.blocks[index]
-        if let removingSlashRange {
-            block.text = BlockEditorSlashQueryParser.removingToken(in: block.text, tokenRange: removingSlashRange)
+        applyStructuralEdit(title: "Convert Block") { runtime in
+            runtime.convertBlock(id: id, to: kind, removingSlashRange: removingSlashRange)
         }
-        block.kind = kind
-        block.applyDefaults(for: kind)
-        if kind == .divider {
-            block.text = ""
-        }
-        if kind == .image || kind == .url || kind == .file {
-            block.metadata.resource = ""
-        }
-        if kind != .bulletedList && kind != .numberedList && kind != .todo && kind != .quote {
-            block.metadata.indentLevel = 0
-        }
-        document.blocks[index] = block
-        dismissSlash(blockID: id)
-        activateBlock(id, focusPosition: .start)
-        syncText(manualCommit: true)
     }
 
     private func splitBlock(id: UUID, selectedRange: NSRange) {
         let span = perfEditor.startSpan("BlockEditor.splitBlock", category: "Editor", level: .normal)
         defer { span.end() }
-
-        guard let index = document.blocks.firstIndex(where: { $0.id == id }) else { return }
-        let currentBlock = document.blocks[index]
-
-        if currentBlock.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           currentBlock.kind == .bulletedList || currentBlock.kind == .numberedList || currentBlock.kind == .todo {
-            convertBlock(id: id, to: .paragraph)
-            return
+        applyStructuralEdit(title: "Split Block") { runtime in
+            runtime.splitBlock(id: id, selectedRange: selectedRange)
         }
-
-        let source = currentBlock.text as NSString
-        let safeLocation = max(0, min(selectedRange.location, source.length))
-        let safeLength = max(0, min(selectedRange.length, source.length - safeLocation))
-        let before = source.substring(to: safeLocation)
-        let after = source.substring(from: safeLocation + safeLength)
-
-        var updatedCurrent = currentBlock
-        updatedCurrent.text = before
-
-        var next = DocumentBlock.empty(followUpKind(for: currentBlock.kind))
-        next.text = after
-        next.metadata.indentLevel = currentBlock.metadata.indentLevel
-        if currentBlock.kind == .todo {
-            next.metadata.checked = false
-        }
-
-        withAnimation(.easeInOut(duration: 0.18)) {
-            document.blocks[index] = updatedCurrent
-            document.blocks.insert(next, at: index + 1)
-        }
-        activateBlock(next.id, focusPosition: .start)
-        syncText(manualCommit: true)
     }
 
     private func mergeBlockBackward(id: UUID) {
         let span = perfEditor.startSpan("BlockEditor.mergeBlockBackward", category: "Editor", level: .normal)
         defer { span.end() }
-
-        guard let index = document.blocks.firstIndex(where: { $0.id == id }), index > 0 else { return }
-        let current = document.blocks[index]
-        let previous = document.blocks[index - 1]
-
-        if current.text.isEmpty {
-            _ = withAnimation(.easeInOut(duration: 0.18)) {
-                document.blocks.remove(at: index)
-            }
-            activateBlock(previous.id, focusPosition: .end)
-            syncText(manualCommit: true)
-            return
+        applyStructuralEdit(title: "Merge Block") { runtime in
+            runtime.mergeBlockBackward(id: id)
         }
-
-        guard previous.kind.acceptsRichBody, current.kind.acceptsRichBody else { return }
-
-        var merged = previous
-        let separator = mergeSeparator(previous: previous.kind, current: current.kind)
-        merged.text += separator + current.text
-
-        withAnimation(.easeInOut(duration: 0.18)) {
-            document.blocks[index - 1] = merged
-            document.blocks.remove(at: index)
-        }
-        activateBlock(merged.id, focusPosition: .end)
-        syncText(manualCommit: true)
     }
 
     private func insertBlock(after blockID: UUID) {
         let span = perfEditor.startSpan("BlockEditor.insertBlock", category: "Editor", level: .normal)
         defer { span.end() }
-
-        guard let index = document.blocks.firstIndex(where: { $0.id == blockID }) else { return }
-        let insertAfter = document.blocks[index]
-        var next = DocumentBlock.empty(.paragraph)
-        if insertAfter.kind == .bulletedList || insertAfter.kind == .numberedList || insertAfter.kind == .todo || insertAfter.kind == .quote {
-            next.kind = followUpKind(for: insertAfter.kind)
-            next.metadata.indentLevel = insertAfter.metadata.indentLevel
+        applyStructuralEdit(title: "Insert Block") { runtime in
+            runtime.insertBlock(after: blockID)
         }
-        withAnimation(.easeInOut(duration: 0.2)) {
-            document.blocks.insert(next, at: index + 1)
-        }
-        activateBlock(next.id, focusPosition: .start)
-        syncText(manualCommit: true)
     }
 
     private func deleteBlock(id: UUID, removingSlashRange: NSRange? = nil) {
         let span = perfEditor.startSpan("BlockEditor.deleteBlock", category: "Editor", level: .normal)
         defer { span.end() }
-
-        guard let index = document.blocks.firstIndex(where: { $0.id == id }) else { return }
-        let fallbackID = document.blocks.indices.contains(max(0, index - 1)) ? document.blocks[max(0, index - 1)].id : nil
-        withAnimation(.easeInOut(duration: 0.2)) {
-            document.blocks.remove(at: index)
-            if document.blocks.isEmpty {
-                document.blocks = [.empty(.paragraph)]
-            }
+        applyStructuralEdit(title: "Delete Block") { runtime in
+            runtime.deleteBlock(id: id)
         }
-        if let fallbackID {
-            activateBlock(fallbackID)
-        } else if let firstBlockID = document.blocks.first?.id {
-            activateBlock(firstBlockID)
-        }
-        syncText(manualCommit: true)
     }
 
     private func duplicateBlock(id: UUID) {
         guard let index = document.blocks.firstIndex(where: { $0.id == id }) else { return }
         var copy = document.blocks[index]
         copy.id = UUID()
-        withAnimation(.easeInOut(duration: 0.2)) {
-            document.blocks.insert(copy, at: index + 1)
+        applyStructuralEdit(title: "Duplicate Block") { runtime in
+            runtime.document.blocks.insert(copy, at: index + 1)
+            runtime.activeBlockID = copy.id
+            runtime.focus = BlockEditorFocusSnapshot(blockID: copy.id, caretUTF16Offset: copy.text.utf16.count)
+            runtime.selection = nil
         }
-        activateBlock(copy.id, focusPosition: .end)
-        syncText(manualCommit: true)
     }
 
     private func addResources(_ urls: [URL], after blockID: UUID?) {
-        let newBlocks = urls.map(makeResourceBlock)
-        guard !newBlocks.isEmpty else { return }
-        let insertIndex: Int
-        if let blockID, let index = document.blocks.firstIndex(where: { $0.id == blockID }) {
-            insertIndex = index + 1
-        } else {
-            insertIndex = document.blocks.count
+        applyStructuralEdit(title: "Insert Resource") { runtime in
+            runtime.addResources(urls, after: blockID)
         }
-        withAnimation(.easeInOut(duration: 0.22)) {
-            document.blocks.insert(contentsOf: newBlocks, at: insertIndex)
-        }
-        if let first = newBlocks.first {
-            activateBlock(first.id, focusPosition: .end)
-        }
-        syncText(manualCommit: true)
     }
 
     private func adjustIndentation(for blockID: UUID, delta: Int) {
-        guard let index = document.blocks.firstIndex(where: { $0.id == blockID }) else { return }
-        guard supportsIndentation(document.blocks[index].kind) else { return }
-        document.blocks[index].metadata.indentLevel = max(0, document.blocks[index].metadata.indentLevel + delta)
-        activateBlock(blockID)
-        syncText(manualCommit: true)
+        applyStructuralEdit(title: delta > 0 ? "Indent Block" : "Outdent Block") { runtime in
+            runtime.adjustIndentation(for: blockID, delta: delta)
+        }
     }
 
     private func moveFocus(from blockID: UUID, delta: Int) {
+        flushTextEditSession()
         guard let index = document.blocks.firstIndex(where: { $0.id == blockID }) else { return }
         let targetIndex = index + delta
         guard document.blocks.indices.contains(targetIndex) else { return }
@@ -444,8 +361,242 @@ struct BlockDocumentEditor: View {
     private func activateBlock(_ blockID: UUID, focusPosition: BlockEditorFocusPosition? = nil) {
         activeBlockID = blockID
         editorResidency.recordInteraction(with: blockID)
+        runtimeState.activeBlockID = blockID
+        runtimeState.selection = nil
         if let focusPosition {
             focusRequest = BlockEditorFocusRequest(blockID: blockID, position: focusPosition)
+            runtimeState.focus = focusSnapshot(for: blockID, position: focusPosition)
+        } else {
+            runtimeState.focus = nil
+        }
+    }
+
+    private func initializeEditorState(from sourceText: String, resetHistory: Bool) {
+        flushTextEditSession()
+        document = BlockMarkdownCodec.parse(sourceText, fileURL: fileURL)
+        if let firstBlockID = document.blocks.first?.id {
+            activeBlockID = firstBlockID
+            focusRequest = nil
+            editorResidency.recordInteraction(with: firstBlockID)
+        }
+        runtimeState = makeRuntimeState()
+        if resetHistory {
+            historyController.reset()
+        }
+        if persistedText == sourceText {
+            historyController.markClean(at: runtimeState.snapshot(serializedText: sourceText))
+        }
+    }
+
+    private func handleExternalTextChange(_ newValue: String) {
+        let span = perfEditor.startSpan("BlockDocumentEditor.textChange", category: "Editor", level: .verbose)
+        defer { span.end() }
+
+        let serialized = BlockMarkdownCodec.serialize(document, fileURL: fileURL)
+        guard serialized != newValue else { return }
+        span.addMetadata("parseNeeded", value: true)
+        initializeEditorState(from: newValue, resetHistory: true)
+        pruneEditorResidency()
+    }
+
+    private func handlePersistedTextChange(_ newValue: String?) {
+        guard let newValue else { return }
+        flushTextEditSession()
+        let currentSerialized = BlockMarkdownCodec.serialize(document, fileURL: fileURL)
+        if currentSerialized == newValue {
+            historyController.markClean(at: makeRuntimeState().snapshot(serializedText: newValue))
+        }
+    }
+
+    private func applyStructuralEdit(
+        title: String,
+        kind: BlockEditorHistoryEntry.Kind = .blockStructure,
+        mergePolicy: BlockEditorHistoryEntry.MergePolicy = .never,
+        mutation: (inout BlockEditorRuntimeState) -> Void
+    ) {
+        flushTextEditSession()
+        var runtime = makeRuntimeState()
+        var driver = BlockEditorMutationDriver(history: historyController)
+        let changed = driver.applyMutation(
+            kind: kind,
+            title: title,
+            mergePolicy: mergePolicy,
+            editor: &runtime,
+            mutation: mutation
+        )
+        historyController = driver.history
+        guard changed else { return }
+        applyRuntimeState(runtime, manualCommit: true)
+    }
+
+    private func commitReorderedBlocks(beforeBlocks: [DocumentBlock], draggedBlockID: UUID?) {
+        flushTextEditSession()
+
+        let afterBlocks = document.blocks
+        guard beforeBlocks != afterBlocks else {
+            syncText(manualCommit: true)
+            return
+        }
+
+        var beforeRuntime = makeRuntimeState()
+        beforeRuntime.document = BlockDocument(blocks: beforeBlocks)
+        beforeRuntime.activeBlockID = draggedBlockID ?? beforeRuntime.activeBlockID
+        beforeRuntime.focus = nil
+        beforeRuntime.selection = nil
+
+        var afterRuntime = makeRuntimeState()
+        afterRuntime.activeBlockID = draggedBlockID ?? afterRuntime.activeBlockID
+        afterRuntime.focus = nil
+        afterRuntime.selection = nil
+
+        historyController.record(
+            BlockEditorHistoryEntry(
+                id: UUID(),
+                kind: .blockStructure,
+                title: "Reorder Blocks",
+                before: beforeRuntime.snapshot(),
+                after: afterRuntime.snapshot(),
+                mergePolicy: .never,
+                timestamp: Date()
+            )
+        )
+
+        runtimeState = afterRuntime
+        activeBlockID = afterRuntime.activeBlockID
+        focusRequest = nil
+        selectionState = nil
+        syncText(manualCommit: true)
+    }
+
+    private func handleTextChange(_ newValue: String, for blockID: UUID) {
+        let previousRuntime = runtimeState
+        var updatedRuntime = makeRuntimeState()
+        updatedRuntime.activeBlockID = blockID
+
+        let now = Date()
+        let latestSnapshot = updatedRuntime.snapshot()
+
+        if var session = textEditSession,
+           session.canCoalesce(with: blockID, at: now, timeout: textEditCoalescingWindow) {
+            session.latest = latestSnapshot
+            session.lastEditedAt = now
+            textEditSession = session
+        } else {
+            flushTextEditSession()
+            textEditSession = BlockEditorTextEditSession(
+                blockID: blockID,
+                baseline: previousRuntime.snapshot(),
+                latest: latestSnapshot,
+                startedAt: now,
+                lastEditedAt: now
+            )
+        }
+
+        runtimeState = updatedRuntime
+        activeBlockID = blockID
+    }
+
+    private func flushTextEditSession() {
+        guard let session = textEditSession else { return }
+        defer { textEditSession = nil }
+        guard session.baseline != session.latest else { return }
+        historyController.record(
+            BlockEditorHistoryEntry(
+                id: UUID(),
+                kind: .textInput(blockID: session.blockID),
+                title: "Text Input",
+                before: session.baseline,
+                after: session.latest,
+                mergePolicy: .never,
+                timestamp: session.lastEditedAt
+            )
+        )
+    }
+
+    private func undo() {
+        flushTextEditSession()
+        guard let snapshot = historyController.undo(current: makeRuntimeState().snapshot()) else { return }
+        applyHistorySnapshot(snapshot)
+    }
+
+    private func redo() {
+        flushTextEditSession()
+        guard let snapshot = historyController.redo(current: makeRuntimeState().snapshot()) else { return }
+        applyHistorySnapshot(snapshot)
+    }
+
+    private func applyHistorySnapshot(_ snapshot: BlockEditorUndoSnapshot) {
+        var runtime = makeRuntimeState()
+        runtime.apply(snapshot: snapshot)
+        applyRuntimeState(runtime, manualCommit: true)
+    }
+
+    private func applyRuntimeState(_ runtime: BlockEditorRuntimeState, manualCommit: Bool) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            document = runtime.document
+        }
+        runtimeState = runtime
+        selectionState = nil
+        slashState.clear()
+        pendingFormats.removeAll()
+        activeBlockID = runtime.activeBlockID ?? runtime.document.blocks.first?.id
+        if let activeBlockID {
+            editorResidency.recordInteraction(with: activeBlockID)
+        }
+        if let focus = runtime.focus {
+            focusRequest = BlockEditorFocusRequest(blockID: focus.blockID, position: .offset(focus.caretUTF16Offset))
+        } else {
+            focusRequest = nil
+            responderActivationToken = UUID()
+        }
+        syncText(manualCommit: manualCommit)
+    }
+
+    private func makeRuntimeState() -> BlockEditorRuntimeState {
+        BlockEditorRuntimeState(
+            document: document,
+            fileURL: fileURL,
+            activeBlockID: activeBlockID,
+            focus: runtimeState.focus,
+            selection: runtimeState.selection
+        )
+    }
+
+    private func updateRuntimeSelection(from state: InlineSelectionState) {
+        runtimeState.selection = state.hasSelection ? BlockEditorSelectionSnapshot(blockID: state.blockID, range: state.selectedRange) : nil
+    }
+
+    private func focusSnapshot(for blockID: UUID, position: BlockEditorFocusPosition) -> BlockEditorFocusSnapshot {
+        let textLength = document.blocks.first(where: { $0.id == blockID })?.text.utf16.count ?? 0
+        let projection = BlockInlineMarkdownProjection(sourceText: document.blocks.first(where: { $0.id == blockID })?.text ?? "")
+        let offset: Int
+        switch position {
+        case .start:
+            offset = 0
+        case .end:
+            offset = projection.normalizedSourceOffset(for: textLength)
+        case .offset(let requestedOffset):
+            offset = projection.normalizedSourceOffset(for: max(0, min(requestedOffset, textLength)))
+        }
+        return BlockEditorFocusSnapshot(blockID: blockID, caretUTF16Offset: offset)
+    }
+
+    private func historyTitle(for edit: BlockRowEdit) -> String {
+        switch edit {
+        case .setText:
+            return "Edit Block Text"
+        case .setChecked:
+            return "Toggle Check State"
+        case .setLanguage:
+            return "Edit Language"
+        case .setResource:
+            return "Edit Resource"
+        case .setSecondaryText:
+            return "Edit Title"
+        case .setTone:
+            return "Edit Tone"
+        case .setCollapsed:
+            return "Toggle Collapse"
         }
     }
 
@@ -619,27 +770,15 @@ struct BlockDocumentEditor: View {
     }
 
     private func clearFormatting(for blockID: UUID, tokenRange: NSRange) {
-        guard let index = document.blocks.firstIndex(where: { $0.id == blockID }) else { return }
-        let cleanedText = BlockEditorSlashQueryParser.removingToken(in: document.blocks[index].text, tokenRange: tokenRange)
-        var block = DocumentBlock.empty(.paragraph)
-        block.id = document.blocks[index].id
-        block.text = cleanedText
-        document.blocks[index] = block
-        dismissSlash(blockID: blockID)
-        activateBlock(blockID, focusPosition: .start)
-        syncText(manualCommit: true)
+        applyStructuralEdit(title: "Clear Formatting") { runtime in
+            runtime.clearFormatting(for: blockID, tokenRange: tokenRange)
+        }
     }
 
     private func createTablePreset(rows: Int, columns: Int, for blockID: UUID, tokenRange: NSRange) {
-        guard let index = document.blocks.firstIndex(where: { $0.id == blockID }) else { return }
-        var block = document.blocks[index]
-        block.kind = .table
-        block.text = makeTablePresetMarkdown(rows: rows, columns: columns)
-        block.metadata = DocumentBlockMetadata()
-        document.blocks[index] = block
-        dismissSlash(blockID: blockID)
-        activateBlock(blockID, focusPosition: .start)
-        syncText(manualCommit: true)
+        applyStructuralEdit(title: "Create Table") { runtime in
+            runtime.createTablePreset(rows: rows, columns: columns, for: blockID, tokenRange: tokenRange)
+        }
     }
 
     private func makeTablePresetMarkdown(rows: Int, columns: Int) -> String {
@@ -653,16 +792,18 @@ struct BlockDocumentEditor: View {
     }
 
     private func mutateBlock(id: UUID, removingSlashRange: NSRange? = nil, _ update: (inout DocumentBlock) -> Void) {
-        guard let index = document.blocks.firstIndex(where: { $0.id == id }) else { return }
-        var block = document.blocks[index]
-        if let removingSlashRange {
-            block.text = BlockEditorSlashQueryParser.removingToken(in: block.text, tokenRange: removingSlashRange)
+        applyStructuralEdit(title: "Mutate Block") { runtime in
+            guard let index = runtime.document.blocks.firstIndex(where: { $0.id == id }) else { return }
+            var block = runtime.document.blocks[index]
+            if let removingSlashRange {
+                block.text = BlockEditorSlashQueryParser.removingToken(in: block.text, tokenRange: removingSlashRange)
+            }
+            update(&block)
+            runtime.document.blocks[index] = block
+            runtime.activeBlockID = id
+            runtime.focus = BlockEditorFocusSnapshot(blockID: id, caretUTF16Offset: 0)
+            runtime.selection = nil
         }
-        update(&block)
-        document.blocks[index] = block
-        dismissSlash(blockID: id)
-        activateBlock(id, focusPosition: .start)
-        syncText(manualCommit: true)
     }
 
     private func followUpKind(for kind: DocumentBlockKind) -> DocumentBlockKind {
@@ -762,11 +903,15 @@ private struct BlockReorderDropDelegate: DropDelegate {
     let targetID: UUID
     @Binding var blocks: [DocumentBlock]
     @Binding var draggedBlockID: UUID?
+    @Binding var dragOriginBlocks: [DocumentBlock]?
     @Binding var dropTargetBlockID: UUID?
-    let onCommit: () -> Void
+    let onCommit: ([DocumentBlock], UUID?) -> Void
 
     func dropEntered(info: DropInfo) {
         dropTargetBlockID = targetID
+        if dragOriginBlocks == nil {
+            dragOriginBlocks = blocks
+        }
         guard let draggedBlockID,
               draggedBlockID != targetID,
               let from = blocks.firstIndex(where: { $0.id == draggedBlockID }),
@@ -780,9 +925,12 @@ private struct BlockReorderDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        let beforeBlocks = dragOriginBlocks ?? blocks
+        let committedDraggedBlockID = draggedBlockID
         dropTargetBlockID = nil
+        dragOriginBlocks = nil
         draggedBlockID = nil
-        onCommit()
+        onCommit(beforeBlocks, committedDraggedBlockID)
         return true
     }
 
@@ -792,5 +940,45 @@ private struct BlockReorderDropDelegate: DropDelegate {
 
     func dropExited(info: DropInfo) {
         dropTargetBlockID = nil
+    }
+}
+
+private struct BlockEditorCommandResponder: NSViewRepresentable {
+    let activationToken: UUID
+    let onUndo: () -> Void
+    let onRedo: () -> Void
+
+    func makeNSView(context: Context) -> BlockEditorCommandResponderView {
+        let view = BlockEditorCommandResponderView()
+        view.onUndo = onUndo
+        view.onRedo = onRedo
+        return view
+    }
+
+    func updateNSView(_ nsView: BlockEditorCommandResponderView, context: Context) {
+        nsView.onUndo = onUndo
+        nsView.onRedo = onRedo
+        guard nsView.lastActivationToken != activationToken else { return }
+        nsView.lastActivationToken = activationToken
+        DispatchQueue.main.async {
+            nsView.window?.makeFirstResponder(nsView)
+        }
+    }
+}
+
+final class BlockEditorCommandResponderView: NSView {
+    var onUndo: (() -> Void)?
+    var onRedo: (() -> Void)?
+    var lastActivationToken: UUID?
+
+    override var acceptsFirstResponder: Bool { true }
+    override var isOpaque: Bool { false }
+
+    @objc func undo(_ sender: Any?) {
+        onUndo?()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        onRedo?()
     }
 }
