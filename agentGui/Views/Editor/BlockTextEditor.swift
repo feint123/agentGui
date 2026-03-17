@@ -91,8 +91,11 @@ enum BlockEditorCommand {
     case moveFocusDown
     case slashMoveUp
     case slashMoveDown
+    case slashMoveLeft
+    case slashMoveRight
     case slashCommit
     case slashDismiss
+    case dismissFloatingOverlays
 }
 
 struct BlockTextEditor: NSViewRepresentable {
@@ -107,6 +110,7 @@ struct BlockTextEditor: NSViewRepresentable {
     var onFileDrop: ([URL]) -> Void = { _ in }
     var onFocusChange: (Bool) -> Void = { _ in }
     var onSelectionChange: ((InlineSelectionState) -> Void)? = nil
+    var onSlashChange: ((BlockEditorSlashContext?) -> Void)? = nil
     var pendingFormatRequest: InlineFormatRequest? = nil
 
     func makeCoordinator() -> Coordinator {
@@ -160,6 +164,7 @@ struct BlockTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? BlockEditorTextView else { return }
+        context.coordinator.parent = self
 
         // 优化：只在属性实际变化时才设置
         if textView.isEditable != isEditable {
@@ -179,6 +184,7 @@ struct BlockTextEditor: NSViewRepresentable {
         textView.onFileDropped = onFileDrop
         textView.onCommand = onCommand
         textView.onFocusChange = onFocusChange
+        context.coordinator.parent.onSlashChange = onSlashChange
 
         // 只在 kind 变化或文本变化时应用样式
         if kindChanged || textView.string != text {
@@ -220,6 +226,8 @@ struct BlockTextEditor: NSViewRepresentable {
                 coordinator.applyFormat(action, to: tv)
             }
         }
+
+        context.coordinator.publishSlashContext(for: textView)
     }
 
     private func applyStyle(to textView: BlockEditorTextView) {
@@ -385,6 +393,7 @@ struct BlockTextEditor: NSViewRepresentable {
                     activeActions: [],
                     selectedText: nil
                 ))
+                publishSlashContext(for: textView)
                 return
             }
             savedSelectionRange = selectedRange
@@ -400,6 +409,7 @@ struct BlockTextEditor: NSViewRepresentable {
                 activeActions: activeActions,
                 selectedText: selectedText
             ))
+            publishSlashContext(for: textView)
         }
 
         private func detectActiveActions(in textView: NSTextView, range: NSRange) -> Set<InlineStyleAction> {
@@ -442,6 +452,7 @@ struct BlockTextEditor: NSViewRepresentable {
             parent.applyStyle(to: textView)
             parent.onTextChange(textView.string)
             recalculateHeight(textView)
+            publishSlashContext(for: textView)
             textView.needsDisplay = true
         }
 
@@ -507,6 +518,55 @@ struct BlockTextEditor: NSViewRepresentable {
             lastCalculatedText = ""
             lastCalculatedHeight = 0
             recalculateHeight(textView)
+        }
+
+        fileprivate func publishSlashContext(for textView: BlockEditorTextView) {
+            guard let match = BlockEditorSlashQueryParser.detect(in: textView.string, selectedRange: textView.selectedRange()) else {
+                parent.onSlashChange?(nil)
+                return
+            }
+
+            parent.onSlashChange?(
+                BlockEditorSlashContext(
+                    blockID: parent.blockID,
+                    currentKind: parent.kind,
+                    match: match,
+                    anchorRect: caretScreenRect(for: textView, selectedRange: textView.selectedRange(), match: match)
+                )
+            )
+        }
+
+        private func caretScreenRect(for textView: NSTextView, selectedRange: NSRange, match: BlockEditorSlashQueryParser.Match) -> CGRect {
+            var actualRange = NSRange()
+            let directRect = textView.firstRect(forCharacterRange: selectedRange, actualRange: &actualRange)
+            if !directRect.isEmpty {
+                return directRect
+            }
+
+            let anchorLocation = min(match.tokenRange.location + match.tokenRange.length, textView.string.utf16.count)
+            let fallbackRange = NSRange(location: anchorLocation, length: 0)
+            let fallbackRect = textView.firstRect(forCharacterRange: fallbackRange, actualRange: &actualRange)
+            if !fallbackRect.isEmpty {
+                return fallbackRect
+            }
+
+            guard let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer,
+                  let window = textView.window else {
+                return .zero
+            }
+
+            let characterCount = textView.string.utf16.count
+            let glyphCharacterIndex = max(min(anchorLocation - 1, characterCount - 1), 0)
+            let glyphIndex = layoutManager.glyphIndexForCharacter(at: glyphCharacterIndex)
+            var rect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: textContainer)
+            if anchorLocation == characterCount {
+                rect.origin.x = rect.maxX
+            }
+            rect.origin.x += textView.textContainerInset.width
+            rect.origin.y += textView.textContainerInset.height
+            let rectInWindow = textView.convert(rect, to: nil)
+            return window.convertToScreen(rectInWindow)
         }
     }
 }
@@ -620,7 +680,7 @@ private final class BlockEditorTextView: NSTextView {
     }
 
     private func shouldHandleSlashCommandKey(_ event: NSEvent) -> Bool {
-        isSlashCommandContext && [53, 125, 126, 36, 76].contains(Int(event.keyCode))
+        isSlashCommandContext(at: selectedRange()) && [53, 123, 124, 125, 126, 36, 76].contains(Int(event.keyCode))
     }
 
     private func shouldIndent(_ event: NSEvent) -> Bool {
@@ -630,19 +690,23 @@ private final class BlockEditorTextView: NSTextView {
     private func shouldMoveFocusUp(_ event: NSEvent) -> Bool {
         guard event.keyCode == 126 else { return false }
         let range = selectedRange()
-        return range.length == 0 && range.location == 0 && !isSlashCommandContext
+        return range.length == 0 && range.location == 0 && !isSlashCommandContext(at: range)
     }
 
     private func shouldMoveFocusDown(_ event: NSEvent) -> Bool {
         guard event.keyCode == 125 else { return false }
         let range = selectedRange()
-        return range.length == 0 && range.location == string.utf16.count && !isSlashCommandContext
+        return range.length == 0 && range.location == string.utf16.count && !isSlashCommandContext(at: range)
     }
 
     private func handleSlashCommandKey(_ event: NSEvent) {
         switch event.keyCode {
         case 53:
             onCommand?(.slashDismiss)
+        case 123:
+            onCommand?(.slashMoveLeft)
+        case 124:
+            onCommand?(.slashMoveRight)
         case 125:
             onCommand?(.slashMoveDown)
         case 126:
@@ -654,8 +718,8 @@ private final class BlockEditorTextView: NSTextView {
         }
     }
 
-    private var isSlashCommandContext: Bool {
-        string.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
+    private func isSlashCommandContext(at range: NSRange) -> Bool {
+        BlockEditorSlashQueryParser.detect(in: string, selectedRange: range) != nil
     }
 
     private var isComposingMarkedText: Bool {
@@ -668,6 +732,22 @@ private final class BlockEditorTextView: NSTextView {
 
     private var supportsIndentation: Bool {
         blockKind == .bulletedList || blockKind == .numberedList || blockKind == .todo || blockKind == .quote
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        if isSlashCommandContext(at: selectedRange()) {
+            onCommand?(.slashDismiss)
+            return
+        }
+
+        let range = selectedRange()
+        if range.length > 0 {
+            setSelectedRange(NSRange(location: range.location, length: 0))
+            onCommand?(.dismissFloatingOverlays)
+            return
+        }
+
+        super.cancelOperation(sender)
     }
 }
 

@@ -10,9 +10,6 @@ struct BlockRowView: View {
     let focusRequest: BlockEditorFocusRequest?
     let isActive: Bool
     let mountHeavyEditor: Bool
-    let isSlashPresented: Bool
-    let slashQuery: String
-    let selectedSlashKind: DocumentBlockKind?
     let listIndex: Int?
     let onTextChange: (String) -> Void
     let onEditorCommand: (BlockEditorCommand) -> Void
@@ -20,7 +17,7 @@ struct BlockRowView: View {
     let onConvert: (DocumentBlockKind) -> Void
     let onFileDrop: ([URL]) -> Void
     var onSelectionChange: ((InlineSelectionState) -> Void)? = nil
-    var onSlashMenuPositionChange: ((CGRect) -> Void)? = nil
+    var onSlashContextChange: ((BlockEditorSlashContext?) -> Void)? = nil
     var pendingFormatRequest: InlineFormatRequest? = nil
 
     @Environment(\.colorScheme) private var colorScheme
@@ -34,17 +31,6 @@ struct BlockRowView: View {
                 content
             }
         }
-        .background(
-            GeometryReader { geo in
-                Color.clear
-                    .onChange(of: isSlashPresented) { _, isPresented in
-                        if isPresented {
-                            // Report position in screen coordinates for floating menu
-                            onSlashMenuPositionChange?(geo.frame(in: .global))
-                        }
-                    }
-            }
-        )
         .padding(.horizontal, 8)
         .padding(.vertical, verticalPadding)
         .background(backgroundStyle)
@@ -124,6 +110,7 @@ struct BlockRowView: View {
                         onFileDrop: onFileDrop,
                         onFocusChange: onFocusChange,
                         onSelectionChange: onSelectionChange,
+                        onSlashChange: onSlashContextChange,
                         pendingFormatRequest: pendingFormatRequest
                     )
                 } else {

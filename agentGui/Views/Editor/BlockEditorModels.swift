@@ -191,25 +191,6 @@ enum BlockListIndexMap {
     }
 }
 
-struct SlashCommandItem: Identifiable, Equatable {
-    let kind: DocumentBlockKind
-
-    var id: DocumentBlockKind { kind }
-    var title: String { kind.title }
-    var symbolName: String { kind.symbolName }
-    var keywords: [String] { kind.slashKeywords }
-
-    static let all: [SlashCommandItem] = DocumentBlockKind.allCases.map(SlashCommandItem.init(kind:))
-
-    static func filtered(matching query: String) -> [SlashCommandItem] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return all }
-        return all.filter {
-            $0.title.localizedStandardContains(trimmed) || $0.keywords.contains { $0.localizedStandardContains(trimmed) }
-        }
-    }
-}
-
 enum BlockEditorFocusPosition: Equatable {
     case start
     case end

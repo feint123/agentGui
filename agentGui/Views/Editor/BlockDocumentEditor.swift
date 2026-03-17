@@ -21,10 +21,7 @@ struct BlockDocumentEditor: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var document = BlockDocument.empty
     @State private var isApplyingInternalChange = false
-    @State private var activeSlashBlockID: UUID?
-    @State private var slashQuery = ""
-    @State private var slashSelectionIndex = 0
-    @State private var slashMenuPosition: CGRect = .zero
+    @State private var slashState = BlockEditorSlashState()
     @State private var draggedBlockID: UUID?
     @State private var dropTargetBlockID: UUID?
     @State private var focusRequest: BlockEditorFocusRequest?
@@ -34,32 +31,51 @@ struct BlockDocumentEditor: View {
     @State private var pendingFormats: [UUID: InlineFormatRequest] = [:]
     @State private var syncGate = BlockDocumentSyncGate()
 
+    private let slashRegistry = BlockSlashCommandRegistry()
+
     var body: some View {
         ZStack(alignment: .topLeading) {
-        scrollContent
-        GeometryReader { geo in
-            if let state = selectionState, state.hasSelection {
-                InlineStyleToolbarView(
-                    activeActions: state.activeActions,
-                    onAction: { action in applyFormat(action, blockID: state.blockID) }
-                )
-                .position(toolbarPosition(for: state, geo: geo))
-                .transition(.inlineToolbar)
-                .zIndex(10)
+            scrollContent
+                .simultaneousGesture(TapGesture().onEnded {
+                    if selectionState?.hasSelection == true || slashState.isPresented {
+                        dismissFloatingOverlays()
+                    }
+                })
+            GeometryReader { geo in
+                if let state = selectionState, state.hasSelection {
+                    InlineStyleToolbarView(
+                        activeActions: state.activeActions,
+                        onAction: { action in applyFormat(action, blockID: state.blockID) }
+                    )
+                    .position(toolbarPosition(for: state, geo: geo))
+                    .transition(.inlineToolbar)
+                    .zIndex(10)
+                }
+                if let context = slashState.context {
+                    SlashCommandMenu(
+                        query: context.query,
+                        categories: slashState.categories,
+                        highlightedCategoryID: slashState.highlightedCategoryID,
+                        selectedCategoryID: slashState.selectedCategoryID,
+                        highlightedItemID: slashState.selectedItem?.id,
+                        scrollTargetItemID: slashState.scrollTargetItemID,
+                        onScrollTargetConsumed: {
+                            _ = slashState.consumeScrollTargetItemID()
+                        },
+                        onSelectCategory: { categoryID in
+                            withAnimation(.snappy(duration: 0.24, extraBounce: 0.04)) {
+                                slashState.selectCategory(categoryID)
+                            }
+                        },
+                        onSelect: { item in
+                            applySlashCommand(item.action, to: context.blockID, tokenRange: context.tokenRange)
+                        }
+                    )
+                    .position(slashMenuPosition(for: geo, anchorRect: context.anchorRect))
+                    .transition(.editorFloatingMenu)
+                    .zIndex(10)
+                }
             }
-            // Floating slash menu
-            if let blockID = activeSlashBlockID, !slashMenuPosition.isEmpty {
-                SlashCommandMenu(
-                    query: slashQuery,
-                    selectedKind: selectedSlashItem?.kind,
-                    onSelect: { kind in convertBlock(id: blockID, to: kind) }
-                )
-                .position(slashMenuPosition(for: geo))
-                .transition(.editorFloatingMenu)
-                .zIndex(10)
-            }
-        }
-        .allowsHitTesting(selectionState?.hasSelection == true || activeSlashBlockID != nil)
         }
     }
 
@@ -118,13 +134,9 @@ struct BlockDocumentEditor: View {
             focusRequest: focusRequest,
             isActive: activeBlockID == block.id,
             mountHeavyEditor: editorResidency.shouldMountEditor(for: block.id),
-            isSlashPresented: activeSlashBlockID == block.id,
-            slashQuery: activeSlashBlockID == block.id ? slashQuery : "",
-            selectedSlashKind: activeSlashBlockID == block.id ? selectedSlashItem?.kind : nil,
             listIndex: orderedListIndices[block.id],
             onTextChange: { newValue in
                 activateBlock(block.id)
-                handleTextChange(for: block.id, text: newValue)
             },
             onEditorCommand: { command in
                 handleEditorCommand(command, for: block.id)
@@ -150,8 +162,8 @@ struct BlockDocumentEditor: View {
                 }
                 onSelectionChange?(selectionSnapshot(for: state))
             },
-            onSlashMenuPositionChange: { rect in
-                slashMenuPosition = rect
+            onSlashContextChange: { context in
+                handleSlashContextChange(context, for: block.id)
             },
             pendingFormatRequest: pendingFormats[block.id]
         )
@@ -202,40 +214,26 @@ struct BlockDocumentEditor: View {
         return CGPoint(x: clampedX, y: clampedY)
     }
 
-    private func slashMenuPosition(for geo: GeometryProxy) -> CGPoint {
+    private func slashMenuPosition(for geo: GeometryProxy, anchorRect: CGRect) -> CGPoint {
         let viewFrame = geo.frame(in: .global)
-        // slashMenuPosition is in screen coordinates, convert to view-local
         guard let window = NSApp.keyWindow,
               let contentView = window.contentView else { return CGPoint(x: 130, y: 80) }
-        let contentHeight = contentView.frame.height
-        let windowRect = window.convertFromScreen(slashMenuPosition)
-        let flippedY = contentHeight - windowRect.maxY
-        let rawX = windowRect.midX - viewFrame.minX
-        let rawY = flippedY - viewFrame.minY
-        // Center horizontally, position below the cursor point
-        let clampedX = max(130, min(rawX, geo.size.width - 130))
-        let clampedY = max(8, rawY + 8)
-        return CGPoint(x: clampedX, y: clampedY)
+        let menuSize = BlockEditorFloatingOverlayLayout.slashMenuSize(
+            categoryCount: slashState.categories.count,
+            selectedItemCount: slashState.selectedCategory?.items.count ?? 0,
+            isExpanded: slashState.selectedCategoryID != nil
+        )
+        let windowRect = window.convertFromScreen(anchorRect)
+        return BlockEditorFloatingOverlayLayout.menuCenter(
+            anchorRect: windowRect,
+            viewportFrame: viewFrame,
+            contentHeight: contentView.frame.height,
+            menuSize: menuSize
+        )
     }
 
     private var editorBackground: some View {
         Rectangle().fill(BlockEditorTheme.pageBackground(for: colorScheme))
-    }
-
-    private func handleTextChange(for blockID: UUID, text newValue: String) {
-        if let query = slashQueryIfNeeded(for: newValue) {
-            withAnimation(.easeInOut(duration: 0.16)) {
-                activeSlashBlockID = blockID
-                slashQuery = query
-                slashSelectionIndex = 0
-            }
-        } else if activeSlashBlockID == blockID {
-            withAnimation(.easeInOut(duration: 0.12)) {
-                activeSlashBlockID = nil
-                slashQuery = ""
-                slashSelectionIndex = 0
-            }
-        }
     }
 
     private func handleEditorCommand(_ command: BlockEditorCommand, for blockID: UUID) {
@@ -256,26 +254,24 @@ struct BlockDocumentEditor: View {
             moveSlashSelection(delta: -1, for: blockID)
         case .slashMoveDown:
             moveSlashSelection(delta: 1, for: blockID)
+        case .slashMoveLeft:
+            moveSlashHierarchy(delta: -1, for: blockID)
+        case .slashMoveRight:
+            moveSlashHierarchy(delta: 1, for: blockID)
         case .slashCommit:
             commitSlashSelection(for: blockID)
         case .slashDismiss:
             dismissSlash(blockID: blockID)
+        case .dismissFloatingOverlays:
+            dismissFloatingOverlays()
         }
     }
 
-    private func slashQueryIfNeeded(for text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("/") else { return nil }
-        guard !trimmed.contains("\n") else { return nil }
-        return String(trimmed.dropFirst())
-    }
-
-    private func convertBlock(id: UUID, to kind: DocumentBlockKind) {
+    private func convertBlock(id: UUID, to kind: DocumentBlockKind, removingSlashRange: NSRange? = nil) {
         guard let index = document.blocks.firstIndex(where: { $0.id == id }) else { return }
         var block = document.blocks[index]
-        let slashText = block.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if slashText.hasPrefix("/") {
-            block.text = ""
+        if let removingSlashRange {
+            block.text = BlockEditorSlashQueryParser.removingToken(in: block.text, tokenRange: removingSlashRange)
         }
         block.kind = kind
         block.applyDefaults(for: kind)
@@ -380,7 +376,7 @@ struct BlockDocumentEditor: View {
         syncText(manualCommit: true)
     }
 
-    private func deleteBlock(id: UUID) {
+    private func deleteBlock(id: UUID, removingSlashRange: NSRange? = nil) {
         let span = perfEditor.startSpan("BlockEditor.deleteBlock", category: "Editor", level: .normal)
         defer { span.end() }
 
@@ -462,33 +458,55 @@ struct BlockDocumentEditor: View {
     }
 
     private func moveSlashSelection(delta: Int, for blockID: UUID) {
-        guard activeSlashBlockID == blockID else { return }
-        let items = slashItems
-        guard !items.isEmpty else { return }
-        slashSelectionIndex = min(max(slashSelectionIndex + delta, 0), items.count - 1)
+        guard slashState.context?.blockID == blockID else { return }
+        withAnimation(.snappy(duration: 0.22, extraBounce: 0.03)) {
+            slashState.moveSelection(delta: delta)
+        }
+    }
+
+    private func moveSlashHierarchy(delta: Int, for blockID: UUID) {
+        guard slashState.context?.blockID == blockID else { return }
+        withAnimation(.snappy(duration: 0.22, extraBounce: 0.03)) {
+            if delta > 0 {
+                _ = slashState.openHighlightedCategoryIfNeeded()
+            } else {
+                _ = slashState.collapseCategorySelection()
+            }
+        }
     }
 
     private func commitSlashSelection(for blockID: UUID) {
-        guard activeSlashBlockID == blockID else {
+        guard slashState.context?.blockID == blockID else {
             insertBlock(after: blockID)
             return
         }
-        let items = slashItems
-        guard !items.isEmpty else {
+        if slashState.selectedCategoryID == nil {
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0.04)) {
+                _ = slashState.openFirstCategoryIfNeeded()
+            }
+            return
+        }
+        guard let selectedItem = slashState.selectedItem,
+              let tokenRange = slashState.context?.tokenRange else {
             dismissSlash(blockID: blockID)
             return
         }
-        let item = items[min(max(slashSelectionIndex, 0), items.count - 1)]
-        convertBlock(id: blockID, to: item.kind)
+        applySlashCommand(selectedItem.action, to: blockID, tokenRange: tokenRange)
     }
 
     private func dismissSlash(blockID: UUID) {
-        guard activeSlashBlockID == blockID else { return }
+        guard slashState.context?.blockID == blockID else { return }
         withAnimation(.easeInOut(duration: 0.12)) {
-            activeSlashBlockID = nil
-            slashQuery = ""
-            slashSelectionIndex = 0
+            slashState.clear()
         }
+    }
+
+    private func dismissFloatingOverlays() {
+        withAnimation(.smooth(duration: 0.16)) {
+            selectionState = nil
+            slashState.clear()
+        }
+        onSelectionChange?(nil)
     }
 
     private func makeResourceBlock(_ url: URL) -> DocumentBlock {
@@ -552,15 +570,99 @@ struct BlockDocumentEditor: View {
         }
     }
 
-    private var slashItems: [SlashCommandItem] {
-        SlashCommandItem.filtered(matching: slashQuery)
+    private func handleSlashContextChange(_ context: BlockEditorSlashContext?, for blockID: UUID) {
+        if let context {
+            guard let currentBlock = document.blocks.first(where: { $0.id == context.blockID }) else { return }
+            withAnimation(.snappy(duration: 0.22, extraBounce: 0.03)) {
+                slashState.update(context: context, currentBlock: currentBlock, registry: slashRegistry)
+            }
+            return
+        }
+
+        guard slashState.context?.blockID == blockID else { return }
+        withAnimation(.smooth(duration: 0.16)) {
+            slashState.clear()
+        }
     }
 
-    private var selectedSlashItem: SlashCommandItem? {
-        let items = slashItems
-        guard !items.isEmpty else { return nil }
-        let index = min(max(slashSelectionIndex, 0), items.count - 1)
-        return items[index]
+    private func applySlashCommand(_ action: BlockSlashCommandAction, to blockID: UUID, tokenRange: NSRange) {
+        switch action {
+        case .convertCurrent(let kind):
+            convertBlock(id: blockID, to: kind, removingSlashRange: tokenRange)
+        case .toggleTodoCompletion:
+            mutateBlock(id: blockID, removingSlashRange: tokenRange) { block in
+                block.metadata.checked.toggle()
+            }
+        case .collapseToggle:
+            mutateBlock(id: blockID, removingSlashRange: tokenRange) { block in
+                block.metadata.isCollapsed = true
+            }
+        case .expandToggle:
+            mutateBlock(id: blockID, removingSlashRange: tokenRange) { block in
+                block.metadata.isCollapsed = false
+            }
+        case .clearFormatting:
+            clearFormatting(for: blockID, tokenRange: tokenRange)
+        case .deleteBlock:
+            deleteBlock(id: blockID, removingSlashRange: tokenRange)
+        case .outdentBlock:
+            mutateBlock(id: blockID, removingSlashRange: tokenRange) { block in
+                block.metadata.indentLevel = max(0, block.metadata.indentLevel - 1)
+            }
+        case .indentBlock:
+            mutateBlock(id: blockID, removingSlashRange: tokenRange) { block in
+                block.metadata.indentLevel += 1
+            }
+        case .createTablePreset(let rows, let columns):
+            createTablePreset(rows: rows, columns: columns, for: blockID, tokenRange: tokenRange)
+        }
+    }
+
+    private func clearFormatting(for blockID: UUID, tokenRange: NSRange) {
+        guard let index = document.blocks.firstIndex(where: { $0.id == blockID }) else { return }
+        let cleanedText = BlockEditorSlashQueryParser.removingToken(in: document.blocks[index].text, tokenRange: tokenRange)
+        var block = DocumentBlock.empty(.paragraph)
+        block.id = document.blocks[index].id
+        block.text = cleanedText
+        document.blocks[index] = block
+        dismissSlash(blockID: blockID)
+        activateBlock(blockID, focusPosition: .start)
+        syncText(manualCommit: true)
+    }
+
+    private func createTablePreset(rows: Int, columns: Int, for blockID: UUID, tokenRange: NSRange) {
+        guard let index = document.blocks.firstIndex(where: { $0.id == blockID }) else { return }
+        var block = document.blocks[index]
+        block.kind = .table
+        block.text = makeTablePresetMarkdown(rows: rows, columns: columns)
+        block.metadata = DocumentBlockMetadata()
+        document.blocks[index] = block
+        dismissSlash(blockID: blockID)
+        activateBlock(blockID, focusPosition: .start)
+        syncText(manualCommit: true)
+    }
+
+    private func makeTablePresetMarkdown(rows: Int, columns: Int) -> String {
+        let safeRows = max(rows, 1)
+        let safeColumns = max(columns, 1)
+        let header = (1...safeColumns).map { "列 \($0)" }
+        let body = (1...max(safeRows - 1, 1)).map { row in
+            (1...safeColumns).map { column in "值 \(row)-\(column)" }
+        }
+        return BlockMarkdownCodec.serializeTableContent([header] + body)
+    }
+
+    private func mutateBlock(id: UUID, removingSlashRange: NSRange? = nil, _ update: (inout DocumentBlock) -> Void) {
+        guard let index = document.blocks.firstIndex(where: { $0.id == id }) else { return }
+        var block = document.blocks[index]
+        if let removingSlashRange {
+            block.text = BlockEditorSlashQueryParser.removingToken(in: block.text, tokenRange: removingSlashRange)
+        }
+        update(&block)
+        document.blocks[index] = block
+        dismissSlash(blockID: id)
+        activateBlock(id, focusPosition: .start)
+        syncText(manualCommit: true)
     }
 
     private func followUpKind(for kind: DocumentBlockKind) -> DocumentBlockKind {

@@ -10,6 +10,7 @@ final class FileEditorExternalConflictUITests: UITestBase {
         launchApp(arguments: [
             "-com.agentgui.test.workingDirectory", fixture.rootURL.path
         ])
+        dismissOnboardingIfPresent()
 
         let fileRow = app.staticTexts[fixture.fileURL.lastPathComponent]
         XCTAssertTrue(fileRow.waitForExistence(timeout: 3))
@@ -36,6 +37,7 @@ final class FileEditorExternalConflictUITests: UITestBase {
         launchApp(arguments: [
             "-com.agentgui.test.workingDirectory", fixture.rootURL.path
         ])
+        dismissOnboardingIfPresent()
 
         let fileRow = app.staticTexts[fixture.fileURL.lastPathComponent]
         XCTAssertTrue(fileRow.waitForExistence(timeout: 3))

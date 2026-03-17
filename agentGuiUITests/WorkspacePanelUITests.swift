@@ -11,6 +11,7 @@ final class WorkspacePanelUITests: UITestBase {
             "-com.agentgui.test.workingDirectory", fixture.rootURL.path,
             "-com.agentgui.test.preloadMessages", "false"
         ])
+        dismissOnboardingIfPresent()
 
         let docsRow = app.staticTexts["DocsSeed"]
         XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
@@ -31,6 +32,7 @@ final class WorkspacePanelUITests: UITestBase {
             "-com.agentgui.test.workingDirectory", fixture.rootURL.path,
             "-com.agentgui.test.preloadMessages", "false"
         ])
+        dismissOnboardingIfPresent()
 
         let searchField = app.textFields["搜索文件或文件夹"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 3))
@@ -50,6 +52,7 @@ final class WorkspacePanelUITests: UITestBase {
             "-com.agentgui.test.workingDirectory", fixture.rootURL.path,
             "-com.agentgui.test.preloadMessages", "false"
         ])
+        dismissOnboardingIfPresent()
 
         let docsRow = app.staticTexts["DocsSeed"]
         XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
@@ -103,6 +106,7 @@ final class WorkspacePanelUITests: UITestBase {
             "-com.agentgui.test.workingDirectory", fixture.rootURL.path,
             "-com.agentgui.test.preloadMessages", "false"
         ])
+        dismissOnboardingIfPresent()
 
         let docsRow = app.staticTexts["DocsSeed"]
         XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
@@ -144,12 +148,6 @@ final class WorkspacePanelUITests: UITestBase {
             return app.textFields["输入名称"].firstMatch
         }
         return app.textFields.element(boundBy: 1)
-    }
-
-    private func waitForDisappearance(of element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let predicate = NSPredicate(format: "exists == false")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func makeWorkspaceFixture() throws -> (rootURL: URL, docsURL: URL, notesURL: URL) {
