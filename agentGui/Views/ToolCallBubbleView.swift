@@ -84,7 +84,7 @@ enum ToolCallBubbleHeaderPresentation {
         case .planningInteraction:
             return "规划中"
         case .awaitingUserApproval:
-            return "等待批准"
+            return "用户接管"
         case .userTakeover:
             return "用户接管"
         case .completed:
@@ -296,6 +296,7 @@ struct ToolCallBubbleView: View {
                                 .foregroundStyle(foregroundColor(for: badge.tone))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
+                                .lineLimit(1)
                                 .background(backgroundColor(for: badge.tone))
                                 .clipShape(Capsule())
                         }

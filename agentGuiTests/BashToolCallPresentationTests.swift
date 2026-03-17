@@ -106,24 +106,24 @@ struct BashToolCallPresentationTests {
         #expect(!ToolCallBubbleHeaderPresentation.showsStopButton(for: tool))
     }
 
-    @Test func rowProjectsPlannerAndApprovalStates() async throws {
+    @Test func rowProjectsPlannerAndDirectTakeoverStates() async throws {
         let tool = ToolCall(toolCallId: "exec-planner", kind: .execute)
         tool.title = "npm create vue@latest demo"
         tool.status = .inProgress
         tool.terminalExecutionMode = "attached"
-        tool.terminalTaskStatus = TerminalTaskStatus.awaitingUserApproval.rawValue
-        tool.terminalInteractionPhase = TerminalInteractionPhase.awaitingApproval.rawValue
+        tool.terminalTaskStatus = TerminalTaskStatus.userTakeover.rawValue
+        tool.terminalInteractionPhase = TerminalInteractionPhase.userTakeover.rawValue
         tool.terminalPlannerSummary = "Select JSX, Router, Pinia, Vitest"
-        tool.terminalApprovalPending = true
+        tool.terminalApprovalPending = false
+        tool.terminalUserTakeoverActive = true
 
         let row = ToolCallRowPresentation.make(for: tool)
         let badges = ToolCallBubbleHeaderPresentation.badges(for: tool, row: row)
 
-        #expect(row.statusText == "等待批准")
-        #expect(row.secondaryText == "等待批准")
+        #expect(row.statusText == "用户接管")
+        #expect(row.secondaryText == "用户接管中")
         #expect(row.tertiaryText == "Select JSX, Router, Pinia, Vitest")
-        #expect(badges.map(\.text).contains("等待批准"))
-        #expect(badges.map(\.text).contains("需要批准"))
+        #expect(badges.map(\.text).contains("用户接管"))
     }
 
     @Test func detailPresentationShowsTakeoverAndPlannerSummary() async throws {

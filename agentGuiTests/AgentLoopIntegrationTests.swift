@@ -50,7 +50,7 @@ struct AgentLoopIntegrationTests {
         #expect(events.contains(where: { $0.kind == .agentInput && $0.summary.contains("space") }))
     }
 
-    @Test func plannerHelperEscalatesLowConfidencePlanToApproval() async throws {
+    @Test func plannerHelperEscalatesLowConfidencePlanToDirectTakeover() async throws {
         let registry = BashTaskRegistry()
         let transcriptDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let runtime = TerminalTaskRuntime(
@@ -89,10 +89,11 @@ struct AgentLoopIntegrationTests {
         let events = await registry.events(taskId: "planner-low-confidence")
 
         #expect(handled)
-        #expect(snapshot.status == .awaitingUserApproval)
-        #expect(record.terminalInteractionPhase == TerminalInteractionPhase.awaitingApproval.rawValue)
-        #expect(record.terminalApprovalPending)
-        #expect(events.contains(where: { $0.kind == .userDecisionRequested && $0.summary.contains("批准") }))
+        #expect(snapshot.status == .userTakeover)
+        #expect(record.terminalInteractionPhase == TerminalInteractionPhase.userTakeover.rawValue)
+        #expect(record.terminalApprovalPending == false)
+        #expect(record.terminalUserTakeoverActive)
+        #expect(events.contains(where: { $0.kind == .stateChanged && $0.summary.contains("接管") }))
 
         try await runtime.terminate(taskId: "planner-low-confidence", force: true)
         _ = try await runtime.waitForDetachedTask(taskId: "planner-low-confidence")

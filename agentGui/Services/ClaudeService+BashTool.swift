@@ -48,13 +48,6 @@ enum TerminalPromptUserAction: Equatable, Sendable {
     case wait
 }
 
-enum TerminalPlannerUserAction: Equatable, Sendable {
-    case approve
-    case takeOver
-    case interrupt
-    case wait
-}
-
 extension ClaudeService {
 
     func requestPromptUserAction(for decision: TerminalPromptDecision) async -> TerminalPromptUserAction {
@@ -67,21 +60,6 @@ extension ClaudeService {
         }
         self.pendingUserQuestion = nil
         return resolvePromptUserAction(from: response, decision: decision)
-    }
-
-    func requestTerminalPlannerUserAction(
-        for plan: TerminalInteractionPlan,
-        summary: String
-    ) async -> TerminalPlannerUserAction {
-        let questions = makeAskUserQuestions(for: plan, summary: summary)
-        let response = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-            self.pendingUserQuestion = AskUserQuestionRequest(
-                questions: questions,
-                continuation: continuation
-            )
-        }
-        self.pendingUserQuestion = nil
-        return resolveTerminalPlannerUserAction(from: response)
     }
 
     func stopManagedTerminalTask(toolCall: ToolCall, modelContext: ModelContext?) async {
@@ -329,74 +307,6 @@ extension ClaudeService {
         }
 
         return .reply(firstSelection)
-    }
-
-    func makeAskUserQuestions(for plan: TerminalInteractionPlan, summary: String) -> [AskUserQuestion] {
-        let actionsDescription: String
-        if plan.nextActions.isEmpty {
-            actionsDescription = "当前没有安全的自动操作建议。"
-        } else {
-            let describedActions = plan.nextActions.map { action in
-                switch action {
-                case .key(let key):
-                    return key.rawValue
-                case .text(let text):
-                    return "text:\(text)"
-                case .wait(let milliseconds):
-                    return "wait:\(milliseconds)ms"
-                case .signal(let signal):
-                    return signal.rawValue
-                }
-            }.joined(separator: ", ")
-            actionsDescription = "建议动作: \(describedActions)"
-        }
-
-        let prompt = [summary, actionsDescription]
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .joined(separator: "\n")
-
-        return [
-            AskUserQuestion(
-                question: prompt,
-                header: "Terminal Plan",
-                options: [
-                    AskUserQuestionOption(label: "Approve plan", description: "Execute the suggested terminal interaction actions"),
-                    AskUserQuestionOption(label: "Take over manually", description: "Leave the command running and mark this terminal task as user takeover"),
-                    AskUserQuestionOption(label: "Keep waiting", description: "Do not send any input yet and keep the task paused"),
-                    AskUserQuestionOption(label: "Cancel command", description: "Send Ctrl-C and stop the current terminal task")
-                ],
-                multiSelect: false
-            )
-        ]
-    }
-
-    func resolveTerminalPlannerUserAction(from responseJSON: String) -> TerminalPlannerUserAction {
-        struct AskUserAnswerPayload: Decodable {
-            struct Answer: Decodable {
-                let selected: [String]
-            }
-
-            let answers: [Answer]
-        }
-
-        guard
-            let data = responseJSON.data(using: .utf8),
-            let payload = try? JSONDecoder().decode(AskUserAnswerPayload.self, from: data),
-            let firstSelection = payload.answers.first?.selected.first
-        else {
-            return .wait
-        }
-
-        switch firstSelection {
-        case "Approve plan":
-            return .approve
-        case "Take over manually":
-            return .takeOver
-        case "Cancel command":
-            return .interrupt
-        default:
-            return .wait
-        }
     }
 
     func normalizedTerminalReply(_ reply: String) -> String {

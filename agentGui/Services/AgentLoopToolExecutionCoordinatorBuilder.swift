@@ -232,75 +232,6 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                         let interactionPhase = record.terminalInteractionPhase ?? "nil"
                         print("[bash-observer] interactive surface processed task_id=\(taskId) handled=\(handledInteractiveSurface) status=\(liveSnapshot.status.rawValue) phase=\(interactionPhase) approvalPending=\(record.terminalApprovalPending)")
 
-                        if handledInteractiveSurface,
-                           liveSnapshot.status == .awaitingUserApproval,
-                           let plannedInteraction = await Self.latestPlannedInteraction(for: liveSnapshot.id, registry: registry) {
-                            print("[bash-observer] planner awaiting approval task_id=\(taskId) confidence=\(plannedInteraction.confidence) requiresConfirmation=\(plannedInteraction.requiresUserConfirmation) actions=\(Self.terminalActionSummary(plannedInteraction.nextActions))")
-                            let action = await claudeService.requestTerminalPlannerUserAction(
-                                for: plannedInteraction,
-                                summary: record.terminalPlannerSummary ?? plannedInteraction.reasoningSummary
-                            )
-
-                            print("[bash-observer] planner approval resolved task_id=\(taskId) action=\(String(describing: action))")
-
-                            switch action {
-                            case .approve:
-                                do {
-                                    print("[bash-observer] executing approved planner actions task_id=\(taskId) actions=\(Self.terminalActionSummary(plannedInteraction.nextActions))")
-                                    try await runtime.applyInteractionActions(taskId: liveSnapshot.id, actions: plannedInteraction.nextActions)
-                                    liveSnapshot.status = .running
-                                    liveSnapshot.latestOutputSnippet = record.terminalPlannerSummary
-                                    record.terminalInteractionPhase = TerminalInteractionPhase.autoExecuting.rawValue
-                                    record.terminalApprovalPending = false
-                                    record.terminalUserTakeoverActive = false
-                                    await registry.appendEvent(
-                                        TerminalTaskEvent(
-                                            taskId: liveSnapshot.id,
-                                            kind: .agentInput,
-                                            summary: "已按用户批准执行交互计划: \(Self.terminalActionSummary(plannedInteraction.nextActions))"
-                                        )
-                                    )
-                                } catch {
-                                    liveSnapshot.status = .failed
-                                    liveSnapshot.latestOutputSnippet = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                                }
-                            case .takeOver:
-                                liveSnapshot.status = .userTakeover
-                                record.terminalInteractionPhase = TerminalInteractionPhase.userTakeover.rawValue
-                                record.terminalApprovalPending = false
-                                record.terminalUserTakeoverActive = true
-                                print("[bash-observer] switching to user takeover task_id=\(taskId) terminalUserTakeoverActive=\(record.terminalUserTakeoverActive)")
-                                await registry.appendEvent(
-                                    TerminalTaskEvent(
-                                        taskId: liveSnapshot.id,
-                                        kind: .stateChanged,
-                                        summary: "终端任务已交给用户接管"
-                                    )
-                                )
-                            case .interrupt:
-                                do {
-                                    print("[bash-observer] interrupting planner flow task_id=\(taskId)")
-                                    try await runtime.interrupt(taskId: liveSnapshot.id)
-                                    liveSnapshot.status = .interrupted
-                                    record.terminalApprovalPending = false
-                                    record.terminalUserTakeoverActive = false
-                                    await registry.appendEvent(
-                                        TerminalTaskEvent(
-                                            taskId: liveSnapshot.id,
-                                            kind: .signalSent,
-                                            summary: "用户取消了终端交互计划"
-                                        )
-                                    )
-                                } catch {
-                                    liveSnapshot.status = .failed
-                                    liveSnapshot.latestOutputSnippet = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                                }
-                            case .wait:
-                                print("[bash-observer] planner approval deferred task_id=\(taskId)")
-                                break
-                            }
-                        }
-
                         if handledInteractiveSurface {
                             lastInteractiveSurfaceFingerprint = interactiveFingerprint
                         } else {
@@ -313,7 +244,6 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                     lastPromptText = nil
                     liveSnapshot.prompt = nil
                     if !liveSnapshot.status.isTerminal,
-                       liveSnapshot.status != .awaitingUserApproval,
                        liveSnapshot.status != .userTakeover {
                         liveSnapshot.status = .running
                     }
@@ -503,18 +433,19 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                 )
             )
         } else {
-            print("[bash-planner] plan requires user approval task_id=\(liveSnapshot.id)")
-            liveSnapshot.status = .awaitingUserApproval
+            print("[bash-planner] plan requires direct user takeover task_id=\(liveSnapshot.id)")
+            liveSnapshot.status = .userTakeover
             liveSnapshot.latestOutputSnippet = plannerSummary
-            record.terminalInteractionPhase = TerminalInteractionPhase.awaitingApproval.rawValue
+            record.terminalInteractionPhase = TerminalInteractionPhase.userTakeover.rawValue
             record.terminalPlannerSummary = plannerSummary
             record.terminalPromptSummary = plannerSummary
-            record.terminalApprovalPending = true
+            record.terminalApprovalPending = false
+            record.terminalUserTakeoverActive = true
             await registry.appendEvent(
                 TerminalTaskEvent(
                     taskId: liveSnapshot.id,
-                    kind: .userDecisionRequested,
-                    summary: "等待用户批准终端交互方案",
+                    kind: .stateChanged,
+                    summary: "终端任务已交给用户接管",
                     structuredPayloadJSON: planJSON
                 )
             )
@@ -560,21 +491,4 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
         return String(normalized.prefix(limit)) + "..."
     }
 
-    private static func latestPlannedInteraction(
-        for taskId: String,
-        registry: BashTaskRegistry
-    ) async -> TerminalInteractionPlan? {
-        let decoder = JSONDecoder()
-        let latestPlannerPayload = await registry.events(taskId: taskId)
-            .reversed()
-            .first(where: { $0.kind == .plannerDecision })?
-            .structuredPayloadJSON
-
-        guard let latestPlannerPayload,
-              let data = latestPlannerPayload.data(using: .utf8) else {
-            return nil
-        }
-
-        return try? decoder.decode(TerminalInteractionPlan.self, from: data)
-    }
 }

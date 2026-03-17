@@ -147,7 +147,7 @@ struct ToolCallRowPresentation: Equatable {
             case .autoExecuting:
                 return "执行交互计划"
             case .awaitingApproval:
-                return "等待批准"
+                return "用户接管中"
             case .userTakeover:
                 return "用户接管中"
             }
@@ -210,7 +210,7 @@ struct ToolCallRowPresentation: Equatable {
         case .planningInteraction:
             return "规划中"
         case .awaitingUserApproval:
-            return "等待批准"
+            return "用户接管"
         case .userTakeover:
             return "用户接管"
         case .completed:

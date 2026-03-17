@@ -241,7 +241,7 @@ enum ToolCallDetailPresentation {
         case .planningInteraction:
             return "规划中"
         case .awaitingUserApproval:
-            return "等待批准"
+            return "用户接管"
         case .userTakeover:
             return "用户接管"
         case .completed:
@@ -275,7 +275,7 @@ enum ToolCallDetailPresentation {
         case .autoExecuting:
             return "自动执行"
         case .awaitingApproval:
-            return "等待批准"
+            return "用户接管"
         case .userTakeover:
             return "用户接管"
         }
