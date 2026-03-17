@@ -19,18 +19,12 @@ struct TerminalVTParser {
             switch scalar {
             case "\u{001B}":
                 flushPrintBuffer()
-                if index + 1 < scalars.count, scalars[index + 1] == "[" {
-                    index += 2
-                    var parameterText = ""
-                    while index < scalars.count {
-                        let current = scalars[index]
-                        if current.isASCII, CharacterSet.letters.union(CharacterSet(charactersIn: "@`~")).contains(current) {
-                            let final = Character(current)
-                            events.append(contentsOf: parseCSI(parameterText: parameterText, final: final))
-                            break
-                        }
-                        parameterText.unicodeScalars.append(current)
-                        index += 1
+                if index + 1 < scalars.count {
+                    let next = scalars[index + 1]
+                    if next == "[" {
+                        index = consumeCSI(from: index + 2, in: scalars, events: &events)
+                    } else if next == "]" {
+                        index = consumeOSC(from: index + 2, in: scalars)
                     }
                 }
             case "\r":
@@ -54,6 +48,43 @@ struct TerminalVTParser {
 
         flushPrintBuffer()
         return events
+    }
+
+    private func consumeCSI(from startIndex: Int, in scalars: [UnicodeScalar], events: inout [TerminalVTEvent]) -> Int {
+        var index = startIndex
+        var parameterText = ""
+
+        while index < scalars.count {
+            let current = scalars[index]
+            if current.isASCII, CharacterSet.letters.union(CharacterSet(charactersIn: "@`~")).contains(current) {
+                let final = Character(current)
+                events.append(contentsOf: parseCSI(parameterText: parameterText, final: final))
+                return index
+            }
+            parameterText.unicodeScalars.append(current)
+            index += 1
+        }
+
+        return max(scalars.count - 1, 0)
+    }
+
+    private func consumeOSC(from startIndex: Int, in scalars: [UnicodeScalar]) -> Int {
+        var index = startIndex
+
+        while index < scalars.count {
+            let current = scalars[index]
+            if current == "\u{0007}" {
+                return index
+            }
+
+            if current == "\u{001B}", index + 1 < scalars.count, scalars[index + 1] == "\\" {
+                return index + 1
+            }
+
+            index += 1
+        }
+
+        return max(scalars.count - 1, 0)
     }
 
     private func parseCSI(parameterText: String, final: Character) -> [TerminalVTEvent] {

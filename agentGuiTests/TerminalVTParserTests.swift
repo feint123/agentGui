@@ -4,6 +4,18 @@ import Testing
 
 struct TerminalVTParserTests {
 
+    @Test func parserIgnoresOperatingSystemCommandSequences() throws {
+        let events = TerminalVTParser().parse("\u{001B}]9;4;0;\u{0007}ok\u{001B}]0;\u{0007}")
+
+        #expect(events == [.print("ok")])
+    }
+
+    @Test func parserIgnoresOperatingSystemCommandSequencesTerminatedByStringTerminator() throws {
+        let events = TerminalVTParser().parse("\u{001B}]133;A\u{001B}\\ready")
+
+        #expect(events == [.print("ready")])
+    }
+
     @Test func parserEmitsAlternateScreenEnterAndExit() throws {
         let events = TerminalVTParser().parse("\u{001B}[?1049hhello\u{001B}[?1049l")
 
