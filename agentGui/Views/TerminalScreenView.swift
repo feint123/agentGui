@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TerminalScreenView: View {
     let snapshot: TerminalScreenSnapshot
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -14,14 +15,20 @@ struct TerminalScreenView: View {
                     .foregroundStyle(.tertiary)
             }
 
-            ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                Text(verbatim: Self.displayText(for: snapshot))
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(10)
-                    .accessibilityIdentifier("terminal.screen.text")
+            Group {
+                if Self.usesRichRendering(for: snapshot) {
+                    TerminalRichTextView(renderedScreen: Self.renderedScreen(for: snapshot, colorScheme: colorScheme))
+                } else {
+                    ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                        Text(verbatim: Self.displayText(for: snapshot))
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                            .padding(10)
+                            .accessibilityIdentifier("terminal.screen.text")
+                    }
+                }
             }
             .frame(minHeight: 140, maxHeight: 220)
             .background(Color.primary.opacity(0.04))
@@ -32,6 +39,23 @@ struct TerminalScreenView: View {
 
     static func displayText(for snapshot: TerminalScreenSnapshot) -> String {
         snapshot.plainTextLines.joined(separator: "\n")
+    }
+
+    static func usesRichRendering(for snapshot: TerminalScreenSnapshot) -> Bool {
+        snapshot.lines.contains { line in
+            line.cells.contains { cell in
+                cell.displayWidth > 1
+                    || cell.isContinuationCell
+                    || !cell.attributes.isEmpty
+                    || cell.foreground != .defaultForeground
+                    || cell.background != .defaultBackground
+            }
+        }
+    }
+
+    static func renderedScreen(for snapshot: TerminalScreenSnapshot, colorScheme: ColorScheme) -> TerminalRenderedScreen {
+        let theme: TerminalScreenTheme = colorScheme == .dark ? .darkDefault : .lightDefault
+        return TerminalScreenRenderer(theme: theme).render(snapshot)
     }
 
     @ViewBuilder

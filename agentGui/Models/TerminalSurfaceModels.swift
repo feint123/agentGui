@@ -5,6 +5,87 @@ enum TerminalBufferKind: String, Codable, Equatable, Sendable {
     case alternate
 }
 
+enum TerminalANSI16Color: String, Codable, CaseIterable, Equatable, Sendable {
+    case black
+    case red
+    case green
+    case yellow
+    case blue
+    case magenta
+    case cyan
+    case white
+    case brightBlack
+    case brightRed
+    case brightGreen
+    case brightYellow
+    case brightBlue
+    case brightMagenta
+    case brightCyan
+    case brightWhite
+}
+
+enum TerminalColor: Codable, Equatable, Sendable {
+    case defaultForeground
+    case defaultBackground
+    case ansi16(TerminalANSI16Color)
+    case ansi256(Int)
+    case rgb(red: Int, green: Int, blue: Int)
+}
+
+enum TerminalTextAttribute: String, Codable, CaseIterable, Hashable, Sendable {
+    case bold
+    case dim
+    case italic
+    case underline
+    case strikethrough
+    case inverse
+    case blink
+    case hidden
+}
+
+struct TerminalScreenCell: Codable, Equatable, Sendable {
+    var text: String
+    var displayWidth: Int
+    var foreground: TerminalColor
+    var background: TerminalColor
+    var attributes: Set<TerminalTextAttribute>
+    var isContinuationCell: Bool
+
+    init(
+        text: String,
+        displayWidth: Int = 1,
+        foreground: TerminalColor = .defaultForeground,
+        background: TerminalColor = .defaultBackground,
+        attributes: Set<TerminalTextAttribute> = [],
+        isContinuationCell: Bool = false
+    ) {
+        self.text = text
+        self.displayWidth = displayWidth
+        self.foreground = foreground
+        self.background = background
+        self.attributes = attributes
+        self.isContinuationCell = isContinuationCell
+    }
+
+    static let blank = TerminalScreenCell(text: " ")
+}
+
+struct TerminalScreenLine: Codable, Equatable, Sendable {
+    var cells: [TerminalScreenCell]
+
+    init(cells: [TerminalScreenCell] = []) {
+        self.cells = cells
+    }
+
+    var plainText: String {
+        cells
+            .filter { !$0.isContinuationCell }
+            .map(\.text)
+            .joined()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\u{0000}"))
+    }
+}
+
 struct TerminalCursorSnapshot: Codable, Equatable, Sendable {
     var row: Int
     var column: Int
@@ -18,6 +99,7 @@ struct TerminalCursorSnapshot: Codable, Equatable, Sendable {
 }
 
 struct TerminalScreenSnapshot: Codable, Equatable, Sendable {
+    var lines: [TerminalScreenLine]
     var plainTextLines: [String]
     var activeBuffer: TerminalBufferKind
     var cursor: TerminalCursorSnapshot
@@ -25,12 +107,20 @@ struct TerminalScreenSnapshot: Codable, Equatable, Sendable {
     var height: Int
 
     init(
+        lines: [TerminalScreenLine] = [],
         plainTextLines: [String],
         activeBuffer: TerminalBufferKind,
         cursor: TerminalCursorSnapshot,
         width: Int,
         height: Int
     ) {
+        let resolvedLines = lines.isEmpty
+            ? plainTextLines.map { line in
+                TerminalScreenLine(cells: line.map { TerminalScreenCell(text: String($0)) })
+            }
+            : lines
+
+        self.lines = resolvedLines
         self.plainTextLines = plainTextLines
         self.activeBuffer = activeBuffer
         self.cursor = cursor

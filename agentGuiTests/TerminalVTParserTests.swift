@@ -32,6 +32,14 @@ struct TerminalVTParserTests {
         #expect(events.contains(.eraseInDisplay(mode: 0)))
     }
 
+    @Test func parserEmitsGraphicsRenditionParameters() throws {
+        let events = TerminalVTParser().parse("\u{001B}[31;7mERR\u{001B}[0m")
+
+        #expect(events.contains(.setGraphicsRendition([31, 7])))
+        #expect(events.contains(.print("ERR")))
+        #expect(events.contains(.setGraphicsRendition([0])))
+    }
+
     @Test func parserEmitsControlCharacterEvents() throws {
         let events = TerminalVTParser().parse("a\rb\nc\t\u{0008}")
 

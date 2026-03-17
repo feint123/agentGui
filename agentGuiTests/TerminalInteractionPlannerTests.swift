@@ -112,4 +112,29 @@ struct TerminalInteractionPlannerTests {
         #expect(!plan.nextActions.isEmpty)
         #expect(plan.requiresUserConfirmation == false)
     }
+
+    @Test func stubPlannerRoutesViewerSurfaceToApprovalInsteadOfAutoInput() async throws {
+        let planner = TerminalInteractionPlanner.stubForTests()
+        let surface = TerminalSurfaceSnapshot(
+            plainTextFrame: "WARNING: terminal is not fully functional\nPress RETURN to continue\n(END)",
+            rawANSISnippet: "WARNING: terminal is not fully functional\nPress RETURN to continue\n(END)",
+            visibleOptions: [],
+            focusedOptionIndex: nil,
+            selectionMode: .unknown,
+            isAlternateScreen: true,
+            inputHint: "viewer_navigation"
+        )
+
+        let plan = try await planner.plan(
+            goal: "git diff --color",
+            command: "git diff --color",
+            surface: surface,
+            recentOutput: surface.plainTextFrame
+        )
+
+        #expect(plan.interactionType == "viewer_navigation")
+        #expect(plan.requiresUserConfirmation)
+        #expect(plan.nextActions.isEmpty)
+        #expect(plan.confidence > 0)
+    }
 }

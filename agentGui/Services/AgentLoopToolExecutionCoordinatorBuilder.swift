@@ -424,7 +424,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
     }
 
     static func interactiveSurfaceFingerprint(for surface: TerminalSurfaceSnapshot) -> String? {
-        guard surface.selectionMode == .singleSelect || surface.selectionMode == .multiSelect || surface.selectionMode == .textInput else {
+        guard isInteractiveSurface(surface) else {
             return nil
         }
 
@@ -441,7 +441,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
         planner: TerminalInteractionPlanner
     ) async throws -> Bool {
         let surface = TerminalSurfaceProjector().project(screenSnapshot)
-        guard surface.selectionMode == .singleSelect || surface.selectionMode == .multiSelect || surface.selectionMode == .textInput else {
+        guard isInteractiveSurface(surface) else {
             print("[bash-planner] ignoring non-interactive surface command=\(command)")
             return false
         }
@@ -525,6 +525,13 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
         record.terminalTaskStatus = liveSnapshot.status.rawValue
         record.terminalExecutionMode = liveSnapshot.executionMode.rawValue
         return true
+    }
+
+    private static func isInteractiveSurface(_ surface: TerminalSurfaceSnapshot) -> Bool {
+        surface.selectionMode == .singleSelect
+            || surface.selectionMode == .multiSelect
+            || surface.selectionMode == .textInput
+            || surface.inputHint == "viewer_navigation"
     }
 
     private static func terminalActionSummary(_ actions: [TerminalInteractionAction]) -> String {

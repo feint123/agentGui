@@ -4,6 +4,7 @@ import Foundation
 struct PtyProcessResult: Equatable, Sendable {
     let pid: Int32
     let exitCode: Int32
+    let rawOutput: String
     let output: String
 }
 
@@ -121,10 +122,12 @@ final class PtyProcessController {
             outputLock.unlock()
         }
 
-        let output = normalizedOutput()
+        let rawOutput = rawOutput()
+        let output = normalizedOutput(rawOutput)
         return PtyProcessResult(
             pid: process.processIdentifier,
             exitCode: process.terminationStatus,
+            rawOutput: rawOutput,
             output: output
         )
     }
@@ -160,8 +163,8 @@ final class PtyProcessController {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private func normalizedOutput() -> String {
-        rawOutput()
+    private func normalizedOutput(_ rawOutput: String? = nil) -> String {
+        (rawOutput ?? self.rawOutput())
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
     }

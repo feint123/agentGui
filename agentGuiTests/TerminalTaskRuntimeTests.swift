@@ -16,6 +16,34 @@ struct TerminalTaskRuntimeTests {
         _ = try await runtime.waitForDetachedTask(taskId: "screen-task")
     }
 
+    @Test func runtimePreservesStyledCellsInScreenSnapshot() async throws {
+        let runtime = await TerminalTaskRuntime.makeForTests()
+
+        _ = try await runtime.startDetached(command: "printf '\\033[31;7mERR\\033[0m'", taskId: "styled-screen")
+
+        let snapshot = try await runtime.screenSnapshot(taskId: "styled-screen")
+        let firstCell = try #require(snapshot.lines.first?.cells.first)
+
+        #expect(firstCell.foreground == .ansi16(.red))
+        #expect(firstCell.attributes.contains(.inverse))
+        #expect(snapshot.plainTextLines.joined() == "ERR")
+
+        _ = try await runtime.waitForDetachedTask(taskId: "styled-screen")
+    }
+
+    @Test func runtimeCollapsesCarriageReturnRedrawIntoSingleLineSnapshot() async throws {
+        let runtime = await TerminalTaskRuntime.makeForTests()
+
+        _ = try await runtime.startDetached(command: "printf 'loading 10%%\\rloading 100%%'", taskId: "redraw-screen")
+
+        _ = try await runtime.waitForDetachedTask(taskId: "redraw-screen")
+
+        let snapshot = try await runtime.screenSnapshot(taskId: "redraw-screen")
+
+        #expect(snapshot.plainTextLines[0].contains("loading 100%"))
+        #expect(snapshot.plainTextLines[0].contains("loading 10%") == false)
+    }
+
     @Test func cleanupRemovesScreenSession() async throws {
         let runtime = await TerminalTaskRuntime.makeForTests()
 

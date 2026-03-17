@@ -23,6 +23,7 @@ actor TerminalTaskRuntime {
     private var controllers: [String: PtyProcessController] = [:]
     private var detachedTasks: [String: Task<TerminalExecutionOutcome, Error>] = [:]
     private var screenModels: [String: TerminalScreenModel] = [:]
+    private var rawScreenOutputs: [String: String] = [:]
     private let sessionId: String
 
     init(
@@ -180,6 +181,7 @@ actor TerminalTaskRuntime {
         controllers[taskId] = nil
         detachedTasks[taskId] = nil
         screenModels[taskId] = nil
+        rawScreenOutputs[taskId] = nil
     }
 
     func screenSnapshot(taskId: String) async throws -> TerminalScreenSnapshot {
@@ -188,6 +190,24 @@ actor TerminalTaskRuntime {
         }
 
         try await syncScreenModel(taskId: taskId)
+
+        if let controller = controllers[taskId],
+           let liveSnapshot = await registry.snapshot(taskId: taskId),
+           !liveSnapshot.status.isTerminal {
+            let currentOutput = controller.currentRawOutput()
+            let needsSettling = currentOutput.contains("\r") || currentOutput.contains("\u{001B}[")
+
+            if needsSettling {
+                for _ in 0..<8 {
+                    try await Task.sleep(nanoseconds: 50_000_000)
+                    try await syncScreenModel(taskId: taskId)
+
+                    if let refreshed = await registry.snapshot(taskId: taskId), refreshed.status.isTerminal {
+                        break
+                    }
+                }
+            }
+        }
 
         if let initialSnapshot = screenModels[taskId]?.snapshot(),
            initialSnapshot.plainTextLines.joined().isEmpty,
@@ -276,8 +296,9 @@ actor TerminalTaskRuntime {
     private func finalizeTask(taskId: String, transcriptPath: String, result: PtyProcessResult) async throws -> TerminalExecutionOutcome {
         print("[bash-runtime] finalizeTask session=\(sessionId) task_id=\(taskId) exit=\(result.exitCode) outputChars=\(result.output.count)")
         try transcriptStore.append(result.output, to: taskId)
+        rawScreenOutputs[taskId] = result.rawOutput
         var screenModel = TerminalScreenModel()
-        for event in vtParser.parse(result.output) {
+        for event in vtParser.parse(result.rawOutput) {
             screenModel.apply(event)
         }
         screenModels[taskId] = screenModel
@@ -312,14 +333,10 @@ actor TerminalTaskRuntime {
             throw TerminalRuntimeError.taskNotFound
         }
 
-        let sourceOutput: String
-        if let controller = controllers[taskId] {
-            sourceOutput = controller.currentOutput()
-        } else if let snapshot = await registry.snapshot(taskId: taskId), let latestOutputSnippet = snapshot.latestOutputSnippet {
-            sourceOutput = latestOutputSnippet
-        } else {
-            sourceOutput = ""
-        }
+        let snapshot = await registry.snapshot(taskId: taskId)
+        let liveOutput = controllers[taskId]?.currentRawOutput() ?? ""
+        let persistedOutput = rawScreenOutputs[taskId] ?? snapshot?.latestOutputSnippet ?? ""
+        let sourceOutput = persistedOutput.count >= liveOutput.count ? persistedOutput : liveOutput
 
         screenModel = TerminalScreenModel()
         for event in vtParser.parse(sourceOutput) {

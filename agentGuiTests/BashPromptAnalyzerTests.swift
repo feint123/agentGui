@@ -36,6 +36,20 @@ struct BashPromptAnalyzerTests {
         #expect(decision?.autoReplyText == "")
     }
 
+    @Test func ignoresViewerCapabilityWarningsThatBelongToInteractiveScreens() async throws {
+        let decision = BashPromptAnalyzer().analyze(output: """
+        WARNING: terminal is not fully functional
+        Press RETURN to continue
+        diff --git a/app.swift b/app.swift
+        index 1234567..89abcde 100644
+        --- a/app.swift
+        +++ b/app.swift
+        @@ -1,3 +1,3 @@
+        """)
+
+        #expect(decision == nil)
+    }
+
     @Test func detectsPackageInstallProceedPromptAndAutoRepliesYes() async throws {
         let decision = BashPromptAnalyzer().analyze(output: "Need to install the following packages:\ncreate-vue@3.22.0\nOk to proceed? (y)")
 

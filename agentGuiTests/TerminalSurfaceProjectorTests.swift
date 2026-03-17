@@ -81,4 +81,34 @@ struct TerminalSurfaceProjectorTests {
         #expect(surface.selectionMode == .unknown || surface.selectionMode == .none)
         #expect(surface.visibleOptions.count <= 1)
     }
+
+    @Test func projectorKeepsInteractiveSemanticsForStyledSnapshots() {
+        let surface = TerminalSurfaceProjector().project(TerminalRenderFixtures.createVueSelectionSnapshot)
+
+        #expect(surface.selectionMode == .multiSelect)
+        #expect(surface.visibleOptions.isEmpty == false)
+        #expect(surface.isAlternateScreen)
+    }
+
+    @Test func projectorAddsViewerHintForPagerLikeAlternateScreen() {
+        let snapshot = TerminalScreenSnapshot(
+            plainTextLines: [
+                "WARNING: terminal is not fully functional",
+                "Press RETURN to continue",
+                "diff --git a/app.swift b/app.swift",
+                "@@ -1,3 +1,3 @@",
+                "(END)"
+            ],
+            activeBuffer: .alternate,
+            cursor: .init(row: 4, column: 0),
+            width: 80,
+            height: 24
+        )
+
+        let surface = TerminalSurfaceProjector().project(snapshot)
+
+        #expect(surface.selectionMode == .unknown)
+        #expect(surface.inputHint == "viewer_navigation")
+        #expect(surface.isAlternateScreen)
+    }
 }

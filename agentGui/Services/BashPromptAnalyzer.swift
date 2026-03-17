@@ -19,6 +19,10 @@ struct BashPromptAnalyzer {
 
         let normalized = trimmed.lowercased()
 
+        if shouldDeferToInteractiveSurface(trimmed: trimmed, normalized: normalized) {
+            return nil
+        }
+
         if let packageInstallDecision = packageInstallProceedDecision(trimmed: trimmed, normalized: normalized) {
             return packageInstallDecision
         }
@@ -136,6 +140,29 @@ struct BashPromptAnalyzer {
 
     private func isPressEnterPrompt(_ normalized: String) -> Bool {
         normalized.contains("press enter to continue") || normalized.contains("press return to continue")
+    }
+
+    private func shouldDeferToInteractiveSurface(trimmed: String, normalized: String) -> Bool {
+        let lines = trimmed
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let hasViewerHint = normalized.contains("terminal is not fully functional")
+            || normalized.contains("(end)")
+            || normalized.contains("press return to continue")
+            || normalized.contains("press enter to continue")
+
+        let hasStructuredScreenContent = lines.count >= 3 && lines.contains { line in
+            line.contains("diff --git")
+                || line.contains("@@")
+                || line.hasPrefix("--- ")
+                || line.hasPrefix("+++ ")
+                || line.contains("│")
+        }
+
+        return hasViewerHint && hasStructuredScreenContent
     }
 
     private func packageInstallProceedDecision(trimmed: String, normalized: String) -> TerminalPromptDecision? {

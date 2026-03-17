@@ -5,7 +5,13 @@ struct TerminalSurfaceProjector {
         let normalizedLines = snapshot.plainTextLines.map { $0.replacingOccurrences(of: "\r", with: "") }
         let plainText = normalizedLines.joined(separator: "\n")
         let options = extractVisibleOptions(from: normalizedLines)
-        let selectionMode = inferSelectionMode(from: plainText, options: options)
+        let inputHint = inferInputHint(
+            from: normalizedLines,
+            plainText: plainText,
+            options: options,
+            isAlternateScreen: snapshot.activeBuffer == .alternate
+        )
+        let selectionMode = inferSelectionMode(from: plainText, options: options, inputHint: inputHint)
         let focusedIndex = options.firstIndex(where: \.isFocused)
 
         return TerminalSurfaceSnapshot(
@@ -16,7 +22,8 @@ struct TerminalSurfaceProjector {
             selectionMode: selectionMode,
             isAlternateScreen: snapshot.activeBuffer == .alternate,
             cursorRow: snapshot.cursor.row,
-            cursorColumn: snapshot.cursor.column
+            cursorColumn: snapshot.cursor.column,
+            inputHint: inputHint
         )
     }
 
@@ -85,9 +92,12 @@ struct TerminalSurfaceProjector {
         }
     }
 
-    private func inferSelectionMode(from plainText: String, options: [TerminalVisibleOption]) -> TerminalSelectionMode {
+    private func inferSelectionMode(from plainText: String, options: [TerminalVisibleOption], inputHint: String?) -> TerminalSelectionMode {
         guard !options.isEmpty else {
-            return plainText.contains("输入") ? .textInput : .none
+            if plainText.contains("输入") {
+                return .textInput
+            }
+            return inputHint == nil ? .none : .unknown
         }
 
         if plainText.contains("空格选择") || options.contains(where: { $0.label.contains("JSX") || $0.label.contains("Pinia") || $0.label.contains("Vitest") }) {
@@ -104,6 +114,32 @@ struct TerminalSurfaceProjector {
         }
 
         return .singleSelect
+    }
+
+    private func inferInputHint(
+        from lines: [String],
+        plainText: String,
+        options: [TerminalVisibleOption],
+        isAlternateScreen: Bool
+    ) -> String? {
+        guard options.isEmpty else { return nil }
+
+        let normalized = plainText.lowercased()
+        let hasViewerHint = normalized.contains("terminal is not fully functional")
+            || normalized.contains("(end)")
+            || normalized.contains("press return to continue")
+            || normalized.contains("press enter to continue")
+            || normalized.contains("q to quit")
+
+        let hasStructuredDocument = lines.contains { line in
+            line.contains("diff --git")
+                || line.contains("@@")
+                || line.hasPrefix("--- ")
+                || line.hasPrefix("+++ ")
+        }
+
+        guard isAlternateScreen || hasViewerHint else { return nil }
+        return (hasViewerHint && hasStructuredDocument) ? "viewer_navigation" : nil
     }
 
     private func isLikelyShellCommandEcho(_ text: String) -> Bool {

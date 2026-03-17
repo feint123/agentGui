@@ -28,6 +28,9 @@ struct TerminalInteractionPlanner: Sendable {
             let normalizedGoal = goal.lowercased()
             print("[bash-planner] deterministic planner invoked command=\(command) goal=\(goal) selectionMode=\(surface.selectionMode.rawValue) optionCount=\(surface.visibleOptions.count)")
             let interactionType: String = {
+                if surface.inputHint == "viewer_navigation" {
+                    return "viewer_navigation"
+                }
                 switch surface.selectionMode {
                 case .multiSelect:
                     return "multi_select_menu"
@@ -45,7 +48,13 @@ struct TerminalInteractionPlanner: Sendable {
             let requiresUserConfirmation: Bool
             let reasoningSummary: String
 
-            switch surface.selectionMode {
+            if surface.inputHint == "viewer_navigation" {
+                actions = []
+                confidence = 0.58
+                requiresUserConfirmation = true
+                reasoningSummary = "Detected a viewer-style terminal surface that likely needs manual navigation or explicit user approval instead of automatic prompt replies"
+            } else {
+                switch surface.selectionMode {
             case .multiSelect:
                 let targetIndices = matchingOptionIndices(in: surface, normalizedGoal: normalizedGoal)
                 print("[bash-planner] multi-select target indices command=\(command) indices=\(targetIndices.map(String.init).joined(separator: ","))")
@@ -77,6 +86,7 @@ struct TerminalInteractionPlanner: Sendable {
                 confidence = 0.0
                 requiresUserConfirmation = true
                 reasoningSummary = "Unable to infer a safe interaction plan from the current terminal surface"
+                }
             }
 
             print("[bash-planner] deterministic planner result command=\(command) interactionType=\(interactionType) confidence=\(confidence) requiresConfirmation=\(requiresUserConfirmation) actions=\(actions.map(actionLabel).joined(separator: ", "))")

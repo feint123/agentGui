@@ -120,6 +120,7 @@ struct PtyProcessControllerTests {
         let result = try await controller.waitForExit()
 
         #expect(rawOutput.contains("\r"))
+        #expect(result.rawOutput.contains("\r"))
         #expect(normalizedOutput.contains("\n"))
         #expect(result.output.contains("\n"))
     }
