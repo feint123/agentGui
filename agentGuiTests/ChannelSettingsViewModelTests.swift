@@ -12,6 +12,7 @@ struct ChannelSettingsViewModelTests {
         harness.viewModel.feishuDisplayName = "我的飞书 Bot"
         harness.viewModel.feishuAppID = "cli_test"
         harness.viewModel.feishuAppSecret = "secret_test"
+        harness.viewModel.feishuMessageFormat = .interactive
 
         try harness.viewModel.save()
 
@@ -21,6 +22,7 @@ struct ChannelSettingsViewModelTests {
         #expect(bindings.count == 1)
         #expect(bindings.first?.isEnabled == true)
         #expect(bindings.first?.displayName == "我的飞书 Bot")
+        #expect(bindings.first.map { FeishuChannelSettings(binding: $0).messageFormat } == .interactive)
         #expect(credentials.appID == "cli_test")
         #expect(credentials.appSecret == "secret_test")
     }
@@ -42,7 +44,25 @@ struct ChannelSettingsViewModelTests {
         #expect(harness.viewModel.feishuEnabled == true)
         #expect(harness.viewModel.feishuDisplayName == "团队机器人")
         #expect(harness.viewModel.feishuAppID == "cli_existing")
+        #expect(harness.viewModel.feishuMessageFormat == .text)
         #expect(harness.viewModel.connectionStatusText == "已配置")
+    }
+
+    @Test func loadingExistingBindingReflectsSavedMessageFormat() throws {
+        let harness = try ChannelSettingsHarness.make()
+        let binding = ChannelAccountBinding(
+            channelKind: .feishu,
+            configurationKey: "feishu.default",
+            displayName: "团队机器人",
+            isEnabled: true
+        )
+        FeishuChannelSettings(messageFormat: .post).apply(to: binding)
+        harness.context.insert(binding)
+        try harness.context.save()
+
+        harness.viewModel.load()
+
+        #expect(harness.viewModel.feishuMessageFormat == .post)
     }
 
     @Test func runtimeConnectionStatusReflectsObservableStore() throws {

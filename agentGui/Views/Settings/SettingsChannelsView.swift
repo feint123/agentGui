@@ -20,6 +20,12 @@ struct SettingsChannelsView: View {
                             .accessibilityIdentifier("settings.channels.feishuAppID")
                         SecureField("App Secret", text: binding(for: viewModel, keyPath: \.feishuAppSecret))
                             .accessibilityIdentifier("settings.channels.feishuAppSecret")
+                        Picker("默认发送格式", selection: binding(for: viewModel, keyPath: \.feishuMessageFormat)) {
+                            ForEach(FeishuMessageFormat.allCases, id: \.self) { format in
+                                Text(displayName(for: format)).tag(format)
+                            }
+                        }
+                        .accessibilityIdentifier("settings.channels.feishuMessageFormat")
 
                         LabeledContent("配置状态", value: viewModel.connectionStatusText)
                             .accessibilityIdentifier("settings.channels.configurationStatus")
@@ -92,6 +98,17 @@ struct SettingsChannelsView: View {
             }
         } catch {
             isSaved = false
+        }
+    }
+
+    private func displayName(for format: FeishuMessageFormat) -> String {
+        switch format {
+        case .text:
+            return "文本消息"
+        case .post:
+            return "Post 富文本"
+        case .interactive:
+            return "卡片消息"
         }
     }
 }

@@ -11,7 +11,7 @@
 1. **已落地**
    - 飞书渠道配置模型
    - 飞书凭证存储
-   - 飞书文本消息发送 / 回复 HTTP 客户端
+   - 飞书 `text` / `post` / `interactive` 消息发送 / 回复 HTTP 客户端
    - 飞书长连接 endpoint 获取与 WebSocket 事件源
    - protobuf `Frame` 编解码、分包重组、ACK 回写
    - `card` callback ACK 的 Base64 `data` 回包基础能力
@@ -98,12 +98,15 @@
 2. `显示名称`
 3. `App ID`
 4. `App Secret`
+5. `默认发送格式`
 
 填写建议：
 
 1. `显示名称` 可写成“飞书 Bot”或你的业务名称，主要用于本地展示。
 2. `App ID` 和 `App Secret` 填飞书开放平台中的应用凭证。
-3. 填完后点击 `保存渠道设置`。
+3. `默认发送格式` 可选：`文本消息`、`Post 富文本`、`卡片消息`。
+4. 其中卡片消息首版是静态展示卡片，不包含按钮交互。
+5. 填完后点击 `保存渠道设置`。
 
 ### 5.3 保存后的行为
 
@@ -124,8 +127,8 @@
 1. 本地保存飞书渠道配置。
 2. 在运行时创建 `LiveFeishuClient`。
 3. 使用 `App ID` / `App Secret` 获取 `tenant_access_token`。
-4. 向飞书会话发送文本消息。
-5. 基于 `message_id` 调用飞书回复消息接口。
+4. 向飞书会话发送文本消息、Post 富文本消息和静态卡片消息。
+5. 基于 `message_id` 调用飞书回复消息接口，并沿用当前设置的默认发送格式。
 
 ### 6.2 当前仍需谨慎看待的能力
 
@@ -168,7 +171,7 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=m
 这组测试验证：
 
 1. 会先调用飞书 `tenant_access_token` 接口。
-2. 再调用飞书发送消息接口。
+2. 再调用飞书发送消息接口，并根据 `msg_type` 发送 `text` / `post` / `interactive`。
 3. 如果提供 `replyToMessageID`，会改走回复消息接口。
 4. 在 token 未过期时会复用缓存 token。
 
@@ -190,8 +193,8 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=m
 
 1. 先完成本地设置页配置保存。
 2. 再验证 `tenant_access_token` 获取成功。
-3. 再验证发送普通文本消息。
-4. 再验证回复已有飞书消息。
+3. 再分别验证发送普通文本消息、Post 富文本消息和卡片消息。
+4. 再验证回复已有飞书消息，并确认默认发送格式在 reply 路径同样生效。
 5. 最后用真实飞书应用做线上联调，验证长连接入站和回执稳定性。
 
 不要跳过前面几步直接做完整闭环，否则定位问题时会把“凭证错误”“权限错误”“事件源错误”“会话路由错误”混在一起。
@@ -229,9 +232,9 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=m
 
 当前版本存在以下明确限制：
 
-1. 只设计并测试了**文本消息**路径。
+1. 只支持三种出站消息格式：`text`、`post`、静态 `interactive` 卡片。
 2. 不支持群聊 `@机器人`。
-3. 不支持卡片消息、附件、图片、文件上传。
+3. 不支持卡片按钮交互、附件、图片、文件上传。
 4. 不支持消息编辑同步。
 5. 不支持 `card` / callback 的上层业务处理。
 6. 不支持通过产品 UI 直接发起“测试发送一条飞书消息”的交互入口。

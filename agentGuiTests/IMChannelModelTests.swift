@@ -18,7 +18,7 @@ struct IMChannelModelTests {
         #expect(policy.allowFileWrite == false)
         #expect(policy.allowBash == false)
         #expect(policy.allowNetworkTools == false)
-        #expect(policy.maxRounds == 8)
+        #expect(policy.maxRounds == 64)
     }
 
     @Test func channelAccountBindingDefaultsToDisabled() {
@@ -27,6 +27,22 @@ struct IMChannelModelTests {
         #expect(binding.channelKind == .feishu)
         #expect(binding.isEnabled == false)
         #expect(binding.configurationKey == "feishu.default")
+        #expect(FeishuChannelSettings(binding: binding).messageFormat == .text)
+    }
+
+    @Test func channelAccountBindingReadsInvalidStoredFeishuFormatAsText() {
+        let binding = ChannelAccountBinding(channelKind: .feishu, configurationKey: "feishu.default")
+        binding.setStringSetting("unknown-format", forKey: "feishu.messageFormat")
+
+        #expect(FeishuChannelSettings(binding: binding).messageFormat == .text)
+    }
+
+    @Test func channelAccountBindingStoresGenericSettingsAsJSON() {
+        let binding = ChannelAccountBinding(channelKind: .feishu, configurationKey: "feishu.default")
+        binding.setStringSetting("interactive", forKey: "feishu.messageFormat")
+
+        #expect(binding.settingsJSON.contains("feishu.messageFormat"))
+        #expect(binding.stringSetting(forKey: "feishu.messageFormat") == "interactive")
     }
 
     @Test func remoteConversationBindingStoresStableConversationRoute() {

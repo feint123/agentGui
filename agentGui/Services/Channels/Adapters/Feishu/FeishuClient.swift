@@ -15,6 +15,12 @@ protocol FeishuClient {
 
     func stop() async
 
+    func sendMessage(
+        chatID: String,
+        payload: FeishuRenderedMessagePayload,
+        replyToMessageID: String?
+    ) async throws -> String
+
     func sendText(
         chatID: String,
         text: String,
@@ -181,6 +187,7 @@ final class LiveFeishuClient: FeishuClient {
     private let eventSource: any FeishuInboundEventSource
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+    private let renderer: FeishuOutboundMessageRenderer
     private let uuidProvider: () -> String
     private let nowProvider: () -> Date
     private let debugLogger: @Sendable (String) -> Void
@@ -192,6 +199,7 @@ final class LiveFeishuClient: FeishuClient {
         eventSource: (any FeishuInboundEventSource)? = nil,
         decoder: JSONDecoder = JSONDecoder(),
         encoder: JSONEncoder = JSONEncoder(),
+        renderer: FeishuOutboundMessageRenderer? = nil,
         uuidProvider: @escaping () -> String = { UUID().uuidString },
         nowProvider: @escaping () -> Date = Date.init,
         debugLogger: @escaping @Sendable (String) -> Void = { print($0) }
@@ -201,6 +209,7 @@ final class LiveFeishuClient: FeishuClient {
         self.eventSource = eventSource ?? FeishuLongConnectionEventSource(transport: resolvedTransport)
         self.decoder = decoder
         self.encoder = encoder
+        self.renderer = renderer ?? FeishuOutboundMessageRenderer(encoder: encoder)
         self.uuidProvider = uuidProvider
         self.nowProvider = nowProvider
         self.debugLogger = debugLogger
@@ -235,9 +244,16 @@ final class LiveFeishuClient: FeishuClient {
         text: String,
         replyToMessageID: String?
     ) async throws -> String {
+        let payload = try renderer.render(text: text, format: .text, title: nil)
+        return try await sendMessage(chatID: chatID, payload: payload, replyToMessageID: replyToMessageID)
+    }
+
+    func sendMessage(
+        chatID: String,
+        payload: FeishuRenderedMessagePayload,
+        replyToMessageID: String?
+    ) async throws -> String {
         let token = try await validTenantAccessToken()
-        let content = try String(data: encoder.encode(TextContent(text: text)), encoding: .utf8)
-        guard let content else { throw ClientError.invalidResponse }
 
         let uuid = String(uuidProvider().prefix(50))
 
@@ -247,8 +263,8 @@ final class LiveFeishuClient: FeishuClient {
             url = URL(string: "https://open.feishu.cn/open-apis/im/v1/messages/\(replyToMessageID)/reply")!
             bodyData = try encoder.encode(
                 ReplyMessageRequest(
-                    msgType: "text",
-                    content: content,
+                    msgType: payload.msgType,
+                    content: payload.content,
                     uuid: uuid,
                     replyInThread: false
                 )
@@ -261,14 +277,14 @@ final class LiveFeishuClient: FeishuClient {
             bodyData = try encoder.encode(
                 SendMessageRequest(
                     receiveID: chatID,
-                    msgType: "text",
-                    content: content,
+                    msgType: payload.msgType,
+                    content: payload.content,
                     uuid: uuid
                 )
             )
         }
 
-        debugLog("send text message chat_id=\(chatID) reply_to=\(replyToMessageID ?? "nil") url=\(url.absoluteString) text_length=\(text.count)")
+        debugLog("send message chat_id=\(chatID) reply_to=\(replyToMessageID ?? "nil") url=\(url.absoluteString) msg_type=\(payload.msgType) content_length=\(payload.content.count)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -279,7 +295,7 @@ final class LiveFeishuClient: FeishuClient {
         let (data, response) = try await transport.data(for: request)
         try validateHTTPResponse(response, data: data)
         if let httpResponse = response as? HTTPURLResponse {
-            debugLog("send text response status=\(httpResponse.statusCode) bytes=\(data.count)")
+            debugLog("send message response status=\(httpResponse.statusCode) bytes=\(data.count)")
         }
         let payload = try decoder.decode(MessageCreateResponse.self, from: data)
         guard payload.code == 0 else {
@@ -288,7 +304,7 @@ final class LiveFeishuClient: FeishuClient {
         guard let messageID = payload.data?.messageID, !messageID.isEmpty else {
             throw ClientError.invalidResponse
         }
-        debugLog("send text message succeeded message_id=\(messageID)")
+        debugLog("send message succeeded message_id=\(messageID)")
         return messageID
     }
 

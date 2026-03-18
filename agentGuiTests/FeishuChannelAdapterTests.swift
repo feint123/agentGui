@@ -85,7 +85,63 @@ struct FeishuChannelAdapterTests {
         )
 
         #expect(result == "om_sent")
-        #expect(client.sentPayloads == [TestFeishuClient.SentPayload(chatID: "oc_test_chat", text: "已处理", replyToMessageID: "om_source")])
+        #expect(client.sentPayloads == [
+            TestFeishuClient.SentPayload(
+                chatID: "oc_test_chat",
+                payload: FeishuRenderedMessagePayload(msgType: "text", content: #"{"text":"已处理"}"#),
+                replyToMessageID: "om_source"
+            )
+        ])
+    }
+
+    @Test func adapterSendsPostPayloadWhenConfigured() async throws {
+        let client = TestFeishuClient()
+        let credentialStore = FeishuCredentialStore(backend: InMemoryFeishuCredentialBackend())
+        try credentialStore.save(appID: "cli_test", appSecret: "secret_test")
+        let adapter = FeishuChannelAdapter(client: client, credentialStore: credentialStore)
+        let binding = ChannelAccountBinding(channelKind: .feishu, configurationKey: "feishu.default")
+        FeishuChannelSettings(messageFormat: .post).apply(to: binding)
+        try await adapter.start(configuration: IMChannelConfiguration(accountBinding: binding) { _ in })
+
+        _ = try await adapter.send(
+            OutboundChannelMessage(
+                channelKind: .feishu,
+                externalConversationID: "oc_test_chat",
+                text: "已处理"
+            )
+        )
+
+        let payload = try #require(client.sentPayloads.last?.payload)
+        #expect(payload.msgType == "post")
+        #expect(payload.content.contains("zh_cn"))
+        #expect(payload.content.contains("已处理"))
+    }
+
+    @Test func adapterSendsInteractivePayloadWhenConfigured() async throws {
+        let client = TestFeishuClient()
+        let credentialStore = FeishuCredentialStore(backend: InMemoryFeishuCredentialBackend())
+        try credentialStore.save(appID: "cli_test", appSecret: "secret_test")
+        let adapter = FeishuChannelAdapter(client: client, credentialStore: credentialStore)
+        let binding = ChannelAccountBinding(
+            channelKind: .feishu,
+            configurationKey: "feishu.default",
+            displayName: "我的飞书 Bot"
+        )
+        FeishuChannelSettings(messageFormat: .interactive).apply(to: binding)
+        try await adapter.start(configuration: IMChannelConfiguration(accountBinding: binding) { _ in })
+
+        _ = try await adapter.send(
+            OutboundChannelMessage(
+                channelKind: .feishu,
+                externalConversationID: "oc_test_chat",
+                text: "已处理"
+            )
+        )
+
+        let payload = try #require(client.sentPayloads.last?.payload)
+        #expect(payload.msgType == "interactive")
+        #expect(payload.content.contains("我的飞书 Bot"))
+        #expect(payload.content.contains("已处理"))
     }
 
     @Test func registryRegistersStartsAndStopsAdapter() async throws {
@@ -181,7 +237,7 @@ private enum FeishuAdapterFixtures {
 private final class TestFeishuClient: FeishuClient {
     struct SentPayload: Equatable {
         let chatID: String
-        let text: String
+        let payload: FeishuRenderedMessagePayload
         let replyToMessageID: String?
     }
 
@@ -202,9 +258,21 @@ private final class TestFeishuClient: FeishuClient {
         inboundHandler = nil
     }
 
-    func sendText(chatID: String, text: String, replyToMessageID: String?) async throws -> String {
-        sentPayloads.append(SentPayload(chatID: chatID, text: text, replyToMessageID: replyToMessageID))
+    func sendMessage(
+        chatID: String,
+        payload: FeishuRenderedMessagePayload,
+        replyToMessageID: String?
+    ) async throws -> String {
+        sentPayloads.append(SentPayload(chatID: chatID, payload: payload, replyToMessageID: replyToMessageID))
         return "om_sent"
+    }
+
+    func sendText(chatID: String, text: String, replyToMessageID: String?) async throws -> String {
+        try await sendMessage(
+            chatID: chatID,
+            payload: FeishuRenderedMessagePayload(msgType: "text", content: #"{"text":"\#(text)"}"#),
+            replyToMessageID: replyToMessageID
+        )
     }
 
     func emitInboundEvent(_ event: FeishuEventEnvelope) async throws {

@@ -14,6 +14,7 @@ final class ChannelSettingsViewModel {
     var feishuDisplayName: String = ""
     var feishuAppID: String = ""
     var feishuAppSecret: String = ""
+    var feishuMessageFormat: FeishuMessageFormat = .text
     private(set) var connectionStatusText: String = "未配置"
     var runtimeConnectionStatusText: String {
         connectionStatusStore.phase.displayText
@@ -58,6 +59,7 @@ final class ChannelSettingsViewModel {
         let binding = fetchBinding()
         feishuEnabled = binding?.isEnabled ?? false
         feishuDisplayName = binding?.displayName ?? ""
+        feishuMessageFormat = binding.map { FeishuChannelSettings(binding: $0).messageFormat } ?? .text
 
         if let credentials = try? credentialStore.load() {
             feishuAppID = credentials.appID
@@ -79,6 +81,7 @@ final class ChannelSettingsViewModel {
 
         binding.displayName = feishuDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         binding.isEnabled = feishuEnabled
+        FeishuChannelSettings(messageFormat: feishuMessageFormat).apply(to: binding)
         binding.updatedAt = Date()
 
         if isNewBinding {
