@@ -157,11 +157,13 @@ private struct BootstrapStubExecutor: RemoteAgentExecuting {
         message: InboundChannelMessage,
         session: Session,
         policy: RemoteExecutionPolicy,
+        authorizationPolicy: ToolAuthorizationPolicy,
         modelContext: ModelContext
     ) async throws -> String {
         probe.record(message)
         _ = session
         _ = policy
+        _ = authorizationPolicy
         _ = modelContext
         switch result {
         case .success(let text):

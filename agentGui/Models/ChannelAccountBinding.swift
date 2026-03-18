@@ -18,7 +18,8 @@ final class ChannelAccountBinding {
     var configurationKey: String
     var displayName: String
     var isEnabled: Bool
-    var settingsJSON: String="{}"  
+    var settingsJSON: String="{}"
+    var authorizationPolicyJSON: String = "{}"
     var createdAt: Date
     var updatedAt: Date
 
@@ -29,6 +30,7 @@ final class ChannelAccountBinding {
         displayName: String = "",
         isEnabled: Bool = false,
         settingsJSON: String = "{}",
+        authorizationPolicy: ToolAuthorizationPolicy = ToolAuthorizationPolicy(),
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -38,8 +40,14 @@ final class ChannelAccountBinding {
         self.displayName = displayName
         self.isEnabled = isEnabled
         self.settingsJSON = settingsJSON
+        self.authorizationPolicyJSON = Self.encodeAuthorizationPolicy(authorizationPolicy)
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    var authorizationPolicy: ToolAuthorizationPolicy {
+        get { Self.decodeAuthorizationPolicy(authorizationPolicyJSON) }
+        set { authorizationPolicyJSON = Self.encodeAuthorizationPolicy(newValue) }
     }
 
     func stringSetting(forKey key: String) -> String? {
@@ -66,6 +74,22 @@ final class ChannelAccountBinding {
 
     private static func encodeSettings(_ settings: SettingsPayload) -> String {
         guard let data = try? JSONEncoder().encode(settings),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return text
+    }
+
+    private static func decodeAuthorizationPolicy(_ string: String) -> ToolAuthorizationPolicy {
+        guard let data = string.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(ToolAuthorizationPolicy.self, from: data) else {
+            return ToolAuthorizationPolicy()
+        }
+        return decoded
+    }
+
+    private static func encodeAuthorizationPolicy(_ policy: ToolAuthorizationPolicy) -> String {
+        guard let data = try? JSONEncoder().encode(policy),
               let text = String(data: data, encoding: .utf8) else {
             return "{}"
         }

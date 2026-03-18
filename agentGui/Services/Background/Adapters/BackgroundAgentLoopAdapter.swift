@@ -20,9 +20,20 @@ protocol BackgroundAgentLoopAdapting {
 @MainActor
 struct BackgroundAgentLoopAdapter: BackgroundAgentLoopAdapting {
     private let registry: any ToolRegistry
+    private let authorizationResolver: ToolAuthorizationResolving
+    private let toolsetProjector: AuthorizedToolsetProjector
+    private let runtimeSettingsFactory: AuthorizedRuntimeSettingsFactory
 
-    init(registry: any ToolRegistry = DefaultToolRegistry()) {
+    init(
+        registry: any ToolRegistry = DefaultToolRegistry(),
+        authorizationResolver: ToolAuthorizationResolving? = nil,
+        toolsetProjector: AuthorizedToolsetProjector? = nil,
+        runtimeSettingsFactory: AuthorizedRuntimeSettingsFactory = AuthorizedRuntimeSettingsFactory()
+    ) {
         self.registry = registry
+        self.authorizationResolver = authorizationResolver ?? ToolAuthorizationResolver(registry: registry)
+        self.toolsetProjector = toolsetProjector ?? AuthorizedToolsetProjector(registry: registry)
+        self.runtimeSettingsFactory = runtimeSettingsFactory
     }
 
     func makeRequest(
@@ -94,101 +105,45 @@ struct BackgroundAgentLoopAdapter: BackgroundAgentLoopAdapting {
         task: BackgroundAgentTask,
         settings: AppSettings
     ) -> [MessageParameter.Tool] {
-        resolvedToolIDs(task: task, settings: settings).compactMap { toolID in
-            guard let definition = registry.definition(for: toolID),
-                  definition.supportedContexts.contains(.backgroundTask),
-                  isEnabled(toolID: toolID, settings: settings) else {
-                return nil
-            }
-            return definition.makeAnthropicTool()
-        }
+        let snapshot = authorizationSnapshot(task: task, settings: settings)
+        return toolsetProjector.tools(from: snapshot)
     }
 
     func resolvedToolIDs(
         task: BackgroundAgentTask,
         settings: AppSettings
     ) -> [String] {
-        var toolIDs = ["read_tool_payload"]
-        let policy = task.toolGrantPolicy.effectivePolicy(
-            backgroundNetworkToolsEnabled: settings.backgroundAgentAllowNetworkTools
-        )
-
-        if policy.allowFileWrite {
-            toolIDs.append("str_replace_based_edit_tool")
-        }
-
-        if policy.allowBash {
-            toolIDs.append("bash")
-        }
-
-        if policy.allowNetworkAccess {
-            toolIDs.append(contentsOf: ["web_search", "web_fetch"])
-        }
-
-        return Array(Set(toolIDs)).sorted()
+        Array(authorizationSnapshot(task: task, settings: settings).allowedToolIDs).sorted()
     }
 
     func makeRuntimeSettings(
         task: BackgroundAgentTask,
         settings: AppSettings
     ) -> AppSettings {
-        let runtimeSettings = AppSettings()
-        let effectivePolicy = task.toolGrantPolicy.effectivePolicy(
-            backgroundNetworkToolsEnabled: settings.backgroundAgentAllowNetworkTools
+        runtimeSettingsFactory.makeRuntimeSettings(
+            base: settings,
+            snapshot: authorizationSnapshot(task: task, settings: settings),
+            workingDirectory: task.workingDirectoryPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? task.workingDirectoryPath ?? settings.workingDirectory
+                : settings.workingDirectory,
+            enabledSkillNames: settings.enabledSkillNames,
+            autoStartLSPServers: settings.autoStartLSPServers
         )
-
-        runtimeSettings.apiKey = settings.apiKey
-        runtimeSettings.baseURL = settings.baseURL
-        runtimeSettings.selectedModel = settings.selectedModel
-        runtimeSettings.themeMode = settings.themeMode
-        runtimeSettings.messageFontSize = settings.messageFontSize
-        runtimeSettings.enableTextEditorTool = settings.enableTextEditorTool && effectivePolicy.allowFileWrite
-        runtimeSettings.enableBashTool = settings.enableBashTool && effectivePolicy.allowBash
-        runtimeSettings.workingDirectory = task.workingDirectoryPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? task.workingDirectoryPath ?? settings.workingDirectory
-            : settings.workingDirectory
-        runtimeSettings.enableExtendedThinking = settings.enableExtendedThinking
-        runtimeSettings.extendedThinkingBudget = settings.extendedThinkingBudget
-        runtimeSettings.enabledSkillNames = settings.enabledSkillNames
-        runtimeSettings.enableWebSearchTool = settings.enableWebSearchTool && effectivePolicy.allowNetworkAccess
-        runtimeSettings.enableWebFetchTool = settings.enableWebFetchTool && effectivePolicy.allowNetworkAccess
-        runtimeSettings.enableLSPTools = false
-        runtimeSettings.autoStartLSPServers = settings.autoStartLSPServers
-        runtimeSettings.lspDefaultRoutingMode = settings.lspDefaultRoutingMode
-        runtimeSettings.lspCustomServerProfiles = settings.lspCustomServerProfiles
-        runtimeSettings.lspInstalledProviders = settings.lspInstalledProviders
-        runtimeSettings.lspInstalledServerDefinitions = settings.lspInstalledServerDefinitions
-        runtimeSettings.lspManualWorkspaceBindingsJSON = settings.lspManualWorkspaceBindingsJSON
-        runtimeSettings.ollamaAPIKey = settings.ollamaAPIKey
-        runtimeSettings.enableOllamaWebSearch = settings.enableOllamaWebSearch && effectivePolicy.allowNetworkAccess
-        runtimeSettings.enableNetworkProxy = settings.enableNetworkProxy
-        runtimeSettings.networkProxyURL = settings.networkProxyURL
-        runtimeSettings.networkProxyBypassList = settings.networkProxyBypassList
-        runtimeSettings.memoryEnabled = settings.memoryEnabled && effectivePolicy.allowMemoryMutation
-        runtimeSettings.memoryContextBudget = settings.memoryContextBudget
-        runtimeSettings.backgroundAgentEnabled = settings.backgroundAgentEnabled
-        runtimeSettings.backgroundAgentDefaultQoS = settings.backgroundAgentDefaultQoS
-        runtimeSettings.backgroundAgentRequiresExternalPower = settings.backgroundAgentRequiresExternalPower
-        runtimeSettings.backgroundAgentAllowNetworkTools = settings.backgroundAgentAllowNetworkTools
-        runtimeSettings.backgroundAgentMaximumConcurrentRuns = settings.backgroundAgentMaximumConcurrentRuns
-        runtimeSettings.backgroundAgentObservationRetentionDays = settings.backgroundAgentObservationRetentionDays
-
-        return runtimeSettings
     }
 
-    private func isEnabled(toolID: String, settings: AppSettings) -> Bool {
-        switch toolID {
-        case "str_replace_based_edit_tool":
-            return settings.enableTextEditorTool
-        case "bash":
-            return settings.enableBashTool
-        case "web_search":
-            return settings.enableWebSearchTool && settings.backgroundAgentAllowNetworkTools
-        case "web_fetch":
-            return settings.enableWebFetchTool && settings.backgroundAgentAllowNetworkTools
-        default:
-            return true
-        }
+    private func authorizationSnapshot(
+        task: BackgroundAgentTask,
+        settings: AppSettings
+    ) -> EffectiveToolAuthorizationSnapshot {
+        let networkCeiling: ToolCapabilityLevel = settings.backgroundAgentAllowNetworkTools ? .observe : .disabled
+        return authorizationResolver.resolve(
+            ToolAuthorizationRequest(
+                context: .backgroundTask,
+                settings: settings,
+                subjectPolicy: task.authorizationPolicy,
+                capabilityCeilings: [.network: networkCeiling]
+            )
+        )
     }
 
     private func resolveSession(id: String, modelContext: ModelContext) throws -> Session {

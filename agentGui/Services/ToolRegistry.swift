@@ -50,6 +50,10 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .editor,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
+            authorization: ToolAuthorizationDescriptor(
+                requirements: [ToolCapabilityRequirement(capabilityID: .fileSystem, minimumLevel: .mutate)],
+                riskTier: .high
+            ),
             executorKey: "builtin.textEditor",
             descriptionBuilder: { _ in
                 """
@@ -87,6 +91,10 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .shell,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
+            authorization: ToolAuthorizationDescriptor(
+                requirements: [ToolCapabilityRequirement(capabilityID: .shell, minimumLevel: .execute)],
+                riskTier: .high
+            ),
             executorKey: "builtin.bash",
             descriptionBuilder: { _ in
                 """
@@ -169,6 +177,10 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .web,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
+            authorization: ToolAuthorizationDescriptor(
+                requirements: [ToolCapabilityRequirement(capabilityID: .network, minimumLevel: .observe)],
+                riskTier: .medium
+            ),
             executorKey: "builtin.webSearch",
             descriptionBuilder: { _ in
                 """
@@ -197,6 +209,10 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .web,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
+            authorization: ToolAuthorizationDescriptor(
+                requirements: [ToolCapabilityRequirement(capabilityID: .network, minimumLevel: .observe)],
+                riskTier: .medium
+            ),
             executorKey: "builtin.webFetch",
             descriptionBuilder: { _ in
                 """

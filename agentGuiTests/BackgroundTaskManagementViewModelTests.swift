@@ -155,55 +155,43 @@ struct BackgroundTaskManagementViewModelTests {
         #expect(recorder.count(for: BackgroundTaskSchedulingNotifications.refreshRequested) == 1)
     }
 
-    @Test func selectingObserveOnlyTrustTierClearsEscalatedToolToggles() throws {
+    @Test func selectingObserveOnlyPresetClearsEscalatedToolToggles() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         let viewModel = BackgroundTaskManagementViewModel(
             modelContext: context,
             persistenceCoordinator: nil
         )
-        viewModel.draftToolGrantPolicy = BackgroundTaskToolGrantPolicy(
-            trustTier: .actLimited,
-            allowFileWrite: true,
-            allowBash: true,
-            allowMemoryMutation: true,
-            allowNetworkAccess: true
-        )
+        viewModel.draftAuthorizationPolicy = ToolAuthorizationPolicy(preset: .actLimited)
 
-        viewModel.setDraftTrustTier(.observeOnly)
+        viewModel.setDraftAuthorizationPreset(.observeOnly)
 
-        #expect(viewModel.draftToolGrantPolicy.trustTier == .observeOnly)
-        #expect(viewModel.draftToolGrantPolicy.allowFileWrite == false)
-        #expect(viewModel.draftToolGrantPolicy.allowBash == false)
-        #expect(viewModel.draftToolGrantPolicy.allowMemoryMutation == false)
-        #expect(viewModel.draftToolGrantPolicy.allowNetworkAccess == true)
+        #expect(viewModel.draftAuthorizationPolicy.preset == .observeOnly)
+        #expect(viewModel.draftAuthorizationPolicy.level(for: .fileSystem) == .disabled)
+        #expect(viewModel.draftAuthorizationPolicy.level(for: .shell) == .disabled)
+        #expect(viewModel.draftAuthorizationPolicy.level(for: .memory) == .disabled)
+        #expect(viewModel.draftAuthorizationPolicy.level(for: .network) == .observe)
     }
 
-    @Test func selectingMaintainTrustTierKeepsOnlyAllowedToggles() throws {
+    @Test func selectingMaintainPresetKeepsOnlyAllowedToggles() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         let viewModel = BackgroundTaskManagementViewModel(
             modelContext: context,
             persistenceCoordinator: nil
         )
-        viewModel.draftToolGrantPolicy = BackgroundTaskToolGrantPolicy(
-            trustTier: .actLimited,
-            allowFileWrite: true,
-            allowBash: true,
-            allowMemoryMutation: true,
-            allowNetworkAccess: true
-        )
+        viewModel.draftAuthorizationPolicy = ToolAuthorizationPolicy(preset: .actLimited)
 
-        viewModel.setDraftTrustTier(.maintain)
+        viewModel.setDraftAuthorizationPreset(.maintain)
 
-        #expect(viewModel.draftToolGrantPolicy.trustTier == .maintain)
-        #expect(viewModel.draftToolGrantPolicy.allowFileWrite == false)
-        #expect(viewModel.draftToolGrantPolicy.allowBash == false)
-        #expect(viewModel.draftToolGrantPolicy.allowMemoryMutation == true)
-        #expect(viewModel.draftToolGrantPolicy.allowNetworkAccess == true)
+        #expect(viewModel.draftAuthorizationPolicy.preset == .maintain)
+        #expect(viewModel.draftAuthorizationPolicy.level(for: .fileSystem) == .disabled)
+        #expect(viewModel.draftAuthorizationPolicy.level(for: .shell) == .disabled)
+        #expect(viewModel.draftAuthorizationPolicy.level(for: .memory) == .mutate)
+        #expect(viewModel.draftAuthorizationPolicy.level(for: .network) == .observe)
     }
 
-    @Test func trustTierDescriptionsExplainToolScope() throws {
+    @Test func authorizationPresetDescriptionsExplainToolScope() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         let viewModel = BackgroundTaskManagementViewModel(
@@ -211,9 +199,9 @@ struct BackgroundTaskManagementViewModelTests {
             persistenceCoordinator: nil
         )
 
-        #expect(viewModel.trustTierDescription(for: .observeOnly).contains("只读"))
-        #expect(viewModel.trustTierDescription(for: .maintain).contains("记忆"))
-        #expect(viewModel.trustTierDescription(for: .actLimited).contains("文件写入"))
+        #expect(viewModel.authorizationPresetDescription(for: .observeOnly).contains("只读"))
+        #expect(viewModel.authorizationPresetDescription(for: .maintain).contains("记忆"))
+        #expect(viewModel.authorizationPresetDescription(for: .actLimited).contains("文件写入"))
     }
 
     @Test func saveDraftRejectsMissingSessionSelection() throws {

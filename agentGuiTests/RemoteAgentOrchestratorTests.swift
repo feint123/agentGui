@@ -10,6 +10,8 @@ struct RemoteAgentOrchestratorTests {
 
         try await harness.orchestrator.handleInbound(
             .fixture(text: "总结这个仓库"),
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly),
+            executionPolicy: RemoteExecutionPolicy(),
             modelContext: harness.context
         )
 
@@ -31,6 +33,8 @@ struct RemoteAgentOrchestratorTests {
 
         try await harness.orchestrator.handleInbound(
             .fixture(text: "总结这个仓库"),
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly),
+            executionPolicy: RemoteExecutionPolicy(),
             modelContext: harness.context
         )
 
@@ -101,12 +105,15 @@ private struct StubRemoteAgentExecutor: RemoteAgentExecuting {
         message: InboundChannelMessage,
         session: Session,
         policy: RemoteExecutionPolicy,
+        authorizationPolicy: ToolAuthorizationPolicy,
         modelContext: ModelContext
     ) async throws -> String {
         switch result {
         case .success(let text):
+            _ = authorizationPolicy
             return text
         case .failure(let error):
+            _ = authorizationPolicy
             throw error
         }
     }

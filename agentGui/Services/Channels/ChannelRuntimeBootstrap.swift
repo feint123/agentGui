@@ -26,10 +26,21 @@ final class ChannelRuntimeBootstrap {
     func startEnabledChannels(modelContext: ModelContext) async throws {
         let bindings = try modelContext.fetch(FetchDescriptor<ChannelAccountBinding>())
         for binding in bindings where binding.isEnabled {
-            let configuration = IMChannelConfiguration(accountBinding: binding) { [deduplicator, orchestrator] message in
+            let executionPolicy = RemoteExecutionPolicy()
+            let authorizationPolicy = binding.authorizationPolicy
+            let configuration = IMChannelConfiguration(
+                accountBinding: binding,
+                authorizationPolicy: authorizationPolicy,
+                executionPolicy: executionPolicy
+            ) { [deduplicator, orchestrator] message in
                 let accepted = try deduplicator.acceptInbound(message, modelContext: modelContext)
                 guard accepted else { return }
-                try await orchestrator.handleInbound(message, modelContext: modelContext)
+                try await orchestrator.handleInbound(
+                    message,
+                    authorizationPolicy: authorizationPolicy,
+                    executionPolicy: executionPolicy,
+                    modelContext: modelContext
+                )
             }
             try await registry.start(kind: binding.channelKind, configuration: configuration)
         }

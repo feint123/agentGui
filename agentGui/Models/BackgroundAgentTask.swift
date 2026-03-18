@@ -13,7 +13,7 @@ final class BackgroundAgentTask {
     var workspacePath: String?
     var workingDirectoryPath: String?
     var modelIDOverride: String?
-    var toolGrantPolicyJSON: String
+    var authorizationPolicyJSON: String = "{}"
     var schedulePolicyJSON: String
     var executionPolicyJSON: String
     var lastScheduledAt: Date?
@@ -36,7 +36,7 @@ final class BackgroundAgentTask {
         workspacePath: String? = nil,
         workingDirectoryPath: String? = nil,
         modelIDOverride: String? = nil,
-        toolGrantPolicy: BackgroundTaskToolGrantPolicy = BackgroundTaskToolGrantPolicy(),
+        authorizationPolicy: ToolAuthorizationPolicy = ToolAuthorizationPolicy(),
         schedulePolicy: BackgroundTaskPolicy = BackgroundTaskPolicy(),
         executionPolicy: BackgroundTaskExecutionPolicy = BackgroundTaskExecutionPolicy(),
         lastScheduledAt: Date? = nil,
@@ -58,7 +58,7 @@ final class BackgroundAgentTask {
         self.workspacePath = workspacePath
         self.workingDirectoryPath = workingDirectoryPath
         self.modelIDOverride = modelIDOverride
-        self.toolGrantPolicyJSON = Self.encode(toolGrantPolicy, fallback: "{}")
+        self.authorizationPolicyJSON = Self.encode(authorizationPolicy, fallback: "{}")
         self.schedulePolicyJSON = Self.encode(schedulePolicy, fallback: "{}")
         self.executionPolicyJSON = Self.encode(executionPolicy, fallback: "{}")
         self.lastScheduledAt = lastScheduledAt
@@ -71,9 +71,9 @@ final class BackgroundAgentTask {
         self.updatedAt = updatedAt
     }
 
-    var toolGrantPolicy: BackgroundTaskToolGrantPolicy {
-        get { Self.decode(toolGrantPolicyJSON, defaultValue: BackgroundTaskToolGrantPolicy()) }
-        set { toolGrantPolicyJSON = Self.encode(newValue, fallback: "{}") }
+    var authorizationPolicy: ToolAuthorizationPolicy {
+        get { Self.decode(authorizationPolicyJSON, defaultValue: ToolAuthorizationPolicy()) }
+        set { authorizationPolicyJSON = Self.encode(newValue, fallback: "{}") }
     }
 
     var schedulePolicy: BackgroundTaskPolicy {

@@ -30,13 +30,7 @@ struct BackgroundAgentLoopAdapterTests {
     @Test func observeOnlyTrustTierStripsWriteAndShellTools() throws {
         let adapter = BackgroundAgentLoopAdapter()
         let task = BackgroundAgentTask.fixture(taskPrompt: "检查仓库")
-        task.toolGrantPolicy = BackgroundTaskToolGrantPolicy(
-            trustTier: .observeOnly,
-            allowFileWrite: true,
-            allowBash: true,
-            allowMemoryMutation: true,
-            allowNetworkAccess: true
-        )
+        task.authorizationPolicy = ToolAuthorizationPolicy(preset: .observeOnly)
         let settings = AppSettings.testFixture()
         settings.enableTextEditorTool = true
         settings.enableBashTool = true
@@ -57,13 +51,7 @@ struct BackgroundAgentLoopAdapterTests {
     @Test func actLimitedTrustTierAllowsWebToolsOnlyWhenBothTaskAndGlobalSwitchEnableThem() throws {
         let adapter = BackgroundAgentLoopAdapter()
         let task = BackgroundAgentTask.fixture(taskPrompt: "检查仓库")
-        task.toolGrantPolicy = BackgroundTaskToolGrantPolicy(
-            trustTier: .actLimited,
-            allowFileWrite: true,
-            allowBash: true,
-            allowMemoryMutation: true,
-            allowNetworkAccess: true
-        )
+        task.authorizationPolicy = ToolAuthorizationPolicy(preset: .actLimited)
         let settings = AppSettings.testFixture()
         settings.enableTextEditorTool = true
         settings.enableBashTool = true

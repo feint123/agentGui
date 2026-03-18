@@ -75,7 +75,7 @@ final class BackgroundTaskManagementViewModel {
     var draftIsEnabled: Bool = true
     var draftSchedulePolicy: BackgroundTaskPolicy = BackgroundTaskPolicy()
     var draftExecutionPolicy: BackgroundTaskExecutionPolicy = BackgroundTaskExecutionPolicy()
-    var draftToolGrantPolicy: BackgroundTaskToolGrantPolicy = BackgroundTaskToolGrantPolicy()
+    var draftAuthorizationPolicy: ToolAuthorizationPolicy = ToolAuthorizationPolicy()
 
     var scheduleIntervalPresets: [ScheduleIntervalPreset] {
         Self.defaultScheduleIntervalPresets
@@ -193,7 +193,7 @@ final class BackgroundTaskManagementViewModel {
         draftIsEnabled = true
         draftSchedulePolicy = BackgroundTaskPolicy()
         draftExecutionPolicy = BackgroundTaskExecutionPolicy()
-        draftToolGrantPolicy = BackgroundTaskToolGrantPolicy()
+        draftAuthorizationPolicy = ToolAuthorizationPolicy()
         recentRuns = []
     }
 
@@ -221,7 +221,7 @@ final class BackgroundTaskManagementViewModel {
             selectedTask.isEnabled = draftIsEnabled
             selectedTask.schedulePolicy = draftSchedulePolicy
             selectedTask.executionPolicy = draftExecutionPolicy
-            selectedTask.toolGrantPolicy = draftToolGrantPolicy
+            selectedTask.authorizationPolicy = draftAuthorizationPolicy
             selectedTask.updatedAt = Date()
         } else {
             let task = BackgroundAgentTask(
@@ -233,7 +233,7 @@ final class BackgroundTaskManagementViewModel {
                 workspacePath: normalizedOptional(draftWorkspacePath),
                 workingDirectoryPath: normalizedOptional(draftWorkingDirectoryPath),
                 modelIDOverride: normalizedOptional(draftModelIDOverride),
-                toolGrantPolicy: draftToolGrantPolicy,
+                authorizationPolicy: draftAuthorizationPolicy,
                 schedulePolicy: draftSchedulePolicy,
                 executionPolicy: draftExecutionPolicy
             )
@@ -283,50 +283,22 @@ final class BackgroundTaskManagementViewModel {
         return task.taskPrompt
     }
 
-    func setDraftTrustTier(_ trustTier: BackgroundTaskTrustTier) {
-        draftToolGrantPolicy.trustTier = trustTier
-        normalizeDraftToolGrantPolicy()
+    func setDraftAuthorizationPreset(_ preset: ToolAuthorizationPreset) {
+        var editorModel = ToolPermissionEditorModel(policy: draftAuthorizationPolicy)
+        editorModel.setPreset(preset)
+        draftAuthorizationPolicy = editorModel.policy
     }
 
-    func trustTierDescription(for trustTier: BackgroundTaskTrustTier) -> String {
-        switch trustTier {
-        case .observeOnly:
-            return "只读巡检模式。允许查看上下文和受控联网查询，不允许文件写入、Bash 或记忆写入。"
-        case .maintain:
-            return "维护模式。适合摘要、整理和记忆维护，仍不允许文件写入或 Bash。"
-        case .actLimited:
-            return "受限执行模式。可按下方开关开放文件写入、Bash、记忆和联网工具。"
-        }
+    func authorizationPresetDescription(for preset: ToolAuthorizationPreset) -> String {
+        ToolPermissionEditorModel(policy: draftAuthorizationPolicy).presetDescription(for: preset)
     }
 
-    func isDraftToolOptionAvailable(_ option: DraftToolOption) -> Bool {
-        switch (draftToolGrantPolicy.trustTier, option) {
-        case (.observeOnly, .allowFileWrite), (.observeOnly, .allowBash), (.observeOnly, .allowMemoryMutation):
-            return false
-        case (.maintain, .allowFileWrite), (.maintain, .allowBash):
-            return false
-        default:
-            return true
-        }
+    func isDraftToolOptionAvailable(_ option: ToolPermissionEditorModel.Option) -> Bool {
+        ToolPermissionEditorModel(policy: draftAuthorizationPolicy).isOptionAvailable(option)
     }
 
-    func draftToolRestrictionExplanation(for option: DraftToolOption) -> String? {
-        guard !isDraftToolOptionAvailable(option) else { return nil }
-
-        switch (draftToolGrantPolicy.trustTier, option) {
-        case (.observeOnly, .allowFileWrite):
-            return "Observe Only 只允许只读巡检，不能写文件。"
-        case (.observeOnly, .allowBash):
-            return "Observe Only 禁止执行 Bash。"
-        case (.observeOnly, .allowMemoryMutation):
-            return "Observe Only 禁止修改记忆。"
-        case (.maintain, .allowFileWrite):
-            return "Maintain 侧重整理与维护，不允许直接写文件。"
-        case (.maintain, .allowBash):
-            return "Maintain 不允许执行 Bash。"
-        default:
-            return nil
-        }
+    func draftToolRestrictionExplanation(for option: ToolPermissionEditorModel.Option) -> String? {
+        ToolPermissionEditorModel(policy: draftAuthorizationPolicy).restrictionExplanation(for: option)
     }
 
     func taskListSubtitle(for task: BackgroundAgentTask) -> String {
@@ -495,8 +467,7 @@ final class BackgroundTaskManagementViewModel {
         draftIsEnabled = task.isEnabled
         draftSchedulePolicy = task.schedulePolicy
         draftExecutionPolicy = task.executionPolicy
-        draftToolGrantPolicy = task.toolGrantPolicy
-        normalizeDraftToolGrantPolicy()
+        draftAuthorizationPolicy = task.authorizationPolicy
     }
 
     private func loadRecentRuns() {
@@ -526,20 +497,6 @@ final class BackgroundTaskManagementViewModel {
     private func normalizedOptional(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func normalizeDraftToolGrantPolicy() {
-        switch draftToolGrantPolicy.trustTier {
-        case .observeOnly:
-            draftToolGrantPolicy.allowFileWrite = false
-            draftToolGrantPolicy.allowBash = false
-            draftToolGrantPolicy.allowMemoryMutation = false
-        case .maintain:
-            draftToolGrantPolicy.allowFileWrite = false
-            draftToolGrantPolicy.allowBash = false
-        case .actLimited:
-            break
-        }
     }
 
     private func matchesFilter(_ task: BackgroundAgentTask) -> Bool {
@@ -622,13 +579,6 @@ extension BackgroundTaskManagementViewModel {
     ]
 
     private static let defaultAllowedHourRange = 9...18
-
-    enum DraftToolOption {
-        case allowFileWrite
-        case allowBash
-        case allowMemoryMutation
-        case allowNetworkAccess
-    }
 
     private func scheduleIntervalPreset(for seconds: TimeInterval) -> ScheduleIntervalPreset? {
         scheduleIntervalPresets.first { Int($0.seconds) == max(1, Int(seconds)) }

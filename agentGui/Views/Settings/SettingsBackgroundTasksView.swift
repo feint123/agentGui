@@ -533,56 +533,7 @@ private struct BackgroundTaskEditorView: View {
     }
 
     private var toolsSection: some View {
-        Section {
-            Picker("信任等级", selection: Binding(
-                get: { viewModel.draftToolGrantPolicy.trustTier },
-                set: { viewModel.setDraftTrustTier($0) }
-            )) {
-                Text("Observe Only").tag(BackgroundTaskTrustTier.observeOnly)
-                Text("Maintain").tag(BackgroundTaskTrustTier.maintain)
-                Text("Act Limited").tag(BackgroundTaskTrustTier.actLimited)
-            }
-
-            Text(viewModel.trustTierDescription(for: viewModel.draftToolGrantPolicy.trustTier))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle("允许文件写入", isOn: $viewModel.draftToolGrantPolicy.allowFileWrite)
-                    .disabled(!viewModel.isDraftToolOptionAvailable(.allowFileWrite))
-                if let explanation = viewModel.draftToolRestrictionExplanation(for: .allowFileWrite) {
-                    Text(explanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle("允许 Bash", isOn: $viewModel.draftToolGrantPolicy.allowBash)
-                    .disabled(!viewModel.isDraftToolOptionAvailable(.allowBash))
-                if let explanation = viewModel.draftToolRestrictionExplanation(for: .allowBash) {
-                    Text(explanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle("允许修改记忆", isOn: $viewModel.draftToolGrantPolicy.allowMemoryMutation)
-                    .disabled(!viewModel.isDraftToolOptionAvailable(.allowMemoryMutation))
-                if let explanation = viewModel.draftToolRestrictionExplanation(for: .allowMemoryMutation) {
-                    Text(explanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Toggle("允许联网工具", isOn: $viewModel.draftToolGrantPolicy.allowNetworkAccess)
-        } header: {
-            Text("工具权限")
-        } footer: {
-            Text("信任等级会约束下方工具上限。降低等级时，超出该等级允许范围的工具开关会自动关闭。")
-        }
+        ToolPermissionSectionView(policy: $viewModel.draftAuthorizationPolicy)
     }
 
     private var recentRunsSection: some View {

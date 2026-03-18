@@ -51,9 +51,32 @@ struct ToolDefinition {
     let category: ToolCategory
     let schemaVersion: Int
     let supportedContexts: Set<ToolContext>
+    let authorization: ToolAuthorizationDescriptor
     let executorKey: String
     let descriptionBuilder: (ToolDefinitionBuildContext) -> String
     let inputSchemaBuilder: (ToolDefinitionBuildContext) -> JSONSchema
+
+    init(
+        id: String,
+        displayName: String,
+        category: ToolCategory,
+        schemaVersion: Int,
+        supportedContexts: Set<ToolContext>,
+        authorization: ToolAuthorizationDescriptor = .none,
+        executorKey: String,
+        descriptionBuilder: @escaping (ToolDefinitionBuildContext) -> String,
+        inputSchemaBuilder: @escaping (ToolDefinitionBuildContext) -> JSONSchema
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.category = category
+        self.schemaVersion = schemaVersion
+        self.supportedContexts = supportedContexts
+        self.authorization = authorization
+        self.executorKey = executorKey
+        self.descriptionBuilder = descriptionBuilder
+        self.inputSchemaBuilder = inputSchemaBuilder
+    }
 
     func makeAnthropicTool(context: ToolDefinitionBuildContext = .default) -> MessageParameter.Tool {
         .function(

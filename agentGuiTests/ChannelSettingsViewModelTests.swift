@@ -13,8 +13,9 @@ struct ChannelSettingsViewModelTests {
         harness.viewModel.feishuAppID = "cli_test"
         harness.viewModel.feishuAppSecret = "secret_test"
         harness.viewModel.feishuMessageFormat = .interactive
+        harness.viewModel.authorizationPolicy = ToolAuthorizationPolicy(preset: .actLimited)
 
-        try harness.viewModel.save()
+        try harness.viewModel.saveFeishuSettings()
 
         let bindings = try harness.context.fetch(FetchDescriptor<ChannelAccountBinding>())
         let credentials = try #require(try harness.credentialStore.load())
@@ -22,9 +23,55 @@ struct ChannelSettingsViewModelTests {
         #expect(bindings.count == 1)
         #expect(bindings.first?.isEnabled == true)
         #expect(bindings.first?.displayName == "我的飞书 Bot")
+        #expect(bindings.first?.authorizationPolicy.preset == .actLimited)
         #expect(bindings.first.map { FeishuChannelSettings(binding: $0).messageFormat } == .interactive)
         #expect(credentials.appID == "cli_test")
         #expect(credentials.appSecret == "secret_test")
+    }
+
+    @Test func saveAuthorizationPolicyPersistsWithoutSubmittingFeishuCredentials() throws {
+        let harness = try ChannelSettingsHarness.make()
+
+        harness.viewModel.authorizationPolicy = ToolAuthorizationPolicy(preset: .maintain)
+
+        try harness.viewModel.saveAuthorizationPolicy()
+
+        let bindings = try harness.context.fetch(FetchDescriptor<ChannelAccountBinding>())
+        #expect(bindings.count == 1)
+        #expect(bindings.first?.authorizationPolicy.preset == .maintain)
+        #expect(bindings.first?.displayName == "")
+        #expect(bindings.first?.isEnabled == false)
+        #expect(harness.viewModel.authorizationStatusText == "已保存")
+        #expect((try? harness.credentialStore.load()) == nil)
+    }
+
+    @Test func saveAuthorizationPolicyUpdatesAllChannelBindings() throws {
+        let harness = try ChannelSettingsHarness.make()
+        let primaryBinding = ChannelAccountBinding(
+            channelKind: .feishu,
+            configurationKey: "feishu.default",
+            displayName: "主渠道",
+            isEnabled: true,
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly)
+        )
+        let secondaryBinding = ChannelAccountBinding(
+            channelKind: .feishu,
+            configurationKey: "feishu.backup",
+            displayName: "备用渠道",
+            isEnabled: false,
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly)
+        )
+        harness.context.insert(primaryBinding)
+        harness.context.insert(secondaryBinding)
+        try harness.context.save()
+
+        harness.viewModel.authorizationPolicy = ToolAuthorizationPolicy(preset: .actLimited)
+
+        try harness.viewModel.saveAuthorizationPolicy()
+
+        let bindings = try harness.context.fetch(FetchDescriptor<ChannelAccountBinding>())
+        #expect(bindings.count == 2)
+        #expect(bindings.allSatisfy { $0.authorizationPolicy.preset == .actLimited })
     }
 
     @Test func loadingExistingBindingReflectsCurrentState() throws {
@@ -33,7 +80,8 @@ struct ChannelSettingsViewModelTests {
             channelKind: .feishu,
             configurationKey: "feishu.default",
             displayName: "团队机器人",
-            isEnabled: true
+            isEnabled: true,
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .maintain)
         )
         harness.context.insert(binding)
         try harness.context.save()
@@ -45,6 +93,7 @@ struct ChannelSettingsViewModelTests {
         #expect(harness.viewModel.feishuDisplayName == "团队机器人")
         #expect(harness.viewModel.feishuAppID == "cli_existing")
         #expect(harness.viewModel.feishuMessageFormat == .text)
+        #expect(harness.viewModel.authorizationPolicy.preset == .maintain)
         #expect(harness.viewModel.connectionStatusText == "已配置")
     }
 

@@ -15,9 +15,6 @@ struct IMChannelModelTests {
     @Test func remoteExecutionPolicyDefaultsToRestrictedMode() {
         let policy = RemoteExecutionPolicy()
 
-        #expect(policy.allowFileWrite == false)
-        #expect(policy.allowBash == false)
-        #expect(policy.allowNetworkTools == false)
         #expect(policy.maxRounds == 64)
     }
 
@@ -27,6 +24,7 @@ struct IMChannelModelTests {
         #expect(binding.channelKind == .feishu)
         #expect(binding.isEnabled == false)
         #expect(binding.configurationKey == "feishu.default")
+        #expect(binding.authorizationPolicy.preset == .observeOnly)
         #expect(FeishuChannelSettings(binding: binding).messageFormat == .text)
     }
 
