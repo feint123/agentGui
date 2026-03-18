@@ -11,9 +11,14 @@ struct FeishuOutboundMessageRenderer {
     }
 
     private let encoder: JSONEncoder
+    private let interactiveCardPlanner: FeishuInteractiveCardPlanner
 
-    init(encoder: JSONEncoder = JSONEncoder()) {
+    init(
+        encoder: JSONEncoder = JSONEncoder(),
+        interactiveCardPlanner: FeishuInteractiveCardPlanner = FeishuInteractiveCardPlanner()
+    ) {
         self.encoder = encoder
+        self.interactiveCardPlanner = interactiveCardPlanner
     }
 
     func render(
@@ -50,17 +55,20 @@ struct FeishuOutboundMessageRenderer {
     }
 
     private func makeInteractiveCard(text: String, title: String?) -> InteractiveCard {
-        InteractiveCard(
-            config: InteractiveCardConfig(wideScreenMode: true),
+        let plan = interactiveCardPlanner.makePlan(text: text, title: title)
+
+        return InteractiveCard(
+            schema: "2.0",
+            config: InteractiveCardConfig(updateMulti: true, widthMode: "fill"),
             header: InteractiveCardHeader(
-                title: InteractiveCardHeaderTitle(tag: "plain_text", content: title ?? "Agent Reply")
+                title: InteractiveCardHeaderTitle(tag: "plain_text", content: plan.title ?? "Agent Reply")
             ),
-            elements: [
-                InteractiveCardElement(
-                    tag: "div",
-                    text: InteractiveCardMarkdown(tag: "lark_md", content: text)
-                )
-            ]
+            body: InteractiveCardBody(
+                direction: "vertical",
+                elements: plan.sections.map { section in
+                    InteractiveCardMarkdownElement(tag: "markdown", content: section.markdownText)
+                }
+            )
         )
     }
 
@@ -95,16 +103,19 @@ private struct PostMarkdownNode: Encodable {
 }
 
 private struct InteractiveCard: Encodable {
+    let schema: String
     let config: InteractiveCardConfig
     let header: InteractiveCardHeader
-    let elements: [InteractiveCardElement]
+    let body: InteractiveCardBody
 }
 
 private struct InteractiveCardConfig: Encodable {
-    let wideScreenMode: Bool
+    let updateMulti: Bool
+    let widthMode: String
 
     enum CodingKeys: String, CodingKey {
-        case wideScreenMode = "wide_screen_mode"
+        case updateMulti = "update_multi"
+        case widthMode = "width_mode"
     }
 }
 
@@ -117,12 +128,12 @@ private struct InteractiveCardHeaderTitle: Encodable {
     let content: String
 }
 
-private struct InteractiveCardElement: Encodable {
-    let tag: String
-    let text: InteractiveCardMarkdown
+private struct InteractiveCardBody: Encodable {
+    let direction: String
+    let elements: [InteractiveCardMarkdownElement]
 }
 
-private struct InteractiveCardMarkdown: Encodable {
+private struct InteractiveCardMarkdownElement: Encodable {
     let tag: String
     let content: String
 }

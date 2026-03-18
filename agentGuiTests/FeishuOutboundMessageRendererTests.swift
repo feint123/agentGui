@@ -41,7 +41,7 @@ struct FeishuOutboundMessageRendererTests {
         #expect(payload.content.contains("- item1"))
     }
 
-    @Test func rendererBuildsInteractivePayloadWithTitleAndBody() throws {
+    @Test func rendererBuildsInteractivePayloadWithCardJSON2Body() throws {
         let payload = try FeishuOutboundMessageRenderer().render(
             text: "卡片正文",
             format: .interactive,
@@ -51,7 +51,9 @@ struct FeishuOutboundMessageRendererTests {
         #expect(payload.msgType == "interactive")
         #expect(payload.content.contains("飞书 Bot"))
         #expect(payload.content.contains("卡片正文"))
-        #expect(payload.content.contains("lark_md"))
+        #expect(payload.content.contains("\"schema\":\"2.0\""))
+        #expect(payload.content.contains("\"body\""))
+        #expect(payload.content.contains("\"tag\":\"markdown\""))
     }
 
     @Test func rendererFallsBackToDefaultInteractiveTitleWhenTitleMissing() throws {
@@ -63,4 +65,52 @@ struct FeishuOutboundMessageRendererTests {
 
         #expect(payload.content.contains("Agent Reply"))
     }
+
+    @Test func rendererBuildsInteractivePayloadWithDedicatedTableSection() throws {
+        let payload = try FeishuOutboundMessageRenderer().render(
+            text: """
+            简介
+
+            | A | B |
+            | --- | --- |
+            | 1 | 2 |
+
+            结尾
+            """,
+            format: .interactive,
+            title: "飞书 Bot"
+        )
+
+        #expect(payload.msgType == "interactive")
+        #expect(payload.content.contains("\"schema\":\"2.0\""))
+        #expect(payload.content.contains("| A | B |"))
+        #expect(markdownElementCount(in: payload.content) == 3)
+    }
+
+    @Test func rendererBuildsInteractivePayloadWithMultipleTableSections() throws {
+        let payload = try FeishuOutboundMessageRenderer().render(
+            text: """
+            表一前文
+
+            | A | B |
+            | --- | --- |
+            | 1 | 2 |
+
+            表间说明
+
+            | C | D |
+            | --- | --- |
+            | 3 | 4 |
+            """,
+            format: .interactive,
+            title: nil
+        )
+
+        #expect(markdownElementCount(in: payload.content) == 4)
+        #expect(payload.content.contains("| C | D |"))
+    }
+}
+
+private func markdownElementCount(in json: String) -> Int {
+    json.components(separatedBy: "\"tag\":\"markdown\"").count - 1
 }

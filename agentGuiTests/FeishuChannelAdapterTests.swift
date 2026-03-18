@@ -134,14 +134,24 @@ struct FeishuChannelAdapterTests {
             OutboundChannelMessage(
                 channelKind: .feishu,
                 externalConversationID: "oc_test_chat",
-                text: "已处理"
+                text: """
+                已处理
+
+                | 状态 | 值 |
+                | --- | --- |
+                | 结果 | 成功 |
+                """
             )
         )
 
         let payload = try #require(client.sentPayloads.last?.payload)
         #expect(payload.msgType == "interactive")
+        #expect(payload.content.contains("\"schema\":\"2.0\""))
+        #expect(payload.content.contains("\"body\""))
         #expect(payload.content.contains("我的飞书 Bot"))
         #expect(payload.content.contains("已处理"))
+        #expect(payload.content.contains("| 状态 | 值 |"))
+        #expect(payload.content.contains("\"tag\":\"markdown\""))
     }
 
     @Test func registryRegistersStartsAndStopsAdapter() async throws {

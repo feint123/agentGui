@@ -180,7 +180,7 @@ struct FeishuClientLiveTests {
             chatID: "oc_chat_1",
             payload: FeishuRenderedMessagePayload(
                 msgType: "interactive",
-                content: #"{"header":{"title":{"tag":"plain_text","content":"Agent Reply"}},"elements":[{"tag":"div","text":{"tag":"lark_md","content":"卡片内容"}}]}"#
+                content: #"{"schema":"2.0","config":{"update_multi":true,"width_mode":"fill"},"header":{"title":{"tag":"plain_text","content":"Agent Reply"}},"body":{"direction":"vertical","elements":[{"tag":"markdown","content":"卡片内容\n\n| A | B |\n| --- | --- |\n| 1 | 2 |"}]}}"#
             ),
             replyToMessageID: "om_source"
         )
@@ -189,6 +189,8 @@ struct FeishuClientLiveTests {
         let replyRequest = try #require(transport.requests.last)
         let replyBody = String(data: try #require(replyRequest.httpBody), encoding: .utf8) ?? ""
         #expect(replyBody.contains("\"msg_type\":\"interactive\""))
+        #expect(replyBody.contains("\\\"schema\\\":\\\"2.0\\\""))
+        #expect(replyBody.contains("\\\"body\\\""))
         #expect(replyBody.contains("卡片内容"))
         #expect(replyBody.contains("uuid-fixed"))
     }

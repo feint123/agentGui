@@ -105,7 +105,7 @@
 1. `显示名称` 可写成“飞书 Bot”或你的业务名称，主要用于本地展示。
 2. `App ID` 和 `App Secret` 填飞书开放平台中的应用凭证。
 3. `默认发送格式` 可选：`文本消息`、`Post 富文本`、`卡片消息`。
-4. 其中卡片消息首版是静态展示卡片，不包含按钮交互。
+4. 其中卡片消息首版是静态展示卡片，不包含按钮交互；当前实现会先用 `BlockMarkdownCodec` 做块级解析，并把表格块拆成独立卡片 section。
 5. 填完后点击 `保存渠道设置`。
 
 ### 5.3 保存后的行为
@@ -128,6 +128,7 @@
 2. 在运行时创建 `LiveFeishuClient`。
 3. 使用 `App ID` / `App Secret` 获取 `tenant_access_token`。
 4. 向飞书会话发送文本消息、Post 富文本消息和静态卡片消息。
+5. `interactive` 卡片会基于 Markdown 做块级切分，普通内容按连续 markdown section 渲染，表格块会单独作为独立 markdown 组件输出。
 5. 基于 `message_id` 调用飞书回复消息接口，并沿用当前设置的默认发送格式。
 
 ### 6.2 当前仍需谨慎看待的能力
@@ -194,6 +195,7 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=m
 1. 先完成本地设置页配置保存。
 2. 再验证 `tenant_access_token` 获取成功。
 3. 再分别验证发送普通文本消息、Post 富文本消息和卡片消息。
+4. 如果卡片正文里包含 Markdown 表格，确认飞书客户端里表格作为独立 section 展示，而不是和前后正文糊成一个单一 markdown 区块。
 4. 再验证回复已有飞书消息，并确认默认发送格式在 reply 路径同样生效。
 5. 最后用真实飞书应用做线上联调，验证长连接入站和回执稳定性。
 
@@ -233,12 +235,13 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=m
 当前版本存在以下明确限制：
 
 1. 只支持三种出站消息格式：`text`、`post`、静态 `interactive` 卡片。
-2. 不支持群聊 `@机器人`。
-3. 不支持卡片按钮交互、附件、图片、文件上传。
-4. 不支持消息编辑同步。
-5. 不支持 `card` / callback 的上层业务处理。
-6. 不支持通过产品 UI 直接发起“测试发送一条飞书消息”的交互入口。
-7. `handshake-status` 的协议语义已经在 API 文档中明确，当前设置页也会显示最近一次握手摘要，但仍缺少真实线上联调后的稳定性结论。
+2. `interactive` 当前使用 Card JSON 2.0；低于飞书 7.20 的客户端可能只显示标题和升级提示。
+3. 不支持群聊 `@机器人`。
+4. 不支持卡片按钮交互、附件、图片、文件上传。
+5. 不支持消息编辑同步。
+6. 不支持 `card` / callback 的上层业务处理。
+7. 不支持通过产品 UI 直接发起“测试发送一条飞书消息”的交互入口。
+8. `handshake-status` 的协议语义已经在 API 文档中明确，当前设置页也会显示最近一次握手摘要，但仍缺少真实线上联调后的稳定性结论。
 
 ## 11. 下一步建议
 
