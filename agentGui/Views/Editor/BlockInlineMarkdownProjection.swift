@@ -8,7 +8,7 @@ struct BlockInlineMarkdownProjection: Equatable {
     init(sourceText: String) {
         self.sourceText = sourceText
 
-        let hiddenRanges = BlockInlineMarkdownStyler.markerRanges(in: sourceText)
+        let hiddenRanges = BlockMarkdownCodec.inlineMarkerRanges(in: sourceText)
         self.hiddenMarkdownMarkerIndexes = hiddenRanges.reduce(into: IndexSet()) { result, range in
             result.insert(integersIn: range.location..<(range.location + range.length))
         }
@@ -65,22 +65,32 @@ struct BlockInlineMarkdownProjection: Equatable {
         return min(cursor, sourceText.utf16.count)
     }
 
-    func activeActions(in selectedRange: NSRange) -> Set<InlineStyleAction> {
+    func activeSemantics(in selectedRange: NSRange) -> Set<BlockMarkdownCodec.InlineMarkdownSemantic> {
         guard selectedRange.location != NSNotFound, selectedRange.length > 0 else { return [] }
 
-        var actions = Set<InlineStyleAction>()
-        append(action: .bold, matching: [.bold, .boldUnderscore], to: &actions, selectedRange: selectedRange)
-        append(action: .italic, matching: [.italic, .italicUnderscore], to: &actions, selectedRange: selectedRange)
-        append(action: .strikethrough, matching: [.strikethrough], to: &actions, selectedRange: selectedRange)
-        append(action: .inlineCode, matching: [.code], to: &actions, selectedRange: selectedRange)
-        return actions
+        return Set(BlockMarkdownCodec.InlineMarkdownSemantic.allCases.filter { semantic in
+            BlockMarkdownCodec.inlineRules(for: semantic).contains { rule in
+                rule.matches(in: sourceText).contains { match in
+                    NSLocationInRange(selectedRange.location, match.contentRange) &&
+                    NSMaxRange(selectedRange) <= NSMaxRange(match.contentRange)
+                }
+            }
+        })
     }
 
-    private func append(action: InlineStyleAction, matching rules: [EditorInlineMarkdownRule], to actions: inout Set<InlineStyleAction>, selectedRange: NSRange) {
-        for rule in rules {
-            if rule.matches(in: sourceText).contains(where: { NSLocationInRange(selectedRange.location, $0.contentRange) && NSMaxRange(selectedRange) <= NSMaxRange($0.contentRange) }) {
-                actions.insert(action)
-                return
+    func activeActions(in selectedRange: NSRange) -> Set<InlineStyleAction> {
+        activeSemantics(in: selectedRange).reduce(into: Set<InlineStyleAction>()) { result, semantic in
+            switch semantic {
+            case .bold:
+                result.insert(.bold)
+            case .italic:
+                result.insert(.italic)
+            case .inlineCode:
+                result.insert(.inlineCode)
+            case .strikethrough:
+                result.insert(.strikethrough)
+            case .link:
+                break
             }
         }
     }
@@ -88,6 +98,6 @@ struct BlockInlineMarkdownProjection: Equatable {
 
 private extension IndexSet {
     func count(in range: Range<Int>) -> Int {
-        self.intersection(IndexSet(integersIn: range)).count
+        intersection(IndexSet(integersIn: range)).count
     }
 }

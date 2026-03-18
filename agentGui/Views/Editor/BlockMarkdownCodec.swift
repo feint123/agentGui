@@ -7,6 +7,125 @@ import Foundation
 
 enum BlockMarkdownCodec {
 
+    struct InlineMarkdownMatch: Equatable {
+        let fullRange: NSRange
+        let contentRange: NSRange
+        let markerRanges: [NSRange]
+    }
+
+    enum InlineMarkdownSemantic: String, CaseIterable, Hashable {
+        case bold
+        case italic
+        case inlineCode
+        case strikethrough
+        case link
+    }
+
+    struct InlineMarkdownRule {
+        let semantic: InlineMarkdownSemantic
+        let regex: NSRegularExpression
+        let contentCaptureIndex: Int
+        let markerCaptureIndexes: [Int]
+
+        func matches(in text: String) -> [InlineMarkdownMatch] {
+            let fullRange = NSRange(location: 0, length: (text as NSString).length)
+            return regex.matches(in: text, options: [], range: fullRange).compactMap { match in
+                let contentRange = match.range(at: contentCaptureIndex)
+                guard contentRange.location != NSNotFound else { return nil }
+
+                let markerRanges = markerCaptureIndexes.compactMap { index -> NSRange? in
+                    let range = match.range(at: index)
+                    return range.location == NSNotFound ? nil : range
+                }
+
+                return InlineMarkdownMatch(
+                    fullRange: match.range(at: 0),
+                    contentRange: contentRange,
+                    markerRanges: markerRanges
+                )
+            }
+        }
+
+        static let bold = InlineMarkdownRule(
+            semantic: .bold,
+            regex: try! NSRegularExpression(pattern: #"(\*\*)(.+?)(\*\*)"#, options: []),
+            contentCaptureIndex: 2,
+            markerCaptureIndexes: [1, 3]
+        )
+
+        static let boldUnderscore = InlineMarkdownRule(
+            semantic: .bold,
+            regex: try! NSRegularExpression(pattern: #"(__)(.+?)(__)"#, options: []),
+            contentCaptureIndex: 2,
+            markerCaptureIndexes: [1, 3]
+        )
+
+        static let italic = InlineMarkdownRule(
+            semantic: .italic,
+            regex: try! NSRegularExpression(pattern: #"(?<!\*)(\*)(?!\*)(.+?)(?<!\*)(\*)(?!\*)"#, options: []),
+            contentCaptureIndex: 2,
+            markerCaptureIndexes: [1, 3]
+        )
+
+        static let italicUnderscore = InlineMarkdownRule(
+            semantic: .italic,
+            regex: try! NSRegularExpression(pattern: #"(?<!_)(_)(?!_)(.+?)(?<!_)(_)(?!_)"#, options: []),
+            contentCaptureIndex: 2,
+            markerCaptureIndexes: [1, 3]
+        )
+
+        static let code = InlineMarkdownRule(
+            semantic: .inlineCode,
+            regex: try! NSRegularExpression(pattern: #"(`)(.+?)(`)"#, options: []),
+            contentCaptureIndex: 2,
+            markerCaptureIndexes: [1, 3]
+        )
+
+        static let strikethrough = InlineMarkdownRule(
+            semantic: .strikethrough,
+            regex: try! NSRegularExpression(pattern: #"(~~)(.+?)(~~)"#, options: []),
+            contentCaptureIndex: 2,
+            markerCaptureIndexes: [1, 3]
+        )
+
+        static let link = InlineMarkdownRule(
+            semantic: .link,
+            regex: try! NSRegularExpression(pattern: #"(\[)(.+?)(\]\((.+?)\))"#, options: []),
+            contentCaptureIndex: 2,
+            markerCaptureIndexes: [1, 3]
+        )
+
+        static let defaultDisplayRules: [InlineMarkdownRule] = [
+            .bold,
+            .boldUnderscore,
+            .italic,
+            .italicUnderscore,
+            .code,
+            .strikethrough,
+            .link
+        ]
+    }
+
+    static func inlineRules(for semantic: InlineMarkdownSemantic) -> [InlineMarkdownRule] {
+        InlineMarkdownRule.defaultDisplayRules.filter { $0.semantic == semantic }
+    }
+
+    static func inlineMarkerRanges(
+        in text: String,
+        rules: [InlineMarkdownRule] = InlineMarkdownRule.defaultDisplayRules
+    ) -> [NSRange] {
+        rules
+            .flatMap { $0.matches(in: text) }
+            .flatMap(\.markerRanges)
+            .filter { $0.location != NSNotFound && $0.length > 0 }
+            .sorted { lhs, rhs in
+                if lhs.location == rhs.location {
+                    return lhs.length < rhs.length
+                }
+                return lhs.location < rhs.location
+            }
+    }
+
     static func parse(_ text: String, fileURL: URL?) -> BlockDocument {
         let cacheKey = "parse::\(fileURL?.pathExtension.lowercased() ?? "md")::\(text.hashValue)"
         if let cached = BlockEditorPerformance.cachedDocument(for: cacheKey) {

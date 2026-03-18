@@ -229,6 +229,54 @@ struct agentGuiTests {
         #expect(serialized.contains("间隔\n\n1. 重新开始"))
     }
 
+    @Test func blockMarkdownCodecExposesSharedInlineMarkdownRules() async throws {
+        let text = "**粗体** 和 [链接](https://example.com)"
+
+        let boldMatches = BlockMarkdownCodec.InlineMarkdownRule.bold.matches(in: text)
+        let linkMatches = BlockMarkdownCodec.InlineMarkdownRule.link.matches(in: text)
+
+        #expect(boldMatches.count == 1)
+        #expect(linkMatches.count == 1)
+        #expect((text as NSString).substring(with: boldMatches[0].contentRange) == "粗体")
+        #expect((text as NSString).substring(with: linkMatches[0].contentRange) == "链接")
+        #expect(boldMatches[0].markerRanges.count == 2)
+        #expect(linkMatches[0].markerRanges.count == 2)
+    }
+
+    @Test func blockMarkdownCodecCanAggregateInlineMarkerRanges() async throws {
+        let text = "**粗体** _斜体_ `代码` ~~删除~~ [链接](https://example.com)"
+
+        let ranges = BlockMarkdownCodec.inlineMarkerRanges(in: text)
+        let hidden = ranges.reduce(into: IndexSet()) { result, range in
+            result.insert(integersIn: range.location..<(range.location + range.length))
+        }
+        let nsText = text as NSString
+        let visible = NSMutableString()
+        var location = 0
+
+        while location < nsText.length {
+            if hidden.contains(location) {
+                location += 1
+                continue
+            }
+            visible.append(nsText.substring(with: NSRange(location: location, length: 1)))
+            location += 1
+        }
+
+        #expect(ranges.isEmpty == false)
+        #expect(visible as String == "粗体 斜体 代码 删除 链接")
+    }
+
+    @Test func blockInlineMarkdownProjectionReportsSharedSemantics() async throws {
+        let text = "**粗体** 和 `代码`"
+        let projection = BlockInlineMarkdownProjection(sourceText: text)
+        let boldRange = NSRange(location: 2, length: 2)
+        let codeRange = NSRange(location: 10, length: 2)
+
+        #expect(projection.activeSemantics(in: boldRange).contains(.bold))
+        #expect(projection.activeSemantics(in: codeRange).contains(.inlineCode))
+    }
+
 }
 
 private struct BlockSignature: Equatable {

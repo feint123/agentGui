@@ -29,31 +29,7 @@ enum BlockInlineMarkdownStyler {
     }
 
     static func markerRanges(in text: String) -> [NSRange] {
-        let rules: [EditorInlineMarkdownRule] = [
-            .bold,
-            .boldUnderscore,
-            .italic,
-            .italicUnderscore,
-            .code,
-            .strikethrough,
-            .link
-        ]
-
-        var ranges: [NSRange] = []
-        for rule in rules {
-            for match in rule.matches(in: text) {
-                ranges.append(contentsOf: match.markerRanges)
-            }
-        }
-
-        return ranges
-            .filter { $0.location != NSNotFound && $0.length > 0 }
-            .sorted { lhs, rhs in
-                if lhs.location == rhs.location {
-                    return lhs.length < rhs.length
-                }
-                return lhs.location < rhs.location
-            }
+        BlockMarkdownCodec.inlineMarkerRanges(in: text)
     }
 
     static func apply(to textView: NSTextView, kind: DocumentBlockKind, renderKind: DocumentBlockKind? = nil, hideMarkdownMarkers: Bool = true) {
@@ -123,7 +99,7 @@ enum BlockInlineMarkdownStyler {
         }
     }
 
-    private static func applyMarkdownRule(_ rule: EditorInlineMarkdownRule, in textStorage: NSTextStorage, handler: (EditorInlineMarkdownMatch) -> Void) {
+    private static func applyMarkdownRule(_ rule: BlockMarkdownCodec.InlineMarkdownRule, in textStorage: NSTextStorage, handler: (BlockMarkdownCodec.InlineMarkdownMatch) -> Void) {
         for match in rule.matches(in: textStorage.string) {
             handler(match)
         }
