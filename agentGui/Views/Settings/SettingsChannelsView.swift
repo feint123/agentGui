@@ -5,23 +5,21 @@ struct SettingsChannelsView: View {
     @Environment(PersistenceCoordinator.self) private var persistenceCoordinator
     @State private var viewModel: ChannelSettingsViewModel?
     @State private var connectionStatusStore = FeishuChannelConnectionStatusStore.shared
-    @State private var isFeishuSaved = false
-    @State private var isAuthorizationSaved = false
 
     var body: some View {
         Group {
             if let viewModel {
                 Form {
                     Section {
-                        Toggle("启用飞书渠道", isOn: binding(for: viewModel, keyPath: \.feishuEnabled))
+                        Toggle("启用飞书渠道", isOn: feishuBinding(for: viewModel, keyPath: \.feishuEnabled))
                             .accessibilityIdentifier("settings.channels.feishuEnabled")
-                        TextField("显示名称", text: binding(for: viewModel, keyPath: \.feishuDisplayName))
+                        TextField("显示名称", text: feishuBinding(for: viewModel, keyPath: \.feishuDisplayName))
                             .accessibilityIdentifier("settings.channels.feishuDisplayName")
-                        TextField("App ID", text: binding(for: viewModel, keyPath: \.feishuAppID))
+                        TextField("App ID", text: feishuBinding(for: viewModel, keyPath: \.feishuAppID))
                             .accessibilityIdentifier("settings.channels.feishuAppID")
-                        SecureField("App Secret", text: binding(for: viewModel, keyPath: \.feishuAppSecret))
+                        SecureField("App Secret", text: feishuBinding(for: viewModel, keyPath: \.feishuAppSecret))
                             .accessibilityIdentifier("settings.channels.feishuAppSecret")
-                        Picker("默认发送格式", selection: binding(for: viewModel, keyPath: \.feishuMessageFormat)) {
+                        Picker("默认发送格式", selection: feishuBinding(for: viewModel, keyPath: \.feishuMessageFormat)) {
                             ForEach(FeishuMessageFormat.allCases, id: \.self) { format in
                                 Text(displayName(for: format)).tag(format)
                             }
@@ -50,11 +48,6 @@ struct SettingsChannelsView: View {
                                 .textSelection(.enabled)
                                 .accessibilityIdentifier("settings.channels.handshakeDiagnostics")
                         }
-
-                        Button(isFeishuSaved ? "已保存 ✓" : "保存飞书设置") {
-                            saveFeishuSettings(viewModel)
-                        }
-                        .accessibilityIdentifier("settings.channels.saveButton")
                     } header: {
                         Text("飞书")
                     } footer: {
@@ -62,20 +55,10 @@ struct SettingsChannelsView: View {
                     }
 
                     ToolPermissionSectionView(
-                        policy: binding(for: viewModel, keyPath: \.authorizationPolicy),
+                        policy: authorizationBinding(for: viewModel),
                         headerTitle: "所有渠道的工具权限",
                         footerText: "这里的权限会统一作用到所有渠道。渠道仍会继承全局工具总开关，再叠加这里的主体授权限制。"
                     )
-
-                    Section {
-                        LabeledContent("保存状态", value: viewModel.authorizationStatusText)
-                            .accessibilityIdentifier("settings.channels.authorizationStatus")
-
-                        Button(isAuthorizationSaved ? "权限已保存 ✓" : "保存权限设置") {
-                            saveAuthorizationSettings(viewModel)
-                        }
-                        .accessibilityIdentifier("settings.channels.authorizationSaveButton")
-                    }
                 }
                 .formStyle(.grouped)
                 .navigationTitle("渠道")
@@ -95,43 +78,24 @@ struct SettingsChannelsView: View {
         }
     }
 
-    private func binding<Value>(for viewModel: ChannelSettingsViewModel, keyPath: ReferenceWritableKeyPath<ChannelSettingsViewModel, Value>) -> Binding<Value> {
+    private func feishuBinding<Value>(for viewModel: ChannelSettingsViewModel, keyPath: ReferenceWritableKeyPath<ChannelSettingsViewModel, Value>) -> Binding<Value> {
         Binding(
             get: { viewModel[keyPath: keyPath] },
-            set: { viewModel[keyPath: keyPath] = $0 }
+            set: {
+                viewModel[keyPath: keyPath] = $0
+                try? viewModel.saveFeishuSettings()
+            }
         )
     }
 
-    private func saveFeishuSettings(_ viewModel: ChannelSettingsViewModel) {
-        do {
-            try viewModel.saveFeishuSettings()
-            withAnimation {
-                isFeishuSaved = true
+    private func authorizationBinding(for viewModel: ChannelSettingsViewModel) -> Binding<ToolAuthorizationPolicy> {
+        Binding(
+            get: { viewModel.authorizationPolicy },
+            set: {
+                viewModel.authorizationPolicy = $0
+                try? viewModel.saveAuthorizationPolicy()
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                withAnimation {
-                    isFeishuSaved = false
-                }
-            }
-        } catch {
-            isFeishuSaved = false
-        }
-    }
-
-    private func saveAuthorizationSettings(_ viewModel: ChannelSettingsViewModel) {
-        do {
-            try viewModel.saveAuthorizationPolicy()
-            withAnimation {
-                isAuthorizationSaved = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                withAnimation {
-                    isAuthorizationSaved = false
-                }
-            }
-        } catch {
-            isAuthorizationSaved = false
-        }
+        )
     }
 
     private func displayName(for format: FeishuMessageFormat) -> String {

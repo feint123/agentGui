@@ -523,6 +523,9 @@ struct BlockSlashCommandRegistry {
 
 private extension unichar {
     var isWhitespace: Bool {
-        CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(Int(self))!)
+        guard let scalar = UnicodeScalar(Int(self)) else {
+            return false
+        }
+        return CharacterSet.whitespacesAndNewlines.contains(scalar)
     }
 }
