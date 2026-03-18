@@ -33,6 +33,40 @@ struct FeishuChannelAdapterTests {
         #expect(receivedMessages.first?.text == "你好")
     }
 
+    @Test func adapterForwardsGroupMentionMessageToHandler() async throws {
+        let client = TestFeishuClient()
+        let credentialStore = FeishuCredentialStore(backend: InMemoryFeishuCredentialBackend())
+        try credentialStore.save(appID: "cli_test", appSecret: "secret_test")
+        var receivedMessages: [InboundChannelMessage] = []
+        let adapter = FeishuChannelAdapter(client: client, credentialStore: credentialStore)
+        let binding = ChannelAccountBinding(channelKind: .feishu, configurationKey: "feishu.default")
+        try await adapter.start(configuration: IMChannelConfiguration(accountBinding: binding) { message in
+            receivedMessages.append(message)
+        })
+
+        try await client.emitInboundEvent(try FeishuAdapterFixtures.groupMentionTextEvent())
+
+        #expect(receivedMessages.count == 1)
+        #expect(receivedMessages.first?.externalConversationID == "oc_group_chat")
+        #expect(receivedMessages.first?.mentionsBot == true)
+    }
+
+    @Test func adapterIgnoresGroupMessageWithoutMention() async throws {
+        let client = TestFeishuClient()
+        let credentialStore = FeishuCredentialStore(backend: InMemoryFeishuCredentialBackend())
+        try credentialStore.save(appID: "cli_test", appSecret: "secret_test")
+        var receivedMessages: [InboundChannelMessage] = []
+        let adapter = FeishuChannelAdapter(client: client, credentialStore: credentialStore)
+        let binding = ChannelAccountBinding(channelKind: .feishu, configurationKey: "feishu.default")
+        try await adapter.start(configuration: IMChannelConfiguration(accountBinding: binding) { message in
+            receivedMessages.append(message)
+        })
+
+        try await client.emitInboundEvent(try FeishuAdapterFixtures.groupPlainTextEvent())
+
+        #expect(receivedMessages.isEmpty)
+    }
+
     @Test func adapterSendsTextViaClient() async throws {
         let client = TestFeishuClient()
         let credentialStore = FeishuCredentialStore(backend: InMemoryFeishuCredentialBackend())
@@ -88,6 +122,59 @@ private enum FeishuAdapterFixtures {
             )
         )
     }
+
+        static func groupMentionTextEvent() throws -> FeishuEventEnvelope {
+            try decodeEvent(
+                #"""
+                {
+                    "header": { "event_type": "im.message.receive_v1" },
+                    "event": {
+                        "sender": { "sender_id": { "open_id": "ou_group_user" } },
+                        "message": {
+                            "message_id": "om_group_message",
+                            "chat_id": "oc_group_chat",
+                            "chat_type": "group",
+                            "message_type": "text",
+                            "content": "{\"text\":\"@bot 帮我总结一下\"}",
+                            "mentions": [
+                                {
+                                    "key": "@_user_1",
+                                    "name": "agentGui Bot",
+                                    "tenant_key": "tenant-1",
+                                    "id": { "open_id": "ou_bot_open_id" }
+                                }
+                            ]
+                        }
+                    }
+                }
+                """#
+            )
+        }
+
+        static func groupPlainTextEvent() throws -> FeishuEventEnvelope {
+                try decodeEvent(
+                #"""
+                        {
+                            "header": { "event_type": "im.message.receive_v1" },
+                            "event": {
+                                "sender": { "sender_id": { "open_id": "ou_group_user" } },
+                                "message": {
+                                    "message_id": "om_group_plain_message",
+                                    "chat_id": "oc_group_chat",
+                                    "chat_type": "group",
+                                    "message_type": "text",
+                                    "content": "{\"text\":\"大家好\"}",
+                                    "mentions": []
+                                }
+                            }
+                        }
+                """#
+                )
+        }
+
+        static func decodeEvent(_ json: String) throws -> FeishuEventEnvelope {
+                try JSONDecoder().decode(FeishuEventEnvelope.self, from: Data(json.utf8))
+        }
 }
 
 @MainActor

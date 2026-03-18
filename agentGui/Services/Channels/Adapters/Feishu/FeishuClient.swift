@@ -1,10 +1,5 @@
 import Foundation
 
-@Sendable
-private func feishuClientDefaultDebugLogger(_ message: String) {
-    print(message)
-}
-
 struct FeishuCallbackEnvelope: Equatable, Sendable {
     let messageType: String
     let payload: Data
@@ -199,7 +194,7 @@ final class LiveFeishuClient: FeishuClient {
         encoder: JSONEncoder = JSONEncoder(),
         uuidProvider: @escaping () -> String = { UUID().uuidString },
         nowProvider: @escaping () -> Date = Date.init,
-        debugLogger: @escaping @Sendable (String) -> Void = feishuClientDefaultDebugLogger
+        debugLogger: @escaping @Sendable (String) -> Void = { print($0) }
     ) {
         let resolvedTransport = transport ?? URLSessionFeishuTransport()
         self.transport = resolvedTransport

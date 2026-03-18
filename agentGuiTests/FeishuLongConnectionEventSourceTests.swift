@@ -192,6 +192,60 @@ struct FeishuLongConnectionEventSourceTests {
         #expect(factory.connectedURL == wsURL)
     }
 
+    @Test func eventSourcePreservesGroupMentionsForNormalization() async throws {
+        let endpointURL = URL(string: "https://open.feishu.cn/callback/ws/endpoint")!
+        let payload = Data(
+            """
+            {"schema":"2.0","header":{"event_id":"evt-group-1","event_type":"im.message.receive_v1","create_time":"1710000000000","token":"token-1","app_id":"cli_test","tenant_key":"tenant-1"},"event":{"sender":{"sender_id":{"open_id":"ou_group_user"},"sender_type":"user","tenant_key":"tenant-1"},"message":{"message_id":"om_group_message","chat_id":"oc_group_chat","chat_type":"group","message_type":"text","content":"{\\\"text\\\":\\\"@bot 帮我总结一下\\\"}","mentions":[{"key":"@_user_1","name":"agentGui Bot","tenant_key":"tenant-1","id":{"open_id":"ou_bot_open_id"}}]}}}
+            """.utf8
+        )
+        let incomingFrame = FeishuWSFrame(
+            seqID: 17,
+            logID: 19,
+            service: 42,
+            method: .data,
+            headers: [
+                .init(key: "type", value: "event"),
+                .init(key: "message_id", value: "msg-group-1"),
+                .init(key: "trace_id", value: "trace-group-1"),
+                .init(key: "sum", value: "1"),
+                .init(key: "seq", value: "0")
+            ],
+            payloadEncoding: nil,
+            payloadType: nil,
+            payload: payload,
+            logIDNew: nil
+        )
+        let transport = RecordingFeishuTransport(responses: [
+            .json(
+                url: endpointURL,
+                body: """
+                {"code":0,"msg":"success","data":{"URL":"wss://ws.example.com/path?device_id=device-1&service_id=42","ClientConfig":{"ReconnectCount":10,"ReconnectInterval":120,"ReconnectNonce":30,"PingInterval":120}}}
+                """
+            )
+        ])
+        let socket = RecordingFeishuWebSocketConnection(
+            incomingMessages: [try FeishuWSFrameCodec().encode(incomingFrame)]
+        )
+        let factory = RecordingFeishuWebSocketFactory(connection: socket)
+        let source = FeishuLongConnectionEventSource(
+            transport: transport,
+            socketFactory: factory,
+            nowProvider: { Date(timeIntervalSince1970: 0) },
+            sleep: { _ in throw CancellationError() }
+        )
+        var normalizedMessages: [InboundChannelMessage] = []
+
+        try await source.start(credentials: .init(appID: "cli_test", appSecret: "secret_test"), tokenProvider: { "unused" }) { event in
+            normalizedMessages.append(try FeishuMessageNormalizer().normalize(event))
+        }
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        #expect(normalizedMessages.count == 1)
+        #expect(normalizedMessages.first?.mentionsBot == true)
+        #expect(normalizedMessages.first?.externalConversationID == "oc_group_chat")
+    }
+
     @Test func eventSourceBase64EncodesCallbackAckDataForCardFrames() async throws {
         let endpointURL = URL(string: "https://open.feishu.cn/callback/ws/endpoint")!
         let callbackPayload = Data("{\"action\":\"clicked\"}".utf8)

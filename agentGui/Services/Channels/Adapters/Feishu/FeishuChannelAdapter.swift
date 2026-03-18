@@ -31,6 +31,9 @@ final class FeishuChannelAdapter: IMChannelAdapter {
         self.configuration = configuration
         try await client.start(credentials: credentials) { [normalizer] event in
             let message = try normalizer.normalize(event)
+            guard normalizer.shouldDispatch(event) else {
+                return
+            }
             try await configuration.inboundMessageHandler(message)
         }
     }

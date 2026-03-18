@@ -1,10 +1,5 @@
 import Foundation
 
-@Sendable
-private func feishuLongConnectionDefaultDebugLogger(_ message: String) {
-    print(message)
-}
-
 enum FeishuWebSocketConnectionError: Error, Equatable, Sendable {
     case handshakeFailed(statusCode: Int, message: String?, authErrorCode: Int?)
 }
@@ -543,17 +538,25 @@ final class FeishuLongConnectionEventSource: FeishuInboundEventSource {
 
         struct Sender: Decodable {
             let senderID: SenderID
+            let senderType: String?
+            let tenantKey: String?
 
             enum CodingKeys: String, CodingKey {
                 case senderID = "sender_id"
+                case senderType = "sender_type"
+                case tenantKey = "tenant_key"
             }
         }
 
         struct SenderID: Decodable {
             let openID: String?
+            let userID: String?
+            let unionID: String?
 
             enum CodingKeys: String, CodingKey {
                 case openID = "open_id"
+                case userID = "user_id"
+                case unionID = "union_id"
             }
         }
 
@@ -563,6 +566,7 @@ final class FeishuLongConnectionEventSource: FeishuInboundEventSource {
             let messageType: String
             let chatType: String
             let content: String
+            let mentions: [Mention]?
 
             enum CodingKeys: String, CodingKey {
                 case messageID = "message_id"
@@ -570,6 +574,21 @@ final class FeishuLongConnectionEventSource: FeishuInboundEventSource {
                 case messageType = "message_type"
                 case chatType = "chat_type"
                 case content
+                case mentions
+            }
+        }
+
+        struct Mention: Decodable {
+            let key: String?
+            let id: SenderID?
+            let name: String?
+            let tenantKey: String?
+
+            enum CodingKeys: String, CodingKey {
+                case key
+                case id
+                case name
+                case tenantKey = "tenant_key"
             }
         }
     }
@@ -629,7 +648,7 @@ final class FeishuLongConnectionEventSource: FeishuInboundEventSource {
             guard upperBound > 0 else { return 0 }
             return UInt64.random(in: 0..<upperBound)
         },
-        debugLogger: @escaping @Sendable (String) -> Void = feishuLongConnectionDefaultDebugLogger
+        debugLogger: @escaping @Sendable (String) -> Void = { print($0) }
     ) {
         self.transport = transport
         self.socketFactory = socketFactory ?? URLSessionFeishuWebSocketFactory()
@@ -1019,16 +1038,36 @@ final class FeishuLongConnectionEventSource: FeishuInboundEventSource {
         guard let openID = p2Envelope.event.sender.senderID.openID else {
             throw EventSourceError.invalidEventPayload
         }
+        let senderID = FeishuEventEnvelope.SenderID(
+            openID: openID,
+            userID: p2Envelope.event.sender.senderID.userID,
+            unionID: p2Envelope.event.sender.senderID.unionID
+        )
+        let mentions: [FeishuEventEnvelope.Mention] = (p2Envelope.event.message.mentions ?? []).map { mention in
+            FeishuEventEnvelope.Mention(
+                key: mention.key,
+                id: mention.id.map {
+                    FeishuEventEnvelope.SenderID(openID: $0.openID, userID: $0.userID, unionID: $0.unionID)
+                },
+                name: mention.name,
+                tenantKey: mention.tenantKey
+            )
+        }
         return .supported(FeishuEventEnvelope(
-            header: .init(eventType: p2Envelope.header.eventType),
-            event: .init(
-                sender: .init(senderID: .init(openID: openID)),
-                message: .init(
+            header: FeishuEventEnvelope.Header(eventType: p2Envelope.header.eventType),
+            event: FeishuEventEnvelope.Event(
+                sender: FeishuEventEnvelope.Sender(
+                    senderID: senderID,
+                    senderType: p2Envelope.event.sender.senderType,
+                    tenantKey: p2Envelope.event.sender.tenantKey
+                ),
+                message: FeishuEventEnvelope.Message(
                     messageID: p2Envelope.event.message.messageID,
                     chatID: p2Envelope.event.message.chatID,
                     messageType: p2Envelope.event.message.messageType,
                     chatType: p2Envelope.event.message.chatType,
-                    content: p2Envelope.event.message.content
+                    content: p2Envelope.event.message.content,
+                    mentions: mentions
                 )
             )
         ))

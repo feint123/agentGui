@@ -16,19 +16,18 @@ struct FeishuMessageNormalizer {
         guard envelope.event.message.messageType == "text" else {
             throw NormalizationError.unsupportedMessageType
         }
-        guard envelope.event.message.chatType == "p2p" else {
+        guard envelope.event.message.isDirectChat || envelope.event.message.isGroupChat else {
             throw NormalizationError.unsupportedChatType
         }
 
-        let payloadData = Data(envelope.event.message.content.utf8)
-        guard let textContent = try? JSONDecoder().decode(FeishuTextContent.self, from: payloadData),
+        guard let textContent = try? envelope.event.message.decodeContent(FeishuTextContent.self),
               !textContent.text.isEmpty else {
             throw NormalizationError.invalidContent
         }
 
         guard !envelope.event.message.chatID.isEmpty,
               !envelope.event.message.messageID.isEmpty,
-              !envelope.event.sender.senderID.openID.isEmpty else {
+              !(envelope.event.sender.senderID.openID ?? "").isEmpty else {
             throw NormalizationError.missingRequiredField
         }
 
@@ -36,11 +35,21 @@ struct FeishuMessageNormalizer {
             channelKind: .feishu,
             externalConversationID: envelope.event.message.chatID,
             externalMessageID: envelope.event.message.messageID,
-            externalUserID: envelope.event.sender.senderID.openID,
+            externalUserID: envelope.event.sender.senderID.openID ?? "",
             text: textContent.text,
-            mentionsBot: false,
+            mentionsBot: envelope.event.message.mentionsBot,
             rawPayload: envelope.event.message.content,
             receivedAt: Date()
         )
+    }
+
+    func shouldDispatch(_ envelope: FeishuEventEnvelope) -> Bool {
+        if envelope.event.message.isDirectChat {
+            return true
+        }
+        if envelope.event.message.isGroupChat {
+            return envelope.event.message.mentionsBot
+        }
+        return false
     }
 }

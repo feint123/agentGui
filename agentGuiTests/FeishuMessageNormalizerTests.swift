@@ -15,6 +15,49 @@ struct FeishuMessageNormalizerTests {
         #expect(message.text == "你好")
     }
 
+        @Test func normalizerBuildsInboundMessageFromGroupAtBotEvent() throws {
+            let payload = try FeishuEventFixtures.decodeEvent(
+                #"""
+                {
+                    "header": { "event_type": "im.message.receive_v1" },
+                    "event": {
+                        "sender": {
+                            "sender_id": { "open_id": "ou_group_user" },
+                            "sender_type": "user",
+                            "tenant_key": "tenant-1"
+                        },
+                        "message": {
+                            "message_id": "om_group_message",
+                            "chat_id": "oc_group_chat",
+                            "chat_type": "group",
+                            "message_type": "text",
+                            "content": "{\"text\":\"@bot 帮我总结一下\"}",
+                            "mentions": [
+                                {
+                                    "key": "@_user_1",
+                                    "name": "agentGui Bot",
+                                    "tenant_key": "tenant-1",
+                                    "id": {
+                                        "open_id": "ou_bot_open_id",
+                                        "user_id": "bot_user_id"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+                """#
+            )
+
+            let message = try FeishuMessageNormalizer().normalize(payload)
+
+            #expect(message.externalConversationID == "oc_group_chat")
+            #expect(message.externalMessageID == "om_group_message")
+            #expect(message.externalUserID == "ou_group_user")
+            #expect(message.text == "@bot 帮我总结一下")
+            #expect(message.mentionsBot)
+        }
+
     @Test func normalizerRejectsNonTextMessage() throws {
         let payload = FeishuEventFixtures.imageMessageEvent()
 
@@ -68,5 +111,9 @@ private enum FeishuEventFixtures {
                 )
             )
         )
+    }
+
+    static func decodeEvent(_ json: String) throws -> FeishuEventEnvelope {
+        try JSONDecoder().decode(FeishuEventEnvelope.self, from: Data(json.utf8))
     }
 }

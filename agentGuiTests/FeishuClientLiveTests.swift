@@ -213,8 +213,8 @@ private final class RecordingFeishuInboundEventSource: FeishuInboundEventSource 
     func start(
         credentials: FeishuCredentials,
         tokenProvider: @escaping @Sendable () async throws -> String,
-        onEvent: @escaping @Sendable (FeishuEventEnvelope) async throws -> Void,
-        onCallback: @escaping @Sendable (FeishuCallbackEnvelope) async throws -> Data?
+        onEvent: @escaping @MainActor @Sendable (FeishuEventEnvelope) async throws -> Void,
+        onCallback: @escaping @MainActor @Sendable (FeishuCallbackEnvelope) async throws -> Data?
     ) async throws {
         _ = credentials
         _ = onEvent

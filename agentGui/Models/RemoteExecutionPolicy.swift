@@ -10,7 +10,7 @@ struct RemoteExecutionPolicy: Codable, Equatable, Sendable {
         allowFileWrite: Bool = false,
         allowBash: Bool = false,
         allowNetworkTools: Bool = false,
-        maxRounds: Int = 8
+        maxRounds: Int = 64
     ) {
         self.allowFileWrite = allowFileWrite
         self.allowBash = allowBash
