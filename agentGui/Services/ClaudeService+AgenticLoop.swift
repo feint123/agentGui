@@ -60,6 +60,68 @@ extension ClaudeService {
         return result
     }
 
+    func executeRemoteTurn(
+        text: String,
+        session: Session,
+        runtimeSettings: AppSettings,
+        modelContext: ModelContext,
+        maxRounds: Int
+    ) async throws -> AgentLoopRunResult {
+        guard let service else { throw ClaudeError.notConfigured }
+
+        let sortedMessages = session.messages.sorted { $0.sequence < $1.sequence }
+        var apiMessages: [MessageParameter.Message] = []
+        for msg in sortedMessages {
+            guard let content = msg.textContent, !content.isEmpty else { continue }
+            let role: MessageParameter.Message.Role = msg.direction == .user ? .user : .assistant
+            apiMessages.append(MessageParameter.Message(role: role, content: .text(content)))
+        }
+        let lastPersistedMessageMatchesCurrentTurn = sortedMessages.last.map {
+            $0.direction == .user && $0.textContent == text
+        } ?? false
+        if !lastPersistedMessageMatchesCurrentTurn {
+            apiMessages.append(MessageParameter.Message(role: .user, content: .text(text)))
+        }
+
+        let turnSkillContext = try resolveTurnSkillContext(
+            enabledSkillNames: runtimeSettings.enabledSkillNames,
+            directives: []
+        )
+        let systemPrompt = buildSystemPrompt(
+            skills: turnSkillContext.effectiveSkills,
+            explicitlyActivatedSkills: turnSkillContext.explicitlyActivatedSkills,
+            workingDirectory: runtimeSettings.workingDirectory,
+            settings: runtimeSettings
+        )
+        let tools = buildTools(
+            modelId: runtimeSettings.selectedModel,
+            settings: runtimeSettings,
+            enabledSkills: turnSkillContext.effectiveSkills
+        )
+        let request = AgentLoopRunRequest(
+            service: service,
+            modelId: runtimeSettings.selectedModel,
+            tools: tools,
+            system: makeEphemeralSystemPrompt(systemPrompt),
+            maxRounds: maxRounds,
+            toolExecutionContext: .mainAgent,
+            runSource: "remoteChannel",
+            runLabel: text,
+            requestedBudgetSeconds: nil
+        )
+        let runtime = AgentLoopRuntime(
+            settings: runtimeSettings,
+            session: session,
+            sessionId: session.sessionId,
+            modelContext: modelContext,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none,
+            toolInterceptor: nil
+        )
+        return try await runCoreAgentLoop(messages: &apiMessages, request: request, runtime: runtime)
+    }
+
     // MARK: - Core Loop
 
     /// Shared agentic loop used by both the main agent and sub-agents.

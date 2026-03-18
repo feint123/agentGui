@@ -35,6 +35,9 @@ enum PersistenceSchema {
         AppSettings.self,
         Session.self,
         Message.self,
+        ChannelAccountBinding.self,
+        RemoteConversationBinding.self,
+        RemoteMessageReceipt.self,
         ToolCall.self,
         AgentRound.self,
         SessionTaskState.self,
@@ -72,6 +75,8 @@ struct agentGuiApp: App {
     @State private var runtimeRecoveryService = RuntimeRecoveryService()
     @State private var reliabilityCenterViewModel = ReliabilityCenterViewModel()
     @State private var backgroundActivityCoordinator: BackgroundActivityCoordinator?
+    @State private var channelRegistry = IMChannelRegistry()
+    @State private var channelRuntimeBootstrap: ChannelRuntimeBootstrap?
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
@@ -131,11 +136,30 @@ struct agentGuiApp: App {
                         serviceProvider: { claudeService.service ?? AnthropicServiceFactory.service(apiKey: settings.apiKey, basePath: settings.baseURL.isEmpty ? "https://api.anthropic.com" : settings.baseURL, betaHeaders: nil) }
                     )
                     backgroundActivityCoordinator = backgroundCoordinator
+                    let deliveryCoordinator = OutboundDeliveryCoordinator { kind in
+                        channelRegistry.adapter(for: kind)
+                    }
+                    let remoteOrchestrator = RemoteAgentOrchestrator(
+                        router: RemoteConversationRouter(),
+                        executor: ClaudeRemoteAgentExecutor(claudeService: claudeService),
+                        deliveryCoordinator: deliveryCoordinator
+                    )
+                    let channelBootstrap = ChannelRuntimeBootstrap(
+                        registry: channelRegistry,
+                        orchestrator: remoteOrchestrator,
+                        deduplicator: ChannelEventDeduplicator()
+                    )
+                    channelBootstrap.registerDefaultAdaptersIfNeeded()
+                    channelRuntimeBootstrap = channelBootstrap
                     if settings.backgroundAgentEnabled {
                         try? runtimeRecoveryService.normalizeBackgroundTaskRuns(in: context)
                         Task { @MainActor in
                             try? await backgroundCoordinator.bootstrap(modelContext: context)
                         }
+                    }
+                    Task { @MainActor in
+                        try? await channelBootstrap.startEnabledChannels(modelContext: context)
+                        await channelBootstrap.stopDisabledChannels(modelContext: context)
                     }
                     try? runtimeRecoveryService.refresh(from: context)
                     reliabilityCenterViewModel.refresh(using: context)

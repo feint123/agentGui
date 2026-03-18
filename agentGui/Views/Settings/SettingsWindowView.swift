@@ -61,6 +61,8 @@ struct SettingsWindowView: View {
         switch store.selectedItem {
         case .connection:
             SettingsConnectionView(store: store)
+        case .channels:
+            SettingsChannelsView()
         case .tools:
             SettingsToolsView(store: store)
         case .intelligence:
