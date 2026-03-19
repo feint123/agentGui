@@ -195,6 +195,78 @@ struct FeishuClientLiveTests {
         #expect(replyBody.contains("uuid-fixed"))
     }
 
+    @Test func updateMessageUsesPutEndpoint() async throws {
+        let transport = RecordingFeishuTransport(responses: [
+            .json(
+                url: URL(string: "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")!,
+                body: """
+                {"code":0,"msg":"ok","tenant_access_token":"tenant-token-1","expire":7200}
+                """
+            ),
+            .json(
+                url: URL(string: "https://open.feishu.cn/open-apis/im/v1/messages/om_update_1")!,
+                body: """
+                {"code":0,"msg":"success"}
+                """
+            )
+        ])
+        let client = LiveFeishuClient(
+            transport: transport,
+            eventSource: RecordingFeishuInboundEventSource(),
+            uuidProvider: { "uuid-fixed" },
+            nowProvider: { Date(timeIntervalSince1970: 100) }
+        )
+
+        try await client.start(credentials: .init(appID: "cli_test", appSecret: "secret_test")) { _ in }
+        try await client.updateMessage(
+            messageID: "om_update_1",
+            payload: FeishuRenderedMessagePayload(msgType: "text", content: #"{"text":"更新内容"}"#)
+        )
+
+        let request = try #require(transport.requests.last)
+        #expect(request.httpMethod == "PUT")
+        #expect(request.url?.path == "/open-apis/im/v1/messages/om_update_1")
+        let body = String(data: try #require(request.httpBody), encoding: .utf8) ?? ""
+        #expect(body.contains("\"msg_type\":\"text\""))
+        #expect(body.contains("更新内容"))
+    }
+
+    @Test func patchMessageUsesPatchEndpoint() async throws {
+        let transport = RecordingFeishuTransport(responses: [
+            .json(
+                url: URL(string: "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")!,
+                body: """
+                {"code":0,"msg":"ok","tenant_access_token":"tenant-token-1","expire":7200}
+                """
+            ),
+            .json(
+                url: URL(string: "https://open.feishu.cn/open-apis/im/v1/messages/om_patch_1")!,
+                body: """
+                {"code":0,"msg":"success"}
+                """
+            )
+        ])
+        let client = LiveFeishuClient(
+            transport: transport,
+            eventSource: RecordingFeishuInboundEventSource(),
+            uuidProvider: { "uuid-fixed" },
+            nowProvider: { Date(timeIntervalSince1970: 100) }
+        )
+
+        try await client.start(credentials: .init(appID: "cli_test", appSecret: "secret_test")) { _ in }
+        try await client.patchMessage(
+            messageID: "om_patch_1",
+            payload: FeishuRenderedMessagePayload(msgType: "interactive", content: #"{"schema":"2.0"}"#)
+        )
+
+        let request = try #require(transport.requests.last)
+        #expect(request.httpMethod == "PATCH")
+        #expect(request.url?.path == "/open-apis/im/v1/messages/om_patch_1")
+        let body = String(data: try #require(request.httpBody), encoding: .utf8) ?? ""
+        #expect(body.contains("\"msg_type\":\"interactive\""))
+        #expect(body.contains("schema"))
+    }
+
     @Test func sendTextReusesCachedTenantTokenBeforeExpiry() async throws {
         let transport = RecordingFeishuTransport(responses: [
             .json(

@@ -154,6 +154,68 @@ struct FeishuChannelAdapterTests {
         #expect(payload.content.contains("\"tag\":\"markdown\""))
     }
 
+    @Test func adapterOpensAppendProjectionSessionForTextFormat() async throws {
+        let client = TestFeishuClient()
+        let credentialStore = FeishuCredentialStore(backend: InMemoryFeishuCredentialBackend())
+        try credentialStore.save(appID: "cli_test", appSecret: "secret_test")
+        let adapter = FeishuChannelAdapter(client: client, credentialStore: credentialStore)
+        let binding = ChannelAccountBinding(channelKind: .feishu, configurationKey: "feishu.default")
+        try await adapter.start(configuration: IMChannelConfiguration(accountBinding: binding) { _ in })
+
+        let session = try #require(
+            try await adapter.openSession(
+                context: ChannelProjectionContext(
+                    channelKind: .feishu,
+                    externalConversationID: "oc_test_chat",
+                    replyToExternalMessageID: "om_source"
+                )
+            ) as? FeishuProjectionSession
+        )
+
+        try await session.ingest(.textSnapshot(accumulatedText: "第一段", currentRoundText: "第一段", roundIndex: 0, isForced: false))
+        try await session.ingest(.textSnapshot(accumulatedText: "第一段第二段", currentRoundText: "第二段", roundIndex: 0, isForced: false))
+
+        #expect(client.sentPayloads.count == 2)
+        #expect(client.sentPayloads[0].replyToMessageID == "om_source")
+        #expect(client.sentPayloads[1].replyToMessageID == nil)
+        #expect(client.sentPayloads[0].payload.content.contains("第一段"))
+        #expect(client.sentPayloads[1].payload.content.contains("第二段"))
+    }
+
+    @Test func adapterOpensPatchProjectionSessionForInteractiveFormat() async throws {
+        let client = TestFeishuClient()
+        let credentialStore = FeishuCredentialStore(backend: InMemoryFeishuCredentialBackend())
+        try credentialStore.save(appID: "cli_test", appSecret: "secret_test")
+        let adapter = FeishuChannelAdapter(client: client, credentialStore: credentialStore)
+        let binding = ChannelAccountBinding(
+            channelKind: .feishu,
+            configurationKey: "feishu.default",
+            displayName: "我的飞书 Bot"
+        )
+        FeishuChannelSettings(messageFormat: .interactive).apply(to: binding)
+        try await adapter.start(configuration: IMChannelConfiguration(accountBinding: binding) { _ in })
+
+        let session = try #require(
+            try await adapter.openSession(
+                context: ChannelProjectionContext(
+                    channelKind: .feishu,
+                    externalConversationID: "oc_test_chat",
+                    replyToExternalMessageID: "om_source"
+                )
+            ) as? FeishuProjectionSession
+        )
+
+        try await session.ingest(.textSnapshot(accumulatedText: "第一版", currentRoundText: "第一版", roundIndex: 0, isForced: false))
+        try await session.ingest(.textSnapshot(accumulatedText: "第一版\n第二版", currentRoundText: "第二版", roundIndex: 0, isForced: false))
+
+        #expect(client.sentPayloads.count == 1)
+        #expect(client.patchedPayloads.count == 1)
+        #expect(client.sentPayloads[0].replyToMessageID == "om_source")
+        #expect(client.patchedPayloads[0].messageID == "om_sent")
+        #expect(client.patchedPayloads[0].payload.msgType == "interactive")
+        #expect(client.patchedPayloads[0].payload.content.contains("第二版"))
+    }
+
     @Test func registryRegistersStartsAndStopsAdapter() async throws {
         let client = TestFeishuClient()
         let credentialStore = FeishuCredentialStore(backend: InMemoryFeishuCredentialBackend())
@@ -251,9 +313,16 @@ private final class TestFeishuClient: FeishuClient {
         let replyToMessageID: String?
     }
 
+    struct UpdatedPayload: Equatable {
+        let messageID: String
+        let payload: FeishuRenderedMessagePayload
+    }
+
     private var inboundHandler: ((FeishuEventEnvelope) async throws -> Void)?
     private(set) var startedCredentials: FeishuCredentials?
     private(set) var sentPayloads: [SentPayload] = []
+    private(set) var updatedPayloads: [UpdatedPayload] = []
+    private(set) var patchedPayloads: [UpdatedPayload] = []
     private(set) var startCallCount = 0
     private(set) var stopCallCount = 0
 
@@ -275,6 +344,14 @@ private final class TestFeishuClient: FeishuClient {
     ) async throws -> String {
         sentPayloads.append(SentPayload(chatID: chatID, payload: payload, replyToMessageID: replyToMessageID))
         return "om_sent"
+    }
+
+    func updateMessage(messageID: String, payload: FeishuRenderedMessagePayload) async throws {
+        updatedPayloads.append(UpdatedPayload(messageID: messageID, payload: payload))
+    }
+
+    func patchMessage(messageID: String, payload: FeishuRenderedMessagePayload) async throws {
+        patchedPayloads.append(UpdatedPayload(messageID: messageID, payload: payload))
     }
 
     func sendText(chatID: String, text: String, replyToMessageID: String?) async throws -> String {

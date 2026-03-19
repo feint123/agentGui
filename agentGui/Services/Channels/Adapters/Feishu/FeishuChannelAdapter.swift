@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-final class FeishuChannelAdapter: IMChannelAdapter {
+final class FeishuChannelAdapter: IMChannelAdapter, ChannelProjectionDriver {
     enum AdapterError: Error {
         case missingCredentials
     }
@@ -59,6 +59,23 @@ final class FeishuChannelAdapter: IMChannelAdapter {
             chatID: message.externalConversationID,
             payload: payload,
             replyToMessageID: message.replyToExternalMessageID
+        )
+    }
+
+    func openSession(context: ChannelProjectionContext) async throws -> (any ChannelProjectionSession)? {
+        guard let configuration else { return nil }
+
+        let format = FeishuChannelSettings(binding: configuration.accountBinding).messageFormat
+        let title = configuration.accountBinding.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return FeishuProjectionSession(
+            client: client,
+            renderer: renderer,
+            format: format,
+            chatID: context.externalConversationID,
+            replyToMessageID: context.replyToExternalMessageID,
+            title: title.isEmpty ? nil : title,
+            sessionID: context.sessionID,
+            modelContext: context.modelContext
         )
     }
 }

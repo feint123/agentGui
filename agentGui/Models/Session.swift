@@ -40,6 +40,18 @@ final class Session {
     @Relationship(deleteRule: .cascade, inverse: \Message.session)
     var messages: [Message] = []
 
+    /// 关联的远端会话绑定
+    @Relationship(deleteRule: .cascade, inverse: \RemoteConversationBinding.session)
+    var remoteConversationBindings: [RemoteConversationBinding] = []
+
+    /// 关联的投影绑定
+    @Relationship(deleteRule: .cascade, inverse: \SessionProjectionBinding.session)
+    var projectionBindings: [SessionProjectionBinding] = []
+
+    /// 关联的渠道投影投递记录
+    @Relationship(deleteRule: .cascade, inverse: \ChannelProjectionDelivery.session)
+    var projectionDeliveries: [ChannelProjectionDelivery] = []
+
     init(
         sessionId: String = UUID().uuidString,
         title: String = "新对话"

@@ -24,6 +24,7 @@ struct RemoteConversationRouterTests {
         #expect(session.title.contains("Feishu"))
         #expect(bindings.count == 1)
         #expect(bindings.first?.sessionID == session.sessionId)
+        #expect(bindings.first?.session?.sessionId == session.sessionId)
     }
 
     @Test func routerReusesExistingSessionForKnownRemoteConversation() throws {
@@ -33,7 +34,7 @@ struct RemoteConversationRouterTests {
             channelKind: .feishu,
             externalConversationID: "p2p-chat-1",
             externalUserID: "ou_user_1",
-            sessionID: session.sessionId
+            session: session
         )
         harness.context.insert(session)
         harness.context.insert(binding)
@@ -54,6 +55,59 @@ struct RemoteConversationRouterTests {
         #expect(resolved.sessionId == session.sessionId)
     }
 
+    @Test func routerPrunesStaleBindingAndRecreatesSession() throws {
+        let harness = try RemoteConversationRouterHarness.make()
+        let staleBinding = RemoteConversationBinding(
+            channelKind: .feishu,
+            externalConversationID: "p2p-chat-1",
+            externalUserID: "ou_user_1",
+            sessionID: "missing-session"
+        )
+        harness.context.insert(staleBinding)
+        try harness.context.save()
+
+        let resolved = try harness.router.resolveSession(for: .fixture(), modelContext: harness.context)
+        let bindings = try harness.context.fetch(FetchDescriptor<RemoteConversationBinding>())
+
+        #expect(bindings.count == 1)
+        #expect(bindings.first?.sessionID == resolved.sessionId)
+        #expect(bindings.first?.session?.sessionId == resolved.sessionId)
+    }
+
+    @Test func routerPrunesDuplicateBindingsForSameRemoteConversation() throws {
+        let harness = try RemoteConversationRouterHarness.make()
+        let first = Session.fixture(sessionId: "session-1", title: "First")
+        let second = Session.fixture(sessionId: "session-2", title: "Second")
+        let olderBinding = RemoteConversationBinding(
+            channelKind: .feishu,
+            externalConversationID: "p2p-chat-1",
+            externalUserID: "ou_user_1",
+            session: first,
+            createdAt: .distantPast,
+            updatedAt: .distantPast
+        )
+        let newerBinding = RemoteConversationBinding(
+            channelKind: .feishu,
+            externalConversationID: "p2p-chat-1",
+            externalUserID: "ou_user_1",
+            session: second,
+            createdAt: .now,
+            updatedAt: .now
+        )
+        harness.context.insert(first)
+        harness.context.insert(second)
+        harness.context.insert(olderBinding)
+        harness.context.insert(newerBinding)
+        try harness.context.save()
+
+        let resolved = try harness.router.resolveSession(for: .fixture(), modelContext: harness.context)
+        let bindings = try harness.context.fetch(FetchDescriptor<RemoteConversationBinding>())
+
+        #expect(resolved.sessionId == second.sessionId)
+        #expect(bindings.count == 1)
+        #expect(bindings.first?.session?.sessionId == second.sessionId)
+    }
+
     @Test func routerIsolatedByChannelKind() throws {
         let harness = try RemoteConversationRouterHarness.make()
         let feishu = InboundChannelMessage(
@@ -71,7 +125,7 @@ struct RemoteConversationRouterTests {
             channelKind: .feishu,
             externalConversationID: "other-chat",
             externalUserID: "ou_other",
-            sessionID: firstSession.sessionId
+            session: firstSession
         )
         harness.context.insert(mirrorBinding)
         try harness.context.save()
@@ -111,6 +165,21 @@ private struct RemoteConversationRouterHarness {
             container: container,
             context: context,
             router: RemoteConversationRouter()
+        )
+    }
+}
+
+private extension InboundChannelMessage {
+    static func fixture() -> InboundChannelMessage {
+        InboundChannelMessage(
+            channelKind: .feishu,
+            externalConversationID: "p2p-chat-1",
+            externalMessageID: "msg-1",
+            externalUserID: "ou_user_1",
+            text: "你好",
+            mentionsBot: false,
+            rawPayload: "{}",
+            receivedAt: .now
         )
     }
 }

@@ -12,4 +12,27 @@ struct AgentLoopRuntime {
     let parentMessage: Message?
     let streamProjectionTarget: AgentLoopStreamProjectionTarget
     let toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)?
+    let remoteDeliveryHandle: (any RemoteTurnDeliveryHandle)?
+
+    init(
+        settings: AppSettings,
+        session: Session?,
+        sessionId: String,
+        modelContext: ModelContext,
+        makeRound: @escaping (Int) -> AgentRound,
+        parentMessage: Message?,
+        streamProjectionTarget: AgentLoopStreamProjectionTarget,
+        toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)?,
+        remoteDeliveryHandle: (any RemoteTurnDeliveryHandle)? = nil
+    ) {
+        self.settings = settings
+        self.session = session
+        self.sessionId = sessionId
+        self.modelContext = modelContext
+        self.makeRound = makeRound
+        self.parentMessage = parentMessage
+        self.streamProjectionTarget = streamProjectionTarget
+        self.toolInterceptor = toolInterceptor
+        self.remoteDeliveryHandle = remoteDeliveryHandle
+    }
 }

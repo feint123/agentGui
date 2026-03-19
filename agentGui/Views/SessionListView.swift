@@ -125,9 +125,8 @@ struct SessionListView: View {
 
     private func deleteConfirmedSession() {
         guard let session = sessionToDelete else { return }
-        modelContext.delete(session)
         do {
-            try modelContext.save()
+            try SessionDeletionCoordinator().delete(session, modelContext: modelContext)
         } catch {
             errorMessage = "删除对话失败: \(error.localizedDescription)"
         }

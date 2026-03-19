@@ -5,7 +5,12 @@ enum IntegrityIssueKind: String, Codable, CaseIterable {
     case brokenPlanJSON
     case orphanMessage
     case orphanToolCall
+    case orphanRemoteMessageReceipt
     case invalidWorkflowState
+    case staleRemoteConversationBinding
+    case duplicateRemoteConversationBinding
+    case orphanSessionProjectionBinding
+    case orphanChannelProjectionDelivery
 
     var displayName: String {
         switch self {
@@ -15,8 +20,18 @@ enum IntegrityIssueKind: String, Codable, CaseIterable {
             return "孤立消息"
         case .orphanToolCall:
             return "孤立工具调用"
+        case .orphanRemoteMessageReceipt:
+            return "孤立远端消息回执"
         case .invalidWorkflowState:
             return "异常工作流状态"
+        case .staleRemoteConversationBinding:
+            return "失效的远端会话绑定"
+        case .duplicateRemoteConversationBinding:
+            return "重复的远端会话绑定"
+        case .orphanSessionProjectionBinding:
+            return "孤立投影绑定"
+        case .orphanChannelProjectionDelivery:
+            return "孤立投影投递记录"
         }
     }
 }

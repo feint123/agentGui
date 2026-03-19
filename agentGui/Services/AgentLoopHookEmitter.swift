@@ -70,6 +70,7 @@ struct AgentLoopHookEmitter {
         context.toolInput = overrides.toolInput ?? [:]
         context.toolResultText = overrides.toolResultText ?? ""
         context.toolCallRecord = overrides.toolCallRecord
+        context.remoteDeliveryHandle = runtime.remoteDeliveryHandle
         return context
     }
 

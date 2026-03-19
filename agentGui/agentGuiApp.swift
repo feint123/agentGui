@@ -37,6 +37,8 @@ enum PersistenceSchema {
         Message.self,
         ChannelAccountBinding.self,
         RemoteConversationBinding.self,
+        SessionProjectionBinding.self,
+        ChannelProjectionDelivery.self,
         RemoteMessageReceipt.self,
         ToolCall.self,
         AgentRound.self,
@@ -139,9 +141,16 @@ struct agentGuiApp: App {
                     let deliveryCoordinator = OutboundDeliveryCoordinator { kind in
                         channelRegistry.adapter(for: kind)
                     }
+                    let remoteDeliveryCoordinator = RemoteTurnDeliveryCoordinator { context in
+                        guard let driver = channelRegistry.adapter(for: context.channelKind) as? any ChannelProjectionDriver else {
+                            return nil
+                        }
+                        return try await driver.openSession(context: context)
+                    }
                     let remoteOrchestrator = RemoteAgentOrchestrator(
                         router: RemoteConversationRouter(),
                         executor: ClaudeRemoteAgentExecutor(claudeService: claudeService),
+                        remoteDeliveryCoordinator: remoteDeliveryCoordinator,
                         deliveryCoordinator: deliveryCoordinator
                     )
                     let channelBootstrap = ChannelRuntimeBootstrap(

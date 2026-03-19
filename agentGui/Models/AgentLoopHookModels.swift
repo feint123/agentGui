@@ -122,6 +122,7 @@ struct AgentLoopHookContext {
     var metadata: [String: Any] = [:]
     var streamProjectionTarget: AgentLoopStreamProjectionTarget = .none
     var toolCallRecord: ToolCall?
+    var remoteDeliveryHandle: (any RemoteTurnDeliveryHandle)?
 }
 
 protocol AgentLoopHook {

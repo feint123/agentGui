@@ -65,6 +65,7 @@ extension ClaudeService {
         session: Session,
         runtimeSettings: AppSettings,
         modelContext: ModelContext,
+        deliveryHandle: (any RemoteTurnDeliveryHandle)? = nil,
         maxRounds: Int
     ) async throws -> AgentLoopRunResult {
         guard let service else { throw ClaudeError.notConfigured }
@@ -117,7 +118,8 @@ extension ClaudeService {
             makeRound: { AgentRound(roundIndex: $0) },
             parentMessage: nil,
             streamProjectionTarget: .none,
-            toolInterceptor: nil
+            toolInterceptor: nil,
+            remoteDeliveryHandle: deliveryHandle
         )
         return try await runCoreAgentLoop(messages: &apiMessages, request: request, runtime: runtime)
     }

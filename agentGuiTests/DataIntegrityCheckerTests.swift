@@ -46,6 +46,25 @@ struct DataIntegrityCheckerTests {
         #expect(report.issues.contains { $0.kind == .orphanToolCall })
     }
 
+    @Test func flagsReceiptWithoutOwningMessage() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let receipt = RemoteMessageReceipt(
+            channelKind: .feishu,
+            externalConversationID: "chat-1",
+            externalMessageID: "om-1",
+            direction: .outbound,
+            messageID: UUID()
+        )
+        context.insert(receipt)
+        try context.save()
+
+        let checker = DataIntegrityChecker()
+        let report = try checker.runLightweightChecks(in: context)
+
+        #expect(report.issues.contains { $0.kind == .orphanRemoteMessageReceipt })
+    }
+
     @Test func flagsRunningWorkflowWithoutProgressRecords() async throws {
         let container = try makeContainer()
         let context = ModelContext(container)
@@ -60,11 +79,67 @@ struct DataIntegrityCheckerTests {
         #expect(report.issues.contains { $0.kind == .invalidWorkflowState })
     }
 
+    @Test func flagsStaleAndDuplicateRemoteBindings() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let session = Session(sessionId: "s1", title: "Bound")
+        let validBinding = RemoteConversationBinding(
+            channelKind: .feishu,
+            externalConversationID: "chat-1",
+            externalUserID: "ou_1",
+            session: session
+        )
+        let staleBinding = RemoteConversationBinding(
+            channelKind: .feishu,
+            externalConversationID: "chat-1",
+            externalUserID: "ou_1",
+            sessionID: "missing-session"
+        )
+        context.insert(session)
+        context.insert(validBinding)
+        context.insert(staleBinding)
+        try context.save()
+
+        let report = try DataIntegrityChecker().runLightweightChecks(in: context)
+
+        #expect(report.issues.contains { $0.kind == .staleRemoteConversationBinding })
+        #expect(report.issues.contains { $0.kind == .duplicateRemoteConversationBinding })
+    }
+
+    @Test func flagsOrphanProjectionResources() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let binding = SessionProjectionBinding(
+            sessionID: "missing-session",
+            channelKind: .feishu,
+            externalConversationID: "chat-1"
+        )
+        let delivery = ChannelProjectionDelivery(
+            sessionID: "missing-session",
+            channelKind: .feishu,
+            externalConversationID: "chat-1",
+            externalMessageID: "om-1",
+            deliveryKind: .primary
+        )
+        context.insert(binding)
+        context.insert(delivery)
+        try context.save()
+
+        let report = try DataIntegrityChecker().runLightweightChecks(in: context)
+
+        #expect(report.issues.contains { $0.kind == .orphanSessionProjectionBinding })
+        #expect(report.issues.contains { $0.kind == .orphanChannelProjectionDelivery })
+    }
+
     private func makeContainer() throws -> ModelContainer {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         return try ModelContainer(
             for: Session.self,
             Message.self,
+            RemoteMessageReceipt.self,
+            RemoteConversationBinding.self,
+            SessionProjectionBinding.self,
+            ChannelProjectionDelivery.self,
             ToolCall.self,
             WorkflowInstance.self,
             WorkflowMessageRecord.self,

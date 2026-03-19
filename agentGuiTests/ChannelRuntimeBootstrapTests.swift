@@ -30,6 +30,8 @@ struct ChannelRuntimeBootstrapTests {
             )
         )
 
+        await harness.bootstrap.waitForIdle()
+
         let messages = try harness.context.fetch(FetchDescriptor<Message>())
         let containsUserMessage = messages.contains { message in
             message.direction == .user && message.textContent == "你好"
@@ -60,7 +62,88 @@ struct ChannelRuntimeBootstrapTests {
 
         try await harness.adapter.emitInbound(inbound)
 
+        await harness.bootstrap.waitForIdle()
+
         #expect(harness.probe.receivedMessages == [inbound])
+    }
+
+    @Test func bootstrapReturnsInboundHandlerBeforeExecutionCompletes() async throws {
+        let gate = AsyncGate()
+        let harness = try ChannelRuntimeBootstrapHarness.make(
+            feishuEnabled: true,
+            executionResult: .blocked(gate, "已处理")
+        )
+        try await harness.bootstrap.startEnabledChannels(modelContext: harness.context)
+
+        let returned = LockedBox(false)
+        let emitTask = Task {
+            try await harness.adapter.emitInbound(
+                InboundChannelMessage(
+                    channelKind: .feishu,
+                    externalConversationID: "p2p-chat-1",
+                    externalMessageID: "msg-async-1",
+                    externalUserID: "ou_user_1",
+                    text: "异步执行",
+                    mentionsBot: false,
+                    rawPayload: "{}",
+                    receivedAt: .now
+                )
+            )
+            returned.set(true)
+        }
+
+        await gate.waitUntilStarted()
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        #expect(returned.value == true)
+
+        await gate.release()
+        _ = try await emitTask.value
+        await harness.bootstrap.waitForIdle()
+    }
+
+    @Test func bootstrapSerializesTurnsPerRemoteConversation() async throws {
+        let firstGate = AsyncGate()
+        let harness = try ChannelRuntimeBootstrapHarness.make(
+            feishuEnabled: true,
+            executionResult: .sequenced(firstGate, ["第一条", "第二条"])
+        )
+        try await harness.bootstrap.startEnabledChannels(modelContext: harness.context)
+
+        try await harness.adapter.emitInbound(
+            InboundChannelMessage(
+                channelKind: .feishu,
+                externalConversationID: "p2p-chat-serial",
+                externalMessageID: "msg-1",
+                externalUserID: "ou_user_1",
+                text: "第一条",
+                mentionsBot: false,
+                rawPayload: "{}",
+                receivedAt: .now
+            )
+        )
+        try await harness.adapter.emitInbound(
+            InboundChannelMessage(
+                channelKind: .feishu,
+                externalConversationID: "p2p-chat-serial",
+                externalMessageID: "msg-2",
+                externalUserID: "ou_user_1",
+                text: "第二条",
+                mentionsBot: false,
+                rawPayload: "{}",
+                receivedAt: .now
+            )
+        )
+
+        await firstGate.waitUntilStarted()
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        #expect(harness.probe.receivedMessages.map(\.externalMessageID) == ["msg-1"])
+
+        await firstGate.release()
+        await harness.bootstrap.waitForIdle()
+
+        #expect(harness.probe.receivedMessages.map(\.externalMessageID) == ["msg-1", "msg-2"])
     }
 
     @Test func bootstrapStopsDisabledChannel() async throws {
@@ -119,6 +202,7 @@ private struct ChannelRuntimeBootstrapHarness {
             orchestrator: RemoteAgentOrchestrator(
                 router: RemoteConversationRouter(),
                 executor: BootstrapStubExecutor(result: executionResult, probe: probe),
+                remoteDeliveryCoordinator: RemoteTurnDeliveryCoordinator(driver: nil),
                 deliveryCoordinator: delivery
             ),
             deduplicator: ChannelEventDeduplicator()
@@ -148,27 +232,108 @@ private final class BootstrapExecutionProbe {
 private struct BootstrapStubExecutor: RemoteAgentExecuting {
     enum Result {
         case success(String)
+        case blocked(AsyncGate, String)
+        case sequenced(AsyncGate, [String])
     }
 
     let result: Result
     let probe: BootstrapExecutionProbe
+    private let responseCursor = LockedBox(0)
 
     func execute(
         message: InboundChannelMessage,
         session: Session,
         policy: RemoteExecutionPolicy,
         authorizationPolicy: ToolAuthorizationPolicy,
+        deliveryHandle: (any RemoteTurnDeliveryHandle)?,
         modelContext: ModelContext
     ) async throws -> String {
         probe.record(message)
         _ = session
         _ = policy
         _ = authorizationPolicy
+        _ = deliveryHandle
         _ = modelContext
         switch result {
         case .success(let text):
             return text
+        case .blocked(let gate, let text):
+            await gate.markStarted()
+            await gate.waitForRelease()
+            return text
+        case .sequenced(let gate, let responses):
+            if message.externalMessageID == "msg-1" {
+                await gate.markStarted()
+                await gate.waitForRelease()
+            }
+            let index = responseCursor.modify { cursor in
+                defer { cursor += 1 }
+                return cursor
+            }
+            return responses[index]
         }
+    }
+}
+
+private actor AsyncGate {
+    private var started = false
+    private var released = false
+    private var startContinuations: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func markStarted() {
+        started = true
+        let continuations = startContinuations
+        startContinuations.removeAll(keepingCapacity: false)
+        continuations.forEach { $0.resume() }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startContinuations.append(continuation)
+        }
+    }
+
+    func release() {
+        released = true
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll(keepingCapacity: false)
+        continuations.forEach { $0.resume() }
+    }
+
+    func waitForRelease() async {
+        guard !released else { return }
+        await withCheckedContinuation { continuation in
+            releaseContinuations.append(continuation)
+        }
+    }
+}
+
+private final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Value
+
+    init(_ storage: Value) {
+        self.storage = storage
+    }
+
+    var value: Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func set(_ newValue: Value) {
+        lock.lock()
+        storage = newValue
+        lock.unlock()
+    }
+
+    func modify<Result>(_ transform: (inout Value) -> Result) -> Result {
+        lock.lock()
+        defer { lock.unlock() }
+        return transform(&storage)
     }
 }
 

@@ -26,6 +26,7 @@ struct AgentLoopBuiltInHookFactory {
     ) -> [any AgentLoopHook] {
         [
             StreamProjectionHook(),
+            RemoteChannelProjectionHook(),
             MemoryBootstrapHook { _ in
                 try await dependencies.memoryBootstrapLoader(state)
             },

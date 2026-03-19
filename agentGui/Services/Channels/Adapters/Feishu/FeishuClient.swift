@@ -21,6 +21,16 @@ protocol FeishuClient {
         replyToMessageID: String?
     ) async throws -> String
 
+    func updateMessage(
+        messageID: String,
+        payload: FeishuRenderedMessagePayload
+    ) async throws
+
+    func patchMessage(
+        messageID: String,
+        payload: FeishuRenderedMessagePayload
+    ) async throws
+
     func sendText(
         chatID: String,
         text: String,
@@ -179,6 +189,21 @@ final class LiveFeishuClient: FeishuClient {
         }
     }
 
+    private struct MessageMutationRequest: Encodable {
+        let msgType: String
+        let content: String
+
+        enum CodingKeys: String, CodingKey {
+            case msgType = "msg_type"
+            case content
+        }
+    }
+
+    private struct MessageMutationResponse: Decodable {
+        let code: Int
+        let msg: String
+    }
+
     private struct TextContent: Encodable {
         let text: String
     }
@@ -308,6 +333,20 @@ final class LiveFeishuClient: FeishuClient {
         return messageID
     }
 
+    func updateMessage(
+        messageID: String,
+        payload: FeishuRenderedMessagePayload
+    ) async throws {
+        try await mutateMessage(messageID: messageID, payload: payload, httpMethod: "PUT")
+    }
+
+    func patchMessage(
+        messageID: String,
+        payload: FeishuRenderedMessagePayload
+    ) async throws {
+        try await mutateMessage(messageID: messageID, payload: payload, httpMethod: "PATCH")
+    }
+
     private func validTenantAccessToken() async throws -> String {
         if let cachedToken, cachedToken.isValid(at: nowProvider()) {
             debugLog("reuse cached tenant_access_token expires_at=\(cachedToken.expiresAt.timeIntervalSince1970)")
@@ -350,6 +389,35 @@ final class LiveFeishuClient: FeishuClient {
             throw ClientError.missingCredentials
         }
         return credentials
+    }
+
+    private func mutateMessage(
+        messageID: String,
+        payload: FeishuRenderedMessagePayload,
+        httpMethod: String
+    ) async throws {
+        let token = try await validTenantAccessToken()
+        let url = URL(string: "https://open.feishu.cn/open-apis/im/v1/messages/\(messageID)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = httpMethod
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(
+            MessageMutationRequest(
+                msgType: payload.msgType,
+                content: payload.content
+            )
+        )
+
+        debugLog("\(httpMethod.lowercased()) message message_id=\(messageID) msg_type=\(payload.msgType) content_length=\(payload.content.count)")
+
+        let (data, response) = try await transport.data(for: request)
+        try validateHTTPResponse(response, data: data)
+        let mutationResponse = try decoder.decode(MessageMutationResponse.self, from: data)
+        guard mutationResponse.code == 0 else {
+            throw ClientError.apiError(code: mutationResponse.code, message: mutationResponse.msg)
+        }
+        debugLog("\(httpMethod.lowercased()) message succeeded message_id=\(messageID)")
     }
 
     private func validateHTTPResponse(_ response: URLResponse, data: Data) throws {

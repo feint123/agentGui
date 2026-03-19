@@ -144,8 +144,7 @@ struct SessionToolbarActions {
 
     func deleteCurrentSession() {
         guard let current = workspaceState.selectedSession else { return }
-        modelContext.delete(current)
-        try? modelContext.save()
+        try? SessionDeletionCoordinator().delete(current, modelContext: modelContext)
         workspaceState.selectedSession = fetchMostRecentSession()
     }
 
@@ -155,22 +154,7 @@ struct SessionToolbarActions {
         let effectiveBatchSize = max(1, batchSize)
 
         workspaceState.selectedSession = nil
-
-        var pendingDeletes = 0
-        for session in sessions {
-            modelContext.delete(session)
-            pendingDeletes += 1
-
-            if pendingDeletes == effectiveBatchSize {
-                try? modelContext.save()
-                pendingDeletes = 0
-                await Task.yield()
-            }
-        }
-
-        if pendingDeletes > 0 {
-            try? modelContext.save()
-        }
+        await SessionDeletionCoordinator().deleteAllSessions(modelContext: modelContext, batchSize: effectiveBatchSize)
     }
 
     private func fetchMostRecentSession() -> Session? {

@@ -9,6 +9,7 @@ final class RemoteConversationBinding {
     var channelKind: IMChannelKind
     var externalConversationID: String
     var externalUserID: String
+    var session: Session?
     var sessionID: String
     var createdAt: Date
     var updatedAt: Date
@@ -18,7 +19,8 @@ final class RemoteConversationBinding {
         channelKind: IMChannelKind,
         externalConversationID: String,
         externalUserID: String,
-        sessionID: String,
+        session: Session? = nil,
+        sessionID: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -26,8 +28,16 @@ final class RemoteConversationBinding {
         self.channelKind = channelKind
         self.externalConversationID = externalConversationID
         self.externalUserID = externalUserID
-        self.sessionID = sessionID
+        self.session = session
+        self.sessionID = session?.sessionId ?? sessionID ?? ""
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+extension RemoteConversationBinding {
+    func attach(to session: Session) {
+        self.session = session
+        self.sessionID = session.sessionId
     }
 }
