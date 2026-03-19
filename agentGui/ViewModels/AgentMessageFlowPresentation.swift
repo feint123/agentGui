@@ -86,6 +86,11 @@ struct SubagentStepPresentation: Equatable, Identifiable {
 }
 
 enum AgentMessageFlowPresentation {
+    nonisolated static func projection(for message: Message) -> AgentExecutionProjection {
+        let audit = snapshot(for: message)
+        return AgentExecutionProjection.make(for: message, audit: audit)
+    }
+
     nonisolated static func snapshot(for message: Message) -> AgentMessageFlowSnapshot {
         let activeToolID = activeToolCallID(in: message)
         let activeThinkingRoundID = activeThinkingRoundID(in: message, activeToolID: activeToolID)

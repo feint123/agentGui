@@ -5,6 +5,15 @@ import Testing
 @MainActor
 struct AgentMessageFlowPresentationTests {
 
+    @Test func projectionBridgesAuditSnapshotAndTranscriptSummary() async throws {
+        let message = AgentMessageFlowFixture.makeChronologicalMessage()
+
+        let projection = AgentMessageFlowPresentation.projection(for: message)
+
+        #expect(projection.transcript.answerText == "完成调整")
+        #expect(projection.audit.steps.map(AgentMessageFlowFixture.kindLabel) == ["thinking", "read", "edit", "result"])
+    }
+
     @Test func flowSnapshotOrdersMessageRoundAndToolStepsChronologically() async throws {
         let message = AgentMessageFlowFixture.makeChronologicalMessage()
 

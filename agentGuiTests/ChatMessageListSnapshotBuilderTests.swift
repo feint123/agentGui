@@ -92,4 +92,26 @@ struct ChatMessageListSnapshotBuilderTests {
         #expect(initial.cachedEntry(for: first.id) === updated.cachedEntry(for: first.id))
         #expect(initial.cachedEntry(for: second.id) !== updated.cachedEntry(for: second.id))
     }
+
+    @Test func builderRebuildsAgentRowWhenStatusChangesFromPendingToCompleted() async throws {
+        let session = Session(title: "Projection Status")
+        let message = Message.agentMessage(text: "最终结果", session: session)
+        message.status = .pending
+
+        let initial = ChatMessageListSnapshotBuilder.build(
+            messages: [message],
+            workspaceRoot: "/Volumes/T7/文稿/Projects/agentGui",
+            previous: [:]
+        )
+
+        message.status = .completed
+
+        let updated = ChatMessageListSnapshotBuilder.build(
+            messages: [message],
+            workspaceRoot: "/Volumes/T7/文稿/Projects/agentGui",
+            previous: initial.cache
+        )
+
+        #expect(initial.cachedEntry(for: message.id) !== updated.cachedEntry(for: message.id))
+    }
 }

@@ -40,6 +40,7 @@ struct MessageRowSnapshotTests {
         #expect(agent.attachments.images == ["/tmp/mock.png"])
         #expect(agent.attachments.pdfs == ["/tmp/mock.pdf"])
         #expect(agent.attachments.others == ["/tmp/mock.txt"])
-        #expect(agent.flow.steps.count == 1)
+        #expect(agent.execution.transcript.answerText == "结果正文\n\nReferenced files:\n- /tmp/mock.png\n- /tmp/mock.pdf\n- /tmp/mock.txt")
+        #expect(agent.execution.audit.steps.count == 1)
     }
 }

@@ -160,7 +160,7 @@ struct MessageBubbleView: View {
     private var agentCardContent: some View {
         if let agent = snapshot.agent {
             VStack(alignment: .leading, spacing: 8) {
-                AgentMessageStepFlowView(snapshot: agent.flow)
+                AgentMessageStepFlowView(projection: agent.execution)
 
                 if !agent.hasAgentRounds {
                     if agent.attachments.hasMedia {

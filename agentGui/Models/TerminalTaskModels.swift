@@ -8,6 +8,23 @@ enum TerminalExecutionMode: String, Codable, Equatable, Sendable {
     static let foreground: TerminalExecutionMode = .attached
     static let background: TerminalExecutionMode = .detached
     static let interactive: TerminalExecutionMode = .attached
+
+    static func parse(_ rawValue: String?) -> TerminalExecutionMode? {
+        guard let rawValue else { return nil }
+
+        if let mode = TerminalExecutionMode(rawValue: rawValue) {
+            return mode
+        }
+
+        switch rawValue {
+        case "auto", "foreground", "interactive":
+            return .attached
+        case "background":
+            return .detached
+        default:
+            return nil
+        }
+    }
 }
 
 enum TerminalTaskStatus: String, Codable, Equatable, Sendable {
@@ -29,6 +46,25 @@ enum TerminalTaskStatus: String, Codable, Equatable, Sendable {
     static let waitingForPrompt: TerminalTaskStatus = .waitingForInput
     static let runningBackground: TerminalTaskStatus = .running
     static let needsUserDecision: TerminalTaskStatus = .waitingForInput
+
+    static func parse(_ rawValue: String?) -> TerminalTaskStatus? {
+        guard let rawValue else { return nil }
+
+        if let status = TerminalTaskStatus(rawValue: rawValue) {
+            return status
+        }
+
+        switch rawValue {
+        case "queued", "classifying":
+            return .launching
+        case "runningForeground", "runningBackground":
+            return .running
+        case "waitingForPrompt", "needsUserDecision":
+            return .waitingForInput
+        default:
+            return nil
+        }
+    }
 
     var isTerminal: Bool {
         switch self {

@@ -19,8 +19,12 @@ struct UserRowSnapshot: Equatable {
 
 struct AgentRowSnapshot: Equatable {
     let attachments: MessageAttachmentSnapshot
-    let flow: AgentMessageFlowSnapshot
+    let execution: AgentExecutionProjection
     let hasAgentRounds: Bool
+
+    var flow: AgentMessageFlowSnapshot {
+        execution.audit.flow
+    }
 }
 
 struct MessageRowSnapshot: Identifiable, Equatable {
@@ -51,7 +55,7 @@ struct MessageRowSnapshot: Identifiable, Equatable {
         } else {
             agentSnapshot = AgentRowSnapshot(
                 attachments: attachmentSnapshot(from: message.textContent ?? ""),
-                flow: AgentMessageFlowPresentation.snapshot(for: message),
+                execution: AgentMessageFlowPresentation.projection(for: message),
                 hasAgentRounds: !message.agentRounds.isEmpty
             )
         }

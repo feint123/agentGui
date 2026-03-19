@@ -11,6 +11,7 @@ import SwiftData
 /// 应用主视图
 struct ContentView: View {
 
+    private let launchOptions = TestLaunchOptions.current
     @State private var selectedTab: AppTab = TestLaunchOptions.current.initialTab
     @State private var persistenceCoordinator = PersistenceCoordinator.shared
     @Environment(\.modelContext) private var modelContext
@@ -68,6 +69,11 @@ struct ContentView: View {
     }
 
     private func synchronizeOnboardingWindow() {
+        if launchOptions.suppressOnboarding {
+            dismissWindow(id: OnboardingWindowScene.id)
+            return
+        }
+
         if launchReadiness.isReadyForFirstMessage {
             dismissWindow(id: OnboardingWindowScene.id)
         } else {

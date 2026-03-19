@@ -152,7 +152,7 @@ struct ManagedTerminalScreenDetailView: View {
                 }
             }
 
-            if let status = toolCall.terminalTaskStatus.flatMap(TerminalTaskStatus.init(rawValue:)), status.isTerminal {
+            if let status = TerminalTaskStatus.parse(toolCall.terminalTaskStatus), status.isTerminal {
                 break
             }
 

@@ -56,7 +56,7 @@ struct ToolCallRowPresentation: Equatable {
                 secondaryText: toolCall.toolResultSummary ?? managedExecutionSummary(for: toolCall, status: managedStatus),
                 tertiaryText: managedTertiaryText(for: toolCall, status: managedStatus),
                 statusText: managedStatus.map {
-                    terminalStatusText(for: $0, executionMode: toolCall.terminalExecutionMode.flatMap(TerminalExecutionMode.init(rawValue:)))
+                    terminalStatusText(for: $0, executionMode: TerminalExecutionMode.parse(toolCall.terminalExecutionMode))
                 } ?? toolCall.statusDisplay,
                 detailText: toolCall.terminalOutput,
                 durationText: durationText,
@@ -153,7 +153,7 @@ struct ToolCallRowPresentation: Equatable {
             }
         }
 
-        if let mode = toolCall.terminalExecutionMode.flatMap(TerminalExecutionMode.init(rawValue:)) {
+        if let mode = TerminalExecutionMode.parse(toolCall.terminalExecutionMode) {
             switch mode {
             case .detached:
                 return "后台任务"
@@ -189,8 +189,7 @@ struct ToolCallRowPresentation: Equatable {
     }
 
     private static func terminalTaskStatus(from toolCall: ToolCall) -> TerminalTaskStatus? {
-        guard let raw = toolCall.terminalTaskStatus else { return nil }
-        return TerminalTaskStatus(rawValue: raw)
+        TerminalTaskStatus.parse(toolCall.terminalTaskStatus)
     }
 
     private static func terminalStatusText(

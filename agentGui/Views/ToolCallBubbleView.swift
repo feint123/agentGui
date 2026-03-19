@@ -29,11 +29,11 @@ enum ToolCallBubbleHeaderPresentation {
 
         var badges: [ToolCallBubbleBadge] = []
 
-        if let mode = toolCall.terminalExecutionMode.flatMap(TerminalExecutionMode.init(rawValue:)) {
+        if let mode = TerminalExecutionMode.parse(toolCall.terminalExecutionMode) {
             badges.append(.init(text: executionModeText(mode), tone: .neutral))
         }
 
-        if let status = toolCall.terminalTaskStatus.flatMap(TerminalTaskStatus.init(rawValue:)) {
+        if let status = TerminalTaskStatus.parse(toolCall.terminalTaskStatus) {
             badges.append(.init(text: taskStatusText(status), tone: badgeTone(for: status)))
         }
 
@@ -57,7 +57,7 @@ enum ToolCallBubbleHeaderPresentation {
               toolCall.status == .inProgress,
               let taskId = toolCall.terminalTaskId,
               !taskId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let status = toolCall.terminalTaskStatus.flatMap(TerminalTaskStatus.init(rawValue:)) else {
+              let status = TerminalTaskStatus.parse(toolCall.terminalTaskStatus) else {
             return false
         }
 

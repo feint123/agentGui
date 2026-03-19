@@ -227,6 +227,10 @@ struct agentGuiApp: App {
             ensureCompletedMessages(for: session, in: context)
         }
 
+        if let chatProjectionFixture = launchOptions.chatProjectionFixture {
+            ensureChatProjectionFixture(for: session, mode: chatProjectionFixture, in: context)
+        }
+
         if let todoFixtureMode = launchOptions.todoFixtureMode {
             ensureTodoItems(for: session.sessionId, mode: todoFixtureMode, in: context)
         }
@@ -366,5 +370,73 @@ struct agentGuiApp: App {
         let store = SessionTaskStateStore(modelContext: context, persistenceCoordinator: .shared)
         try? store.saveTodoItems(items, for: sessionId)
         claudeService.sessionTodoLists[sessionId] = items
+    }
+
+    @MainActor
+    private func ensureChatProjectionFixture(for session: Session, mode: String, in context: ModelContext) {
+        guard session.messages.isEmpty else { return }
+
+        let userMessage = Message.userFixture(text: "整理 agent message 投影", session: session)
+        context.insert(userMessage)
+
+        switch mode {
+        case "liveAgentExecution":
+            let agentMessage = Message.agentMessage(text: nil, session: session)
+            agentMessage.status = .pending
+            let round = AgentRound(roundIndex: 0, message: agentMessage)
+            round.timestamp = Date(timeIntervalSince1970: 1_710_000_000)
+            round.thinkingContent = "准备执行命令"
+
+            let exec = ToolCall(toolCallId: "ui-live-exec", kind: .execute, message: agentMessage, agentRound: round)
+            exec.title = "xcodebuild -scheme agentGui"
+            exec.status = ToolStatus.inProgress
+            exec.startTime = Date(timeIntervalSince1970: 1_710_000_001)
+            exec.terminalExecutionMode = "background"
+            exec.terminalTaskStatus = "runningBackground"
+            exec.terminalPromptSummary = "Compile Swift source..."
+
+            round.toolCalls = [exec]
+            agentMessage.agentRounds = [round]
+
+            context.insert(agentMessage)
+            context.insert(round)
+            context.insert(exec)
+        case "settledAgentDelivery":
+            let agentMessage = Message.agentMessage(text: nil, session: session)
+            agentMessage.status = .completed
+            let round = AgentRound(roundIndex: 0, message: agentMessage)
+            round.timestamp = Date(timeIntervalSince1970: 1_710_000_000)
+            round.thinkingContent = "分析结构"
+            round.text = "完成调整"
+
+            let read = ToolCall(toolCallId: "ui-read", kind: .read, message: agentMessage, agentRound: round)
+            read.filePath = "/tmp/ChatView.swift"
+            read.status = ToolStatus.success
+            read.startTime = Date(timeIntervalSince1970: 1_710_000_001)
+            read.endTime = Date(timeIntervalSince1970: 1_710_000_002)
+
+            let edit = ToolCall(toolCallId: "ui-edit", kind: .edit, message: agentMessage, agentRound: round)
+            edit.filePath = "/tmp/MessageBubbleView.swift"
+            edit.diffContent = "--- old\n+++ new\n-old\n+new"
+            edit.status = ToolStatus.success
+            edit.startTime = Date(timeIntervalSince1970: 1_710_000_003)
+            edit.endTime = Date(timeIntervalSince1970: 1_710_000_004)
+
+            round.toolCalls = [read, edit]
+            agentMessage.agentRounds = [round]
+
+            context.insert(agentMessage)
+            context.insert(round)
+            context.insert(read)
+            context.insert(edit)
+        default:
+            return
+        }
+
+        try? PersistenceCoordinator.shared.save(
+            context,
+            domain: .sessionMessages,
+            userMessage: "UI 测试聊天投影夹具初始化未成功保存"
+        )
     }
 }

@@ -30,7 +30,7 @@ enum ToolCallDetailPresentation {
               toolCall.kind == .execute,
               let taskId = toolCall.terminalTaskId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !taskId.isEmpty,
-              let executionMode = toolCall.terminalExecutionMode.flatMap(TerminalExecutionMode.init(rawValue:)) else {
+                            let executionMode = TerminalExecutionMode.parse(toolCall.terminalExecutionMode) else {
             return false
         }
 
@@ -84,7 +84,7 @@ enum ToolCallDetailPresentation {
         ]
 
         let isUserTakeoverActive = toolCall.terminalUserTakeoverActive
-            || toolCall.terminalTaskStatus.flatMap(TerminalTaskStatus.init(rawValue:)) == .userTakeover
+            || TerminalTaskStatus.parse(toolCall.terminalTaskStatus) == .userTakeover
 
         if let interactionPhase = toolCall.terminalInteractionPhase
             .flatMap(TerminalInteractionPhase.init(rawValue:))
@@ -200,11 +200,9 @@ enum ToolCallDetailPresentation {
     }
 
     private static func executionStateSummary(for toolCall: ToolCall) -> String? {
-        let modeText = toolCall.terminalExecutionMode
-            .flatMap(TerminalExecutionMode.init(rawValue:))
-            .map(executionModeText)
+        let modeText = executionModeLabel(from: toolCall.terminalExecutionMode)
         let statusText = toolCall.terminalTaskStatus
-            .flatMap(TerminalTaskStatus.init(rawValue:))
+            .flatMap(TerminalTaskStatus.parse)
             .map(taskStatusText)
 
         let summary = [modeText, statusText]
@@ -227,6 +225,17 @@ enum ToolCallDetailPresentation {
             return "附着任务"
         case .detached:
             return "后台任务"
+        }
+    }
+
+    private static func executionModeLabel(from rawValue: String?) -> String? {
+        switch rawValue {
+        case "interactive":
+            return "交互任务"
+        case "background":
+            return "后台任务"
+        default:
+            return TerminalExecutionMode.parse(rawValue).map(executionModeText)
         }
     }
 
@@ -323,7 +332,7 @@ struct ToolCallDetailContentView: View {
 
     private var showsManualTakeoverInput: Bool {
         guard toolCall.kind == .execute else { return false }
-        guard let status = toolCall.terminalTaskStatus.flatMap(TerminalTaskStatus.init(rawValue:)) else {
+        guard let status = TerminalTaskStatus.parse(toolCall.terminalTaskStatus) else {
             return toolCall.terminalUserTakeoverActive
         }
         return toolCall.terminalUserTakeoverActive || status == .userTakeover

@@ -13,6 +13,8 @@ struct TestLaunchOptions {
     let selectedFilePath: String?
     let todoFixtureMode: String?
     let initialComposerText: String?
+    let chatProjectionFixture: String?
+    let suppressOnboarding: Bool
 
     static var current: TestLaunchOptions {
         TestLaunchOptions(arguments: ProcessInfo.processInfo.arguments)
@@ -29,6 +31,8 @@ struct TestLaunchOptions {
         selectedFilePath = Self.stringValue(for: "-com.agentgui.test.selectedFilePath", in: arguments)
         todoFixtureMode = Self.stringValue(for: "-com.agentgui.test.todoFixtureMode", in: arguments)
         initialComposerText = Self.stringValue(for: "-com.agentgui.test.initialComposerText", in: arguments)
+        chatProjectionFixture = Self.stringValue(for: "-com.agentgui.test.chatProjectionFixture", in: arguments)
+        suppressOnboarding = Self.boolValue(for: "-com.agentgui.test.suppressOnboarding", in: arguments)
 
         if let rawTab = Self.stringValue(for: "-com.agentgui.test.initialTab", in: arguments),
            let parsedTab = AppTab(rawValue: rawTab) {

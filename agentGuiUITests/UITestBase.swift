@@ -2,6 +2,7 @@ import XCTest
 
 class UITestBase: XCTestCase {
     let app = XCUIApplication()
+    private let suppressOnboardingFlag = "-com.agentgui.test.suppressOnboarding"
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -13,13 +14,19 @@ class UITestBase: XCTestCase {
             "-com.agentgui.test.mode", "true",
             "-com.agentgui.test.preloadApiKey", "true",
             "-com.agentgui.test.preloadMessages", "true",
-            "-com.agentgui.test.sessionId", "ui-test-session"
+            "-com.agentgui.test.sessionId", "ui-test-session",
+            "-com.agentgui.test.suppressOnboarding", "true"
         ] + arguments
         app.launch()
+        dismissOnboardingIfPresent()
     }
 
     @MainActor
     func dismissOnboardingIfPresent() {
+        if app.launchArguments.contains(suppressOnboardingFlag) {
+            return
+        }
+
         let skipButton = app.buttons["onboarding.skipButton"]
         guard skipButton.waitForExistence(timeout: 1) else { return }
         skipButton.click()
