@@ -12,4 +12,16 @@ enum ConversationExecutionProviderID: String, Codable, CaseIterable, Sendable {
             return "GitHub Copilot CLI"
         }
     }
+
+    static func optionItems(
+        copilotAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus = .unknown
+    ) -> [ExecutionOptionItem] {
+        allCases.map { provider in
+            ExecutionOptionItem(
+                id: provider.rawValue,
+                title: provider.displayName,
+                isEnabled: provider != .githubCopilotCLI || copilotAvailabilityStatus.kind == .available
+            )
+        }
+    }
 }

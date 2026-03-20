@@ -10,6 +10,7 @@ struct ExecutionOptionPicker: View {
         Picker(title, selection: $selection) {
             ForEach(options) { option in
                 Text(option.title).tag(option.id)
+                    .disabled(!option.isEnabled)
             }
         }
         .pickerStyle(.menu)

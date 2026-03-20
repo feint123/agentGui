@@ -6,16 +6,18 @@ struct SettingsExecutorsView: View {
     var body: some View {
         Form {
             Section("默认执行器") {
-                Picker("对话默认执行器", selection: store.persistedSettingsBinding(
-                    get: { store.settings.defaultExecutionProviderID },
-                    userMessage: "默认执行器设置未成功保存",
-                    set: { store.settings.defaultExecutionProviderID = $0 }
-                )) {
-                    ForEach(ConversationExecutionProviderID.allCases, id: \.rawValue) { provider in
-                        Text(provider.displayName).tag(provider.rawValue)
-                    }
-                }
-                .accessibilityIdentifier("settings.executors.defaultProviderPicker")
+                ExecutionOptionPicker(
+                    title: "对话默认执行器",
+                    options: ConversationExecutionProviderID.optionItems(
+                        copilotAvailabilityStatus: store.gitHubCopilotCLIAvailabilityStatus
+                    ),
+                    selection: store.persistedSettingsBinding(
+                        get: { store.settings.defaultExecutionProviderID },
+                        userMessage: "默认执行器设置未成功保存",
+                        set: { store.settings.defaultExecutionProviderID = $0 }
+                    ),
+                    accessibilityIdentifier: "settings.executors.defaultProviderPicker"
+                )
             }
 
             Section {

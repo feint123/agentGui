@@ -16,4 +16,17 @@ struct ConversationExecutionProviderSelectionTests {
 
         #expect(session.executionProviderID == .githubCopilotCLI)
     }
+
+    @Test func providerOptionsDisableCopilotWhenUnavailable() {
+        let options = ConversationExecutionProviderID.optionItems(
+            copilotAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus(kind: .notInstalled, version: nil)
+        )
+
+        #expect(options.map(\.id) == [
+            ConversationExecutionProviderID.builtInAgent.rawValue,
+            ConversationExecutionProviderID.githubCopilotCLI.rawValue
+        ])
+        #expect(options.first(where: { $0.id == ConversationExecutionProviderID.builtInAgent.rawValue })?.isEnabled == true)
+        #expect(options.first(where: { $0.id == ConversationExecutionProviderID.githubCopilotCLI.rawValue })?.isEnabled == false)
+    }
 }

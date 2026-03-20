@@ -199,6 +199,18 @@ extension ChatView {
         )
     }
 
+    var executionProviderSelectionRawValueBinding: Binding<String> {
+        Binding(
+            get: { resolvedExecutionProviderID.rawValue },
+            set: { newValue in
+                guard let providerID = ConversationExecutionProviderID(rawValue: newValue) else {
+                    return
+                }
+                executionProviderSelectionBinding.wrappedValue = providerID
+            }
+        )
+    }
+
     var copilotComposerAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus {
         executionProviderAvailabilityModel.copilotStatus
     }

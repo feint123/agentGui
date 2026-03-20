@@ -3,6 +3,13 @@ import Foundation
 struct ExecutionOptionItem: Identifiable, Equatable, Hashable, Sendable {
     let id: String
     let title: String
+    let isEnabled: Bool
+
+    init(id: String, title: String, isEnabled: Bool = true) {
+        self.id = id
+        self.title = title
+        self.isEnabled = isEnabled
+    }
 }
 
 enum GitHubCopilotCLIApprovalModeOption: String, CaseIterable, Codable, Sendable {

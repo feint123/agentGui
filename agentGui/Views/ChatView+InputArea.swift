@@ -41,9 +41,13 @@ extension ChatView {
                 }
 
                 HStack(spacing: 8) {
-                    ChatExecutionProviderPicker(
-                        selection: executionProviderSelectionBinding,
-                        copilotAvailabilityStatus: copilotComposerAvailabilityStatus
+                    ExecutionOptionPicker(
+                        title: "",
+                        options: ConversationExecutionProviderID.optionItems(
+                            copilotAvailabilityStatus: copilotComposerAvailabilityStatus
+                        ),
+                        selection: executionProviderSelectionRawValueBinding,
+                        accessibilityIdentifier: "chat.executionProviderPicker"
                     )
 
                     composerExecutionPreferencesControls
