@@ -5,6 +5,7 @@ enum WorkspaceFileTreeOperationError: LocalizedError, Equatable {
     case invalidName
     case itemAlreadyExists
     case itemMissing
+    case invalidMoveDestination
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ enum WorkspaceFileTreeOperationError: LocalizedError, Equatable {
             return "目标已存在同名文件或文件夹。"
         case .itemMissing:
             return "目标不存在，可能已被外部修改。"
+        case .invalidMoveDestination:
+            return "移动目标无效。"
         }
     }
 }
@@ -60,6 +63,22 @@ enum WorkspaceFileTreeOperations {
         try FileManager.default.removeItem(at: standardizedURL)
     }
 
+    static func moveItems(at urls: [URL], to destinationDirectory: URL) throws -> [URL] {
+        let fileManager = FileManager.default
+        let standardizedDestinationDirectory = destinationDirectory.standardizedFileURL
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: standardizedDestinationDirectory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw WorkspaceFileTreeOperationError.invalidMoveDestination
+        }
+
+        let uniqueSources = uniqueStandardizedURLs(urls)
+        return try uniqueSources.map { sourceURL in
+            let destinationURL = try validatedMoveDestination(for: sourceURL, to: standardizedDestinationDirectory)
+            try fileManager.moveItem(at: sourceURL, to: destinationURL)
+            return destinationURL
+        }
+    }
+
     private static func validatedDestinationURL(for rawName: String, in directory: URL) throws -> URL {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
@@ -75,5 +94,42 @@ enum WorkspaceFileTreeOperations {
             throw WorkspaceFileTreeOperationError.itemAlreadyExists
         }
         return destinationURL
+    }
+
+    private static func validatedMoveDestination(for sourceURL: URL, to destinationDirectory: URL) throws -> URL {
+        let standardizedSourceURL = sourceURL.standardizedFileURL
+        guard FileManager.default.fileExists(atPath: standardizedSourceURL.path) else {
+            throw WorkspaceFileTreeOperationError.itemMissing
+        }
+
+        let destinationDirectory = destinationDirectory.standardizedFileURL
+        if destinationDirectory == standardizedSourceURL.deletingLastPathComponent().standardizedFileURL {
+            throw WorkspaceFileTreeOperationError.invalidMoveDestination
+        }
+        if destinationDirectory.path.hasPrefix(standardizedSourceURL.path + "/") {
+            throw WorkspaceFileTreeOperationError.invalidMoveDestination
+        }
+
+        let destinationURL = destinationDirectory.appending(path: standardizedSourceURL.lastPathComponent).standardizedFileURL
+        guard destinationURL != standardizedSourceURL else {
+            throw WorkspaceFileTreeOperationError.invalidMoveDestination
+        }
+        guard !FileManager.default.fileExists(atPath: destinationURL.path) else {
+            throw WorkspaceFileTreeOperationError.itemAlreadyExists
+        }
+        return destinationURL
+    }
+
+    private static func uniqueStandardizedURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<URL>()
+        var ordered: [URL] = []
+
+        for url in urls.map(\.standardizedFileURL) {
+            if seen.insert(url).inserted {
+                ordered.append(url)
+            }
+        }
+
+        return ordered
     }
 }

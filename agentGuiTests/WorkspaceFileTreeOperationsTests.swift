@@ -53,6 +53,27 @@ struct WorkspaceFileTreeOperationsTests {
         #expect(resultURL == fileURL.standardizedFileURL)
         #expect(FileManager.default.fileExists(atPath: fileURL.path))
     }
+
+    @Test func moveItemsRelocatesMultipleFilesIntoTargetDirectory() throws {
+        let rootURL = try makeWorkspaceOperationsTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let docsURL = try WorkspaceFileTreeOperations.createDirectory(named: "Docs", in: rootURL)
+        let archiveURL = try WorkspaceFileTreeOperations.createDirectory(named: "Archive", in: rootURL)
+        let readmeURL = try WorkspaceFileTreeOperations.createFile(named: "README.md", in: docsURL)
+        let notesURL = try WorkspaceFileTreeOperations.createFile(named: "Notes.md", in: docsURL)
+
+        let movedURLs = try WorkspaceFileTreeOperations.moveItems(at: [readmeURL, notesURL], to: archiveURL)
+
+        #expect(movedURLs == [
+            archiveURL.appending(path: "README.md").standardizedFileURL,
+            archiveURL.appending(path: "Notes.md").standardizedFileURL
+        ])
+        #expect(!FileManager.default.fileExists(atPath: readmeURL.path))
+        #expect(!FileManager.default.fileExists(atPath: notesURL.path))
+        #expect(FileManager.default.fileExists(atPath: movedURLs[0].path))
+        #expect(FileManager.default.fileExists(atPath: movedURLs[1].path))
+    }
 }
 
 private func makeWorkspaceOperationsTemporaryDirectory() throws -> URL {

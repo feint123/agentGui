@@ -7,17 +7,6 @@ import SwiftUI
 import SwiftData
 import AppKit
 
-// MARK: - FileNode
-
-/// 文件树中的一个节点（文件或目录）
-struct FileNode: Identifiable, Hashable {
-    let id: URL
-    let name: String
-    let isDirectory: Bool
-    /// `nil` = 叶节点（文件）；非nil = 可展开的目录
-    var children: [FileNode]?
-}
-
 // MARK: - WorkspacePanelView
 
 /// 左侧文件浏览器面板
@@ -88,16 +77,20 @@ struct WorkspacePanelView: View {
         }
         .alert("删除项目", isPresented: Binding(
             get: { treeViewModel.pendingDeleteNode != nil },
-            set: { if !$0 { treeViewModel.pendingDeleteNode = nil } }
+            set: { if !$0 { treeViewModel.clearPendingDelete() } }
         ), presenting: treeViewModel.pendingDeleteNode) { node in
             Button("取消", role: .cancel) {
-                treeViewModel.pendingDeleteNode = nil
+                treeViewModel.clearPendingDelete()
             }
             Button("删除", role: .destructive) {
-                treeViewModel.deleteNode(node, workspaceState: workspaceState)
+                treeViewModel.deletePendingNode(workspaceState: workspaceState)
             }
         } message: { node in
-            Text("确定要删除「\(node.name)」吗？此操作不可撤销。")
+            if treeViewModel.pendingDeleteSelectionCount > 1 {
+                Text("确定要删除选中的 \(treeViewModel.pendingDeleteSelectionCount) 个项目吗？此操作不可撤销。")
+            } else {
+                Text("确定要删除「\(node.name)」吗？此操作不可撤销。")
+            }
         }
         .alert("错误", isPresented: Binding(
             get: { treeViewModel.errorMessage != nil },
@@ -139,16 +132,26 @@ struct WorkspacePanelView: View {
 
     private var workspaceActionBar: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("搜索文件或文件夹", text: $treeViewModel.treeSearchText)
-                    .textFieldStyle(.plain)
-                    .accessibilityIdentifier("workspace.searchField")
+            searchControl
+
+            Menu {
+                Button("在访达中打开") {
+                    treeViewModel.revealSelectionInFinder()
+                }
+                .disabled(!treeViewModel.hasSelection)
+
+                Button("复制相对路径") {
+                    copySelectionRelativePaths()
+                }
+                .disabled(!treeViewModel.hasSelection)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 12, weight: .semibold))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .menuStyle(.borderlessButton)
+            .accessibilityLabel("批量操作")
+            .help("批量操作")
+            .accessibilityIdentifier("workspace.selectionActionsButton")
 
             Button(action: { treeViewModel.beginCreate(kind: .file, from: treeViewModel.selectedNode()) }) {
                 Image(systemName: "doc.badge.plus")
@@ -175,22 +178,26 @@ struct WorkspacePanelView: View {
                     .font(.system(size: 12, weight: .semibold))
             }
             .buttonStyle(.borderless)
-            .disabled(treeViewModel.selectedNode() == nil)
+            .disabled(treeViewModel.selectedNode() == nil || treeViewModel.hasMultipleSelection)
             .accessibilityLabel("重命名")
             .help("重命名")
             .accessibilityIdentifier("workspace.renameButton")
 
-            Button(role: .destructive, action: { treeViewModel.confirmDelete(treeViewModel.selectedNode()) }) {
+            Button(role: .destructive, action: { treeViewModel.confirmDelete(nil) }) {
                 Image(systemName: "trash")
                     .font(.system(size: 12, weight: .semibold))
             }
             .buttonStyle(.borderless)
-            .disabled(treeViewModel.selectedNode() == nil)
+            .disabled(!treeViewModel.hasSelection)
             .accessibilityLabel("删除")
             .help("删除")
             .accessibilityIdentifier("workspace.deleteButton")
 
             if launchOptions.isUITestMode {
+                Text("workspace.searchPresentation.\(treeViewModel.searchPresentationState == .expanded ? "expanded" : "collapsed")")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("workspace.searchPresentation")
                 Text("workspace.searchState.\(treeViewModel.searchStateText)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -201,6 +208,54 @@ struct WorkspacePanelView: View {
         .padding(.vertical, 8)
         // .background(.bar)
         .accessibilityIdentifier("workspace.actionBar")
+    }
+
+    @ViewBuilder
+    private var searchControl: some View {
+        if treeViewModel.searchPresentationState == .expanded {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("搜索文件或文件夹", text: $treeViewModel.treeSearchText)
+                    .textFieldStyle(.plain)
+                    .onSubmit {
+                        treeViewModel.openSingleSearchResultIfPossible(workspaceState: workspaceState)
+                    }
+                    .accessibilityIdentifier("workspace.searchField")
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        treeViewModel.collapseSearch()
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("workspace.searchCollapseButton")
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .onExitCommand {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    treeViewModel.collapseSearch()
+                }
+            }
+            .transition(.move(edge: .leading).combined(with: .opacity))
+        } else {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    treeViewModel.expandSearch()
+                }
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("展开搜索")
+            .help("搜索文件或文件夹")
+            .accessibilityIdentifier("workspace.searchToggleButton")
+        }
     }
 
     // MARK: - Tree
@@ -217,52 +272,20 @@ struct WorkspacePanelView: View {
         } else if filteredNodes.isEmpty {
             searchEmptyState
         } else {
-            List(filteredNodes, children: \.optionalChildren) { node in
-                let gitChange = treeViewModel.gitChangeMatch(for: node, snapshot: gitPanelViewModel.snapshot)
-                FileRowView(
-                    node: node,
-                    isSelected: treeViewModel.selectedTreeNodeID == node.id || (!node.isDirectory && workspaceState.selectedFile == node.id),
-                    gitChange: gitChange,
-                    onPreviewDiff: { change, staged in
-                        Task { await gitPanelViewModel.selectDiff(for: change, staged: staged, workspaceState: workspaceState) }
-                    },
-                    onNewFile: {
-                        treeViewModel.selectedTreeNodeID = node.id
-                        treeViewModel.beginCreate(kind: .file, from: node)
-                    },
-                    onNewFolder: {
-                        treeViewModel.selectedTreeNodeID = node.id
-                        treeViewModel.beginCreate(kind: .folder, from: node)
-                    },
-                    onRename: {
-                        treeViewModel.selectedTreeNodeID = node.id
-                        treeViewModel.beginRename(for: node)
-                    },
-                    onDelete: {
-                        treeViewModel.selectedTreeNodeID = node.id
-                        treeViewModel.confirmDelete(node)
-                    },
-                    inlineEdit: treeViewModel.inlineEdit,
-                    onInlineEditChange: { updatedName in
-                        guard let inlineEdit = treeViewModel.inlineEdit else { return }
-                        treeViewModel.inlineEdit = inlineEdit.withDraftName(updatedName)
-                    },
-                    onInlineEditCommit: {
-                        treeViewModel.commitInlineEdit(workspaceState: workspaceState)
-                    },
-                    onInlineEditCancel: {
-                        treeViewModel.cancelInlineEdit()
-                    }
-                ) {
-                    treeViewModel.didTapNode(node, workspaceState: workspaceState)
-                }
-                .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .accessibilityIdentifier("workspace.fileTree")
+            WorkspaceTreeView(
+                nodes: filteredNodes,
+                selectionIDs: treeViewModel.selectedTreeNodeIDs,
+                primarySelectionID: treeViewModel.primarySelectionID,
+                inlineEdit: treeViewModel.inlineEdit,
+                expandsMatchingBranches: !treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                gitChangeProvider: { node in
+                    treeViewModel.gitChangeMatch(for: node, snapshot: gitPanelViewModel.snapshot)
+                },
+                onSelectionChange: { ids, primaryID in
+                    treeViewModel.applyOutlineSelection(ids: ids, primaryID: primaryID, workspaceState: workspaceState)
+                },
+                actions: workspaceTreeActions
+            )
         }
     }
 
@@ -383,7 +406,6 @@ struct WorkspacePanelView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        // .background(.bar)
         .accessibilityIdentifier("workspace.lspStatusFooter")
     }
 
@@ -456,342 +478,89 @@ struct WorkspacePanelView: View {
         .padding(.vertical, 4)
         .background(color.opacity(0.10), in: Capsule())
     }
-}
 
-// MARK: - FileNode helper
-
-private extension FileNode {
-    var optionalChildren: [FileNode]? {
-        guard isDirectory else { return nil }
-        return children
+    private func copySelectionRelativePaths() {
+        let relativePaths = treeViewModel.relativePathsForSelection()
+        guard !relativePaths.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(relativePaths.sorted().joined(separator: "\n"), forType: .string)
     }
-}
 
-// MARK: - FileRowView
-
-private struct FileRowView: View {
-    let node: FileNode
-    let isSelected: Bool
-    let gitChange: GitFileChange?
-    let onPreviewDiff: (GitFileChange, Bool) -> Void
-    let onNewFile: () -> Void
-    let onNewFolder: () -> Void
-    let onRename: () -> Void
-    let onDelete: () -> Void
-    let inlineEdit: WorkspaceTreeInlineEdit?
-    let onInlineEditChange: (String) -> Void
-    let onInlineEditCommit: () -> Void
-    let onInlineEditCancel: () -> Void
-    let onTap: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: node.isDirectory ? "folder.fill" : fileIcon(for: node.name))
-                .font(.system(size: 11))
-                .foregroundStyle(iconColor)
-                .frame(width: 14)
-            if isInlineEditing {
-                InlineTreeNameField(
-                    text: Binding(
-                        get: { inlineEdit?.draftName ?? node.name },
-                        set: onInlineEditChange
-                    ),
-                    onCommit: onInlineEditCommit,
-                    onCancel: onInlineEditCancel
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text(node.name)
-                    .font(.system(size: 12))
-                    .foregroundStyle(isSelected ? Color.accentColor : .primary)
-                    .lineLimit(1)
-            }
-            if let gitChange {
-                Text(gitChange.statusBadge)
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(statusColor(for: gitChange.status))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(statusColor(for: gitChange.status).opacity(isSelected || isHovered ? 0.16 : 0.08), in: Capsule())
-                    .opacity(isSelected || isHovered ? 1 : 0.72)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(
-            RoundedRectangle(cornerRadius: 5)
-                .fill(backgroundFill)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
-        .accessibilityIdentifier(node.isDirectory ? "workspace.directory.\(node.name)" : "workspace.file.\(node.name)")
-        .onHover { hovered in
-            withAnimation(.easeInOut(duration: 0.12)) {
-                isHovered = hovered
-            }
-        }
-        .contextMenu {
-            if let gitChange {
-                Button("查看 Diff") {
-                    onPreviewDiff(gitChange, gitChange.section == .staged)
+    private var workspaceTreeActions: WorkspaceTreeOutlineView.ActionHandlers {
+        WorkspaceTreeOutlineView.ActionHandlers(
+            previewDiff: { change, staged in
+                Task {
+                    await gitPanelViewModel.selectDiff(for: change, staged: staged, workspaceState: workspaceState)
                 }
-                Divider()
-            }
-            Button("新建文件") {
-                onNewFile()
-            }
-            Button("新建文件夹") {
-                onNewFolder()
-            }
-            Button("重命名") {
-                onRename()
-            }
-            Button("删除", role: .destructive) {
-                onDelete()
-            }
-        }
-    }
-
-    private var backgroundFill: Color {
-        if isSelected { return Color.accentColor.opacity(0.14) }
-        if isHovered  { return Color.primary.opacity(0.07) }
-        return .clear
-    }
-
-    private var iconColor: Color {
-        if node.isDirectory {
-            return isSelected ? .accentColor : Color(nsColor: .systemOrange).opacity(0.85)
-        }
-        return isSelected ? Color.accentColor.opacity(0.8) : .secondary
-    }
-
-    private func fileIcon(for name: String) -> String {
-        FileIconSymbolResolver.symbol(forFileName: name)
-    }
-
-    private func statusColor(for status: GitChangeStatus) -> Color {
-        switch status {
-        case .added, .untracked:
-            return .green
-        case .deleted:
-            return .red
-        case .renamed:
-            return .orange
-        case .modified:
-            return .secondary
-        }
-    }
-
-    private var isInlineEditing: Bool {
-        inlineEdit?.editingNodeID == node.id
-    }
-}
-
-struct WorkspaceTreeInlineEdit: Equatable {
-    enum Kind: Equatable {
-        case file
-        case folder
-        case rename
-    }
-
-    let kind: Kind
-    let parentDirectory: URL
-    let targetURL: URL?
-    let editingNodeID: URL
-    let draftName: String
-    let isDirectory: Bool
-
-    static func makeCreate(kind: Kind, targetDirectory: URL) -> WorkspaceTreeInlineEdit {
-        let tempURL = targetDirectory.appending(path: ".agentgui-inline-\(UUID().uuidString)")
-        return WorkspaceTreeInlineEdit(
-            kind: kind,
-            parentDirectory: targetDirectory,
-            targetURL: nil,
-            editingNodeID: tempURL,
-            draftName: "",
-            isDirectory: kind == .folder
-        )
-    }
-
-    static func makeRename(targetURL: URL, initialName: String, isDirectory: Bool) -> WorkspaceTreeInlineEdit {
-        WorkspaceTreeInlineEdit(
-            kind: .rename,
-            parentDirectory: targetURL.deletingLastPathComponent(),
-            targetURL: targetURL,
-            editingNodeID: targetURL,
-            draftName: initialName,
-            isDirectory: isDirectory
-        )
-    }
-
-    func withDraftName(_ draftName: String) -> WorkspaceTreeInlineEdit {
-        WorkspaceTreeInlineEdit(
-            kind: kind,
-            parentDirectory: parentDirectory,
-            targetURL: targetURL,
-            editingNodeID: editingNodeID,
-            draftName: draftName,
-            isDirectory: isDirectory
-        )
-    }
-}
-
-enum WorkspaceTreeInlineEditApplier {
-    static func apply(inlineEdit: WorkspaceTreeInlineEdit?, to nodes: [FileNode], rootDirectory: URL?) -> [FileNode] {
-        guard let inlineEdit else { return nodes }
-        if inlineEdit.kind == .rename {
-            return nodes
-        }
-
-        let placeholderNode = FileNode(
-            id: inlineEdit.editingNodeID,
-            name: inlineEdit.draftName.isEmpty ? "未命名" : inlineEdit.draftName,
-            isDirectory: inlineEdit.isDirectory,
-            children: inlineEdit.isDirectory ? [] : nil
-        )
-
-        if inlineEdit.parentDirectory == rootDirectory?.standardizedFileURL {
-            return [placeholderNode] + nodes
-        }
-
-        return injectPlaceholder(placeholderNode, into: nodes, parentDirectory: inlineEdit.parentDirectory)
-    }
-
-    private static func injectPlaceholder(_ placeholderNode: FileNode, into nodes: [FileNode], parentDirectory: URL) -> [FileNode] {
-        nodes.map { node in
-            guard node.isDirectory else { return node }
-            if node.id == parentDirectory {
-                return FileNode(
-                    id: node.id,
-                    name: node.name,
-                    isDirectory: true,
-                    children: [placeholderNode] + (node.children ?? [])
+            },
+            revealInFinder: { _ in
+                treeViewModel.revealSelectionInFinder()
+            },
+            copyRelativePath: { _ in
+                copySelectionRelativePaths()
+            },
+            newFile: { node in
+                treeViewModel.applyOutlineSelection(
+                    ids: [node.id.standardizedFileURL],
+                    primaryID: node.id.standardizedFileURL,
+                    workspaceState: workspaceState
                 )
+                treeViewModel.beginCreate(kind: .file, from: node)
+            },
+            newFolder: { node in
+                treeViewModel.applyOutlineSelection(
+                    ids: [node.id.standardizedFileURL],
+                    primaryID: node.id.standardizedFileURL,
+                    workspaceState: workspaceState
+                )
+                treeViewModel.beginCreate(kind: .folder, from: node)
+            },
+            rename: { node in
+                treeViewModel.applyOutlineSelection(
+                    ids: [node.id.standardizedFileURL],
+                    primaryID: node.id.standardizedFileURL,
+                    workspaceState: workspaceState
+                )
+                treeViewModel.beginRename(for: node)
+            },
+            delete: { node in
+                treeViewModel.confirmDelete(treeViewModel.hasMultipleSelection ? nil : node)
+            },
+            canMoveSelection: { node in
+                treeViewModel.canMoveSelection(to: node)
+            },
+            moveSelection: { node in
+                treeViewModel.moveSelection(to: node, workspaceState: workspaceState)
+            },
+            newFileFromSelection: {
+                treeViewModel.beginCreateFromSelection(kind: .file)
+            },
+            newFolderFromSelection: {
+                treeViewModel.beginCreateFromSelection(kind: .folder)
+            },
+            renameSelection: {
+                treeViewModel.beginRenameFromSelection()
+            },
+            deleteSelection: {
+                treeViewModel.confirmDeleteSelection()
+            },
+            copySelectionRelativePaths: {
+                copySelectionRelativePaths()
+            },
+            revealSelectionInFinder: {
+                treeViewModel.revealSelectionInFinder()
+            },
+            inlineEditChange: { updatedName in
+                guard let inlineEdit = treeViewModel.inlineEdit else { return }
+                treeViewModel.inlineEdit = inlineEdit.withDraftName(updatedName)
+            },
+            inlineEditCommit: {
+                treeViewModel.commitInlineEdit(workspaceState: workspaceState)
+            },
+            inlineEditCancel: {
+                treeViewModel.cancelInlineEdit()
             }
-
-            let updatedChildren = injectPlaceholder(placeholderNode, into: node.children ?? [], parentDirectory: parentDirectory)
-            return FileNode(id: node.id, name: node.name, isDirectory: true, children: updatedChildren)
-        }
-    }
-}
-
-private struct InlineTreeNameField: NSViewRepresentable {
-    @Binding var text: String
-    let onCommit: () -> Void
-    let onCancel: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onCommit: onCommit, onCancel: onCancel)
-    }
-
-    func makeNSView(context: Context) -> InlineEditorTextField {
-        let textField = InlineEditorTextField()
-        textField.isBordered = false
-        textField.drawsBackground = false
-        textField.focusRingType = .none
-        textField.font = NSFont.systemFont(ofSize: 12)
-        textField.lineBreakMode = .byTruncatingTail
-        textField.placeholderString = "输入名称"
-        textField.delegate = context.coordinator
-        textField.commitHandler = onCommit
-        textField.cancelHandler = onCancel
-        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        textField.identifier = NSUserInterfaceItemIdentifier("workspace.inlineNameField")
-        return textField
-    }
-
-    func updateNSView(_ nsView: InlineEditorTextField, context: Context) {
-        if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-        nsView.commitHandler = onCommit
-        nsView.cancelHandler = onCancel
-        context.coordinator.text = $text
-
-        DispatchQueue.main.async {
-            nsView.focusIfNeeded()
-        }
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var text: Binding<String>
-        let onCommit: () -> Void
-        let onCancel: () -> Void
-
-        init(text: Binding<String>, onCommit: @escaping () -> Void, onCancel: @escaping () -> Void) {
-            self.text = text
-            self.onCommit = onCommit
-            self.onCancel = onCancel
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let textField = notification.object as? NSTextField else { return }
-            text.wrappedValue = textField.stringValue
-        }
-    }
-}
-
-final class InlineEditorTextField: NSTextField {
-    enum EndEditingAction: Equatable {
-        case commit
-        case cancel
-    }
-
-    var commitHandler: (() -> Void)?
-    var cancelHandler: (() -> Void)?
-    private var didAutoFocus = false
-
-    override func textDidEndEditing(_ notification: Notification) {
-        super.textDidEndEditing(notification)
-        switch Self.endEditingAction(for: notification.userInfo?["NSTextMovement"] as? Int) {
-        case .commit:
-            commitHandler?()
-        case .cancel:
-            cancelHandler?()
-        }
-    }
-
-    override func keyDown(with event: NSEvent) {
-        switch event.keyCode {
-        case 53:
-            cancelHandler?()
-        default:
-            super.keyDown(with: event)
-        }
-    }
-
-    func focusIfNeeded() {
-        guard !didAutoFocus, let window else { return }
-        didAutoFocus = true
-        window.makeFirstResponder(self)
-        currentEditor()?.selectedRange = NSRange(location: 0, length: stringValue.count)
-    }
-
-    static func endEditingAction(for movement: Int?) -> EndEditingAction {
-        if movement == NSReturnTextMovement {
-            return .commit
-        }
-        return .cancel
-    }
-}
-
-private extension GitFileChange {
-    var statusBadge: String {
-        switch status {
-        case .added:
-            return "A"
-        case .modified:
-            return "M"
-        case .deleted:
-            return "D"
-        case .renamed:
-            return "R"
-        case .untracked:
-            return "?"
-        }
+        )
     }
 }
 
