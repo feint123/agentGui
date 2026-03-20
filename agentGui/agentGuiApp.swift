@@ -34,6 +34,7 @@ enum PersistenceSchema {
     static let sharedModelTypes: [any PersistentModel.Type] = [
         AppSettings.self,
         Session.self,
+        ACPExternalSessionBinding.self,
         Message.self,
         ChannelAccountBinding.self,
         RemoteConversationBinding.self,

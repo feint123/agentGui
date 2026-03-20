@@ -4,28 +4,60 @@ import Observation
 @MainActor
 @Observable
 final class ChatExecutionProviderAvailabilityModel {
-    @ObservationIgnored private let probe: @Sendable (GitHubCopilotCLIConfiguration) async -> GitHubCopilotCLIAvailabilityStatus
+    @ObservationIgnored private let probe: @Sendable (ConversationExecutionProviderID, String) async -> ACPCLIAvailabilityStatus
 
-    var copilotStatus: GitHubCopilotCLIAvailabilityStatus = .unknown
+    var copilotStatus: ACPCLIAvailabilityStatus = .unknown
+    var openCodeStatus: ACPCLIAvailabilityStatus = .unknown
 
     init(
-        probe: @escaping @Sendable (GitHubCopilotCLIConfiguration) async -> GitHubCopilotCLIAvailabilityStatus = ChatExecutionProviderAvailabilityModel.defaultProbe
+        probe: @escaping @Sendable (ConversationExecutionProviderID, String) async -> ACPCLIAvailabilityStatus = ChatExecutionProviderAvailabilityModel.defaultProbe
     ) {
         self.probe = probe
     }
 
-    func refreshCopilotStatus(configuration: GitHubCopilotCLIConfiguration) async {
-        let status = await probe(configuration)
-        if copilotStatus != status {
-            copilotStatus = status
+    func refreshStatus(for providerID: ConversationExecutionProviderID, executablePath: String) async {
+        let status = await probe(providerID, executablePath)
+        switch providerID {
+        case .githubCopilotCLI:
+            if copilotStatus != status {
+                copilotStatus = status
+            }
+        case .openCodeCLI:
+            if openCodeStatus != status {
+                openCodeStatus = status
+            }
+        case .builtInAgent:
+            break
         }
     }
 
-    private static func defaultProbe(configuration: GitHubCopilotCLIConfiguration) async -> GitHubCopilotCLIAvailabilityStatus {
+    func refreshCopilotStatus(configuration: GitHubCopilotCLIConfiguration) async {
+        await refreshStatus(for: .githubCopilotCLI, executablePath: configuration.executablePath)
+    }
+
+    private static func defaultProbe(providerID: ConversationExecutionProviderID, executablePath: String) async -> ACPCLIAvailabilityStatus {
         do {
-            return try await GitHubCopilotCLIAvailabilityService().checkStatus(configuration: configuration)
+            switch providerID {
+            case .githubCopilotCLI:
+                return try await GitHubCopilotCLIAvailabilityService().checkStatus(
+                    configuration: GitHubCopilotCLIConfiguration(
+                        executablePath: executablePath,
+                        defaultModel: "",
+                        customAgentName: "",
+                        defaultApprovalMode: "default",
+                        useACPStdIO: true
+                    )
+                )
+            case .openCodeCLI:
+                return try await ACPCLIAvailabilityService().checkStatus(
+                    executablePath: executablePath,
+                    displayName: "OpenCode"
+                )
+            case .builtInAgent:
+                return ACPCLIAvailabilityStatus(kind: .available, version: nil, displayName: "内置 Agent")
+            }
         } catch {
-            return GitHubCopilotCLIAvailabilityStatus(kind: .failed(error.localizedDescription), version: nil)
+            return ACPCLIAvailabilityStatus(kind: .failed(error.localizedDescription), version: nil)
         }
     }
 }

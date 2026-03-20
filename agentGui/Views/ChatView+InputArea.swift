@@ -44,7 +44,8 @@ extension ChatView {
                     ExecutionOptionPicker(
                         title: "",
                         options: ConversationExecutionProviderID.optionItems(
-                            copilotAvailabilityStatus: copilotComposerAvailabilityStatus
+                            copilotAvailabilityStatus: copilotComposerAvailabilityStatus,
+                            openCodeAvailabilityStatus: openCodeComposerAvailabilityStatus
                         ),
                         selection: executionProviderSelectionRawValueBinding,
                         accessibilityIdentifier: "chat.executionProviderPicker"
@@ -55,6 +56,13 @@ extension ChatView {
                     if resolvedExecutionProviderID == .githubCopilotCLI,
                        copilotComposerAvailabilityStatus.kind != .available {
                         Text(copilotComposerAvailabilityStatus.summaryText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else if resolvedExecutionProviderID == .openCodeCLI,
+                              openCodeComposerAvailabilityStatus.kind != .available {
+                        Text(openCodeComposerAvailabilityStatus.summaryText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -111,6 +119,7 @@ extension ChatView {
     }
     .task(id: copilotComposerAvailabilityRefreshToken) {
         await refreshCopilotComposerAvailabilityStatus()
+        await refreshOpenCodeComposerAvailabilityStatus()
     }
 }
 
@@ -176,6 +185,22 @@ extension ChatView {
                 },
                 selection: copilotComposerApprovalModeSelectionBinding,
                 accessibilityIdentifier: "chat.copilotApprovalModePicker"
+            )
+        case .openCodeCLI:
+            ExecutionOptionPicker(
+                title: "",
+                options: AppSettings.availableModelOptions(inheritingTitle: "跟随设置默认"),
+                selection: openCodeComposerModelSelectionBinding,
+                accessibilityIdentifier: "chat.openCodeModelPicker"
+            )
+
+            ExecutionOptionPicker(
+                title: "",
+                options: GitHubCopilotCLIApprovalModeOption.allCases.map {
+                    ExecutionOptionItem(id: $0.rawValue, title: $0.title)
+                },
+                selection: openCodeComposerApprovalModeSelectionBinding,
+                accessibilityIdentifier: "chat.openCodeApprovalModePicker"
             )
         }
     }

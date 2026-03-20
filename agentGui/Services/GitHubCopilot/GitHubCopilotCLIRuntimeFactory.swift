@@ -1,10 +1,6 @@
 import Foundation
 
-struct GitHubCopilotCLILaunchConfiguration: Equatable, Sendable {
-    let command: String
-    let arguments: [String]
-    let currentDirectoryURL: URL
-}
+typealias GitHubCopilotCLILaunchConfiguration = ACPExternalAgentLaunchConfiguration
 
 struct GitHubCopilotCLIRuntimeFactory {
     func makeLaunchConfiguration(

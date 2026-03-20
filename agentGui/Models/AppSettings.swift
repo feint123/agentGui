@@ -51,6 +51,9 @@ final class AppSettings {
     /// GitHub Copilot CLI 配置 JSON
     var githubCopilotCLIConfigurationJSON: String = "{}"    
 
+    /// OpenCode CLI 配置 JSON
+    var openCodeCLIConfigurationJSON: String = "{}"
+
     /// 启用 Web Search 工具（Bing 搜索）
     var enableWebSearchTool: Bool
 
@@ -135,6 +138,10 @@ final class AppSettings {
             data: JSONEncoder().encode(GitHubCopilotCLIConfiguration.default),
             encoding: .utf8
         )) ?? "{}"
+        self.openCodeCLIConfigurationJSON = (try? String(
+            data: JSONEncoder().encode(OpenCodeCLIConfiguration.default),
+            encoding: .utf8
+        )) ?? "{}"
         self.enableWebSearchTool = false
         self.enableWebFetchTool = false
         self.enableLSPTools = false
@@ -172,6 +179,19 @@ extension AppSettings {
         }
         set {
             githubCopilotCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
+        }
+    }
+
+    var openCodeCLIConfiguration: OpenCodeCLIConfiguration {
+        get {
+            guard let data = openCodeCLIConfigurationJSON.data(using: .utf8),
+                  let configuration = try? JSONDecoder().decode(OpenCodeCLIConfiguration.self, from: data) else {
+                return .default
+            }
+            return configuration
+        }
+        set {
+            openCodeCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
         }
     }
 

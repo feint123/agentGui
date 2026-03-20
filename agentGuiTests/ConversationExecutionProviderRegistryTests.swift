@@ -8,7 +8,8 @@ struct ConversationExecutionProviderRegistryTests {
     @Test func registryResolvesSessionOverrideBeforeGlobalDefault() throws {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: ProviderSpy(id: .builtInAgent),
-            copilot: ProviderSpy(id: .githubCopilotCLI)
+            copilot: ProviderSpy(id: .githubCopilotCLI),
+            openCode: ProviderSpy(id: .openCodeCLI)
         )
         let session = Session.fixture()
         let settings = AppSettings.testFixture(apiKey: "test")
@@ -21,7 +22,8 @@ struct ConversationExecutionProviderRegistryTests {
     @Test func registryFallsBackToGlobalDefaultWhenSessionProviderMissing() throws {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: ProviderSpy(id: .builtInAgent),
-            copilot: ProviderSpy(id: .githubCopilotCLI)
+            copilot: ProviderSpy(id: .githubCopilotCLI),
+            openCode: ProviderSpy(id: .openCodeCLI)
         )
         let session = Session.fixture()
         let settings = AppSettings.testFixture(apiKey: "test")
@@ -46,7 +48,8 @@ struct ConversationExecutionProviderRegistryTests {
         let claudeService = ClaudeService()
         claudeService.executionProviderRegistry = ConversationExecutionProviderRegistry(
             builtIn: builtIn,
-            copilot: copilot
+            copilot: copilot,
+            openCode: ProviderSpy(id: .openCodeCLI)
         )
 
         try await claudeService.sendMessage(
@@ -58,6 +61,37 @@ struct ConversationExecutionProviderRegistryTests {
 
         #expect(copilot.sentTexts == ["hello"])
         #expect(builtIn.sentTexts.isEmpty)
+    }
+
+    @Test func claudeServiceResetsInactiveExecutionProvidersBeforeSend() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        let session = Session.fixture(title: "Routing")
+        session.defaultExecutionProviderID = ConversationExecutionProviderID.openCodeCLI.rawValue
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let builtIn = ProviderSpy(id: .builtInAgent)
+        let copilot = ProviderSpy(id: .githubCopilotCLI)
+        let openCode = ProviderSpy(id: .openCodeCLI)
+        let claudeService = ClaudeService()
+        claudeService.executionProviderRegistry = ConversationExecutionProviderRegistry(
+            builtIn: builtIn,
+            copilot: copilot,
+            openCode: openCode
+        )
+
+        try await claudeService.sendMessage(
+            text: "hello",
+            session: session,
+            modelId: "claude-test",
+            modelContext: modelContext
+        )
+
+        #expect(copilot.resetSessionIDs == [session.sessionId])
+        #expect(openCode.resetSessionIDs.isEmpty)
+        #expect(openCode.sentTexts == ["hello"])
     }
 
     private func makeModelContext() throws -> ModelContext {
@@ -79,6 +113,7 @@ struct ConversationExecutionProviderRegistryTests {
 private final class ProviderSpy: ConversationExecutionProvider {
     let id: ConversationExecutionProviderID
     private(set) var sentTexts: [String] = []
+    private(set) var resetSessionIDs: [String] = []
 
     init(id: ConversationExecutionProviderID) {
         self.id = id
@@ -99,5 +134,10 @@ private final class ProviderSpy: ConversationExecutionProvider {
     func cancel(session: Session, modelContext: ModelContext) async {
         _ = session
         _ = modelContext
+    }
+
+    func resetSessionState(session: Session, modelContext: ModelContext) async {
+        _ = modelContext
+        resetSessionIDs.append(session.sessionId)
     }
 }

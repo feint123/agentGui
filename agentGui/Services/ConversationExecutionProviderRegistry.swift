@@ -33,6 +33,14 @@ protocol ConversationExecutionProvider: AnyObject {
     func regenerate(_ request: ConversationRegenerationRequest) async throws
     func editAndResend(_ request: ConversationEditAndResendRequest) async throws
     func cancel(session: Session, modelContext: ModelContext) async
+    func resetSessionState(session: Session, modelContext: ModelContext) async
+}
+
+extension ConversationExecutionProvider {
+    func resetSessionState(session: Session, modelContext: ModelContext) async {
+        _ = session
+        _ = modelContext
+    }
 }
 
 @MainActor
@@ -84,6 +92,11 @@ final class BuiltInConversationExecutionProvider: ConversationExecutionProvider 
 struct ConversationExecutionProviderRegistry {
     let builtIn: any ConversationExecutionProvider
     let copilot: any ConversationExecutionProvider
+    let openCode: any ConversationExecutionProvider
+
+    var allProviders: [any ConversationExecutionProvider] {
+        [builtIn, copilot, openCode]
+    }
 
     func provider(for session: Session, settings: AppSettings) -> any ConversationExecutionProvider {
         switch Self.resolveProviderID(for: session, settings: settings) {
@@ -91,6 +104,8 @@ struct ConversationExecutionProviderRegistry {
             return builtIn
         case .githubCopilotCLI:
             return copilot
+        case .openCodeCLI:
+            return openCode
         }
     }
 

@@ -35,6 +35,10 @@ extension ChatView {
         SessionExecutionPreferencesResolver.gitHubCopilotCLIConfiguration(for: session, settings: settings)
     }
 
+    private func resolvedOpenCodeConfiguration(settings: AppSettings) -> OpenCodeCLIConfiguration {
+        SessionExecutionPreferencesResolver.openCodeCLIConfiguration(for: session, settings: settings)
+    }
+
     var builtInComposerModelSelectionBinding: Binding<String> {
         Binding(
             get: {
@@ -82,6 +86,38 @@ extension ChatView {
         )
     }
 
+    var openCodeComposerModelSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                return resolvedOpenCodeConfiguration(settings: settings).defaultModel
+            },
+            set: { newValue in
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                let fallback = settings.openCodeCLIConfiguration.defaultModel
+                updateSessionExecutionPreferences { preferences in
+                    preferences.openCodeCLI.modelID = normalizedOptionalModelID(newValue, comparedTo: fallback)
+                }
+            }
+        )
+    }
+
+    var openCodeComposerApprovalModeSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                return GitHubCopilotCLIApprovalModeOption.resolved(from: resolvedOpenCodeConfiguration(settings: settings).defaultApprovalMode).rawValue
+            },
+            set: { newValue in
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                let fallback = settings.openCodeCLIConfiguration.defaultApprovalMode
+                updateSessionExecutionPreferences { preferences in
+                    preferences.openCodeCLI.approvalMode = normalizedCopilotApprovalOverride(newValue, comparedTo: fallback)
+                }
+            }
+        )
+    }
+
     // MARK: - Send Message
 
     func sendMessage() async {
@@ -94,6 +130,8 @@ extension ChatView {
         let settings = AppSettings.getOrCreate(in: modelContext)
         if resolvedExecutionProviderID == .githubCopilotCLI {
             await refreshCopilotComposerAvailabilityStatus()
+        } else if resolvedExecutionProviderID == .openCodeCLI {
+            await refreshOpenCodeComposerAvailabilityStatus()
         }
         let preflightError = sendReadinessError(settings: settings) ?? sendReadinessFallbackMessage(settings: settings)
         if !preflightError.isEmpty {
@@ -188,11 +226,16 @@ extension ChatView {
         Binding(
             get: { resolvedExecutionProviderID },
             set: { newValue in
+                let previousValue = resolvedExecutionProviderID
                 session.defaultExecutionProviderID = newValue.rawValue
                 try? modelContext.save()
-                if newValue == .githubCopilotCLI {
+                if previousValue != newValue {
                     Task {
-                        await refreshCopilotComposerAvailabilityStatus()
+                        await claudeService.handleExecutionProviderSelectionChange(
+                            session: session,
+                            selectedProviderID: newValue,
+                            modelContext: modelContext
+                        )
                     }
                 }
             }
@@ -215,9 +258,13 @@ extension ChatView {
         executionProviderAvailabilityModel.copilotStatus
     }
 
+    var openCodeComposerAvailabilityStatus: OpenCodeCLIAvailabilityStatus {
+        executionProviderAvailabilityModel.openCodeStatus
+    }
+
     var copilotComposerAvailabilityRefreshToken: String {
         let settings = AppSettings.getOrCreate(in: modelContext)
-        return "\(session.defaultExecutionProviderID)|\(settings.githubCopilotCLIConfigurationJSON)"
+        return "\(session.defaultExecutionProviderID)|\(settings.githubCopilotCLIConfigurationJSON)|\(settings.openCodeCLIConfigurationJSON)"
     }
 
     func refreshCopilotComposerAvailabilityStatus() async {
@@ -227,12 +274,23 @@ extension ChatView {
         )
     }
 
+    func refreshOpenCodeComposerAvailabilityStatus() async {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        await executionProviderAvailabilityModel.refreshStatus(
+            for: .openCodeCLI,
+            executablePath: settings.openCodeCLIConfiguration.executablePath
+        )
+    }
+
     func sendReadinessError(settings: AppSettings) -> String? {
         switch resolvedExecutionProviderID {
         case .builtInAgent:
             return claudeService.isConfigured ? "" : "请先在「设置」中配置 Anthropic API Key"
         case .githubCopilotCLI:
             let status = copilotComposerAvailabilityStatus
+            return status.kind == .available ? "" : status.summaryText
+        case .openCodeCLI:
+            let status = openCodeComposerAvailabilityStatus
             return status.kind == .available ? "" : status.summaryText
         }
     }

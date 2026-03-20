@@ -316,10 +316,65 @@ struct GitHubCopilotCLIExecutionProviderTests {
             )
         )
 
-        let binding = await sessionBridge.binding(for: session.sessionId)
+        let binding = await sessionBridge.binding(for: session.sessionId, providerID: .githubCopilotCLI)
 
         #expect(runtimeClient.setModelRequests.isEmpty)
         #expect(binding?.lastSelectedModel == nil)
+    }
+
+    @Test func sendSkipsModelSelectionWhenCapabilityDoesNotAdvertiseOverride() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "gpt-5",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Capability Fallback")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let sessionBridge = CopilotSessionBridge()
+        let runtimeClient = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(
+                remoteSessionID: "remote-capability",
+                cliVersion: "1.2.3",
+                capabilities: .init(loadSession: true, supportsSessionModelOverride: false, agentVersion: "1.2.3")
+            ),
+            stopReason: .endTurn,
+            updates: []
+        )
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            sessionBridge: sessionBridge,
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "hello copilot",
+                session: session,
+                modelID: "claude-sonnet-4-6",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        let binding = await sessionBridge.binding(for: session.sessionId, providerID: .githubCopilotCLI)
+
+        #expect(runtimeClient.setModelRequests.isEmpty)
+        #expect(binding?.lastSelectedModel == nil)
+        #expect(binding?.negotiatedCapabilities?.supportsSessionModelOverride == false)
     }
 
     @Test func sendMapsDefaultApprovalModeToAlwaysRequireHuman() async throws {
@@ -640,7 +695,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-permission", cliVersion: "1.2.3"),
             stopReason: .endTurn,
             permissionRequest: permissionRequest,
-            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .alwaysRequireHuman)
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited, approvalMode: .alwaysRequireHuman)
         )
 
         let provider = GitHubCopilotCLIExecutionProvider(
@@ -653,7 +708,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             }
         )
 
-        let sendTask = Task {
+        let sendTask = Task.detached { @MainActor in
             try await provider.send(
                 ConversationExecutionRequest(
                     text: "read file",
@@ -667,11 +722,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             )
         }
 
-        while permissionCenter.pendingRequests.isEmpty {
-            await Task.yield()
-        }
-
-        let pending = try #require(permissionCenter.pendingRequests.first)
+        let pending = try await waitForPendingRequest(in: permissionCenter)
         permissionCenter.selectOption(requestID: pending.id, optionID: "reject-once")
 
         try await sendTask.value
@@ -724,7 +775,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-permission-execute", cliVersion: "1.2.3"),
             stopReason: .endTurn,
             permissionRequest: permissionRequest,
-            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .alwaysRequireHuman),
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited, approvalMode: .alwaysRequireHuman),
             updates: [
                 .session(
                     .toolCall(
@@ -769,7 +820,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             }
         )
 
-        let sendTask = Task {
+        let sendTask = Task.detached { @MainActor in
             try await provider.send(
                 ConversationExecutionRequest(
                     text: "run tests",
@@ -783,11 +834,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             )
         }
 
-        while permissionCenter.pendingRequests.isEmpty {
-            await Task.yield()
-        }
-
-        let pending = try #require(permissionCenter.pendingRequests.first)
+        let pending = try await waitForPendingRequest(in: permissionCenter)
         permissionCenter.selectOption(requestID: pending.id, optionID: "allow-once")
 
         try await sendTask.value
@@ -919,6 +966,22 @@ struct GitHubCopilotCLIExecutionProviderTests {
         )
 
         return try #require(capturedApprovalMode)
+    }
+
+    private func waitForPendingRequest(
+        in permissionCenter: ACPPermissionCenter,
+        timeout: TimeInterval = 2
+    ) async throws -> ACPPermissionCenter.PendingRequest {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let pending = permissionCenter.pendingRequests.first {
+                return pending
+            }
+            await Task.yield()
+        }
+
+        Issue.record("Timed out waiting for permission request")
+        throw TimeoutError()
     }
 
     private var sessionLoadOnlyRubyAgentScript: String {
@@ -1127,6 +1190,8 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
 private enum RuntimeClientStubError: Error {
     case promptFailed
 }
+
+private struct TimeoutError: Error {}
 
 @MainActor
 private final class PermissionRuntimeClientStub: GitHubCopilotCLIRuntimeClient {

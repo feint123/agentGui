@@ -10,9 +10,11 @@ final class SettingsStore {
     @ObservationIgnored private let modelContext: ModelContext
     @ObservationIgnored private let persistenceCoordinator: PersistenceCoordinator?
     @ObservationIgnored private let gitHubCopilotCLIAvailabilityService: GitHubCopilotCLIAvailabilityService
+    @ObservationIgnored private let openCodeCLIAvailabilityService: OpenCodeCLIAvailabilityService
 
     var settings: AppSettings
     var gitHubCopilotCLIAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus
+    var openCodeCLIAvailabilityStatus: OpenCodeCLIAvailabilityStatus
     var selectedItem: SettingsNavigationItem {
         didSet {
             Self.lastSelectedItem = selectedItem
@@ -22,16 +24,19 @@ final class SettingsStore {
     init(
         modelContext: ModelContext,
         persistenceCoordinator: PersistenceCoordinator?,
-        gitHubCopilotCLIAvailabilityService: GitHubCopilotCLIAvailabilityService = GitHubCopilotCLIAvailabilityService()
+        gitHubCopilotCLIAvailabilityService: GitHubCopilotCLIAvailabilityService = GitHubCopilotCLIAvailabilityService(),
+        openCodeCLIAvailabilityService: OpenCodeCLIAvailabilityService = OpenCodeCLIAvailabilityService()
     ) {
         self.modelContext = modelContext
         self.persistenceCoordinator = persistenceCoordinator
         self.gitHubCopilotCLIAvailabilityService = gitHubCopilotCLIAvailabilityService
+        self.openCodeCLIAvailabilityService = openCodeCLIAvailabilityService
         self.settings = AppSettings.getOrCreate(
             in: modelContext,
             persistenceCoordinator: persistenceCoordinator
         )
         self.gitHubCopilotCLIAvailabilityStatus = .unknown
+        self.openCodeCLIAvailabilityStatus = .unknown
         self.selectedItem = Self.lastSelectedItem
     }
 
@@ -51,9 +56,9 @@ final class SettingsStore {
     }
 
     func persistedSettingsBinding<Value>(
-        get: @escaping () -> Value,
+        get: @escaping @Sendable () -> Value,
         userMessage: String,
-        set: @escaping (Value) -> Void
+        set: @escaping @Sendable (Value) -> Void
     ) -> Binding<Value> {
         Binding(
             get: get,
@@ -66,9 +71,9 @@ final class SettingsStore {
     }
 
     func persistedGitHubCopilotCLIConfigurationBinding<Value>(
-        get: @escaping (GitHubCopilotCLIConfiguration) -> Value,
+        get: @escaping @Sendable (GitHubCopilotCLIConfiguration) -> Value,
         userMessage: String,
-        set: @escaping (inout GitHubCopilotCLIConfiguration, Value) -> Void
+        set: @escaping @Sendable (inout GitHubCopilotCLIConfiguration, Value) -> Void
     ) -> Binding<Value> {
         Binding(
             get: {
@@ -84,6 +89,25 @@ final class SettingsStore {
         )
     }
 
+    func persistedOpenCodeCLIConfigurationBinding<Value>(
+        get: @escaping @Sendable (OpenCodeCLIConfiguration) -> Value,
+        userMessage: String,
+        set: @escaping @Sendable (inout OpenCodeCLIConfiguration, Value) -> Void
+    ) -> Binding<Value> {
+        Binding(
+            get: {
+                get(self.settings.openCodeCLIConfiguration)
+            },
+            set: { newValue in
+                _ = self.persistSettingsMutation(userMessage) {
+                    var configuration = self.settings.openCodeCLIConfiguration
+                    set(&configuration, newValue)
+                    self.settings.openCodeCLIConfiguration = configuration
+                }
+            }
+        )
+    }
+
     func refreshGitHubCopilotCLIAvailabilityStatus() async {
         do {
             gitHubCopilotCLIAvailabilityStatus = try await gitHubCopilotCLIAvailabilityService.checkStatus(
@@ -93,6 +117,20 @@ final class SettingsStore {
             gitHubCopilotCLIAvailabilityStatus = GitHubCopilotCLIAvailabilityStatus(
                 kind: .failed(error.localizedDescription),
                 version: nil
+            )
+        }
+    }
+
+    func refreshOpenCodeCLIAvailabilityStatus() async {
+        do {
+            openCodeCLIAvailabilityStatus = try await openCodeCLIAvailabilityService.checkStatus(
+                configuration: settings.openCodeCLIConfiguration
+            )
+        } catch {
+            openCodeCLIAvailabilityStatus = OpenCodeCLIAvailabilityStatus(
+                kind: .failed(error.localizedDescription),
+                version: nil,
+                displayName: "OpenCode"
             )
         }
     }

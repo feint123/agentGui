@@ -74,10 +74,9 @@ final class ACPPermissionCenter: @unchecked Sendable {
             requestedAt: Date()
         )
 
-        pendingRequests.append(pendingRequest)
-
         return await withCheckedContinuation { continuation in
             continuations[pendingRequest.id] = continuation
+            pendingRequests.append(pendingRequest)
         }
     }
 

@@ -1,6 +1,13 @@
 import Foundation
 
 extension ClaudeService {
+    func externalACPSessionRuntimeKey(
+        for sessionId: String,
+        providerID: ConversationExecutionProviderID
+    ) -> String {
+        "external-acp:\(providerID.rawValue):\(sessionId)"
+    }
+
     func getBashTaskRegistry(for sessionId: String) -> BashTaskRegistry {
         if let existing = bashTaskRegistries[sessionId] { return existing }
         let registry = BashTaskRegistry()
@@ -28,5 +35,25 @@ extension ClaudeService {
         )
         terminalTaskRuntimes[sessionId] = runtime
         return runtime
+    }
+
+    func getExternalACPTerminalTaskRuntime(
+        for sessionId: String,
+        providerID: ConversationExecutionProviderID,
+        workingDirectory: String?
+    ) -> TerminalTaskRuntime {
+        getTerminalTaskRuntime(
+            for: externalACPSessionRuntimeKey(for: sessionId, providerID: providerID),
+            workingDirectory: workingDirectory
+        )
+    }
+
+    func resetExternalACPTerminalTaskRuntime(
+        for sessionId: String,
+        providerID: ConversationExecutionProviderID
+    ) {
+        let runtimeKey = externalACPSessionRuntimeKey(for: sessionId, providerID: providerID)
+        bashTaskRegistries.removeValue(forKey: runtimeKey)
+        terminalTaskRuntimes.removeValue(forKey: runtimeKey)
     }
 }

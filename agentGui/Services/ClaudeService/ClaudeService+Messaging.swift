@@ -26,6 +26,11 @@ extension ClaudeService {
 
         let settings = AppSettings.getOrCreate(in: modelContext)
         let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
+        await resetInactiveExecutionProviders(
+            for: session,
+            activeProviderID: provider.id,
+            modelContext: modelContext
+        )
 
         do {
             try await provider.send(
@@ -56,6 +61,11 @@ extension ClaudeService {
 
         let settings = AppSettings.getOrCreate(in: modelContext)
         let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
+        await resetInactiveExecutionProviders(
+            for: session,
+            activeProviderID: provider.id,
+            modelContext: modelContext
+        )
         do {
             try await provider.regenerate(
                 ConversationRegenerationRequest(
@@ -83,6 +93,11 @@ extension ClaudeService {
 
         let settings = AppSettings.getOrCreate(in: modelContext)
         let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
+        await resetInactiveExecutionProviders(
+            for: session,
+            activeProviderID: provider.id,
+            modelContext: modelContext
+        )
         do {
             try await provider.editAndResend(
                 ConversationEditAndResendRequest(
@@ -100,9 +115,22 @@ extension ClaudeService {
     }
 
     func cancelExecution(session: Session, modelContext: ModelContext) async {
-        let settings = AppSettings.getOrCreate(in: modelContext)
-        let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
-        await provider.cancel(session: session, modelContext: modelContext)
+        let registry = executionProviderRegistry(for: modelContext)
+        for provider in registry.allProviders {
+            await provider.cancel(session: session, modelContext: modelContext)
+        }
+    }
+
+    func handleExecutionProviderSelectionChange(
+        session: Session,
+        selectedProviderID: ConversationExecutionProviderID,
+        modelContext: ModelContext
+    ) async {
+        await resetInactiveExecutionProviders(
+            for: session,
+            activeProviderID: selectedProviderID,
+            modelContext: modelContext
+        )
     }
 
     // MARK: - Resume Helper
@@ -225,7 +253,21 @@ extension ClaudeService {
             builtIn: BuiltInConversationExecutionProvider(claudeService: self),
             copilot: GitHubCopilotCLIExecutionProvider(
                 terminalRuntimeFactory: { [unowned self] sessionID, workingDirectory in
-                    self.getTerminalTaskRuntime(for: sessionID, workingDirectory: workingDirectory)
+                    self.getExternalACPTerminalTaskRuntime(
+                        for: sessionID,
+                        providerID: .githubCopilotCLI,
+                        workingDirectory: workingDirectory
+                    )
+                },
+                permissionCenter: acpPermissionCenter
+            ),
+            openCode: OpenCodeCLIExecutionProvider(
+                terminalRuntimeFactory: { [unowned self] sessionID, workingDirectory in
+                    self.getExternalACPTerminalTaskRuntime(
+                        for: sessionID,
+                        providerID: .openCodeCLI,
+                        workingDirectory: workingDirectory
+                    )
                 },
                 permissionCenter: acpPermissionCenter
             )
@@ -233,6 +275,20 @@ extension ClaudeService {
         executionProviderRegistry = registry
         _ = modelContext
         return registry
+    }
+
+    private func resetInactiveExecutionProviders(
+        for session: Session,
+        activeProviderID: ConversationExecutionProviderID,
+        modelContext: ModelContext
+    ) async {
+        let registry = executionProviderRegistry(for: modelContext)
+        for provider in registry.allProviders where provider.id != activeProviderID {
+            await provider.resetSessionState(session: session, modelContext: modelContext)
+            if provider.id == .githubCopilotCLI || provider.id == .openCodeCLI {
+                resetExternalACPTerminalTaskRuntime(for: session.sessionId, providerID: provider.id)
+            }
+        }
     }
 
     private func resumeSendBuiltIn(

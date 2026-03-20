@@ -4,24 +4,26 @@ import Testing
 @MainActor
 struct ChatExecutionProviderAvailabilityModelTests {
     @Test func doesNotProbeUntilRefreshIsRequested() async {
-        var probeInvocationCount = 0
+        var probes: [ConversationExecutionProviderID] = []
         let model = ChatExecutionProviderAvailabilityModel(
-            probe: { _ in
-                probeInvocationCount += 1
-                return GitHubCopilotCLIAvailabilityStatus(kind: .available, version: nil)
+            probe: { providerID, _ in
+                probes.append(providerID)
+                return ACPCLIAvailabilityStatus(kind: .available, version: nil)
             }
         )
 
         #expect(model.copilotStatus == .unknown)
+        #expect(model.openCodeStatus == .unknown)
         #expect(model.copilotStatus == .unknown)
-        #expect(probeInvocationCount == 0)
+        #expect(probes.isEmpty)
 
-        await model.refreshCopilotStatus(configuration: .default)
+        await model.refreshStatus(for: .openCodeCLI, executablePath: "opencode")
 
-        #expect(model.copilotStatus.kind == .available)
-        #expect(probeInvocationCount == 1)
+        #expect(model.openCodeStatus.kind == .available)
+        #expect(model.copilotStatus == .unknown)
+        #expect(probes == [.openCodeCLI])
 
-        _ = model.copilotStatus
-        #expect(probeInvocationCount == 1)
+        _ = model.openCodeStatus
+        #expect(probes == [.openCodeCLI])
     }
 }

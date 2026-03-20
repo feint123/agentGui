@@ -1,91 +1,47 @@
 import Foundation
 import SwiftData
 
-enum GitHubCopilotCLIExecutionProviderError: LocalizedError {
+enum OpenCodeCLIExecutionProviderError: LocalizedError {
     case unavailable(String)
     case unsupportedConfiguration
-    case sessionAlreadyAttached(current: String, requested: String)
 
     var errorDescription: String? {
         switch self {
         case .unavailable(let message):
             return message
         case .unsupportedConfiguration:
-            return "当前仅支持 GitHub Copilot CLI 的 ACP stdio 模式。"
-        case .sessionAlreadyAttached(let current, let requested):
-            return "当前 Copilot 运行时已绑定会话 \(current)，不能在同一运行时内切换到 \(requested)。"
+            return "当前仅支持 OpenCode CLI 的 ACP stdio 模式。"
         }
     }
 }
 
-struct GitHubCopilotCLISessionHandshake: Equatable, Sendable {
-    let remoteSessionID: String
-    let capabilities: ACPExternalAgentCapabilitySnapshot
-
-    var cliVersion: String? {
-        capabilities.agentVersion
-    }
-
-    init(
-        remoteSessionID: String,
-        cliVersion: String?,
-        capabilities: ACPExternalAgentCapabilitySnapshot? = nil
-    ) {
-        self.remoteSessionID = remoteSessionID
-        self.capabilities = capabilities ?? ACPExternalAgentCapabilitySnapshot(
-            loadSession: true,
-            supportsSessionModelOverride: true,
-            agentVersion: cliVersion
-        )
-    }
-}
-
 @MainActor
-protocol GitHubCopilotCLIRuntimeClient: AnyObject {
-    func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> GitHubCopilotCLISessionHandshake
-    func setModel(_ modelID: String, sessionID: String) async throws
-    func prompt(text: String, sessionID: String) async throws -> ACPStopReason
-    func cancel(sessionID: String) async throws
-    func close() async
-}
-
-typealias GitHubCopilotCLIRuntimeClientFactory = @MainActor (
-    GitHubCopilotCLILaunchConfiguration,
-    TerminalTaskRuntime,
-    ToolAuthorizationPolicy,
-    @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
-    @escaping @Sendable (CopilotACPUpdate) async -> Void
-) throws -> any GitHubCopilotCLIRuntimeClient
-
-@MainActor
-final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
+final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
     struct ActiveTurnState {
         let assistantMessage: Message
         let modelContext: ModelContext
     }
 
-    let id: ConversationExecutionProviderID = .githubCopilotCLI
+    let id: ConversationExecutionProviderID = .openCodeCLI
 
-    private let runtimeFactory: GitHubCopilotCLIRuntimeFactory
+    private let runtimeFactory: OpenCodeCLIRuntimeFactory
     private let sessionBridge: CopilotSessionBridge
-    private let availabilityService: GitHubCopilotCLIAvailabilityService
+    private let availabilityService: OpenCodeCLIAvailabilityService
     private let terminalRuntimeFactory: (String, String?) -> TerminalTaskRuntime
-    private let runtimeClientFactory: GitHubCopilotCLIRuntimeClientFactory
     private let permissionCenter: ACPPermissionCenter
     private let authorizationPolicyFactory: ConversationAuthorizationPolicyFactory
     private let normalizer = CopilotACPEventNormalizer()
 
-    private var runtimeClients: [String: any GitHubCopilotCLIRuntimeClient] = [:]
+    private var runtimeClients: [String: ACPExternalAgentRuntimeClient] = [:]
     private var activeTurns: [String: ActiveTurnState] = [:]
 
     init(
-        runtimeFactory: GitHubCopilotCLIRuntimeFactory = GitHubCopilotCLIRuntimeFactory(),
+        runtimeFactory: OpenCodeCLIRuntimeFactory = OpenCodeCLIRuntimeFactory(),
         sessionBridge: CopilotSessionBridge = CopilotSessionBridge(),
-        availabilityService: GitHubCopilotCLIAvailabilityService = GitHubCopilotCLIAvailabilityService(),
+        availabilityService: OpenCodeCLIAvailabilityService = OpenCodeCLIAvailabilityService(),
         terminalRuntimeFactory: @escaping (String, String?) -> TerminalTaskRuntime,
         permissionCenter: ACPPermissionCenter,
-        authorizationPolicyFactory: ConversationAuthorizationPolicyFactory = ConversationAuthorizationPolicyFactory(),
-        runtimeClientFactory: @escaping GitHubCopilotCLIRuntimeClientFactory = ACPGitHubCopilotCLIRuntimeClient.make
+        authorizationPolicyFactory: ConversationAuthorizationPolicyFactory = ConversationAuthorizationPolicyFactory()
     ) {
         self.runtimeFactory = runtimeFactory
         self.sessionBridge = sessionBridge
@@ -93,26 +49,30 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         self.terminalRuntimeFactory = terminalRuntimeFactory
         self.permissionCenter = permissionCenter
         self.authorizationPolicyFactory = authorizationPolicyFactory
-        self.runtimeClientFactory = runtimeClientFactory
     }
 
     func send(_ request: ConversationExecutionRequest) async throws {
         let settings = AppSettings.getOrCreate(in: request.modelContext)
-        let configuration = SessionExecutionPreferencesResolver.gitHubCopilotCLIConfiguration(
+        let configuration = SessionExecutionPreferencesResolver.openCodeCLIConfiguration(
             for: request.session,
             settings: settings
+        )
+        debugLog(
+            "send start session=\(request.session.sessionId) textLength=\(request.text.count) executable=\(configuration.executablePath) useACPStdIO=\(configuration.useACPStdIO)"
         )
         let authorizationPolicy = authorizationPolicyFactory.makePolicy(
             from: settings,
             approvalMode: approvalMode(for: configuration)
         )
         guard configuration.useACPStdIO else {
-            throw GitHubCopilotCLIExecutionProviderError.unsupportedConfiguration
+            debugLog("send abort session=\(request.session.sessionId) unsupported configuration")
+            throw OpenCodeCLIExecutionProviderError.unsupportedConfiguration
         }
 
         let availabilityStatus = availabilityService.quickStatus(configuration: configuration)
         guard availabilityStatus.kind == .available else {
-            throw GitHubCopilotCLIExecutionProviderError.unavailable(availabilityStatus.summaryText)
+            debugLog("send abort session=\(request.session.sessionId) availability=\(availabilityStatus.summaryText)")
+            throw OpenCodeCLIExecutionProviderError.unavailable(availabilityStatus.summaryText)
         }
 
         let assistantMessage = Message.agentMessage(text: "", session: request.session)
@@ -124,42 +84,58 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         do {
             let remoteBinding = await sessionBridge.binding(for: request.session.sessionId, providerID: id)
             let workingDirectory = resolvedWorkingDirectory(session: request.session, settings: settings)
+            debugLog(
+                "send preparing session=\(request.session.sessionId) workingDirectory=\(workingDirectory) remoteBinding=\(remoteBinding?.remoteSessionID ?? "(none)")"
+            )
             let runtimeClient = try makeRuntimeClientIfNeeded(
                 session: request.session,
                 configuration: configuration,
                 workingDirectory: workingDirectory,
                 authorizationPolicy: authorizationPolicy
             )
+            debugLog("ensureSession start session=\(request.session.sessionId)")
             let handshake = try await runtimeClient.ensureSession(
                 workingDirectory: workingDirectory,
                 remoteSessionID: trimmedNonEmpty(remoteBinding?.remoteSessionID)
+            )
+            debugLog(
+                "ensureSession done session=\(request.session.sessionId) remote=\(handshake.remoteSessionID) loadSession=\(handshake.capabilities.loadSession) modelOverride=\(handshake.capabilities.supportsSessionModelOverride) version=\(handshake.capabilities.agentVersion ?? "(nil)")"
             )
 
             let selectedModel = selectedModelID(for: configuration)
             let modelOverride = handshake.capabilities.supportsSessionModelOverride ? selectedModel : nil
             if let modelOverride {
+                debugLog("setModel start session=\(request.session.sessionId) model=\(modelOverride)")
                 try await runtimeClient.setModel(modelOverride, sessionID: handshake.remoteSessionID)
+                debugLog("setModel done session=\(request.session.sessionId) model=\(modelOverride)")
+            } else {
+                debugLog(
+                    "setModel skipped session=\(request.session.sessionId) selectedModel=\(selectedModel ?? "(nil)") supported=\(handshake.capabilities.supportsSessionModelOverride)"
+                )
             }
 
             await sessionBridge.upsert(
                 CopilotSessionBridge.Binding(
                     sessionID: request.session.sessionId,
-                    providerID: .githubCopilotCLI,
+                    providerID: .openCodeCLI,
                     remoteSessionID: handshake.remoteSessionID,
-                    cliVersion: handshake.cliVersion,
+                    cliVersion: handshake.capabilities.agentVersion,
                     negotiatedCapabilities: handshake.capabilities,
                     lastHandshakeAt: Date(),
                     lastSelectedModel: modelOverride,
-                    lastSelectedAgentName: configuration.customAgentName
+                    lastSelectedAgentName: nil
                 )
             )
+            debugLog("binding updated session=\(request.session.sessionId) remote=\(handshake.remoteSessionID)")
 
             let promptText = makePromptText(
                 currentText: request.text,
                 session: request.session,
                 remoteSessionID: remoteBinding?.remoteSessionID
             )
+            debugLog("prompt start session=\(request.session.sessionId) promptLength=\(promptText.count)")
             let stopReason = try await runtimeClient.prompt(text: promptText, sessionID: handshake.remoteSessionID)
+            debugLog("prompt done session=\(request.session.sessionId) stopReason=\(stopReason)")
 
             finalizeAssistantMessage(
                 assistantMessage,
@@ -168,11 +144,14 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
                 session: request.session,
                 modelContext: request.modelContext
             )
+            debugLog("send finalized session=\(request.session.sessionId) messageStatus=\(assistantMessage.status)")
             activeTurns.removeValue(forKey: request.session.sessionId)
         } catch is CancellationError {
+            debugLog("send cancelled session=\(request.session.sessionId)")
             markCancelledIfNeeded(sessionID: request.session.sessionId)
             throw CancellationError()
         } catch {
+            debugLog("send failed session=\(request.session.sessionId) error=\(error.localizedDescription)")
             failAssistantMessage(
                 sessionID: request.session.sessionId,
                 error: error,
@@ -269,25 +248,30 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
 
     private func makeRuntimeClientIfNeeded(
         session: Session,
-        configuration: GitHubCopilotCLIConfiguration,
+        configuration: OpenCodeCLIConfiguration,
         workingDirectory: String,
         authorizationPolicy: ToolAuthorizationPolicy
-    ) throws -> any GitHubCopilotCLIRuntimeClient {
+    ) throws -> ACPExternalAgentRuntimeClient {
         if let existing = runtimeClients[session.sessionId] {
+            debugLog("reuse runtime session=\(session.sessionId)")
             return existing
         }
 
         let launchConfiguration = runtimeFactory.makeLaunchConfiguration(
             executablePath: configuration.executablePath,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            environmentOverrides: configuration.environment
         )
         let terminalRuntime = terminalRuntimeFactory(session.sessionId, workingDirectory)
-        let client = try runtimeClientFactory(
-            launchConfiguration,
-            terminalRuntime,
-            authorizationPolicy,
-            makePermissionResolver(localSessionID: session.sessionId),
-            makeUpdateSink(localSessionID: session.sessionId)
+        let client = try ACPExternalAgentRuntimeClient(
+            launchConfiguration: launchConfiguration,
+            terminalRuntime: terminalRuntime,
+            authorizationPolicy: authorizationPolicy,
+            permissionResolver: makePermissionResolver(localSessionID: session.sessionId),
+            eventSink: makeUpdateSink(localSessionID: session.sessionId)
+        )
+        debugLog(
+            "created runtime session=\(session.sessionId) command=\(launchConfiguration.command) cwd=\(launchConfiguration.currentDirectoryURL.path) envCount=\(launchConfiguration.environmentOverrides.count)"
         )
         runtimeClients[session.sessionId] = client
         return client
@@ -300,9 +284,17 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         let source = ACPPermissionCenter.RequestSource(providerID: id, localSessionID: localSessionID)
 
         return { [weak self] request, policy in
+            await MainActor.run {
+                self?.debugLog(
+                    "permission requested session=\(localSessionID) tool=\(request.toolCall.kind ?? "(nil)") title=\(request.toolCall.title ?? "(nil)") approvalMode=\(policy.approvalMode.rawValue)"
+                )
+            }
             let response = await permissionCenter.resolve(request: request, source: source, policy: policy)
             await MainActor.run {
                 self?.applyPermissionResolution(response, request: request, localSessionID: localSessionID)
+                self?.debugLog(
+                    "permission resolved session=\(localSessionID) tool=\(request.toolCall.toolCallID) outcome=\(String(describing: response?.outcome))"
+                )
             }
             return response
         }
@@ -311,6 +303,9 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
     private func makeUpdateSink(localSessionID: String) -> @Sendable (CopilotACPUpdate) async -> Void {
         { [weak self] update in
             guard let self else { return }
+            await MainActor.run {
+                self.debugLog("update received session=\(localSessionID) kind=\(self.describe(update: update))")
+            }
             await self.consumeOnMain(update: update, localSessionID: localSessionID)
         }
     }
@@ -368,10 +363,13 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
 
     private func consume(update: CopilotACPUpdate, localSessionID: String) {
         guard let activeTurn = activeTurns[localSessionID] else {
+            debugLog("update dropped session=\(localSessionID) no active turn")
             return
         }
 
-        for event in normalizer.normalize(update: update) {
+        let events = normalizer.normalize(update: update)
+        debugLog("update normalized session=\(localSessionID) events=\(events.map(describe(event:)).joined(separator: ", "))")
+        for event in events {
             apply(event: event, to: activeTurn.assistantMessage, in: activeTurn.modelContext)
         }
 
@@ -571,6 +569,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         }
         session.updatedAt = Date()
         try? modelContext.save()
+        debugLog("message finalized session=\(session.sessionId) stopReason=\(stopReason) textLength=\((assistantMessage.textContent ?? "").count)")
     }
 
     private func failAssistantMessage(sessionID: String, error: Error, modelContext: ModelContext) {
@@ -582,6 +581,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
                 activeTurn.assistantMessage.textContent = "错误: \(error.localizedDescription)"
             }
             try? activeTurn.modelContext.save()
+            debugLog("message failed session=\(sessionID) error=\(error.localizedDescription)")
         } else {
             _ = modelContext
         }
@@ -595,19 +595,21 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
                 activeTurn.assistantMessage.textContent = "(已取消)"
             }
             try? activeTurn.modelContext.save()
+            debugLog("message cancelled session=\(sessionID)")
         }
     }
 
     private func resetRuntime(for localSessionID: String) async {
         permissionCenter.cancelRequests(for: localSessionID)
         if let runtimeClient = runtimeClients.removeValue(forKey: localSessionID) {
+            debugLog("reset runtime session=\(localSessionID)")
             await runtimeClient.close()
         }
         await sessionBridge.removeBinding(for: localSessionID, providerID: id)
         activeTurns.removeValue(forKey: localSessionID)
     }
 
-    private func approvalMode(for configuration: GitHubCopilotCLIConfiguration) -> ToolApprovalMode {
+    private func approvalMode(for configuration: OpenCodeCLIConfiguration) -> ToolApprovalMode {
         switch configuration.defaultApprovalMode
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() {
@@ -620,7 +622,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         }
     }
 
-    private func selectedModelID(for configuration: GitHubCopilotCLIConfiguration) -> String? {
+    private func selectedModelID(for configuration: OpenCodeCLIConfiguration) -> String? {
         trimmedNonEmpty(configuration.defaultModel)
     }
 
@@ -633,139 +635,44 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
             }
         }
     }
-}
 
-private actor GitHubCopilotCLIClientHandler: ACPClientHandler {
-    private let localHandler: ACPLocalClientHandler
-    private let eventSink: @Sendable (CopilotACPUpdate) async -> Void
-
-    init(
-        allowedRoots: [URL],
-        terminalRuntime: TerminalTaskRuntime,
-        authorizationPolicy: ToolAuthorizationPolicy,
-        permissionResolver: (@Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?)?,
-        eventSink: @escaping @Sendable (CopilotACPUpdate) async -> Void
-    ) {
-        self.localHandler = ACPLocalClientHandler(
-            authorizationPolicy: authorizationPolicy,
-            allowedRoots: allowedRoots,
-            terminalRuntimeProvider: { _ in terminalRuntime },
-            permissionResolver: permissionResolver
-        )
-        self.eventSink = eventSink
+    private func debugLog(_ message: String) {
+        print("[opencode] \(message)")
     }
 
-    func handleSessionUpdate(_ notification: ACPSessionNotification) async {
-        await eventSink(.session(notification.update))
-    }
-
-    func handleRequestPermission(_ request: ACPRequestPermissionRequest) async throws -> ACPRequestPermissionResponse? {
-        await eventSink(.permission(request))
-        return try await localHandler.handleRequestPermission(request)
-    }
-
-    func handleReadTextFile(_ request: ACPReadTextFileRequest) async throws -> ACPReadTextFileResponse? {
-        try await localHandler.handleReadTextFile(request)
-    }
-
-    func handleWriteTextFile(_ request: ACPWriteTextFileRequest) async throws -> ACPWriteTextFileResponse? {
-        try await localHandler.handleWriteTextFile(request)
-    }
-
-    func handleCreateTerminal(_ request: ACPCreateTerminalRequest) async throws -> ACPCreateTerminalResponse? {
-        try await localHandler.handleCreateTerminal(request)
-    }
-
-    func handleTerminalOutput(_ request: ACPTerminalOutputRequest) async throws -> ACPTerminalOutputResponse? {
-        try await localHandler.handleTerminalOutput(request)
-    }
-
-    func handleWaitForTerminalExit(_ request: ACPWaitForTerminalExitRequest) async throws -> ACPWaitForTerminalExitResponse? {
-        try await localHandler.handleWaitForTerminalExit(request)
-    }
-
-    func handleKillTerminal(_ request: ACPKillTerminalRequest) async throws -> ACPKillTerminalResponse? {
-        try await localHandler.handleKillTerminal(request)
-    }
-
-    func handleReleaseTerminal(_ request: ACPReleaseTerminalRequest) async throws -> ACPReleaseTerminalResponse? {
-        try await localHandler.handleReleaseTerminal(request)
-    }
-}
-
-@MainActor
-final class ACPGitHubCopilotCLIRuntimeClient: GitHubCopilotCLIRuntimeClient {
-    private let externalRuntimeClient: ACPExternalAgentRuntimeClient
-
-    init(
-        launchConfiguration: GitHubCopilotCLILaunchConfiguration,
-        terminalRuntime: TerminalTaskRuntime,
-        authorizationPolicy: ToolAuthorizationPolicy,
-        permissionResolver: (@Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?)? = nil,
-        eventSink: @escaping @Sendable (CopilotACPUpdate) async -> Void
-    ) throws {
-        self.externalRuntimeClient = try ACPExternalAgentRuntimeClient(
-            launchConfiguration: launchConfiguration,
-            terminalRuntime: terminalRuntime,
-            authorizationPolicy: authorizationPolicy,
-            supportsSessionModelOverrideFallback: true,
-            permissionResolver: permissionResolver,
-            eventSink: eventSink
-        )
-    }
-
-    static func make(
-        launchConfiguration: GitHubCopilotCLILaunchConfiguration,
-        terminalRuntime: TerminalTaskRuntime,
-        authorizationPolicy: ToolAuthorizationPolicy,
-        permissionResolver: @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
-        eventSink: @escaping @Sendable (CopilotACPUpdate) async -> Void
-    ) throws -> any GitHubCopilotCLIRuntimeClient {
-        try ACPGitHubCopilotCLIRuntimeClient(
-            launchConfiguration: launchConfiguration,
-            terminalRuntime: terminalRuntime,
-            authorizationPolicy: authorizationPolicy,
-            permissionResolver: permissionResolver,
-            eventSink: eventSink
-        )
-    }
-
-    func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> GitHubCopilotCLISessionHandshake {
-        do {
-            let handshake = try await externalRuntimeClient.ensureSession(
-                workingDirectory: workingDirectory,
-                remoteSessionID: remoteSessionID
-            )
-            return GitHubCopilotCLISessionHandshake(
-                remoteSessionID: handshake.remoteSessionID,
-                cliVersion: handshake.capabilities.agentVersion,
-                capabilities: handshake.capabilities
-            )
-        } catch let error as ACPExternalAgentRuntimeError {
-            switch error {
-            case .sessionAlreadyAttached(let current, let requested):
-                throw GitHubCopilotCLIExecutionProviderError.sessionAlreadyAttached(
-                    current: current,
-                    requested: requested
-                )
+    private func describe(update: CopilotACPUpdate) -> String {
+        switch update {
+        case .permission(let request):
+            return "permission:\(request.toolCall.kind ?? "(nil)")#\(request.toolCall.toolCallID)"
+        case .session(let sessionUpdate):
+            switch sessionUpdate {
+            case .agentMessageChunk:
+                return "session:agent_message_chunk"
+            case .agentThoughtChunk:
+                return "session:agent_thought_chunk"
+            case .toolCall(let toolCall):
+                return "session:tool_call:\(toolCall.kind ?? "(nil)")#\(toolCall.toolCallID)"
+            case .toolCallUpdate(let payload):
+                return "session:tool_call_update:\(payload.kind ?? "(nil)")#\(payload.toolCallID)"
+            default:
+                return "session:other"
             }
         }
     }
 
-    func setModel(_ modelID: String, sessionID: String) async throws {
-        try await externalRuntimeClient.setModel(modelID, sessionID: sessionID)
-    }
-
-    func prompt(text: String, sessionID: String) async throws -> ACPStopReason {
-        try await externalRuntimeClient.prompt(text: text, sessionID: sessionID)
-    }
-
-    func cancel(sessionID: String) async throws {
-        try await externalRuntimeClient.cancel(sessionID: sessionID)
-    }
-
-    func close() async {
-        await externalRuntimeClient.close()
+    private func describe(event: CopilotNormalizedEvent) -> String {
+        switch event {
+        case .assistantTextDelta(let delta):
+            return "assistant:\(delta.count)chars"
+        case .thinkingDelta(let delta):
+            return "thinking:\(delta.count)chars"
+        case .toolCallStarted(let id, let kind, _, _):
+            return "tool_started:\(kind.rawValue)#\(id)"
+        case .toolCallUpdated(let id, let kind, _, _, let status, _):
+            return "tool_updated:\((kind ?? .other).rawValue)#\(id):\(status?.rawValue ?? "(nil)")"
+        case .permissionRequested(let id, let kind, _, _):
+            return "permission:\(kind.rawValue)#\(id)"
+        }
     }
 }
 
