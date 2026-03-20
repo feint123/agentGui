@@ -6,6 +6,7 @@ enum ToolRowStyle: Equatable {
     case execute
     case search
     case fetch
+    case permission
     case askUser
     case subagent
     case other
@@ -23,6 +24,19 @@ struct ToolCallRowPresentation: Equatable {
 
     static func make(for toolCall: ToolCall, isExpanded: Bool = false) -> ToolCallRowPresentation {
         let durationText = toolCall.duration.map { String(format: "%.1fs", $0) }
+
+        if toolCall.isPermissionRequest {
+            return ToolCallRowPresentation(
+                style: .permission,
+                primaryText: "权限批准",
+                secondaryText: toolCall.title ?? toolCall.kind.displayName,
+                tertiaryText: toolCall.toolResultSummary,
+                statusText: toolCall.statusDisplay,
+                detailText: toolCall.terminalOutput,
+                durationText: durationText,
+                isExpanded: isExpanded
+            )
+        }
 
         switch toolCall.kind {
         case .read:

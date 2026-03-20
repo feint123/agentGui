@@ -167,7 +167,7 @@ extension AgentExecutionProjection {
     nonisolated private static func allToolCalls(in message: Message) -> [ToolCall] {
         let roundCalls = message.agentRounds.flatMap(\.toolCalls)
         let directCalls = message.toolCalls.filter { $0.agentRound == nil }
-        return roundCalls + directCalls
+        return (roundCalls + directCalls).filter { !$0.isPermissionRequest }
     }
 
     nonisolated private static func phase(for message: Message, toolCalls: [ToolCall]) -> ExecutionPhase {

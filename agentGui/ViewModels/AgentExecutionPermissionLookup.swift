@@ -20,7 +20,7 @@ enum AgentExecutionPermissionLookup {
             guard let localSessionID = toolCall.message?.session?.sessionId,
                   let request = permissionCenter.pendingRequest(
                       localSessionID: localSessionID,
-                      toolCallID: toolCall.toolCallId
+                      toolCallID: toolCall.permissionLookupToolCallId
                   ),
                   seenRequestIDs.insert(request.id).inserted else {
                 return nil

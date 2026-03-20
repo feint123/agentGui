@@ -115,8 +115,8 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
                 remoteSessionID: remoteBinding?.remoteSessionID.nonEmptyValue
             )
 
-            let selectedModel = configuration.defaultModel.nonEmptyValue ?? request.modelID
-            if !selectedModel.isEmpty {
+            let selectedModel = selectedModelID(for: configuration)
+            if let selectedModel {
                 try await runtimeClient.setModel(selectedModel, sessionID: handshake.remoteSessionID)
             }
 
@@ -127,7 +127,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
                     remoteSessionID: handshake.remoteSessionID,
                     cliVersion: handshake.cliVersion,
                     lastHandshakeAt: Date(),
-                    lastSelectedModel: configuration.defaultModel,
+                    lastSelectedModel: selectedModel,
                     lastSelectedAgentName: configuration.customAgentName
                 )
             )
@@ -304,11 +304,11 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         }
 
         let kind = ToolKind.classify(rawName: request.toolCall.kind)
-        let toolCall = ensureToolCall(
+        let toolCall = ensurePermissionToolCall(
             toolCallID: request.toolCall.toolCallID,
             kind: kind,
             title: request.toolCall.title ?? kind.displayName,
-            filePath: nil,
+            reason: normalizer.permissionReason(in: request),
             message: activeTurn.assistantMessage,
             modelContext: activeTurn.modelContext
         )
@@ -328,7 +328,9 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
                 toolCall.toolResultSummary = "权限被拒绝"
                 toolCall.endTime = toolCall.endTime ?? Date()
             case .allowOnce, .allowAlways:
-                break
+                toolCall.status = .success
+                toolCall.toolResultSummary = "权限已批准"
+                toolCall.endTime = toolCall.endTime ?? Date()
             }
         case .other:
             break
@@ -394,18 +396,16 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
                 }
             }
         case .permissionRequested(let id, let kind, let title, let reason):
-            let toolCall = ensureToolCall(
+            let toolCall = ensurePermissionToolCall(
                 toolCallID: id,
                 kind: kind,
                 title: title ?? kind.displayName,
-                filePath: nil,
+                reason: reason,
                 message: message,
                 modelContext: modelContext
             )
             toolCall.status = .inProgress
-            if let reason, !reason.isEmpty {
-                toolCall.toolResultSummary = reason
-            }
+            toolCall.toolResultSummary = "等待权限批准"
         }
     }
 
@@ -416,8 +416,36 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
 
         let round = AgentRound(roundIndex: message.agentRounds.count, message: message)
         modelContext.insert(round)
-        message.agentRounds.append(round)
         return round
+    }
+
+    private func ensurePermissionToolCall(
+        toolCallID: String,
+        kind: ToolKind,
+        title: String?,
+        reason: String?,
+        message: Message,
+        modelContext: ModelContext
+    ) -> ToolCall {
+        let permissionRecordID = permissionRecordToolCallID(for: toolCallID)
+        if let existing = allToolCalls(in: message).first(where: { $0.toolCallId == permissionRecordID && $0.isPermissionRequest }) {
+            if let title, !title.isEmpty {
+                existing.title = title
+            }
+            if let reason, !reason.isEmpty {
+                existing.terminalOutput = reason
+            }
+            return existing
+        }
+
+        let round = ensurePrimaryRound(for: message, in: modelContext)
+        let toolCall = ToolCall(toolCallId: permissionRecordID, kind: kind, message: message, agentRound: round)
+        toolCall.isPermissionRequest = true
+        toolCall.permissionTargetToolCallId = toolCallID
+        toolCall.title = title
+        toolCall.terminalOutput = reason
+        modelContext.insert(toolCall)
+        return toolCall
     }
 
     private func ensureToolCall(
@@ -443,7 +471,6 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         toolCall.title = title
         toolCall.filePath = filePath
         modelContext.insert(toolCall)
-        round.toolCalls.append(toolCall)
         return toolCall
     }
 
@@ -451,6 +478,10 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         let roundCalls = message.agentRounds.flatMap(\.toolCalls)
         let directCalls = message.toolCalls.filter { $0.agentRound == nil }
         return roundCalls + directCalls
+    }
+
+    private func permissionRecordToolCallID(for toolCallID: String) -> String {
+        "permission:\(toolCallID)"
     }
 
     private func makePromptText(currentText: String, session: Session, remoteSessionID: String?) -> String {
@@ -555,9 +586,15 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
             .lowercased() {
         case "never":
             return .none
+        case "default", "on-request", "on_request", "onrequest", "auto":
+            return .subjectPolicy
         default:
             return .alwaysRequireHuman
         }
+    }
+
+    private func selectedModelID(for configuration: GitHubCopilotCLIConfiguration) -> String? {
+        configuration.defaultModel.nonEmptyValue
     }
 
     private func settleOutstandingToolCalls(in message: Message, terminalStatus: ToolStatus) {

@@ -127,6 +127,8 @@ struct ToolCallFingerprint: Hashable {
     let id: UUID
     let toolCallId: String
     let kind: ToolKind
+    let isPermissionRequest: Bool
+    let permissionTargetToolCallId: String?
     let title: String?
     let status: ToolStatus
     let filePath: String?
@@ -158,6 +160,8 @@ struct ToolCallFingerprint: Hashable {
         self.id = toolCall.id
         self.toolCallId = toolCall.toolCallId
         self.kind = toolCall.kind
+        self.isPermissionRequest = toolCall.isPermissionRequest
+        self.permissionTargetToolCallId = toolCall.permissionTargetToolCallId
         self.title = toolCall.title
         self.status = toolCall.status
         self.filePath = toolCall.filePath

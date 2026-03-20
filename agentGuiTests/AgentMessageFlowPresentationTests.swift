@@ -90,6 +90,14 @@ struct AgentMessageFlowPresentationTests {
         #expect(toolCall.fileName == "ChatView.swift")
     }
 
+    @Test func flowSnapshotSeparatesPermissionRecordFromToolExecution() async throws {
+        let message = AgentMessageFlowFixture.makePermissionAndExecutionMessage()
+
+        let snapshot = AgentMessageFlowPresentation.snapshot(for: message)
+
+        #expect(snapshot.steps.map(AgentMessageFlowFixture.kindLabel) == ["permission", "execute"])
+    }
+
     @Test func subagentRowUsesTaskAndResultKindPresentation() async throws {
         let tool = ToolCall(toolCallId: "subagent-worker", kind: .subagent)
         tool.subagentAgentName = "worker"
@@ -217,6 +225,8 @@ private enum AgentMessageFlowFixture {
                 return "search"
             case .fetch:
                 return "fetch"
+            case .permission:
+                return "permission"
             case .askUser:
                 return "askUser"
             case .subagent:
@@ -276,6 +286,31 @@ private enum AgentMessageFlowFixture {
     static func makeCompletedMessage() -> Message {
         let message = makeChronologicalMessage()
         message.status = .completed
+        return message
+    }
+
+    static func makePermissionAndExecutionMessage() -> Message {
+        let message = Message.agentMessage(text: nil, session: Session(title: "Permission"))
+        let round = AgentRound(roundIndex: 0, message: message)
+        round.timestamp = date(0)
+
+        let permission = ToolCall(toolCallId: "permission:exec-1", kind: .execute, message: message, agentRound: round)
+        permission.isPermissionRequest = true
+        permission.permissionTargetToolCallId = "exec-1"
+        permission.title = "run tests"
+        permission.toolResultSummary = "等待权限批准"
+        permission.status = .inProgress
+        permission.startTime = date(1)
+
+        let exec = ToolCall(toolCallId: "exec-1", kind: .execute, message: message, agentRound: round)
+        exec.title = "run tests"
+        exec.status = .success
+        exec.startTime = date(2)
+        exec.endTime = date(3)
+
+        round.toolCalls = [permission, exec]
+        message.agentRounds = [round]
+        message.status = .pending
         return message
     }
 

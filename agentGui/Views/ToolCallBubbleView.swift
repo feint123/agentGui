@@ -200,6 +200,8 @@ struct ToolCallBubbleView: View {
             return "magnifyingglass"
         case .fetch:
             return "arrow.down.doc"
+        case .permission:
+            return "hand.raised"
         case .askUser:
             return "questionmark.circle"
         case .subagent:

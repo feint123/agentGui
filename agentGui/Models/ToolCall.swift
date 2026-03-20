@@ -37,6 +37,12 @@ final class ToolCall {
     /// Structured summary for large text results.
     var toolResultSummary: String?
 
+    /// Whether this record represents an ACP permission request rather than the tool execution itself.
+    var isPermissionRequest: Bool=false
+
+    /// Original ACP toolCallId targeted by the permission request when this is a permission record.
+    var permissionTargetToolCallId: String?
+
     /// Payload reference when the tool result is stored out-of-band.
     var toolPayloadRef: String?
 
@@ -173,6 +179,8 @@ final class ToolCall {
         self.diffContent = nil
         self.terminalOutput = nil
         self.toolResultSummary = nil
+        self.isPermissionRequest = false
+        self.permissionTargetToolCallId = nil
         self.toolPayloadRef = nil
         self.toolResultRawChars = nil
         self.toolResultInjectedChars = nil
@@ -288,6 +296,10 @@ extension ToolCall {
     var verifierVerdictText: String? {
         guard let verifierPassed else { return nil }
         return verifierPassed ? "验证通过" : "验证失败"
+    }
+
+    var permissionLookupToolCallId: String {
+        permissionTargetToolCallId ?? toolCallId
     }
 }
 

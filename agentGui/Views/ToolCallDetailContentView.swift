@@ -49,6 +49,8 @@ enum ToolCallDetailPresentation {
             return executeSections(for: toolCall, row: row)
         case .search, .fetch:
             return searchSections(for: row)
+        case .permission:
+            return permissionSections(for: toolCall, row: row)
         case .askUser:
             return askUserSections(for: row)
         case .subagent:
@@ -56,6 +58,20 @@ enum ToolCallDetailPresentation {
         case .other:
             return fallbackSections(for: row)
         }
+    }
+
+    private static func permissionSections(for toolCall: ToolCall, row: ToolCallRowPresentation) -> [ToolCallDetailSection] {
+        var sections: [ToolCallDetailSection] = []
+        if let target = toolCall.title, !target.isEmpty {
+            sections.append(.init(label: "目标操作", text: target, monospaced: false, lineLimit: 3))
+        }
+        if let reason = row.detailText, !reason.isEmpty {
+            sections.append(.init(label: "请求原因", text: reason, monospaced: false, lineLimit: 4))
+        }
+        if let summary = row.tertiaryText, !summary.isEmpty {
+            sections.append(.init(label: "处理结果", text: summary, monospaced: false, lineLimit: 3))
+        }
+        return sections
     }
 
     private static func readSections(for toolCall: ToolCall, row: ToolCallRowPresentation) -> [ToolCallDetailSection] {

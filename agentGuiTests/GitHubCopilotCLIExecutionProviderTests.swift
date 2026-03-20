@@ -272,6 +272,66 @@ struct GitHubCopilotCLIExecutionProviderTests {
         #expect(runtimeClient.setModelRequests.first?.1 == "remote-123")
     }
 
+    @Test func sendSkipsModelSelectionWhenCopilotDefaultModelIsEmpty() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "   ",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Model Fallback")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let sessionBridge = CopilotSessionBridge()
+        let runtimeClient = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-model", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            sessionBridge: sessionBridge,
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "hello copilot",
+                session: session,
+                modelID: "claude-sonnet-4-6",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        let binding = await sessionBridge.binding(for: session.sessionId)
+
+        #expect(runtimeClient.setModelRequests.isEmpty)
+        #expect(binding?.lastSelectedModel == nil)
+    }
+
+    @Test func sendMapsDefaultApprovalModeToSubjectPolicy() async throws {
+        let approvalMode = try await capturedApprovalMode(for: "default")
+        #expect(approvalMode == .subjectPolicy)
+    }
+
+    @Test func sendMapsOnRequestApprovalModeToSubjectPolicy() async throws {
+        let approvalMode = try await capturedApprovalMode(for: "on-request")
+        #expect(approvalMode == .subjectPolicy)
+    }
+
     @Test func sendFinalizesOutstandingReadToolCallsWhenTurnEnds() async throws {
         let modelContext = try makeModelContext()
         let settings = AppSettings.testFixture(apiKey: "")
@@ -569,6 +629,130 @@ struct GitHubCopilotCLIExecutionProviderTests {
         #expect(toolCall.toolResultSummary == "权限被拒绝")
     }
 
+    @Test func sendSeparatesPermissionRequestsFromToolExecutionRecords() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Permission Execute")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let permissionCenter = ACPPermissionCenter()
+        let permissionRequest = ACPRequestPermissionRequest(
+            meta: nil,
+            options: [
+                ACPPermissionOption(meta: nil, kind: .allowOnce, name: "Allow once", optionID: "allow-once"),
+                ACPPermissionOption(meta: nil, kind: .rejectOnce, name: "Reject once", optionID: "reject-once")
+            ],
+            sessionID: "remote-permission-execute",
+            toolCall: ACPToolCallUpdatePayload(
+                meta: nil,
+                content: .object(["reason": .string("需要执行 shell 命令")]),
+                kind: "run_in_terminal",
+                locations: nil,
+                rawInput: nil,
+                rawOutput: nil,
+                status: "pending",
+                title: "run tests",
+                toolCallID: "tool-run"
+            )
+        )
+        let runtimeClient = PermissionAndUpdateRuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-permission-execute", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            permissionRequest: permissionRequest,
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .alwaysRequireHuman),
+            updates: [
+                .session(
+                    .toolCall(
+                        ACPToolCall(
+                            meta: nil,
+                            content: nil,
+                            kind: "run_in_terminal",
+                            locations: nil,
+                            rawInput: nil,
+                            rawOutput: nil,
+                            status: "in_progress",
+                            title: "run tests",
+                            toolCallID: "tool-run"
+                        )
+                    )
+                ),
+                .session(
+                    .toolCallUpdate(
+                        ACPToolCallUpdatePayload(
+                            meta: nil,
+                            content: nil,
+                            kind: "run_in_terminal",
+                            locations: nil,
+                            rawInput: nil,
+                            rawOutput: .string("swift test"),
+                            status: "success",
+                            title: "run tests",
+                            toolCallID: "tool-run"
+                        )
+                    )
+                )
+            ]
+        )
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: permissionCenter,
+            runtimeClientFactory: { _, _, _, permissionResolver, updateSink in
+                runtimeClient.permissionResolver = permissionResolver
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        let sendTask = Task {
+            try await provider.send(
+                ConversationExecutionRequest(
+                    text: "run tests",
+                    session: session,
+                    modelID: "",
+                    selectedFilePath: nil,
+                    selectedText: nil,
+                    directives: [],
+                    modelContext: modelContext
+                )
+            )
+        }
+
+        while permissionCenter.pendingRequests.isEmpty {
+            await Task.yield()
+        }
+
+        let pending = try #require(permissionCenter.pendingRequests.first)
+        permissionCenter.selectOption(requestID: pending.id, optionID: "allow-once")
+
+        try await sendTask.value
+
+        let assistantMessage = try #require(session.messages.first(where: { $0.direction == .agent }))
+        let toolCalls = try #require(assistantMessage.agentRounds.first?.toolCalls)
+
+        #expect(toolCalls.count == 2)
+
+        let permissionRecord = try #require(toolCalls.first(where: { $0.isPermissionRequest }))
+        #expect(permissionRecord.permissionTargetToolCallId == "tool-run")
+        #expect(permissionRecord.status == .success)
+        #expect(permissionRecord.toolResultSummary == "权限已批准")
+
+        let executionRecord = try #require(toolCalls.first(where: { !$0.isPermissionRequest }))
+        #expect(executionRecord.toolCallId == "tool-run")
+        #expect(executionRecord.kind == .execute)
+        #expect(executionRecord.status == .success)
+        #expect(executionRecord.terminalOutput == "swift test")
+    }
+
     @Test func cancelForwardsToActiveRuntime() async throws {
         let modelContext = try makeModelContext()
         let settings = AppSettings.testFixture(apiKey: "")
@@ -632,6 +816,53 @@ struct GitHubCopilotCLIExecutionProviderTests {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func capturedApprovalMode(for defaultApprovalMode: String) async throws -> ToolApprovalMode {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "",
+            customAgentName: "",
+            defaultApprovalMode: defaultApprovalMode,
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Approval Mode")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let runtimeClient = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-approval", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+        var capturedApprovalMode: ToolApprovalMode?
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, authorizationPolicy, _, updateSink in
+                capturedApprovalMode = authorizationPolicy.approvalMode
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "hello copilot",
+                session: session,
+                modelID: "",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        return try #require(capturedApprovalMode)
     }
 
     private var sessionLoadOnlyRubyAgentScript: String {
@@ -879,6 +1110,60 @@ private final class PermissionRuntimeClientStub: GitHubCopilotCLIRuntimeClient {
         _ = sessionID
         await updateSink?(.permission(permissionRequest))
         _ = await permissionResolver?(permissionRequest, authorizationPolicy)
+        return stopReason
+    }
+
+    func cancel(sessionID: String) async throws {
+        _ = sessionID
+    }
+
+    func close() async {}
+}
+
+@MainActor
+private final class PermissionAndUpdateRuntimeClientStub: GitHubCopilotCLIRuntimeClient {
+    let handshake: GitHubCopilotCLISessionHandshake
+    let stopReason: ACPStopReason
+    let permissionRequest: ACPRequestPermissionRequest
+    let authorizationPolicy: ToolAuthorizationPolicy
+    let updates: [CopilotACPUpdate]
+
+    var permissionResolver: ((ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?)?
+    var updateSink: (@Sendable (CopilotACPUpdate) async -> Void)?
+
+    init(
+        handshake: GitHubCopilotCLISessionHandshake,
+        stopReason: ACPStopReason,
+        permissionRequest: ACPRequestPermissionRequest,
+        authorizationPolicy: ToolAuthorizationPolicy,
+        updates: [CopilotACPUpdate]
+    ) {
+        self.handshake = handshake
+        self.stopReason = stopReason
+        self.permissionRequest = permissionRequest
+        self.authorizationPolicy = authorizationPolicy
+        self.updates = updates
+    }
+
+    func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> GitHubCopilotCLISessionHandshake {
+        _ = workingDirectory
+        _ = remoteSessionID
+        return handshake
+    }
+
+    func setModel(_ modelID: String, sessionID: String) async throws {
+        _ = modelID
+        _ = sessionID
+    }
+
+    func prompt(text: String, sessionID: String) async throws -> ACPStopReason {
+        _ = text
+        _ = sessionID
+        await updateSink?(.permission(permissionRequest))
+        _ = await permissionResolver?(permissionRequest, authorizationPolicy)
+        for update in updates {
+            await updateSink?(update)
+        }
         return stopReason
     }
 

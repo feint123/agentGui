@@ -92,7 +92,7 @@ struct CopilotACPEventNormalizer {
         ToolStatus.normalizedACPStatus(from: rawValue)
     }
 
-    private func permissionReason(in request: ACPRequestPermissionRequest) -> String? {
+    func permissionReason(in request: ACPRequestPermissionRequest) -> String? {
         if let content = request.toolCall.content,
            let reason = string(from: content),
            !reason.isEmpty {

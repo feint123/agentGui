@@ -149,6 +149,8 @@ private enum AgentExecutionProjectionFixture {
                 return "search"
             case .fetch:
                 return "fetch"
+            case .permission:
+                return "permission"
             case .askUser:
                 return "askUser"
             case .subagent:
