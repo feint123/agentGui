@@ -20,20 +20,6 @@ final class RuntimeRecoveryService {
     func refresh(from modelContext: ModelContext) throws {
         var activeKeys = Set<String>()
 
-        let workflows = try modelContext.fetch(FetchDescriptor<WorkflowInstance>())
-        for workflow in workflows where !workflow.status.isTerminal {
-            let key = snapshotKey(kind: .workflow, identifier: workflow.id.uuidString)
-            activeKeys.insert(key)
-            try upsertSnapshot(
-                sessionId: workflow.sessionId,
-                sourceKind: .workflow,
-                sourceIdentifier: workflow.id.uuidString,
-                summaryText: "未完成的工作流：\(workflow.userTask)",
-                metadata: ["definitionId": workflow.definitionId, "status": workflow.status.rawValue],
-                modelContext: modelContext
-            )
-        }
-
         let messages = try modelContext.fetch(FetchDescriptor<Message>())
         for message in messages where message.direction == .agent && message.status == .pending {
             guard let sessionId = message.session?.sessionId else { continue }
@@ -139,11 +125,6 @@ final class RuntimeRecoveryService {
 
     private func normalizeSource(_ snapshot: RecoverySnapshot, in modelContext: ModelContext, terminalAction: TerminalAction) throws {
         switch snapshot.sourceKind {
-        case .workflow:
-            guard let workflowID = UUID(uuidString: snapshot.sourceIdentifier) else { return }
-            let workflows = try modelContext.fetch(FetchDescriptor<WorkflowInstance>())
-            guard let workflow = workflows.first(where: { $0.id == workflowID }), !workflow.status.isTerminal else { return }
-            workflow.status = .cancelled
         case .messageGeneration:
             guard let messageID = UUID(uuidString: snapshot.sourceIdentifier) else { return }
             let messages = try modelContext.fetch(FetchDescriptor<Message>())

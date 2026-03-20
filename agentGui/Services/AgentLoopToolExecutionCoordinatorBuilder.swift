@@ -27,12 +27,6 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                         modelContext: modelContext
                     )
                 },
-                startWorkflow: { input in
-                    await claudeService.executeStartWorkflowTool(
-                        input: input,
-                        modelContext: modelContext
-                    )
-                },
                 executeTool: { name, input in
                     await claudeService.executeTool(
                         name: name,

@@ -141,7 +141,6 @@ enum ExecutionEvidenceKind: String, Hashable {
     case bash
     case builtinTool
     case executorSubagent
-    case workflow
 }
 
 enum ExecutionGuard {
@@ -155,8 +154,6 @@ enum ExecutionGuard {
             return input["task_id"] == nil ? .bash : nil
         case "run_subagent":
             return input["agent_name"]?.stringValue == "worker" ? .executorSubagent : nil
-        case "start_workflow":
-            return result.isError ? nil : .workflow
         case _ where builtinExecutionToolNames.contains(toolName):
             return .builtinTool
         default:

@@ -9,7 +9,6 @@ struct AgentLoopToolExecutionOutcome {
 struct AgentLoopToolExecutionCoordinator {
     struct Dependencies {
         let runSubagent: (MessageResponse.Content.Input, ToolCall) async -> AgentMessage
-        let startWorkflow: (MessageResponse.Content.Input) async -> ToolExecutionResult
         let executeTool: (String, MessageResponse.Content.Input) async -> ToolExecutionResult
         let normalizeBashRequest: (MessageResponse.Content.Input) throws -> BashToolRequest
         let startForegroundBashObservation: (BashToolRequest, ToolCall) async -> Task<Void, Never>?
@@ -38,11 +37,6 @@ struct AgentLoopToolExecutionCoordinator {
                 record.subagentMessageMetadata = agentMessage.metadata
             }
             return AgentLoopToolExecutionOutcome(result: agentMessage.toExecutionResult(), record: record)
-        }
-
-        if pendingTool.name == "start_workflow" {
-            let result = await dependencies.startWorkflow(input)
-            return AgentLoopToolExecutionOutcome(result: result, record: record)
         }
 
         let isBash = pendingTool.name == "bash"

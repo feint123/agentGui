@@ -9,8 +9,10 @@ final class SettingsStore {
 
     @ObservationIgnored private let modelContext: ModelContext
     @ObservationIgnored private let persistenceCoordinator: PersistenceCoordinator?
+    @ObservationIgnored private let gitHubCopilotCLIAvailabilityService: GitHubCopilotCLIAvailabilityService
 
     var settings: AppSettings
+    var gitHubCopilotCLIAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus
     var selectedItem: SettingsNavigationItem {
         didSet {
             Self.lastSelectedItem = selectedItem
@@ -19,14 +21,17 @@ final class SettingsStore {
 
     init(
         modelContext: ModelContext,
-        persistenceCoordinator: PersistenceCoordinator?
+        persistenceCoordinator: PersistenceCoordinator?,
+        gitHubCopilotCLIAvailabilityService: GitHubCopilotCLIAvailabilityService = GitHubCopilotCLIAvailabilityService()
     ) {
         self.modelContext = modelContext
         self.persistenceCoordinator = persistenceCoordinator
+        self.gitHubCopilotCLIAvailabilityService = gitHubCopilotCLIAvailabilityService
         self.settings = AppSettings.getOrCreate(
             in: modelContext,
             persistenceCoordinator: persistenceCoordinator
         )
+        self.gitHubCopilotCLIAvailabilityStatus = .unknown
         self.selectedItem = Self.lastSelectedItem
     }
 
@@ -58,6 +63,38 @@ final class SettingsStore {
                 }
             }
         )
+    }
+
+    func persistedGitHubCopilotCLIConfigurationBinding<Value>(
+        get: @escaping (GitHubCopilotCLIConfiguration) -> Value,
+        userMessage: String,
+        set: @escaping (inout GitHubCopilotCLIConfiguration, Value) -> Void
+    ) -> Binding<Value> {
+        Binding(
+            get: {
+                get(self.settings.githubCopilotCLIConfiguration)
+            },
+            set: { newValue in
+                _ = self.persistSettingsMutation(userMessage) {
+                    var configuration = self.settings.githubCopilotCLIConfiguration
+                    set(&configuration, newValue)
+                    self.settings.githubCopilotCLIConfiguration = configuration
+                }
+            }
+        )
+    }
+
+    func refreshGitHubCopilotCLIAvailabilityStatus() async {
+        do {
+            gitHubCopilotCLIAvailabilityStatus = try await gitHubCopilotCLIAvailabilityService.checkStatus(
+                configuration: settings.githubCopilotCLIConfiguration
+            )
+        } catch {
+            gitHubCopilotCLIAvailabilityStatus = GitHubCopilotCLIAvailabilityStatus(
+                kind: .failed(error.localizedDescription),
+                version: nil
+            )
+        }
     }
 
     static func resetSelectionMemoryForTesting() {

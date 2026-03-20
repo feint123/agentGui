@@ -123,24 +123,6 @@ struct BashToolSchemaTests {
         #expect(propertyNames.contains("operation"))
     }
 
-    @Test func workflowWorkerBashSchemaMatchesUnifiedRegistry() async throws {
-        let settings = AppSettings()
-        settings.enableBashTool = true
-        settings.enableTextEditorTool = true
-        let role = try #require(WorkflowRoleDefinition.find(named: "worker"))
-
-        let tools = WorkflowAgentRunner.makeToolsForTests(
-            role: role,
-            settings: settings
-        )
-        let bash = try #require(toolNamed("bash", in: tools))
-        let propertyNames = schemaPropertyNames(from: bash)
-
-        #expect(propertyNames.contains("execution_mode"))
-        #expect(propertyNames.contains("task_id"))
-        #expect(propertyNames.contains("operation"))
-    }
-
     private func toolNamed(_ name: String, in tools: [MessageParameter.Tool]) -> MessageParameter.Tool? {
         tools.first { toolName(from: $0) == name }
     }

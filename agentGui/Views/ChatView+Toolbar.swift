@@ -43,19 +43,6 @@ extension ChatView {
         }
 
         ToolbarItem(placement: .primaryAction) {
-            if !allWorkflows.isEmpty {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showWorkflowPanel.toggle()
-                    }
-                } label: {
-                    Image(systemName: showWorkflowPanel ? "sidebar.right" : "flowchart")
-                }
-                .help(showWorkflowPanel ? "隐藏 Workflow 面板" : "显示 Workflow 面板")
-            }
-        }
-
-        ToolbarItem(placement: .primaryAction) {
             if rmsRuntimeEnabled {
                 Button {
                     showingRMSPanel.toggle()
@@ -113,6 +100,7 @@ extension ChatView {
 
     func createNewSession() {
         let newSession = Session()
+        newSession.defaultExecutionProviderID = AppSettings.getOrCreate(in: modelContext).defaultExecutionProviderID
         modelContext.insert(newSession)
         try? modelContext.save()
         workspaceState.selectedSession = newSession

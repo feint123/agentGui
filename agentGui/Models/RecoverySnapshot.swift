@@ -2,14 +2,11 @@ import Foundation
 import SwiftData
 
 enum RecoverySourceKind: String, Codable, CaseIterable {
-    case workflow
     case messageGeneration
     case bashTask
 
     var displayName: String {
         switch self {
-        case .workflow:
-            return "工作流"
         case .messageGeneration:
             return "消息生成"
         case .bashTask:

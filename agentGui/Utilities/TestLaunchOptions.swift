@@ -6,7 +6,6 @@ struct TestLaunchOptions {
     let preloadAPIKey: Bool
     let preloadMessages: Bool
     let preloadToolCall: Bool
-    let workflowState: WorkflowStatus?
     let recoveryMode: Bool
     let sessionID: String?
     let workingDirectoryPath: String?
@@ -41,11 +40,6 @@ struct TestLaunchOptions {
             initialTab = .chat
         }
 
-        if let rawWorkflowState = Self.stringValue(for: "-com.agentgui.test.workflowState", in: arguments) {
-            workflowState = WorkflowStatus(rawValue: rawWorkflowState)
-        } else {
-            workflowState = nil
-        }
     }
 
     private static func stringValue(for flag: String, in arguments: [String]) -> String? {

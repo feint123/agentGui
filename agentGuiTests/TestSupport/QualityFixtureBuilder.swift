@@ -4,7 +4,6 @@ import Foundation
 struct RecoveryScenarioFixture {
     let session: Session
     let pendingAgentMessage: Message
-    let workflow: WorkflowInstance
     let recoverySnapshots: [RecoverySnapshot]
 }
 
@@ -17,19 +16,7 @@ enum QualityFixtureBuilder {
             session: session,
             status: .pending
         )
-        let workflow = WorkflowInstance.fixture(
-            sessionId: sessionID,
-            userTask: "Recover interrupted workflow",
-            status: .running
-        )
         let recoverySnapshots = [
-            RecoverySnapshot(
-                sessionId: sessionID,
-                sourceKind: .workflow,
-                sourceIdentifier: workflow.id.uuidString,
-                summaryText: "未完成的工作流：Recover interrupted workflow",
-                metadata: ["definitionId": workflow.definitionId, "status": workflow.status.rawValue]
-            ),
             RecoverySnapshot(
                 sessionId: sessionID,
                 sourceKind: .messageGeneration,
@@ -42,7 +29,6 @@ enum QualityFixtureBuilder {
         return RecoveryScenarioFixture(
             session: session,
             pendingAgentMessage: pendingAgentMessage,
-            workflow: workflow,
             recoverySnapshots: recoverySnapshots
         )
     }

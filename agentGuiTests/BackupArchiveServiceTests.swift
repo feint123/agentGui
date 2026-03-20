@@ -37,7 +37,6 @@ struct BackupArchiveServiceTests {
         #expect(!payload.sessions.isEmpty)
         #expect(!payload.messages.isEmpty)
         #expect(!payload.toolCalls.isEmpty)
-        #expect(!payload.workflowInstances.isEmpty)
         #expect(!payload.taskStates.isEmpty)
     }
 
@@ -63,7 +62,6 @@ struct BackupArchiveServiceTests {
             Message.self,
             ToolCall.self,
             SessionTaskState.self,
-            WorkflowInstance.self,
             configurations: config
         )
     }
@@ -87,9 +85,6 @@ struct BackupArchiveServiceTests {
 
         let taskState = SessionTaskState(sessionId: "session-1", planJson: "{}", todoJson: "[]", verificationJson: "")
         context.insert(taskState)
-
-        let workflow = WorkflowInstance(sessionId: "session-1", definitionId: "code_change", userTask: "Ship backup")
-        context.insert(workflow)
 
         try? context.save()
     }

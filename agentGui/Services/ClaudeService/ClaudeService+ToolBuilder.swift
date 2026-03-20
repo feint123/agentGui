@@ -6,28 +6,6 @@
 import Foundation
 import SwiftAnthropic
 
-// MARK: - Workflow Registry
-
-extension ClaudeService {
-
-    /// All registered workflow definitions, used to populate the start_workflow tool.
-    static let availableWorkflows: [(id: String, displayName: String, description: String)] = [
-        (
-            id: "code_change",
-            displayName: "代码变更流程",
-            description: "多代理协作完成代码修改：规划 → 探索 → 编码 → 审查 → 验证。适用于需要跨文件实现、大型重构、或需要多轮计划-探索-编码-审查循环的复杂任务。"
-        ),
-    ]
-
-    /// Returns the `WorkflowDefinition` for the given workflow id, or nil if unknown.
-    static func makeWorkflowDefinition(id: String) -> (any WorkflowDefinition)? {
-        switch id {
-        case "code_change": return CodeChangeWorkflow()
-        default:            return nil
-        }
-    }
-}
-
 // MARK: - Tool List Builder
 
 extension ClaudeService {
@@ -99,11 +77,6 @@ extension ClaudeService {
         if !isSubagent {
             let context = ToolDefinitionBuildContext.default
             if let definition = registry.definition(for: "run_subagent") {
-                tools.append(definition.makeAnthropicTool(context: context))
-            }
-
-            // start_workflow: launches a multi-agent workflow (main agent only)
-            if let definition = registry.definition(for: "start_workflow") {
                 tools.append(definition.makeAnthropicTool(context: context))
             }
         }

@@ -85,56 +85,6 @@ struct ClaudeServiceWorkspaceContextTests {
         #expect(service.lspServerManager?.state(for: "/repo", serverID: "typescript-language-server")?.summaryText.contains("running") == true)
     }
 
-    @Test func workspaceContextCarriesSelectedFileAndSelection() {
-        let service = ClaudeService()
-        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
-
-        let context = service.makeWorkflowWorkspaceContextForTests(
-            workingDirectory: "/repo",
-            selectedFilePath: "/repo/src/app.ts",
-            selectedText: "const answer = 42",
-            availableSkills: [WorkflowSkillInfo(name: "web-search", description: "Search the web")],
-            settings: settings
-        )
-
-        #expect(context.workingDirectory == "/repo")
-        #expect(context.selectedFilePath == "/repo/src/app.ts")
-        #expect(context.selectedText == "const answer = 42")
-        #expect(context.availableSkills.map(\.name) == ["web-search"])
-        #expect(context.lspServerID == nil)
-    }
-
-    @Test func workspaceContextIncludesLSPServerAndDiagnosticsSummaryWhenAvailable() async throws {
-        let service = ClaudeService()
-        let harness = ClaudeServiceWorkspaceContextHarness()
-        let settings = AppSettings.lspFixture(installedProviderIDs: ["typescript-language-server"])
-        settings.enableLSPTools = true
-        service.lspServerManager = harness.makeManager(settings: settings)
-
-        _ = try await service.lspServerManager?.startSession(workspaceRoot: "/repo", serverID: "typescript-language-server")
-        service.lspServerManager?.publishDiagnostics(
-            workspaceRoot: "/repo",
-            serverID: "typescript-language-server",
-            uri: "file:///repo/src/app.ts",
-            diagnostics: [
-                .init(message: "Type mismatch", severity: .error),
-                .init(message: "Unused variable", severity: .warning)
-            ]
-        )
-
-        let context = service.makeWorkflowWorkspaceContextForTests(
-            workingDirectory: "/repo",
-            selectedFilePath: "/repo/src/app.ts",
-            selectedText: nil,
-            availableSkills: [],
-            settings: settings
-        )
-
-        #expect(context.lspServerID == "typescript-language-server")
-        #expect(context.lspServerStateSummary?.contains("running") == true)
-        #expect(context.lspDiagnosticsSummary == "2 total [error=1, warning=1]")
-    }
-
     @Test func workspacePanelStatusShowsDisabledWhenLSPToolsAreOff() {
         let service = ClaudeService()
         let settings = AppSettings.testFixture()

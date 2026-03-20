@@ -21,6 +21,9 @@ final class AppSettings {
     /// 使用的 Claude 模型 ID
     var selectedModel: String
 
+    /// 默认对话执行器 ID
+    var defaultExecutionProviderID: String = ConversationExecutionProviderID.builtInAgent.rawValue
+
     /// 主题模式
     var themeMode: ThemeMode
 
@@ -44,6 +47,9 @@ final class AppSettings {
 
     /// JSON array of enabled skill directoryNames, e.g. ["brainstorming","web-search"]
     var enabledSkillNamesJSON: String
+
+    /// GitHub Copilot CLI 配置 JSON
+    var githubCopilotCLIConfigurationJSON: String = "{}"    
 
     /// 启用 Web Search 工具（Bing 搜索）
     var enableWebSearchTool: Bool
@@ -116,6 +122,7 @@ final class AppSettings {
         self.apiKey = ""
         self.baseURL = ""
         self.selectedModel = "claude-sonnet-4-6"
+        self.defaultExecutionProviderID = ConversationExecutionProviderID.builtInAgent.rawValue
         self.themeMode = .system
         self.messageFontSize = 14.0
         self.enableTextEditorTool = true
@@ -124,6 +131,10 @@ final class AppSettings {
         self.enableExtendedThinking = false
         self.extendedThinkingBudget = 10000
         self.enabledSkillNamesJSON = "[]"
+        self.githubCopilotCLIConfigurationJSON = (try? String(
+            data: JSONEncoder().encode(GitHubCopilotCLIConfiguration.default),
+            encoding: .utf8
+        )) ?? "{}"
         self.enableWebSearchTool = false
         self.enableWebFetchTool = false
         self.enableLSPTools = false
@@ -151,6 +162,19 @@ final class AppSettings {
 
 // MARK: - Skill Helpers
 extension AppSettings {
+    var githubCopilotCLIConfiguration: GitHubCopilotCLIConfiguration {
+        get {
+            guard let data = githubCopilotCLIConfigurationJSON.data(using: .utf8),
+                  let configuration = try? JSONDecoder().decode(GitHubCopilotCLIConfiguration.self, from: data) else {
+                return .default
+            }
+            return configuration
+        }
+        set {
+            githubCopilotCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
+        }
+    }
+
     /// Decoded list of enabled skill directoryNames.
     var enabledSkillNames: [String] {
         get {

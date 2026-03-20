@@ -22,7 +22,8 @@ struct ToolRegistryTests {
         #expect(registry.definition(for: "lsp_list_servers") != nil)
         #expect(registry.definition(for: "lsp_server_status") != nil)
         #expect(registry.definition(for: "run_subagent") != nil)
-        #expect(registry.definition(for: "start_workflow") != nil)
+        #expect(registry.definition(for: "start_workflow") == nil)
+        #expect(registry.definition(for: "emit_workflow_artifact") == nil)
     }
 
     @Test func toolDefinitionBuildsAnthropicToolFromSingleSchemaSource() throws {

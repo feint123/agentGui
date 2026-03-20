@@ -121,22 +121,6 @@ final class BackupArchiveService {
             }
         }
 
-        let existingWorkflows = try modelContext.fetch(FetchDescriptor<WorkflowInstance>())
-        for archive in payload.workflowInstances {
-            let workflow = existingWorkflows.first(where: { $0.id == archive.id }) ?? WorkflowInstance(id: archive.id, sessionId: archive.sessionId, definitionId: archive.definitionId, userTask: archive.userTask)
-            workflow.sessionId = archive.sessionId
-            workflow.definitionId = archive.definitionId
-            workflow.statusRaw = archive.statusRaw
-            workflow.userTask = archive.userTask
-            workflow.startedAt = archive.startedAt
-            workflow.updatedAt = archive.updatedAt
-            workflow.budgetJson = archive.budgetJson
-            workflow.policiesJson = archive.policiesJson
-            if workflow.modelContext == nil {
-                modelContext.insert(workflow)
-            }
-        }
-
         let existingTaskStates = try modelContext.fetch(FetchDescriptor<SessionTaskState>())
         for archive in payload.taskStates {
             let taskState = existingTaskStates.first(where: { $0.sessionId == archive.sessionId }) ?? SessionTaskState(sessionId: archive.sessionId)
@@ -220,22 +204,6 @@ final class BackupArchiveService {
                 )
             }
 
-        let workflows = try modelContext.fetch(FetchDescriptor<WorkflowInstance>())
-            .filter { sessionIDs.contains($0.sessionId) }
-            .map {
-                WorkflowInstanceArchive(
-                    id: $0.id,
-                    sessionId: $0.sessionId,
-                    definitionId: $0.definitionId,
-                    statusRaw: $0.statusRaw,
-                    userTask: $0.userTask,
-                    startedAt: $0.startedAt,
-                    updatedAt: $0.updatedAt,
-                    budgetJson: $0.budgetJson,
-                    policiesJson: $0.policiesJson
-                )
-            }
-
         let taskStates = try modelContext.fetch(FetchDescriptor<SessionTaskState>())
             .filter { sessionIDs.contains($0.sessionId) }
             .map {
@@ -253,7 +221,6 @@ final class BackupArchiveService {
             sessions: sessions,
             messages: messages,
             toolCalls: toolCalls,
-            workflowInstances: workflows,
             taskStates: taskStates
         )
     }

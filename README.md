@@ -6,6 +6,7 @@
 
 - **原生 macOS 体验** - 使用 SwiftUI 构建，完美适配 macOS 设计语言
 - **Claude API 集成** - 支持所有 Claude 模型（Opus 4.6、Sonnet 4.6、Haiku 4.5 等）
+- **双执行器会话** - 同一聊天产品内支持 `内置 Agent` 与 `GitHub Copilot CLI` 两种执行路径
 - **多会话管理** - 创建和管理多个对话会话，历史记录本地持久化
 - **Agentic Loop** - 完整的多轮工具调用循环，支持复杂任务分解与执行
 - **子代理协作** - 内置 8 种专业子代理，支持任务委派和协作
@@ -55,8 +56,7 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=m
     -only-testing:agentGuiUITests/SettingsUITests \
     -only-testing:agentGuiUITests/SettingsWindowUITests \
     -only-testing:agentGuiUITests/ChatFlowUITests \
-    -only-testing:agentGuiUITests/ToolCallUITests \
-    -only-testing:agentGuiUITests/WorkflowRecoveryUITests
+    -only-testing:agentGuiUITests/ToolCallUITests
 
 # 或直接执行收敛后的冒烟脚本
 ./scripts/run_quality_smoke.sh
@@ -88,12 +88,21 @@ VS Code 里也可以直接运行 `Quality Smoke`、`Sample UI Baseline`、`Sampl
 首次运行时，通过主窗口右上角的设置按钮或系统菜单中的“设置...”打开独立设置窗口，并按分类完成配置：
 
 1. 在“连接”中配置 Anthropic API Key、Base URL、模型和代理
-2. 在“工具”中启用 Bash、Web Search、Web Fetch 和 LSP
-3. 在“智能”中调整 Extended Thinking 与反思阈值
-4. 在“记忆”中启用统一记忆运行时、治理层和长期记忆编辑器
+2. 在“执行器”中设置默认执行器，并配置 GitHub Copilot CLI 可执行文件、默认模型和审批模式
+3. 在“工具”中启用 Bash、Web Search、Web Fetch 和 LSP
+4. 在“智能”中调整 Extended Thinking 与反思阈值
+5. 在“记忆”中启用统一记忆运行时、治理层和长期记忆编辑器
     记忆设置页还提供 Admission V2、Goal-conditioned Retrieval、Bridge Expansion、Lifecycle Manager、Experience Distillation 的独立 rollout 开关
-5. 在“通用”中调整主题与查看版本、连接状态
-6. 如需小说写作支持，继续在主窗口的相关工作流中启用创作记忆并绑定当前会话
+6. 在“通用”中调整主题与查看版本、连接状态
+7. 如需小说写作支持，继续在主窗口的相关工作流中启用创作记忆并绑定当前会话
+
+### 执行器说明
+
+- 全局默认执行器保存在 `AppSettings.defaultExecutionProviderID`
+- 会话级默认执行器保存在 `Session.defaultExecutionProviderID`
+- 新建会话会继承当前全局默认执行器
+- GitHub Copilot CLI 当前只通过 `copilot --acp --stdio` 接入
+- 聊天输入区提供执行器选择器；如果 Copilot CLI 不可用，会显示原因并禁止发送
 
 ## 架构
 

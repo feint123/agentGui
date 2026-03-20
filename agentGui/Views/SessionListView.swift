@@ -114,6 +114,7 @@ struct SessionListView: View {
 
     private func createNewSession() {
         let newSession = Session()
+        newSession.defaultExecutionProviderID = AppSettings.getOrCreate(in: modelContext).defaultExecutionProviderID
         modelContext.insert(newSession)
         do {
             try modelContext.save()

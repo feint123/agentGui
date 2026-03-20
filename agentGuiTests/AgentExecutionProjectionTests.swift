@@ -77,6 +77,57 @@ struct AgentExecutionProjectionTests {
         #expect(projection.theater.cards.allSatisfy { $0.state == .recent })
         #expect(projection.theater.cards.filter(\.isCurrentAction).map(\.title) == ["已修改 MessageBubbleView.swift"])
     }
+
+    @Test func permissionLookupReturnsMostRecentMatchingRequestsFirst() async throws {
+        let session = Session.fixture(sessionId: "session-permission", title: "Permission Lookup")
+        let message = AgentExecutionProjectionFixture.makeRunningCommandMessage(session: session)
+        let round = try #require(message.agentRounds.first)
+        let activeCommand = try #require(round.toolCalls.first)
+
+        let reviewTool = ToolCall(toolCallId: "review-1", kind: .read, message: message, agentRound: round)
+        reviewTool.filePath = "/tmp/ExecutionTheaterView.swift"
+        reviewTool.status = .inProgress
+        reviewTool.startTime = AgentExecutionProjectionFixture.date(2)
+        round.toolCalls.append(reviewTool)
+
+        let permissionCenter = ACPPermissionCenter()
+        permissionCenter.pendingRequests = [
+            AgentExecutionProjectionFixture.pendingRequest(
+                id: "older-request",
+                toolCallID: activeCommand.toolCallId,
+                title: "运行命令"
+            ),
+            AgentExecutionProjectionFixture.pendingRequest(
+                id: "newer-request",
+                toolCallID: reviewTool.toolCallId,
+                title: "读取文件"
+            )
+        ]
+
+        let flow = AgentMessageFlowPresentation.snapshot(for: message)
+        let requests = AgentExecutionPermissionLookup.pendingRequests(for: flow, permissionCenter: permissionCenter)
+
+        #expect(requests.map(\.id) == ["newer-request", "older-request"])
+        #expect(requests.map(\.toolCallID) == ["review-1", "exec-1"])
+    }
+
+    @Test func permissionLookupIgnoresRequestsWithoutMatchingToolCall() async throws {
+        let session = Session.fixture(sessionId: "session-permission", title: "Permission Lookup")
+        let message = AgentExecutionProjectionFixture.makeRunningCommandMessage(session: session)
+        let permissionCenter = ACPPermissionCenter()
+        permissionCenter.pendingRequests = [
+            AgentExecutionProjectionFixture.pendingRequest(
+                id: "orphan-request",
+                toolCallID: "missing-tool",
+                title: "孤立请求"
+            )
+        ]
+
+        let flow = AgentMessageFlowPresentation.snapshot(for: message)
+        let requests = AgentExecutionPermissionLookup.pendingRequests(for: flow, permissionCenter: permissionCenter)
+
+        #expect(requests.isEmpty)
+    }
 }
 
 private enum AgentExecutionProjectionFixture {
@@ -136,8 +187,8 @@ private enum AgentExecutionProjectionFixture {
         return message
     }
 
-    static func makeRunningCommandMessage() -> Message {
-        let message = Message.agentMessage(text: nil, session: Session(title: "Projection Running"))
+    static func makeRunningCommandMessage(session: Session = Session(title: "Projection Running")) -> Message {
+        let message = Message.agentMessage(text: nil, session: session)
         let round = AgentRound(roundIndex: 0, message: message)
         round.timestamp = date(0)
         round.thinkingContent = "准备执行命令"
@@ -181,5 +232,37 @@ private enum AgentExecutionProjectionFixture {
 
     static func date(_ offset: TimeInterval) -> Date {
         Date(timeIntervalSince1970: 1_710_000_000 + offset)
+    }
+
+    static func pendingRequest(
+        id: String,
+        toolCallID: String,
+        title: String
+    ) -> ACPPermissionCenter.PendingRequest {
+        ACPPermissionCenter.PendingRequest(
+            id: id,
+            source: ACPPermissionCenter.RequestSource(
+                providerID: .githubCopilotCLI,
+                localSessionID: "session-permission"
+            ),
+            remoteSessionID: "remote-session",
+            toolCallID: toolCallID,
+            toolKind: .execute,
+            title: title,
+            reason: "需要用户批准",
+            options: [
+                ACPPermissionCenter.PendingOption(
+                    id: "allow-once",
+                    kind: .allowOnce,
+                    name: "允许一次"
+                ),
+                ACPPermissionCenter.PendingOption(
+                    id: "reject-once",
+                    kind: .rejectOnce,
+                    name: "拒绝"
+                )
+            ],
+            requestedAt: date(10)
+        )
     }
 }

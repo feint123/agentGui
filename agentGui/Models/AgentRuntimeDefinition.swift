@@ -110,13 +110,13 @@ extension AgentRuntimeDefinition {
     private static func makeGrant(from toolGroupName: String) throws -> ToolGrant {
         switch toolGroupName {
         case "read_only_editor":
-            return .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent, .workflowWorker])
+            return .init(toolGroupID: .readOnlyEditor, accessMode: .readOnly, allowedContexts: [.subagent])
         case "read_write_editor":
-            return .init(toolGroupID: .readWriteEditor, accessMode: .readWrite, allowedContexts: [.subagent, .workflowWorker])
+            return .init(toolGroupID: .readWriteEditor, accessMode: .readWrite, allowedContexts: [.subagent])
         case "web":
-            return .init(toolGroupID: .web, allowedContexts: [.subagent, .workflowWorker])
+            return .init(toolGroupID: .web, allowedContexts: [.subagent])
         case "shell":
-            return .init(toolGroupID: .shell, allowedContexts: [.subagent, .workflowWorker])
+            return .init(toolGroupID: .shell, allowedContexts: [.subagent])
         default:
             throw AgentValidationError.unknownToolGroup(toolGroupName)
         }

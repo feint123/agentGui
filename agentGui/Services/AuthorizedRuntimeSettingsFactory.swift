@@ -12,6 +12,7 @@ struct AuthorizedRuntimeSettingsFactory {
         runtimeSettings.apiKey = base.apiKey
         runtimeSettings.baseURL = base.baseURL
         runtimeSettings.selectedModel = base.selectedModel
+        runtimeSettings.defaultExecutionProviderID = base.defaultExecutionProviderID
         runtimeSettings.themeMode = base.themeMode
         runtimeSettings.messageFontSize = base.messageFontSize
         runtimeSettings.enableTextEditorTool = snapshot.allowedToolIDs.contains("str_replace_based_edit_tool")
@@ -20,6 +21,7 @@ struct AuthorizedRuntimeSettingsFactory {
         runtimeSettings.enableExtendedThinking = base.enableExtendedThinking
         runtimeSettings.extendedThinkingBudget = base.extendedThinkingBudget
         runtimeSettings.enabledSkillNames = enabledSkillNames ?? base.enabledSkillNames
+        runtimeSettings.githubCopilotCLIConfiguration = base.githubCopilotCLIConfiguration
         runtimeSettings.enableWebSearchTool = snapshot.allowedToolIDs.contains("web_search")
         runtimeSettings.enableWebFetchTool = snapshot.allowedToolIDs.contains("web_fetch")
         runtimeSettings.enableLSPTools = snapshot.allowedToolIDs.contains(where: { $0.hasPrefix("lsp_") })

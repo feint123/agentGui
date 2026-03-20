@@ -3,11 +3,7 @@
 //  agentGui
 //
 //  Single source of truth for all agent-role configuration: system prompt,
-//  tool permissions, artifact contracts, and turn budgets.
-//
-//  Both the workflow orchestration path (WorkflowAgentRunner) and the
-//  ad-hoc delegation path (run_subagent tool / ClaudeService+Subagent)
-//  read from this type. SubagentDefinition.swift has been removed.
+//  tool permissions, artifact contracts, and turn budgets used by subagents.
 //
 
 import Foundation
@@ -98,29 +94,9 @@ struct WorkflowRoleDefinition: Sendable {
         self.maxActivations = maxActivations
     }
 
-    /// Returns the default list of recipients for this role's output messages
-    /// given the current workflow context (used by WorkflowAgentRunner).
-    func defaultOutputRecipients(context: WorkflowContext) -> [String] {
-        switch defaultOutputMessageKind {
-        case .approval, .rejection, .reviewFeedback:
-            // Reducers are responsible for routing evaluator feedback so they can
-            // aggregate verification results before waking the worker.
-            return []
-        case .infoResponse:
-            // Respond to whoever sent us an infoRequest
-            return context.mailboxes[name]?.inbox
-                .filter { $0.kind == .infoRequest }
-                .flatMap { [$0.sender] } ?? []
-        case .completion:
-            return []
-        default:
-            // Primary consumer is whoever's next in the default chain
-            return []
-        }
-    }
 }
 
-// MARK: - Built-in Workflow Roles
+// MARK: - Built-in Roles
 
 extension WorkflowRoleDefinition {
 
@@ -133,8 +109,6 @@ extension WorkflowRoleDefinition {
         all.first { $0.name == name }
     }
 
-    // Legacy internal workflow aliases retained only to keep older workflow
-    // templates compiling during the three-role migration.
     static var planner: WorkflowRoleDefinition { explore }
     static var explorer: WorkflowRoleDefinition { explore }
     static var coder: WorkflowRoleDefinition { worker }

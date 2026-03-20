@@ -9,6 +9,14 @@ struct AuthorizedRuntimeSettingsFactoryTests {
         base.enableWebSearchTool = true
         base.enableWebFetchTool = true
         base.memoryEnabled = true
+        base.defaultExecutionProviderID = ConversationExecutionProviderID.githubCopilotCLI.rawValue
+        base.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/local/bin/copilot",
+            defaultModel: "gpt-5",
+            customAgentName: "coder",
+            defaultApprovalMode: "on-request",
+            useACPStdIO: true
+        )
 
         let snapshot = EffectiveToolAuthorizationSnapshot(
             context: .backgroundTask,
@@ -36,5 +44,7 @@ struct AuthorizedRuntimeSettingsFactoryTests {
         #expect(runtime.memoryEnabled == false)
         #expect(runtime.workingDirectory == "/tmp/workspace")
         #expect(runtime.enabledSkillNames.isEmpty)
+        #expect(runtime.defaultExecutionProviderID == ConversationExecutionProviderID.githubCopilotCLI.rawValue)
+        #expect(runtime.githubCopilotCLIConfiguration == base.githubCopilotCLIConfiguration)
     }
 }

@@ -10,13 +10,12 @@ final class PersistenceCoordinator {
         case settings
         case sessionMessages
         case toolCalls
-        case workflow
         case sessionTaskState
         case backupRestore
 
         var isCritical: Bool {
             switch self {
-            case .sessionMessages, .toolCalls, .workflow:
+            case .sessionMessages, .toolCalls:
                 return true
             case .settings, .sessionTaskState, .backupRestore:
                 return false

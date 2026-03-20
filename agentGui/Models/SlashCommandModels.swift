@@ -3,7 +3,6 @@ import Foundation
 enum ChatSlashCommandKind: String, Hashable, Codable {
     case skill
     case agent
-    case workflow
     case preset
     case contextAction
 }

@@ -1,12 +1,17 @@
 import SwiftUI
 
 struct AgentMessageStepFlowView: View {
+    @Environment(ClaudeService.self) private var claudeService
+
     let projection: AgentExecutionProjection
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if projection.header.isLive, !projection.theater.cards.isEmpty {
-                ExecutionTheaterView(presentation: projection.theater)
+            if projection.header.isLive, showsExecutionTheater {
+                ExecutionTheaterView(
+                    presentation: projection.theater,
+                    pendingPermissionRequests: pendingPermissionRequests
+                )
                     .transition(
                         .asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity),
@@ -38,5 +43,17 @@ struct AgentMessageStepFlowView: View {
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.84), value: projection.header.isLive)
         .animation(.easeInOut(duration: 0.24), value: projection.theater.cards.map(\.id))
+        .animation(.easeInOut(duration: 0.24), value: pendingPermissionRequests.map(\.id))
+    }
+
+    private var pendingPermissionRequests: [ACPPermissionCenter.PendingRequest] {
+        AgentExecutionPermissionLookup.pendingRequests(
+            for: projection.audit.flow,
+            permissionCenter: claudeService.acpPermissionCenter
+        )
+    }
+
+    private var showsExecutionTheater: Bool {
+        !projection.theater.cards.isEmpty || !pendingPermissionRequests.isEmpty
     }
 }

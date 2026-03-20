@@ -20,11 +20,103 @@ extension ClaudeService {
         directives: [ChatInputDirective] = [],
         modelContext: ModelContext
     ) async throws {
-        guard let service else { throw ClaudeError.notConfigured }
-
         isStreaming = true
         lastError = nil
         defer { isStreaming = false }
+
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
+
+        do {
+            try await provider.send(
+                ConversationExecutionRequest(
+                    text: text,
+                    session: session,
+                    modelID: modelId,
+                    selectedFilePath: selectedFilePath,
+                    selectedText: selectedText,
+                    directives: directives,
+                    modelContext: modelContext
+                )
+            )
+        } catch {
+            lastError = error.localizedDescription
+            throw error
+        }
+    }
+
+    func regenerate(
+        session: Session,
+        modelId: String,
+        modelContext: ModelContext
+    ) async throws {
+        isStreaming = true
+        lastError = nil
+        defer { isStreaming = false }
+
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
+        do {
+            try await provider.regenerate(
+                ConversationRegenerationRequest(
+                    session: session,
+                    modelID: modelId,
+                    modelContext: modelContext
+                )
+            )
+        } catch {
+            lastError = error.localizedDescription
+            throw error
+        }
+    }
+
+    func editAndResend(
+        message: Message,
+        newText: String,
+        session: Session,
+        modelId: String,
+        modelContext: ModelContext
+    ) async throws {
+        isStreaming = true
+        lastError = nil
+        defer { isStreaming = false }
+
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
+        do {
+            try await provider.editAndResend(
+                ConversationEditAndResendRequest(
+                    message: message,
+                    newText: newText,
+                    session: session,
+                    modelID: modelId,
+                    modelContext: modelContext
+                )
+            )
+        } catch {
+            lastError = error.localizedDescription
+            throw error
+        }
+    }
+
+    func cancelExecution(session: Session, modelContext: ModelContext) async {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
+        await provider.cancel(session: session, modelContext: modelContext)
+    }
+
+    // MARK: - Resume Helper
+
+    func sendMessageBuiltIn(
+        text: String,
+        session: Session,
+        modelId: String,
+        selectedFilePath: String? = nil,
+        selectedText: String? = nil,
+        directives: [ChatInputDirective] = [],
+        modelContext: ModelContext
+    ) async throws {
+        guard let service else { throw ClaudeError.notConfigured }
 
         let sortedMessages = session.messages.sorted { $0.sequence < $1.sequence }
         var apiMessages: [MessageParameter.Message] = []
@@ -42,7 +134,7 @@ extension ClaudeService {
 
         let isFirstMessage = session.title == "新对话" || session.title.isEmpty
 
-        try await resumeSend(
+        try await resumeSendBuiltIn(
             apiMessages: apiMessages,
             service: service,
             session: session,
@@ -58,16 +150,12 @@ extension ClaudeService {
         }
     }
 
-    func regenerate(
+    func regenerateBuiltIn(
         session: Session,
         modelId: String,
         modelContext: ModelContext
     ) async throws {
         guard let service else { throw ClaudeError.notConfigured }
-
-        isStreaming = true
-        lastError = nil
-        defer { isStreaming = false }
 
         let sortedMessages = session.messages.sorted { $0.sequence < $1.sequence }
         let lastUserSeq = sortedMessages.last(where: { $0.direction == .user })?.sequence ?? -1
@@ -85,7 +173,7 @@ extension ClaudeService {
         }
         try? modelContext.save()
 
-        try await resumeSend(
+        try await resumeSendBuiltIn(
             apiMessages: apiMessages,
             service: service,
             session: session,
@@ -94,7 +182,7 @@ extension ClaudeService {
         )
     }
 
-    func editAndResend(
+    func editAndResendBuiltIn(
         message: Message,
         newText: String,
         session: Session,
@@ -102,10 +190,6 @@ extension ClaudeService {
         modelContext: ModelContext
     ) async throws {
         guard let service else { throw ClaudeError.notConfigured }
-
-        isStreaming = true
-        lastError = nil
-        defer { isStreaming = false }
 
         let sortedMessages = session.messages.sorted { $0.sequence < $1.sequence }
         message.textContent = newText
@@ -123,7 +207,7 @@ extension ClaudeService {
         }
         try? modelContext.save()
 
-        try await resumeSend(
+        try await resumeSendBuiltIn(
             apiMessages: apiMessages,
             service: service,
             session: session,
@@ -132,9 +216,26 @@ extension ClaudeService {
         )
     }
 
-    // MARK: - Resume Helper
+    private func executionProviderRegistry(for modelContext: ModelContext) -> ConversationExecutionProviderRegistry {
+        if let executionProviderRegistry {
+            return executionProviderRegistry
+        }
 
-    private func resumeSend(
+        let registry = ConversationExecutionProviderRegistry(
+            builtIn: BuiltInConversationExecutionProvider(claudeService: self),
+            copilot: GitHubCopilotCLIExecutionProvider(
+                terminalRuntimeFactory: { [unowned self] sessionID, workingDirectory in
+                    self.getTerminalTaskRuntime(for: sessionID, workingDirectory: workingDirectory)
+                },
+                permissionCenter: acpPermissionCenter
+            )
+        )
+        executionProviderRegistry = registry
+        _ = modelContext
+        return registry
+    }
+
+    private func resumeSendBuiltIn(
         apiMessages: [MessageParameter.Message],
         service: any AnthropicService,
         session: Session,
@@ -161,15 +262,6 @@ extension ClaudeService {
         await autoStartLSPServerForSelectedFileIfNeeded(
             workingDirectory: settings.workingDirectory,
             selectedFilePath: selectedFilePath,
-            settings: settings
-        )
-        currentWorkspaceContext = makeWorkflowWorkspaceContext(
-            workingDirectory: settings.workingDirectory,
-            selectedFilePath: selectedFilePath,
-            selectedText: selectedText,
-            availableSkills: turnSkillContext.effectiveSkills.map {
-                WorkflowSkillInfo(name: $0.name, description: $0.description)
-            },
             settings: settings
         )
 

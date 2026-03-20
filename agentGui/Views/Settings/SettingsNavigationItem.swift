@@ -3,6 +3,7 @@ import Foundation
 enum SettingsNavigationItem: String, CaseIterable, Identifiable {
     case connection
     case channels
+    case executors
     case tools
     case intelligence
     case background
@@ -19,6 +20,8 @@ enum SettingsNavigationItem: String, CaseIterable, Identifiable {
             return "连接"
         case .channels:
             return "渠道"
+        case .executors:
+            return "执行器"
         case .tools:
             return "工具"
         case .intelligence:
@@ -38,6 +41,8 @@ enum SettingsNavigationItem: String, CaseIterable, Identifiable {
             return "network"
         case .channels:
             return "bubble.left.and.bubble.right"
+        case .executors:
+            return "bolt.horizontal.circle"
         case .tools:
             return "hammer"
         case .intelligence:

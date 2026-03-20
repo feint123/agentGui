@@ -16,8 +16,8 @@ struct ToolCallDetailPresentationTests {
         toolCall.memoryRuntimeDereferenceCount = 3
         toolCall.toolDefinitionID = "search"
         toolCall.toolSchemaVersion = 1
-        toolCall.toolExposureSource = "context:workflowWorker"
-        toolCall.toolExecutionContext = ToolContext.workflowWorker.rawValue
+        toolCall.toolExposureSource = "context:subagent"
+        toolCall.toolExecutionContext = ToolContext.subagent.rawValue
 
         let row = ToolCallRowPresentation.make(for: toolCall)
         let sections = ToolCallDetailPresentation.sections(for: toolCall, row: row)
@@ -42,8 +42,8 @@ struct ToolCallDetailPresentationTests {
         toolCall.terminalExecutionMode = "background"
         toolCall.toolDefinitionID = "bash"
         toolCall.toolSchemaVersion = 1
-        toolCall.toolExposureSource = "context:workflowWorker"
-        toolCall.toolExecutionContext = ToolContext.workflowWorker.rawValue
+        toolCall.toolExposureSource = "context:subagent"
+        toolCall.toolExecutionContext = ToolContext.subagent.rawValue
         toolCall.terminalAgentActionsJSON = "[{\"taskId\":\"task-1\",\"kind\":\"promptDetected\",\"summary\":\"检测到确认提示\"}]"
 
         let row = ToolCallRowPresentation.make(for: toolCall)

@@ -32,7 +32,7 @@ final class ACPProcessSupervisor {
 
         if command.contains("/") {
             process.executableURL = URL(fileURLWithPath: command)
-        } else if let executableURL = resolveExecutableURL(command: command, environment: environment) {
+        } else if let executableURL = ShellEnvironmentResolver.resolveExecutableURL(command: command, environment: environment) {
             process.executableURL = executableURL
         } else {
             throw ACPProcessSupervisorError.executableNotFound(command: command, path: environment["PATH"] ?? "")
@@ -70,16 +70,5 @@ final class ACPProcessSupervisor {
     func stop() {
         process?.terminate()
         process = nil
-    }
-
-    private func resolveExecutableURL(command: String, environment: [String: String]) -> URL? {
-        let searchPath = environment["PATH"] ?? ""
-        for candidatePath in searchPath.split(separator: ":").map(String.init) where !candidatePath.isEmpty {
-            let candidateURL = URL(fileURLWithPath: candidatePath, isDirectory: true).appendingPathComponent(command)
-            if FileManager.default.isExecutableFile(atPath: candidateURL.path) {
-                return candidateURL
-            }
-        }
-        return nil
     }
 }

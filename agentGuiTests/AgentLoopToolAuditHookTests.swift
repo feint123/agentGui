@@ -59,8 +59,8 @@ struct AgentLoopToolAuditHookTests {
         record.status = .success
         record.toolDefinitionID = "bash"
         record.toolSchemaVersion = 1
-        record.toolExposureSource = "context:workflowWorker"
-        record.toolExecutionContext = ToolContext.workflowWorker.rawValue
+        record.toolExposureSource = "context:subagent"
+        record.toolExecutionContext = ToolContext.subagent.rawValue
         record.toolPayloadRef = "payload_123"
         record.toolResultRawChars = 12000
         record.toolResultInjectedChars = 600

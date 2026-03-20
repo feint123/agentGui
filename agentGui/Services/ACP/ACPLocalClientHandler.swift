@@ -32,7 +32,7 @@ actor ACPLocalClientHandler: ACPClientHandler {
         if let permissionResolver {
             return await permissionResolver(request, authorizationPolicy)
         }
-        return Self.defaultPermissionResponse(for: request, policy: authorizationPolicy)
+        return ACPPermissionPolicyEvaluator.defaultResponse(for: request, policy: authorizationPolicy)
     }
 
     func handleReadTextFile(_ request: ACPReadTextFileRequest) async throws -> ACPReadTextFileResponse? {
@@ -176,39 +176,6 @@ actor ACPLocalClientHandler: ACPClientHandler {
             throw ACPRequestError.resourceNotFound(uri: terminalID)
         }
         return state
-    }
-
-    nonisolated private static func defaultPermissionResponse(for request: ACPRequestPermissionRequest, policy: ToolAuthorizationPolicy) -> ACPRequestPermissionResponse {
-        guard policy.approvalMode != .alwaysRequireHuman,
-              let selectedOption = bestAllowOption(from: request.options, permitted: capabilityPermits(request.toolCall.kind, policy: policy)) else {
-            return ACPRequestPermissionResponse(meta: nil, outcome: .cancelled(ACPDeniedPermissionOutcome()))
-        }
-
-        return ACPRequestPermissionResponse(
-            meta: nil,
-            outcome: .selected(ACPSelectedPermissionOutcome(meta: nil, optionID: selectedOption.optionID))
-        )
-    }
-
-    nonisolated private static func capabilityPermits(_ kind: String?, policy: ToolAuthorizationPolicy) -> Bool {
-        switch kind {
-        case "read":
-            return policy.level(for: .fileSystem) >= .observe
-        case "edit", "delete", "move":
-            return policy.level(for: .fileSystem) >= .mutate
-        case "execute":
-            return policy.level(for: .shell) >= .execute
-        case "fetch":
-            return policy.level(for: .network) >= .observe
-        default:
-            return false
-        }
-    }
-
-    nonisolated private static func bestAllowOption(from options: [ACPPermissionOption], permitted: Bool) -> ACPPermissionOption? {
-        guard permitted else { return nil }
-        return options.first(where: { $0.kind == .allowOnce })
-            ?? options.first(where: { $0.kind == .allowAlways })
     }
 
     nonisolated private static func normalizeRoot(_ url: URL) -> URL {

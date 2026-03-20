@@ -2,9 +2,18 @@ import SwiftUI
 
 struct ExecutionTheaterView: View {
     let presentation: ExecutionTheaterPresentation
+    let pendingPermissionRequests: [ACPPermissionCenter.PendingRequest]
 
     @State private var pulseCurrentCard = false
     @State private var actionChangeFlash = false
+
+    init(
+        presentation: ExecutionTheaterPresentation,
+        pendingPermissionRequests: [ACPPermissionCenter.PendingRequest] = []
+    ) {
+        self.presentation = presentation
+        self.pendingPermissionRequests = pendingPermissionRequests
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -38,6 +47,20 @@ struct ExecutionTheaterView: View {
                 }
 
                 ExecutionPhaseRibbonView(phase: presentation.phase, isAnimated: true)
+            }
+
+            ForEach(pendingPermissionRequests) { request in
+                ACPPermissionPromptCardView(
+                    request: request,
+                    emphasis: .theater(accentColor: accentColor)
+                )
+                .accessibilityIdentifier("chat.agentMessage.permissionCard.\(request.id)")
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .top))
+                    )
+                )
             }
 
             ForEach(presentation.cards) { card in
@@ -75,6 +98,7 @@ struct ExecutionTheaterView: View {
             startCurrentActionAnimationCycle()
         }
         .animation(.spring(response: 0.38, dampingFraction: 0.84), value: presentation.cards.map(\.id))
+        .animation(.spring(response: 0.34, dampingFraction: 0.82), value: pendingPermissionRequests.map(\.id))
         .animation(.easeInOut(duration: 0.2), value: presentation.currentActionID)
         .accessibilityIdentifier("chat.agentMessage.executionTheater")
     }

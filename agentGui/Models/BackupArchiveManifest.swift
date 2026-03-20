@@ -49,7 +49,6 @@ struct BackupArchivePayload: Codable, Equatable {
     var sessions: [SessionArchive]
     var messages: [MessageArchive]
     var toolCalls: [ToolCallArchive]
-    var workflowInstances: [WorkflowInstanceArchive]
     var taskStates: [SessionTaskStateArchive]
 }
 
@@ -92,18 +91,6 @@ struct ToolCallArchive: Codable, Equatable {
     var messageId: UUID?
     var startTime: Date?
     var endTime: Date?
-}
-
-struct WorkflowInstanceArchive: Codable, Equatable {
-    var id: UUID
-    var sessionId: String
-    var definitionId: String
-    var statusRaw: String
-    var userTask: String
-    var startedAt: Date
-    var updatedAt: Date
-    var budgetJson: String
-    var policiesJson: String
 }
 
 struct SessionTaskStateArchive: Codable, Equatable {

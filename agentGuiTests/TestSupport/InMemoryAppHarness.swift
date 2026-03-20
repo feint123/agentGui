@@ -19,7 +19,6 @@ struct InMemoryAppHarness {
             "-com.agentgui.test.mode", "true",
             "-com.agentgui.test.preloadApiKey", "true",
             "-com.agentgui.test.preloadMessages", "true",
-            "-com.agentgui.test.workflowState", "running",
             "-com.agentgui.test.recoveryMode", "true"
         ])
         let settings = AppSettings.testFixture(apiKey: "sk-ant-ui-test")
@@ -27,7 +26,6 @@ struct InMemoryAppHarness {
         context.insert(settings)
         context.insert(fixture.session)
         context.insert(fixture.pendingAgentMessage)
-        context.insert(fixture.workflow)
         for snapshot in fixture.recoverySnapshots {
             context.insert(snapshot)
         }
@@ -137,7 +135,6 @@ struct InMemoryAppHarness {
             ToolCall.self,
             AgentRound.self,
             RecoverySnapshot.self,
-            WorkflowInstance.self,
             SessionTaskState.self,
             configurations: configuration
         )

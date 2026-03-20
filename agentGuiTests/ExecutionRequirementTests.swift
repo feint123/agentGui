@@ -22,7 +22,8 @@ struct ExecutionRequirementTests {
 
         #expect(ExecutionGuard.evidenceKind(toolName: "bash", input: [:], result: .success("ok")) == .bash)
         #expect(ExecutionGuard.evidenceKind(toolName: "run_subagent", input: toolInput, result: .failure("Error: build failed")) == .executorSubagent)
-        #expect(ExecutionGuard.evidenceKind(toolName: "start_workflow", input: [:], result: .success("Workflow completed")) == .workflow)
+        #expect(ExecutionGuard.evidenceKind(toolName: "start_workflow", input: [:], result: .success("Workflow completed")) == nil)
+        #expect(ExecutionGuard.evidenceKind(toolName: "emit_workflow_artifact", input: [:], result: .success("artifact")) == nil)
         #expect(ExecutionGuard.evidenceKind(toolName: "str_replace_based_edit_tool", input: [:], result: .success("edited")) == .builtinTool)
         #expect(ExecutionGuard.evidenceKind(toolName: "web_fetch", input: [:], result: .success("content")) == .builtinTool)
         #expect(ExecutionGuard.evidenceKind(toolName: "memory_write", input: [:], result: .success("stored")) == .builtinTool)

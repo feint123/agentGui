@@ -30,9 +30,4 @@ enum AgentBusinessEvent: String, Sendable {
     case continuationInjected
     case loopFinished
     case loopFailed
-    case workflowStarted
-    case workflowActivationStarted
-    case workflowActivationFinished
-    case workflowContractViolation
-    case workflowFinished
 }

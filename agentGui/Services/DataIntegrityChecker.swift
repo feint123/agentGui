@@ -85,20 +85,6 @@ final class DataIntegrityChecker {
             }
         }
 
-        let workflows = try modelContext.fetch(FetchDescriptor<WorkflowInstance>())
-        for workflow in workflows where workflow.status == .running {
-            if workflow.activations.isEmpty && workflow.messages.isEmpty && workflow.artifacts.isEmpty {
-                issues.append(
-                    IntegrityIssue(
-                        kind: .invalidWorkflowState,
-                        severity: .error,
-                        summary: "工作流 \(workflow.id.uuidString) 处于运行中，但没有任何执行记录。",
-                        recordIdentifier: workflow.id.uuidString
-                    )
-                )
-            }
-        }
-
         let remoteBindings = try modelContext.fetch(FetchDescriptor<RemoteConversationBinding>())
         let groupedRemoteBindings = Dictionary(grouping: remoteBindings) {
             "\($0.channelKind.rawValue)::\($0.externalConversationID)"

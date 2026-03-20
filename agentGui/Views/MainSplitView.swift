@@ -87,6 +87,7 @@ struct MainSplitView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     let newSession = Session()
+                    newSession.defaultExecutionProviderID = AppSettings.getOrCreate(in: modelContext).defaultExecutionProviderID
                     modelContext.insert(newSession)
                     try? modelContext.save()
                     workspaceState.selectedSession = newSession

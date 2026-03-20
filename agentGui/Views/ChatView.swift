@@ -18,7 +18,6 @@ struct ChatView: View {
     @Environment(ClaudeService.self) var claudeService
     @Environment(SkillService.self) var skillService
     @Environment(WorkspaceState.self) var workspaceState
-    @Environment(WorkflowRuntime.self) var workflowRuntime
     @Environment(RuntimeRecoveryService.self) var runtimeRecoveryService
 
     // MARK: - Properties
@@ -35,6 +34,7 @@ struct ChatView: View {
     @State var viewingMedia: MediaItem? = nil
     @State var deleteFromConfirmMessage: Message?
     @State var activeTask: Task<Void, Never>?
+    @State var executionProviderAvailabilityModel = ChatExecutionProviderAvailabilityModel()
     /// Prevents ForEach from accessing Message objects that are about to be deleted
     @State var isClearingMessages = false
     @State var isDeletingAllSessions = false
@@ -42,10 +42,6 @@ struct ChatView: View {
     @State var messageListProjectionTrigger: ChatMessageListProjectionTrigger?
     @State var isMessageListPinnedToBottom = true
     @State var isProgrammaticMessageListScrollInFlight = false
-
-    // MARK: - Workflow
-    @State var showWorkflowPanel = false
-    @Query var allWorkflows: [WorkflowInstance]
 
     // MARK: - Context Chips
     @State var showFileContext = true
@@ -75,11 +71,6 @@ struct ChatView: View {
             filter: #Predicate<Message> { $0.session?.sessionId == sessionId },
             sort: \.sequence
         )
-        _allWorkflows = Query(
-            filter: #Predicate<WorkflowInstance> { $0.sessionId == sessionId },
-            sort: \.startedAt,
-            order: .reverse
-        )
     }
 
     // MARK: - Body
@@ -103,14 +94,6 @@ struct ChatView: View {
                 }
                 messagesArea
                 inputArea
-            }
-
-            // Workflow sidebar panel
-            if showWorkflowPanel, let instance = allWorkflows.first {
-                Divider()
-                WorkflowSidebar(instance: instance)
-                    .frame(width: 300)
-                    .transition(.move(edge: .trailing))
             }
         }
         .accessibilityIdentifier("panel.chat")
@@ -157,16 +140,6 @@ struct ChatView: View {
         }
         .onChange(of: workspaceState.editorSelection) { _, _ in
             showSelectionContext = true
-        }
-        .onChange(of: workflowRuntime.isRunning) { _, isRunning in
-            if isRunning {
-                withAnimation(.easeInOut(duration: 0.2)) { showWorkflowPanel = true }
-            }
-        }
-        .onChange(of: allWorkflows.count) { _, _ in
-            if !allWorkflows.isEmpty {
-                withAnimation(.easeInOut(duration: 0.2)) { showWorkflowPanel = true }
-            }
         }
         .task(id: session.sessionId) {
             try? runtimeRecoveryService.refresh(from: modelContext)

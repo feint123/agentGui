@@ -47,10 +47,6 @@ enum PersistenceSchema {
         IntegrityIssue.self,
         BackgroundAgentTask.self,
         BackgroundAgentTaskRun.self,
-        WorkflowInstance.self,
-        WorkflowMessageRecord.self,
-        WorkflowArtifactRecord.self,
-        WorkflowActivationRecord.self,
     ]
 
     static let sharedModelTypeNames: [String] = sharedModelTypes.map { String(describing: $0) }
@@ -73,7 +69,6 @@ struct agentGuiApp: App {
 
     @State private var claudeService = ClaudeService()
     @State private var skillService = SkillService()
-    @State private var workflowRuntime: WorkflowRuntime?
     @State private var runtimeRecoveryService = RuntimeRecoveryService()
     @State private var reliabilityCenterViewModel = ReliabilityCenterViewModel()
     @State private var backgroundActivityCoordinator: BackgroundActivityCoordinator?
@@ -109,7 +104,6 @@ struct agentGuiApp: App {
             ContentView()
                 .environment(claudeService)
                 .environment(skillService)
-                .environment(workflowRuntime ?? WorkflowRuntime(claudeService: claudeService))
                 .environment(runtimeRecoveryService)
                 .environment(reliabilityCenterViewModel)
                 .onAppear {
@@ -121,9 +115,6 @@ struct agentGuiApp: App {
                     claudeService.applyConnectionSettings(settings)
                     claudeService.skillService = skillService
                     skillService.loadSkills()
-                    let runtime = WorkflowRuntime(claudeService: claudeService)
-                    workflowRuntime = runtime
-                    claudeService.workflowRuntime = runtime
                     let backgroundCoordinator = BackgroundActivityCoordinator(
                         settingsProvider: { settings },
                         registry: BackgroundTaskRegistry(observationService: BackgroundTaskObservationService()),
@@ -184,7 +175,6 @@ struct agentGuiApp: App {
             SettingsWindowView()
                 .environment(claudeService)
                 .environment(skillService)
-                .environment(workflowRuntime ?? WorkflowRuntime(claudeService: claudeService))
                 .environment(runtimeRecoveryService)
                 .environment(reliabilityCenterViewModel)
                 .environment(PersistenceCoordinator.shared)
@@ -244,10 +234,6 @@ struct agentGuiApp: App {
             ensurePendingAgentMessage(for: session, in: context)
         }
 
-        if let workflowState = launchOptions.workflowState {
-            ensureWorkflow(for: sessionId, status: workflowState, in: context)
-        }
-
         if settingsChanged {
             try? persistenceCoordinator.save(
                 context,
@@ -303,32 +289,6 @@ struct agentGuiApp: App {
             context,
             domain: .sessionMessages,
             userMessage: "UI 测试恢复消息初始化未成功保存"
-        )
-    }
-
-    @MainActor
-    private func ensureWorkflow(for sessionId: String, status: WorkflowStatus, in context: ModelContext) {
-        let existing = (try? context.fetch(FetchDescriptor<WorkflowInstance>()))?.first(where: { $0.sessionId == sessionId })
-        if let existing {
-            existing.status = status
-            try? PersistenceCoordinator.shared.save(
-                context,
-                domain: .workflow,
-                userMessage: "UI 测试工作流状态未成功保存"
-            )
-            return
-        }
-
-        let workflow = WorkflowInstance.fixture(
-            sessionId: sessionId,
-            userTask: "Recover interrupted workflow",
-            status: status
-        )
-        context.insert(workflow)
-        try? PersistenceCoordinator.shared.save(
-            context,
-            domain: .workflow,
-            userMessage: "UI 测试工作流初始化未成功保存"
         )
     }
 

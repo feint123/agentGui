@@ -13,15 +13,20 @@ extension ChatView {
 
     func sendMessage() async {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, claudeService.isConfigured else {
-            if !claudeService.isConfigured {
-                errorMessage = "请先在「设置」中配置 Anthropic API Key"
-            }
+        guard !trimmed.isEmpty else {
             return
         }
 
         var fullText = trimmed
         let settings = AppSettings.getOrCreate(in: modelContext)
+        if resolvedExecutionProviderID == .githubCopilotCLI {
+            await refreshCopilotComposerAvailabilityStatus()
+        }
+        let preflightError = sendReadinessError(settings: settings) ?? sendReadinessFallbackMessage(settings: settings)
+        if !preflightError.isEmpty {
+            errorMessage = preflightError
+            return
+        }
         fullText = expandMentions(in: fullText, workingDirectory: settings.workingDirectory)
 
         // Build a parseable workspace context prefix from the current file path and/or selected text.
@@ -97,6 +102,58 @@ extension ChatView {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    var resolvedExecutionProviderID: ConversationExecutionProviderID {
+        ConversationExecutionProviderRegistry.resolveProviderID(
+            for: session,
+            settings: AppSettings.getOrCreate(in: modelContext)
+        )
+    }
+
+    var executionProviderSelectionBinding: Binding<ConversationExecutionProviderID> {
+        Binding(
+            get: { resolvedExecutionProviderID },
+            set: { newValue in
+                session.defaultExecutionProviderID = newValue.rawValue
+                try? modelContext.save()
+                if newValue == .githubCopilotCLI {
+                    Task {
+                        await refreshCopilotComposerAvailabilityStatus()
+                    }
+                }
+            }
+        )
+    }
+
+    var copilotComposerAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus {
+        executionProviderAvailabilityModel.copilotStatus
+    }
+
+    var copilotComposerAvailabilityRefreshToken: String {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        return "\(session.defaultExecutionProviderID)|\(settings.githubCopilotCLIConfigurationJSON)"
+    }
+
+    func refreshCopilotComposerAvailabilityStatus() async {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        await executionProviderAvailabilityModel.refreshCopilotStatus(
+            configuration: settings.githubCopilotCLIConfiguration
+        )
+    }
+
+    func sendReadinessError(settings: AppSettings) -> String? {
+        switch resolvedExecutionProviderID {
+        case .builtInAgent:
+            return claudeService.isConfigured ? "" : "请先在「设置」中配置 Anthropic API Key"
+        case .githubCopilotCLI:
+            let status = copilotComposerAvailabilityStatus
+            return status.kind == .available ? "" : status.summaryText
+        }
+    }
+
+    func sendReadinessFallbackMessage(settings: AppSettings) -> String {
+        sendReadinessError(settings: settings) ?? "当前执行器不可用"
     }
 
     // MARK: - @ Mention Expansion
@@ -197,5 +254,8 @@ extension ChatView {
     func stopStreaming() {
         activeTask?.cancel()
         activeTask = nil
+        Task {
+            await claudeService.cancelExecution(session: session, modelContext: modelContext)
+        }
     }
 }

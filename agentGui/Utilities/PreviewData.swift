@@ -19,9 +19,4 @@ enum PreviewData {
             Message.agentFixture(text: "I added a focused implementation plan and verified the entry points.", session: previewSession)
         ]
     }
-
-    @MainActor
-    static func runningWorkflow(sessionID: String = "preview-session") -> WorkflowInstance {
-        WorkflowInstance.fixture(sessionId: sessionID, userTask: "Preview workflow", status: .running)
-    }
 }

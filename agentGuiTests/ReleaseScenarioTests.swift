@@ -42,13 +42,12 @@ struct ReleaseScenarioTests {
         #expect(row.tertiaryText == "waiting for tests")
     }
 
-    @Test func recoveryScenarioFindsInterruptedWorkflowAndPendingMessage() async throws {
+    @Test func recoveryScenarioFindsPendingMessage() async throws {
         let harness = try InMemoryAppHarness.makeRecoveryScenario()
 
         let summary = try harness.runtimeRecoveryService.loadRecoverySummary(from: harness.context)
 
-        #expect(summary.items.count == 2)
-        #expect(summary.items.contains { $0.sourceKind == .workflow })
+        #expect(summary.items.count == 1)
         #expect(summary.items.contains { $0.sourceKind == .messageGeneration })
     }
 }

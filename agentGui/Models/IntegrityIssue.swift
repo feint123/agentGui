@@ -6,7 +6,6 @@ enum IntegrityIssueKind: String, Codable, CaseIterable {
     case orphanMessage
     case orphanToolCall
     case orphanRemoteMessageReceipt
-    case invalidWorkflowState
     case staleRemoteConversationBinding
     case duplicateRemoteConversationBinding
     case orphanSessionProjectionBinding
@@ -22,8 +21,6 @@ enum IntegrityIssueKind: String, Codable, CaseIterable {
             return "孤立工具调用"
         case .orphanRemoteMessageReceipt:
             return "孤立远端消息回执"
-        case .invalidWorkflowState:
-            return "异常工作流状态"
         case .staleRemoteConversationBinding:
             return "失效的远端会话绑定"
         case .duplicateRemoteConversationBinding:
@@ -73,7 +70,7 @@ final class IntegrityIssue {
 
 extension IntegrityIssue {
     var kind: IntegrityIssueKind {
-        IntegrityIssueKind(rawValue: kindRaw) ?? .invalidWorkflowState
+        IntegrityIssueKind(rawValue: kindRaw) ?? .brokenPlanJSON
     }
 
     var severity: IntegrityIssueSeverity {

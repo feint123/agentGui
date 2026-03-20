@@ -40,6 +40,24 @@ extension ChatView {
                     inputDirectiveChipsRow
                 }
 
+                HStack(spacing: 8) {
+                    ChatExecutionProviderPicker(
+                        selection: executionProviderSelectionBinding,
+                        copilotAvailabilityStatus: copilotComposerAvailabilityStatus
+                    )
+
+                    if resolvedExecutionProviderID == .githubCopilotCLI,
+                       copilotComposerAvailabilityStatus.kind != .available {
+                        Text(copilotComposerAvailabilityStatus.summaryText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
                 HStack(alignment: .bottom, spacing: 10) {
                     MentionAwareEditor(
                         text: $inputText,
@@ -84,6 +102,9 @@ extension ChatView {
     .background(.bar)
     .onAppear {
         applyUITestInitialComposerTextIfNeeded()
+    }
+    .task(id: copilotComposerAvailabilityRefreshToken) {
+        await refreshCopilotComposerAvailabilityStatus()
     }
 }
 
@@ -304,7 +325,11 @@ var fileChipsRow: some View {
     }
 
     var canSend: Bool {
-        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && claudeService.isConfigured
+        let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        return (sendReadinessError(settings: settings) ?? "") .isEmpty
     }
 
     // MARK: - File Drop

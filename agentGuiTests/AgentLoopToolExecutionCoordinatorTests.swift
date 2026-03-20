@@ -58,20 +58,6 @@ struct AgentLoopToolExecutionCoordinatorTests {
         #expect(outcome.result.text.contains("recommended_next_action"))
     }
 
-    @Test func startWorkflowRoutingUsesWorkflowExecutor() async {
-        let coordinator = AgentLoopToolExecutionCoordinator(
-            dependencies: .fixture(
-                startWorkflow: { _ in .success("workflow-started") }
-            )
-        )
-        let pendingTool = AgentLoopPendingTool(id: "call-3", name: "start_workflow", partialJson: "{\"workflow_id\":\"qa\"}")
-        let record = ToolCall.fixture(toolCallId: "call-3", kind: .execute)
-
-        let outcome = await coordinator.execute(pendingTool: pendingTool, record: record)
-
-        #expect(outcome.result.text == "workflow-started")
-    }
-
     @Test func attachedBashStartsAndFinishesObservation() async {
         final class Probe {
             var started = false
@@ -168,7 +154,6 @@ struct AgentLoopToolExecutionCoordinatorTests {
 private extension AgentLoopToolExecutionCoordinator.Dependencies {
     static func fixture(
         runSubagent: @escaping (MessageResponse.Content.Input, ToolCall) async -> AgentMessage = { _, _ in .text("subagent", sender: "worker") },
-        startWorkflow: @escaping (MessageResponse.Content.Input) async -> ToolExecutionResult = { _ in .success("workflow") },
         executeTool: @escaping (String, MessageResponse.Content.Input) async -> ToolExecutionResult = { name, _ in .success(name) },
         normalizeBashRequest: @escaping (MessageResponse.Content.Input) throws -> BashToolRequest = { _ in
             BashToolRequest(
@@ -185,7 +170,6 @@ private extension AgentLoopToolExecutionCoordinator.Dependencies {
     ) -> AgentLoopToolExecutionCoordinator.Dependencies {
         .init(
             runSubagent: runSubagent,
-            startWorkflow: startWorkflow,
             executeTool: executeTool,
             normalizeBashRequest: normalizeBashRequest,
             startForegroundBashObservation: startForegroundBashObservation,

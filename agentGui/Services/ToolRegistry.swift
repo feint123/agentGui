@@ -37,9 +37,7 @@ struct DefaultToolRegistry: ToolRegistry {
             lspDiagnosticsToolDefinition(),
             lspListServersToolDefinition(),
             lspServerStatusToolDefinition(),
-            emitWorkflowArtifactDefinition(),
-            runSubagentDefinition(),
-            startWorkflowDefinition()
+            runSubagentDefinition()
         ]
     }
 
@@ -49,7 +47,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "文本编辑器",
             category: .editor,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
+            supportedContexts: [.mainAgent, .subagent, .backgroundTask],
             authorization: ToolAuthorizationDescriptor(
                 requirements: [ToolCapabilityRequirement(capabilityID: .fileSystem, minimumLevel: .mutate)],
                 riskTier: .high
@@ -90,7 +88,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "Bash",
             category: .shell,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
+            supportedContexts: [.mainAgent, .subagent, .backgroundTask],
             authorization: ToolAuthorizationDescriptor(
                 requirements: [ToolCapabilityRequirement(capabilityID: .shell, minimumLevel: .execute)],
                 riskTier: .high
@@ -143,7 +141,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "Read Tool Payload",
             category: .system,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
+            supportedContexts: [.mainAgent, .subagent, .backgroundTask],
             executorKey: "builtin.readToolPayload",
             descriptionBuilder: { _ in
                 """
@@ -176,7 +174,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "Web Search",
             category: .web,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
+            supportedContexts: [.mainAgent, .subagent, .backgroundTask],
             authorization: ToolAuthorizationDescriptor(
                 requirements: [ToolCapabilityRequirement(capabilityID: .network, minimumLevel: .observe)],
                 riskTier: .medium
@@ -208,7 +206,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "Web Fetch",
             category: .web,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker, .backgroundTask],
+            supportedContexts: [.mainAgent, .subagent, .backgroundTask],
             authorization: ToolAuthorizationDescriptor(
                 requirements: [ToolCapabilityRequirement(capabilityID: .network, minimumLevel: .observe)],
                 riskTier: .medium
@@ -239,7 +237,7 @@ struct DefaultToolRegistry: ToolRegistry {
         ToolDefinition(
             id: "run_subagent",
             displayName: "Run Subagent",
-            category: .workflow,
+            category: .system,
             schemaVersion: 1,
             supportedContexts: [.mainAgent],
             executorKey: "builtin.runSubagent",
@@ -307,7 +305,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "LSP Document Symbols",
             category: .system,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent],
             executorKey: "lsp.documentSymbols",
             descriptionBuilder: { _ in
                 "List document symbols from an active language server session for a file."
@@ -332,7 +330,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "LSP Workspace Symbols",
             category: .system,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent],
             executorKey: "lsp.workspaceSymbols",
             descriptionBuilder: { _ in
                 "Search workspace symbols using an active language server session."
@@ -357,7 +355,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "LSP Diagnostics",
             category: .system,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent],
             executorKey: "lsp.diagnostics",
             descriptionBuilder: { _ in
                 "Read the latest cached diagnostics for a document from the LSP diagnostics store."
@@ -381,7 +379,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "LSP List Servers",
             category: .system,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent],
             executorKey: "lsp.listServers",
             descriptionBuilder: { _ in
                 "List the configured built-in and custom language server profiles."
@@ -398,7 +396,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: "LSP Server Status",
             category: .system,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent],
             executorKey: "lsp.serverStatus",
             descriptionBuilder: { _ in
                 "Read runtime status for a language server session bound to a workspace."
@@ -427,7 +425,7 @@ struct DefaultToolRegistry: ToolRegistry {
             displayName: displayName,
             category: .system,
             schemaVersion: 1,
-            supportedContexts: [.mainAgent, .subagent, .workflowWorker],
+            supportedContexts: [.mainAgent, .subagent],
             executorKey: executorKey,
             descriptionBuilder: { _ in description },
             inputSchemaBuilder: { _ in
@@ -441,79 +439,6 @@ struct DefaultToolRegistry: ToolRegistry {
                         "character": .init(type: .integer, description: "Zero-based character offset.")
                     ],
                     required: ["workspace_root", "server_id", "uri", "line", "character"]
-                )
-            }
-        )
-    }
-
-    private static func startWorkflowDefinition() -> ToolDefinition {
-        ToolDefinition(
-            id: "start_workflow",
-            displayName: "Start Workflow",
-            category: .workflow,
-            schemaVersion: 1,
-            supportedContexts: [.mainAgent],
-            executorKey: "builtin.startWorkflow",
-            descriptionBuilder: { context in
-                """
-                Launch a multi-agent workflow for tasks that require sustained collaboration \
-                between specialized agents (explore → worker → verifier).
-
-                USE start_workflow WHEN the task:
-                - Requires implementing or refactoring code across multiple files
-                - Needs a coordinated explore-implement-verify pipeline
-                - Is complex enough that a single agent loop would be insufficient
-
-                DO NOT use start_workflow for:
-                - Simple Q&A, single-file edits, or quick lookups
-                - Tasks that can be completed in a few tool calls
-                - Anything already handled well by run_subagent
-
-                The workflow runs synchronously and returns a summary when complete. \
-                The task must be self-contained: include file paths, goals, and any constraints.
-
-                Available workflows:
-                \(context.workflowListText)
-                """
-            },
-            inputSchemaBuilder: { context in
-                .init(
-                    type: .object,
-                    properties: [
-                        "workflow_id": .init(type: .string, description: "ID of the workflow to launch. One of: \(context.workflowIDListText)"),
-                        "task": .init(type: .string, description: "Self-contained task description including all context the workflow agents need.")
-                    ],
-                    required: ["workflow_id", "task"]
-                )
-            }
-        )
-    }
-
-    private static func emitWorkflowArtifactDefinition() -> ToolDefinition {
-        ToolDefinition(
-            id: "emit_workflow_artifact",
-            displayName: "Emit Workflow Artifact",
-            category: .workflow,
-            schemaVersion: 1,
-            supportedContexts: [.workflowWorker],
-            executorKey: "workflow.emitArtifact",
-            descriptionBuilder: { _ in
-                """
-                Submit the structured artifact that is the primary output of this activation. \
-                You MUST call this tool exactly once before finishing. \
-                Not calling it means your activation is rejected.
-                """
-            },
-            inputSchemaBuilder: { _ in
-                .init(
-                    type: .object,
-                    properties: [
-                        "kind": .init(type: .string, description: "Artifact kind: plan | explorationReport | codePatchSummary | reviewReport | testReport | decisionLog | finalAnswer"),
-                        "schemaVersion": .init(type: .integer, description: "Schema version. Use 1."),
-                        "contentJson": .init(type: .string, description: "Full artifact payload serialised as a valid JSON string."),
-                        "status": .init(type: .string, description: "Artifact status: draft | approved | rejected | superseded (default: draft)")
-                    ],
-                    required: ["kind", "schemaVersion", "contentJson"]
                 )
             }
         )

@@ -30,6 +30,9 @@ final class Session {
     /// 会话级工作目录（空字符串表示使用全局 AppSettings.workingDirectory）
     var workingDirectory: String = ""
 
+    /// 会话级默认执行器 ID
+    var defaultExecutionProviderID: String = ConversationExecutionProviderID.builtInAgent.rawValue
+
     /// Serialised `ExecutionPlan` JSON for this session.
     /// Written by the `create_execution_plan` tool (regular tasks) and mirrored from
     /// the workflow runtime when a plan artifact is produced, so both paths share the
@@ -66,6 +69,10 @@ final class Session {
 
 // MARK: - Computed Properties
 extension Session {
+    var executionProviderID: ConversationExecutionProviderID {
+        ConversationExecutionProviderID(rawValue: defaultExecutionProviderID) ?? .builtInAgent
+    }
+
     /// Decoded `ExecutionPlan` for this session, or `nil` if none has been created yet.
     var plan: ExecutionPlan? {
         guard !planJson.isEmpty, let data = planJson.data(using: .utf8) else { return nil }
@@ -107,6 +114,3 @@ extension Session {
     }
 }
 
-// MARK: - SessionProtocol Conformance
-
-extension Session: SessionProtocol {}

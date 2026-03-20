@@ -259,33 +259,6 @@ extension ClaudeService {
         Use your judgment — the goal is clarity and accountability, not ceremony.
         """)
 
-        let workflowCatalog = ClaudeService.availableWorkflows
-            .map { "- `\($0.id)`: \($0.description)" }
-            .joined(separator: "\n")
-        parts.append("""
-        ## Workflow Orchestration
-
-        Use `start_workflow` when the task requires a sustained multi-agent pipeline that goes \
-        beyond what a single subagent or a few tool calls can achieve.
-
-        **USE `start_workflow` for:**
-        - Implementing or refactoring code across multiple files where you need to plan, \
-                    explore the codebase, implement changes, and verify the result
-        - Large-scale tasks that benefit from the plan → explore → implement → verify pipeline
-
-        **DO NOT use `start_workflow` for:**
-        - Simple Q&A, quick lookups, or single-file edits
-        - Tasks you can complete directly with bash/editor/subagent tools in a few calls
-        - Anything already handled adequately by `run_subagent`
-
-        When you call `start_workflow`, the workflow runs to completion before you receive the result. \
-        Craft the `task` parameter as a complete, self-contained description of the goal, including \
-        file paths, constraints, and any relevant context.
-
-        Available workflows:
-        \(workflowCatalog)
-        """)
-
         return parts.joined(separator: "\n\n")
     }
 }

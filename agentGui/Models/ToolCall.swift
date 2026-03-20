@@ -64,7 +64,7 @@ final class ToolCall {
     /// Why this tool was exposed to the model in the current context
     var toolExposureSource: String?
 
-    /// Execution context raw value: mainAgent | subagent | workflowWorker
+    /// Execution context raw value: mainAgent | subagent | backgroundTask
     var toolExecutionContext: String?
 
     /// Managed bash task ID

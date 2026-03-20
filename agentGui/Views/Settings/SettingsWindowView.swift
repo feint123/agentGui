@@ -63,6 +63,8 @@ struct SettingsWindowView: View {
             SettingsConnectionView(store: store)
         case .channels:
             SettingsChannelsView()
+        case .executors:
+            SettingsExecutorsView(store: store)
         case .tools:
             SettingsToolsView(store: store)
         case .intelligence:

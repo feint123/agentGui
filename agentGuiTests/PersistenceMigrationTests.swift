@@ -40,7 +40,7 @@ struct PersistenceMigrationTests {
 
     private func makeContainer() throws -> ModelContainer {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try ModelContainer(for: AppSettings.self, Session.self, Message.self, ToolCall.self, SessionTaskState.self, WorkflowInstance.self, configurations: config)
+        return try ModelContainer(for: AppSettings.self, Session.self, Message.self, ToolCall.self, SessionTaskState.self, configurations: config)
     }
 
     private func loadManifest(from archiveURL: URL) throws -> BackupArchiveManifest {

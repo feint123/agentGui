@@ -65,20 +65,6 @@ struct DataIntegrityCheckerTests {
         #expect(report.issues.contains { $0.kind == .orphanRemoteMessageReceipt })
     }
 
-    @Test func flagsRunningWorkflowWithoutProgressRecords() async throws {
-        let container = try makeContainer()
-        let context = ModelContext(container)
-        let workflow = WorkflowInstance(sessionId: "s2", definitionId: "code_change", userTask: "Broken workflow")
-        workflow.status = .running
-        context.insert(workflow)
-        try context.save()
-
-        let checker = DataIntegrityChecker()
-        let report = try checker.runLightweightChecks(in: context)
-
-        #expect(report.issues.contains { $0.kind == .invalidWorkflowState })
-    }
-
     @Test func flagsStaleAndDuplicateRemoteBindings() async throws {
         let container = try makeContainer()
         let context = ModelContext(container)
@@ -141,9 +127,6 @@ struct DataIntegrityCheckerTests {
             SessionProjectionBinding.self,
             ChannelProjectionDelivery.self,
             ToolCall.self,
-            WorkflowInstance.self,
-            WorkflowMessageRecord.self,
-            WorkflowActivationRecord.self,
             IntegrityIssue.self,
             configurations: config
         )

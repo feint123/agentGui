@@ -85,6 +85,84 @@ enum ToolKind: String, Codable {
         case .other: return "其他"
         }
     }
+
+    static func classify(rawName: String?, command rawCommand: String? = nil) -> ToolKind {
+        if let command = rawCommand?.normalizedToolToken {
+            switch command {
+            case "view", "read", "open", "cat", "show", "read_file", "read_tool_payload", "read_pdf", "view_image", "read_pdf_tool":
+                return .read
+            case "str_replace", "create", "create_file", "write", "write_file", "insert", "append", "prepend", "replace", "edit", "apply_patch", "patch":
+                return .edit
+            case "delete", "remove", "delete_file", "unlink", "rm":
+                return .delete
+            default:
+                break
+            }
+        }
+
+        guard let normalized = rawName?.normalizedToolToken, !normalized.isEmpty else {
+            return .other
+        }
+
+        switch normalized {
+        case "read", "view", "open", "read_file", "open_file", "view_file", "read_tool_payload", "read_pdf", "view_image", "analyze_image":
+            return .read
+        case "edit", "write", "create", "insert", "patch", "apply_patch", "create_file", "write_file", "str_replace", "str_replace_based_edit_tool", "str_replace_editor", "insert_text", "update_file", "replace_text":
+            return .edit
+        case "execute", "exec", "bash", "shell", "command", "code_execution", "run_in_terminal", "run_task", "create_and_run_task":
+            return .execute
+        case "search", "semantic_search", "file_search", "grep_search", "web_search", "search_subagent", "github_repo", "vscode_listcodeusages":
+            return .search
+        case "fetch", "web_fetch", "fetch_webpage", "open_browser_page":
+            return .fetch
+        case "delete", "remove", "delete_file", "unlink", "rm":
+            return .delete
+        case "think", "thinking", "reason":
+            return .think
+        case "plan", "planner":
+            return .plan
+        case "switch_mode", "switchmode":
+            return .switchMode
+        case "ask_user", "ask_user_question", "vscode_askquestions":
+            return .askUser
+        case "subagent", "run_subagent":
+            return .subagent
+        case "todo", "update_todo_list", "manage_todo_list":
+            return .todo
+        default:
+            break
+        }
+
+        if normalized.contains("search") {
+            return .search
+        }
+        if normalized.contains("fetch") {
+            return .fetch
+        }
+        if normalized.contains("read") || normalized.contains("view") || normalized.contains("open_file") {
+            return .read
+        }
+        if normalized.contains("write") || normalized.contains("edit") || normalized.contains("patch") || normalized.contains("replace") || normalized.contains("insert") {
+            return .edit
+        }
+        if normalized.contains("delete") || normalized.contains("remove") {
+            return .delete
+        }
+        if normalized.contains("terminal") || normalized.contains("command") || normalized.contains("exec") || normalized.contains("bash") {
+            return .execute
+        }
+        if normalized.contains("question") || normalized.contains("ask") {
+            return .askUser
+        }
+        if normalized.contains("subagent") {
+            return .subagent
+        }
+        if normalized.contains("todo") {
+            return .todo
+        }
+
+        return ToolKind(rawValue: normalized) ?? .other
+    }
 }
 
 // MARK: - Tool Result Status
@@ -132,6 +210,34 @@ enum ToolStatus: String, Codable {
         case .failed: return "xmark.circle.fill"
         case .cancelled: return "minus.circle.fill"
         }
+    }
+
+    static func normalizedACPStatus(from rawValue: String?) -> ToolStatus? {
+        guard let normalized = rawValue?.normalizedToolToken, !normalized.isEmpty else {
+            return nil
+        }
+
+        switch normalized {
+        case "in_progress", "running", "started", "pending", "working", "executing":
+            return .inProgress
+        case "success", "succeeded", "successful", "completed", "complete", "done", "finished", "ok":
+            return .success
+        case "failed", "failure", "error", "errored", "timed_out", "timeout":
+            return .failed
+        case "cancelled", "canceled", "aborted", "rejected", "denied", "stopped":
+            return .cancelled
+        default:
+            return ToolStatus(rawValue: normalized)
+        }
+    }
+}
+
+private extension String {
+    var normalizedToolToken: String {
+        components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "_")
+            .lowercased()
     }
 }
 

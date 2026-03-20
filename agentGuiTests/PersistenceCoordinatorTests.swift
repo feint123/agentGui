@@ -26,7 +26,7 @@ struct PersistenceCoordinatorTests {
         #expect(coordinator.lastFailureSummary == nil)
     }
 
-    @Test func recordsStructuredFailureForCoreWorkflowSave() async throws {
+    @Test func recordsStructuredFailureForCoreMessageSave() async throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         var recordedFailures: [PersistenceFailureRecord] = []
@@ -38,19 +38,19 @@ struct PersistenceCoordinatorTests {
         await #expect(throws: PersistenceCoordinator.SaveError.self) {
             try coordinator.save(
                 context,
-                domain: .workflow,
-                userMessage: "未能保存工作流状态",
+                domain: .sessionMessages,
+                userMessage: "未能保存消息状态",
                 metadata: ["sessionId": "session-1"]
             )
         }
 
         let failure = try #require(recordedFailures.first)
         #expect(recordedFailures.count == 1)
-        #expect(failure.domain == .workflow)
+        #expect(failure.domain == .sessionMessages)
         #expect(failure.category == .permissionDenied)
         #expect(failure.isCritical == true)
-        #expect(failure.userMessage == "未能保存工作流状态")
-        #expect(coordinator.lastFailureSummary?.contains("未能保存工作流状态") == true)
+        #expect(failure.userMessage == "未能保存消息状态")
+        #expect(coordinator.lastFailureSummary?.contains("未能保存消息状态") == true)
     }
 
     private func makeContainer() throws -> ModelContainer {

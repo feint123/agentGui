@@ -1,3 +1,5 @@
+import Foundation
+import SwiftData
 import SwiftUI
 
 struct ToolCallDetailSection: Identifiable, Equatable {
@@ -433,4 +435,5 @@ struct ToolCallDetailContentView: View {
             isSendingTerminalInput = false
         }
     }
+
 }

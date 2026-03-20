@@ -115,14 +115,14 @@ final class ClaudeService {
     /// Optional structured business log sink used by tests and future observability integration.
     var businessLogSink: BusinessLogSink?
 
-    /// Workflow runtime — injected from the app root after creation.
-    var workflowRuntime: WorkflowRuntime?
-
-    /// Workspace context snapshot captured at the start of each send, used by start_workflow.
-    var currentWorkspaceContext: WorkflowWorkspaceContext = .empty
-
-    /// The Session currently being processed, used by start_workflow.
+    /// The Session currently being processed for the active turn.
     var currentSession: Session?
+
+    /// Optional execution provider registry. Tests can inject a stub registry; production lazily builds one.
+    var executionProviderRegistry: ConversationExecutionProviderRegistry?
+
+    /// Shared ACP permission center used by external ACP-backed executors.
+    var acpPermissionCenter = ACPPermissionCenter()
 
     init() {
         bindLSPInstallPresentationObserver()

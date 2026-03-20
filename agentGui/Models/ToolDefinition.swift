@@ -5,7 +5,6 @@ enum ToolCategory: String, Codable {
     case editor
     case shell
     case web
-    case workflow
     case memory
     case system
 }
@@ -13,17 +12,14 @@ enum ToolCategory: String, Codable {
 enum ToolContext: String, Codable, Hashable {
     case mainAgent
     case subagent
-    case workflowWorker
     case backgroundTask
 }
 
 struct ToolDefinitionBuildContext {
     let agentCatalog: any AgentCatalogProtocol
-    let availableWorkflows: [(id: String, displayName: String, description: String)]
 
     static let `default` = ToolDefinitionBuildContext(
-        agentCatalog: AgentCatalog.shared,
-        availableWorkflows: ClaudeService.availableWorkflows
+        agentCatalog: AgentCatalog.shared
     )
 
     var agentListText: String {
@@ -32,16 +28,6 @@ struct ToolDefinitionBuildContext {
 
     var agentNameListText: String {
         agentCatalog.agentNameListText
-    }
-
-    var workflowListText: String {
-        availableWorkflows
-            .map { "- \($0.id): \($0.description)" }
-            .joined(separator: "\n")
-    }
-
-    var workflowIDListText: String {
-        availableWorkflows.map(\.id).joined(separator: " | ")
     }
 }
 

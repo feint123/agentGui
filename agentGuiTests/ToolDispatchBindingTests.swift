@@ -12,12 +12,10 @@ struct ToolDispatchBindingTests {
         #expect(definition.executorKey == "builtin.bash")
     }
 
-    @Test func registryIncludesWorkflowArtifactToolDefinition() throws {
+    @Test func registryNoLongerIncludesWorkflowArtifactToolDefinition() {
         let registry = DefaultToolRegistry()
-        let definition = try #require(registry.definition(for: "emit_workflow_artifact"))
 
-        #expect(definition.executorKey == "workflow.emitArtifact")
-        #expect(definition.supportedContexts.contains(.workflowWorker))
+        #expect(registry.definition(for: "emit_workflow_artifact") == nil)
     }
 
     @Test func registryIncludesLSPDefinitionToolBinding() throws {
