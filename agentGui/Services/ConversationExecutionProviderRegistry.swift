@@ -1,6 +1,10 @@
 import Foundation
 import SwiftData
 
+enum ConversationExecutionRuntimeScope: Equatable, Sendable {
+    case externalACP
+}
+
 struct ConversationExecutionRequest {
     let text: String
     let session: Session
@@ -28,17 +32,27 @@ struct ConversationEditAndResendRequest {
 @MainActor
 protocol ConversationExecutionProvider: AnyObject {
     var id: ConversationExecutionProviderID { get }
+    var runtimeScope: ConversationExecutionRuntimeScope? { get }
 
     func send(_ request: ConversationExecutionRequest) async throws
     func regenerate(_ request: ConversationRegenerationRequest) async throws
     func editAndResend(_ request: ConversationEditAndResendRequest) async throws
     func cancel(session: Session, modelContext: ModelContext) async
     func resetSessionState(session: Session, modelContext: ModelContext) async
+    func prepareForActivation(session: Session, isActiveProvider: Bool, modelContext: ModelContext) async
 }
 
 extension ConversationExecutionProvider {
+    var runtimeScope: ConversationExecutionRuntimeScope? { nil }
+
     func resetSessionState(session: Session, modelContext: ModelContext) async {
         _ = session
+        _ = modelContext
+    }
+
+    func prepareForActivation(session: Session, isActiveProvider: Bool, modelContext: ModelContext) async {
+        _ = session
+        _ = isActiveProvider
         _ = modelContext
     }
 }
@@ -96,6 +110,10 @@ struct ConversationExecutionProviderRegistry {
 
     var allProviders: [any ConversationExecutionProvider] {
         [builtIn, copilot, openCode]
+    }
+
+    func providers(in runtimeScope: ConversationExecutionRuntimeScope) -> [any ConversationExecutionProvider] {
+        allProviders.filter { $0.runtimeScope == runtimeScope }
     }
 
     func provider(for session: Session, settings: AppSettings) -> any ConversationExecutionProvider {

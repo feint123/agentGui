@@ -164,6 +164,138 @@ struct GitHubCopilotCLIExecutionProviderTests {
         #expect(assistantMessages.allSatisfy { !($0.textContent ?? "").contains("already loaded") })
     }
 
+    @Test func sendDoesNotProjectReplayUpdatesFromLoadedSessionIntoCurrentTurn() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Replay Restore")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let sessionBridge = CopilotSessionBridge()
+        await sessionBridge.upsert(
+            CopilotSessionBridge.Binding(
+                sessionID: session.sessionId,
+                providerID: .githubCopilotCLI,
+                remoteSessionID: "remote-restored",
+                cliVersion: "1.2.3",
+                negotiatedCapabilities: nil,
+                lastHandshakeAt: Date(timeIntervalSince1970: 1),
+                lastSelectedModel: nil,
+                lastSelectedAgentName: nil
+            )
+        )
+
+        let runtimeClient = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-restored", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            ensureSessionUpdates: [
+                .session(
+                    .agentMessageChunk(
+                        ACPContentChunk(
+                            meta: nil,
+                            content: .text(ACPTextContentBlock(meta: nil, annotations: nil, text: "历史回复"))
+                        )
+                    )
+                ),
+                .session(
+                    .toolCall(
+                        ACPToolCall(
+                            meta: nil,
+                            content: nil,
+                            kind: "read_file",
+                            locations: nil,
+                            rawInput: .object(["file_path": .string("/tmp/history.txt")]),
+                            rawOutput: nil,
+                            status: "completed",
+                            title: "历史工具",
+                            toolCallID: "tool-history"
+                        )
+                    )
+                )
+            ],
+            updates: [
+                .session(
+                    .toolCall(
+                        ACPToolCall(
+                            meta: nil,
+                            content: nil,
+                            kind: "run_in_terminal",
+                            locations: nil,
+                            rawInput: nil,
+                            rawOutput: nil,
+                            status: "in_progress",
+                            title: "实时工具",
+                            toolCallID: "tool-live"
+                        )
+                    )
+                ),
+                .session(
+                    .toolCallUpdate(
+                        ACPToolCallUpdatePayload(
+                            meta: nil,
+                            content: nil,
+                            kind: "run_in_terminal",
+                            locations: nil,
+                            rawInput: nil,
+                            rawOutput: .string("echo live"),
+                            status: "success",
+                            title: "实时工具",
+                            toolCallID: "tool-live"
+                        )
+                    )
+                ),
+                .session(
+                    .agentMessageChunk(
+                        ACPContentChunk(
+                            meta: nil,
+                            content: .text(ACPTextContentBlock(meta: nil, annotations: nil, text: "实时回复"))
+                        )
+                    )
+                )
+            ]
+        )
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            sessionBridge: sessionBridge,
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "继续处理",
+                session: session,
+                modelID: "",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        let assistantMessage = try #require(session.messages.first(where: { $0.direction == .agent }))
+        let toolCalls = assistantMessage.agentRounds.flatMap(\.toolCalls)
+
+        #expect(runtimeClient.ensureSessionRemoteSessionIDs == ["remote-restored"])
+        #expect(assistantMessage.textContent == "实时回复")
+        #expect(toolCalls.count == 1)
+        #expect(toolCalls.first?.toolCallId == "tool-live")
+        #expect(toolCalls.first?.title == "实时工具")
+        #expect(toolCalls.first?.terminalOutput == "echo live")
+    }
+
     @Test func sendProjectsCopilotUpdatesIntoAssistantMessageAndTools() async throws {
         let modelContext = try makeModelContext()
         let settings = AppSettings.testFixture(apiKey: "")
@@ -322,125 +454,14 @@ struct GitHubCopilotCLIExecutionProviderTests {
         #expect(binding?.lastSelectedModel == nil)
     }
 
-    @Test func sendSkipsModelSelectionWhenCapabilityDoesNotAdvertiseOverride() async throws {
-        let modelContext = try makeModelContext()
-        let settings = AppSettings.testFixture(apiKey: "")
-        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
-            executablePath: "/usr/bin/env",
-            defaultModel: "gpt-5",
-            customAgentName: "",
-            defaultApprovalMode: "default",
-            useACPStdIO: true
-        )
-        let session = Session.fixture(title: "Copilot Capability Fallback")
-        modelContext.insert(settings)
-        modelContext.insert(session)
-        try modelContext.save()
-
-        let sessionBridge = CopilotSessionBridge()
-        let runtimeClient = RuntimeClientStub(
-            handshake: GitHubCopilotCLISessionHandshake(
-                remoteSessionID: "remote-capability",
-                cliVersion: "1.2.3",
-                capabilities: .init(loadSession: true, supportsSessionModelOverride: false, agentVersion: "1.2.3")
-            ),
-            stopReason: .endTurn,
-            updates: []
-        )
-
-        let provider = GitHubCopilotCLIExecutionProvider(
-            sessionBridge: sessionBridge,
-            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
-            permissionCenter: ACPPermissionCenter(),
-            runtimeClientFactory: { _, _, _, _, updateSink in
-                runtimeClient.updateSink = updateSink
-                return runtimeClient
-            }
-        )
-
-        try await provider.send(
-            ConversationExecutionRequest(
-                text: "hello copilot",
-                session: session,
-                modelID: "claude-sonnet-4-6",
-                selectedFilePath: nil,
-                selectedText: nil,
-                directives: [],
-                modelContext: modelContext
-            )
-        )
-
-        let binding = await sessionBridge.binding(for: session.sessionId, providerID: .githubCopilotCLI)
-
-        #expect(runtimeClient.setModelRequests.isEmpty)
-        #expect(binding?.lastSelectedModel == nil)
-        #expect(binding?.negotiatedCapabilities?.supportsSessionModelOverride == false)
-    }
-
-    @Test func sendMapsDefaultApprovalModeToAlwaysRequireHuman() async throws {
+    @Test func sendMapsDefaultApprovalModeToSubjectPolicy() async throws {
         let approvalMode = try await capturedApprovalMode(for: "default")
-        #expect(approvalMode == .alwaysRequireHuman)
+        #expect(approvalMode == .subjectPolicy)
     }
 
-    @Test func sendMapsOnRequestApprovalModeToAlwaysRequireHuman() async throws {
+    @Test func sendMapsOnRequestApprovalModeToSubjectPolicy() async throws {
         let approvalMode = try await capturedApprovalMode(for: "on-request")
-        #expect(approvalMode == .alwaysRequireHuman)
-    }
-
-    @Test func sendAppliesSessionLevelCopilotModelAndApprovalOverrides() async throws {
-        let modelContext = try makeModelContext()
-        let settings = AppSettings.testFixture(apiKey: "")
-        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
-            executablePath: "/usr/bin/env",
-            defaultModel: "gpt-5",
-            customAgentName: "",
-            defaultApprovalMode: "default",
-            useACPStdIO: true
-        )
-        let session = Session.fixture(title: "Copilot Session Override")
-        session.executionPreferences = SessionExecutionPreferences(
-            builtInModelID: nil,
-            gitHubCopilotCLI: GitHubCopilotCLISessionPreferences(
-                modelID: "gpt-5-mini",
-                approvalMode: "never"
-            )
-        )
-        modelContext.insert(settings)
-        modelContext.insert(session)
-        try modelContext.save()
-
-        let runtimeClient = RuntimeClientStub(
-            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-session-override", cliVersion: "1.2.3"),
-            stopReason: .endTurn,
-            updates: []
-        )
-        var capturedApprovalMode: ToolApprovalMode?
-
-        let provider = GitHubCopilotCLIExecutionProvider(
-            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
-            permissionCenter: ACPPermissionCenter(),
-            runtimeClientFactory: { _, _, authorizationPolicy, _, updateSink in
-                capturedApprovalMode = authorizationPolicy.approvalMode
-                runtimeClient.updateSink = updateSink
-                return runtimeClient
-            }
-        )
-
-        try await provider.send(
-            ConversationExecutionRequest(
-                text: "hello copilot",
-                session: session,
-                modelID: "claude-sonnet-4-6",
-                selectedFilePath: nil,
-                selectedText: nil,
-                directives: [],
-                modelContext: modelContext
-            )
-        )
-
-        #expect(runtimeClient.setModelRequests.count == 1)
-        #expect(runtimeClient.setModelRequests.first?.0 == "gpt-5-mini")
-        #expect(capturedApprovalMode == Optional.some(.none))
+        #expect(approvalMode == .subjectPolicy)
     }
 
     @Test func sendFinalizesOutstandingReadToolCallsWhenTurnEnds() async throws {
@@ -695,7 +716,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-permission", cliVersion: "1.2.3"),
             stopReason: .endTurn,
             permissionRequest: permissionRequest,
-            authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited, approvalMode: .alwaysRequireHuman)
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .alwaysRequireHuman)
         )
 
         let provider = GitHubCopilotCLIExecutionProvider(
@@ -708,7 +729,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             }
         )
 
-        let sendTask = Task.detached { @MainActor in
+        let sendTask = Task {
             try await provider.send(
                 ConversationExecutionRequest(
                     text: "read file",
@@ -722,7 +743,11 @@ struct GitHubCopilotCLIExecutionProviderTests {
             )
         }
 
-        let pending = try await waitForPendingRequest(in: permissionCenter)
+        while permissionCenter.pendingRequests.isEmpty {
+            await Task.yield()
+        }
+
+        let pending = try #require(permissionCenter.pendingRequests.first)
         permissionCenter.selectOption(requestID: pending.id, optionID: "reject-once")
 
         try await sendTask.value
@@ -771,11 +796,11 @@ struct GitHubCopilotCLIExecutionProviderTests {
                 toolCallID: "tool-run"
             )
         )
-        let runtimeClient = PermissionAndUpdateRuntimeClientStub(
+        let runtimeClient = PermissionRuntimeClientStub(
             handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-permission-execute", cliVersion: "1.2.3"),
             stopReason: .endTurn,
             permissionRequest: permissionRequest,
-            authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited, approvalMode: .alwaysRequireHuman),
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .alwaysRequireHuman),
             updates: [
                 .session(
                     .toolCall(
@@ -820,7 +845,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             }
         )
 
-        let sendTask = Task.detached { @MainActor in
+        let sendTask = Task {
             try await provider.send(
                 ConversationExecutionRequest(
                     text: "run tests",
@@ -834,7 +859,11 @@ struct GitHubCopilotCLIExecutionProviderTests {
             )
         }
 
-        let pending = try await waitForPendingRequest(in: permissionCenter)
+        while permissionCenter.pendingRequests.isEmpty {
+            await Task.yield()
+        }
+
+        let pending = try #require(permissionCenter.pendingRequests.first)
         permissionCenter.selectOption(requestID: pending.id, optionID: "allow-once")
 
         try await sendTask.value
@@ -910,6 +939,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             Message.self,
             ToolCall.self,
             AgentRound.self,
+            ACPExternalSessionBinding.self,
             configurations: config
         )
         return ModelContext(container)
@@ -966,22 +996,6 @@ struct GitHubCopilotCLIExecutionProviderTests {
         )
 
         return try #require(capturedApprovalMode)
-    }
-
-    private func waitForPendingRequest(
-        in permissionCenter: ACPPermissionCenter,
-        timeout: TimeInterval = 2
-    ) async throws -> ACPPermissionCenter.PendingRequest {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let pending = permissionCenter.pendingRequests.first {
-                return pending
-            }
-            await Task.yield()
-        }
-
-        Issue.record("Timed out waiting for permission request")
-        throw TimeoutError()
     }
 
     private var sessionLoadOnlyRubyAgentScript: String {
@@ -1139,10 +1153,12 @@ end
 private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
     let handshake: GitHubCopilotCLISessionHandshake
     let stopReason: ACPStopReason
+    let ensureSessionUpdates: [CopilotACPUpdate]
     let updates: [CopilotACPUpdate]
     let promptError: (any Error)?
 
     var updateSink: (@Sendable (CopilotACPUpdate) async -> Void)?
+    private(set) var ensureSessionRemoteSessionIDs: [String?] = []
     private(set) var promptRequests: [(String, String)] = []
     private(set) var setModelRequests: [(String, String)] = []
     private(set) var cancelledSessionIDs: [String] = []
@@ -1150,18 +1166,23 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
     init(
         handshake: GitHubCopilotCLISessionHandshake,
         stopReason: ACPStopReason,
+        ensureSessionUpdates: [CopilotACPUpdate] = [],
         updates: [CopilotACPUpdate],
         promptError: (any Error)? = nil
     ) {
         self.handshake = handshake
         self.stopReason = stopReason
+        self.ensureSessionUpdates = ensureSessionUpdates
         self.updates = updates
         self.promptError = promptError
     }
 
     func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> GitHubCopilotCLISessionHandshake {
         _ = workingDirectory
-        _ = remoteSessionID
+        ensureSessionRemoteSessionIDs.append(remoteSessionID)
+        for update in ensureSessionUpdates {
+            await updateSink?(update)
+        }
         return handshake
     }
 
@@ -1191,58 +1212,8 @@ private enum RuntimeClientStubError: Error {
     case promptFailed
 }
 
-private struct TimeoutError: Error {}
-
 @MainActor
 private final class PermissionRuntimeClientStub: GitHubCopilotCLIRuntimeClient {
-    let handshake: GitHubCopilotCLISessionHandshake
-    let stopReason: ACPStopReason
-    let permissionRequest: ACPRequestPermissionRequest
-    let authorizationPolicy: ToolAuthorizationPolicy
-
-    var permissionResolver: ((ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?)?
-    var updateSink: (@Sendable (CopilotACPUpdate) async -> Void)?
-
-    init(
-        handshake: GitHubCopilotCLISessionHandshake,
-        stopReason: ACPStopReason,
-        permissionRequest: ACPRequestPermissionRequest,
-        authorizationPolicy: ToolAuthorizationPolicy
-    ) {
-        self.handshake = handshake
-        self.stopReason = stopReason
-        self.permissionRequest = permissionRequest
-        self.authorizationPolicy = authorizationPolicy
-    }
-
-    func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> GitHubCopilotCLISessionHandshake {
-        _ = workingDirectory
-        _ = remoteSessionID
-        return handshake
-    }
-
-    func setModel(_ modelID: String, sessionID: String) async throws {
-        _ = modelID
-        _ = sessionID
-    }
-
-    func prompt(text: String, sessionID: String) async throws -> ACPStopReason {
-        _ = text
-        _ = sessionID
-        await updateSink?(.permission(permissionRequest))
-        _ = await permissionResolver?(permissionRequest, authorizationPolicy)
-        return stopReason
-    }
-
-    func cancel(sessionID: String) async throws {
-        _ = sessionID
-    }
-
-    func close() async {}
-}
-
-@MainActor
-private final class PermissionAndUpdateRuntimeClientStub: GitHubCopilotCLIRuntimeClient {
     let handshake: GitHubCopilotCLISessionHandshake
     let stopReason: ACPStopReason
     let permissionRequest: ACPRequestPermissionRequest
@@ -1257,7 +1228,7 @@ private final class PermissionAndUpdateRuntimeClientStub: GitHubCopilotCLIRuntim
         stopReason: ACPStopReason,
         permissionRequest: ACPRequestPermissionRequest,
         authorizationPolicy: ToolAuthorizationPolicy,
-        updates: [CopilotACPUpdate]
+        updates: [CopilotACPUpdate] = []
     ) {
         self.handshake = handshake
         self.stopReason = stopReason

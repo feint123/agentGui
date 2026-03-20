@@ -16,6 +16,25 @@ enum OpenCodeCLIExecutionProviderError: LocalizedError {
 }
 
 @MainActor
+protocol OpenCodeCLIRuntimeClient: AnyObject {
+    func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> ACPExternalAgentSessionHandshake
+    func setModel(_ modelID: String, sessionID: String) async throws
+    func prompt(text: String, sessionID: String) async throws -> ACPStopReason
+    func cancel(sessionID: String) async throws
+    func close() async
+}
+
+extension ACPExternalAgentRuntimeClient: OpenCodeCLIRuntimeClient {}
+
+typealias OpenCodeCLIRuntimeClientFactory = @MainActor (
+    ACPExternalAgentLaunchConfiguration,
+    TerminalTaskRuntime,
+    ToolAuthorizationPolicy,
+    @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
+    @escaping @Sendable (CopilotACPUpdate) async -> Void
+) throws -> any OpenCodeCLIRuntimeClient
+
+@MainActor
 final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
     struct ActiveTurnState {
         let assistantMessage: Message
@@ -23,16 +42,20 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
     }
 
     let id: ConversationExecutionProviderID = .openCodeCLI
+    let runtimeScope: ConversationExecutionRuntimeScope? = .externalACP
 
     private let runtimeFactory: OpenCodeCLIRuntimeFactory
     private let sessionBridge: CopilotSessionBridge
     private let availabilityService: OpenCodeCLIAvailabilityService
     private let terminalRuntimeFactory: (String, String?) -> TerminalTaskRuntime
+    private let sessionRuntimeResetter: @MainActor (String) -> Void
+    private let runtimeClientFactory: OpenCodeCLIRuntimeClientFactory
     private let permissionCenter: ACPPermissionCenter
     private let authorizationPolicyFactory: ConversationAuthorizationPolicyFactory
     private let normalizer = CopilotACPEventNormalizer()
+    private let turnRouter = ACPExternalSessionTurnRouter()
 
-    private var runtimeClients: [String: ACPExternalAgentRuntimeClient] = [:]
+    private var runtimeClients: [String: any OpenCodeCLIRuntimeClient] = [:]
     private var activeTurns: [String: ActiveTurnState] = [:]
 
     init(
@@ -40,13 +63,17 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         sessionBridge: CopilotSessionBridge = CopilotSessionBridge(),
         availabilityService: OpenCodeCLIAvailabilityService = OpenCodeCLIAvailabilityService(),
         terminalRuntimeFactory: @escaping (String, String?) -> TerminalTaskRuntime,
+        sessionRuntimeResetter: @escaping @MainActor (String) -> Void = { _ in },
         permissionCenter: ACPPermissionCenter,
-        authorizationPolicyFactory: ConversationAuthorizationPolicyFactory = ConversationAuthorizationPolicyFactory()
+        authorizationPolicyFactory: ConversationAuthorizationPolicyFactory = ConversationAuthorizationPolicyFactory(),
+        runtimeClientFactory: @escaping OpenCodeCLIRuntimeClientFactory = OpenCodeCLIExecutionProvider.makeRuntimeClient
     ) {
         self.runtimeFactory = runtimeFactory
         self.sessionBridge = sessionBridge
         self.availabilityService = availabilityService
         self.terminalRuntimeFactory = terminalRuntimeFactory
+        self.sessionRuntimeResetter = sessionRuntimeResetter
+        self.runtimeClientFactory = runtimeClientFactory
         self.permissionCenter = permissionCenter
         self.authorizationPolicyFactory = authorizationPolicyFactory
     }
@@ -75,17 +102,19 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
             throw OpenCodeCLIExecutionProviderError.unavailable(availabilityStatus.summaryText)
         }
 
-        let assistantMessage = Message.agentMessage(text: "", session: request.session)
-        assistantMessage.status = .pending
-        request.modelContext.insert(assistantMessage)
-        try? request.modelContext.save()
-        activeTurns[request.session.sessionId] = ActiveTurnState(assistantMessage: assistantMessage, modelContext: request.modelContext)
-
         do {
-            let remoteBinding = await sessionBridge.binding(for: request.session.sessionId, providerID: id)
+            let remoteBinding = await resolvedBinding(
+                for: request.session.sessionId,
+                modelContext: request.modelContext
+            )
             let workingDirectory = resolvedWorkingDirectory(session: request.session, settings: settings)
             debugLog(
                 "send preparing session=\(request.session.sessionId) workingDirectory=\(workingDirectory) remoteBinding=\(remoteBinding?.remoteSessionID ?? "(none)")"
+            )
+            await prepareForActivation(
+                session: request.session,
+                isActiveProvider: true,
+                modelContext: request.modelContext
             )
             let runtimeClient = try makeRuntimeClientIfNeeded(
                 session: request.session,
@@ -93,11 +122,13 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
                 workingDirectory: workingDirectory,
                 authorizationPolicy: authorizationPolicy
             )
+            turnRouter.beginRestore(sessionID: request.session.sessionId)
             debugLog("ensureSession start session=\(request.session.sessionId)")
             let handshake = try await runtimeClient.ensureSession(
                 workingDirectory: workingDirectory,
                 remoteSessionID: trimmedNonEmpty(remoteBinding?.remoteSessionID)
             )
+            turnRouter.finishRestore(sessionID: request.session.sessionId)
             debugLog(
                 "ensureSession done session=\(request.session.sessionId) remote=\(handshake.remoteSessionID) loadSession=\(handshake.capabilities.loadSession) modelOverride=\(handshake.capabilities.supportsSessionModelOverride) version=\(handshake.capabilities.agentVersion ?? "(nil)")"
             )
@@ -114,17 +145,12 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
                 )
             }
 
-            await sessionBridge.upsert(
-                CopilotSessionBridge.Binding(
-                    sessionID: request.session.sessionId,
-                    providerID: .openCodeCLI,
-                    remoteSessionID: handshake.remoteSessionID,
-                    cliVersion: handshake.capabilities.agentVersion,
-                    negotiatedCapabilities: handshake.capabilities,
-                    lastHandshakeAt: Date(),
-                    lastSelectedModel: modelOverride,
-                    lastSelectedAgentName: nil
-                )
+            await persistBinding(
+                sessionID: request.session.sessionId,
+                remoteSessionID: handshake.remoteSessionID,
+                capabilities: handshake.capabilities,
+                selectedModel: modelOverride,
+                modelContext: request.modelContext
             )
             debugLog("binding updated session=\(request.session.sessionId) remote=\(handshake.remoteSessionID)")
 
@@ -133,8 +159,15 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
                 session: request.session,
                 remoteSessionID: remoteBinding?.remoteSessionID
             )
+            let assistantMessage = makePendingAssistantMessage(session: request.session, modelContext: request.modelContext)
+            activeTurns[request.session.sessionId] = ActiveTurnState(
+                assistantMessage: assistantMessage,
+                modelContext: request.modelContext
+            )
+            turnRouter.beginLiveTurn(sessionID: request.session.sessionId)
             debugLog("prompt start session=\(request.session.sessionId) promptLength=\(promptText.count)")
             let stopReason = try await runtimeClient.prompt(text: promptText, sessionID: handshake.remoteSessionID)
+            await Task.yield()
             debugLog("prompt done session=\(request.session.sessionId) stopReason=\(stopReason)")
 
             finalizeAssistantMessage(
@@ -146,11 +179,14 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
             )
             debugLog("send finalized session=\(request.session.sessionId) messageStatus=\(assistantMessage.status)")
             activeTurns.removeValue(forKey: request.session.sessionId)
+            turnRouter.finishLiveTurn(sessionID: request.session.sessionId)
         } catch is CancellationError {
+            turnRouter.reset(sessionID: request.session.sessionId)
             debugLog("send cancelled session=\(request.session.sessionId)")
             markCancelledIfNeeded(sessionID: request.session.sessionId)
             throw CancellationError()
         } catch {
+            turnRouter.reset(sessionID: request.session.sessionId)
             debugLog("send failed session=\(request.session.sessionId) error=\(error.localizedDescription)")
             failAssistantMessage(
                 sessionID: request.session.sessionId,
@@ -174,7 +210,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         }
         try? request.modelContext.save()
 
-        await resetRuntime(for: request.session.sessionId)
+        await resetRuntime(for: request.session.sessionId, modelContext: request.modelContext)
         try await send(
             ConversationExecutionRequest(
                 text: lastUserText,
@@ -197,7 +233,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         }
         try? request.modelContext.save()
 
-        await resetRuntime(for: request.session.sessionId)
+        await resetRuntime(for: request.session.sessionId, modelContext: request.modelContext)
         try await send(
             ConversationExecutionRequest(
                 text: request.newText,
@@ -213,6 +249,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
 
     func cancel(session: Session, modelContext: ModelContext) async {
         permissionCenter.cancelRequests(for: session.sessionId)
+        turnRouter.reset(sessionID: session.sessionId)
 
         if let remoteSessionID = await sessionBridge.binding(for: session.sessionId, providerID: id)?.remoteSessionID,
            let runtimeClient = runtimeClients[session.sessionId] {
@@ -232,8 +269,20 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
     }
 
     func resetSessionState(session: Session, modelContext: ModelContext) async {
+        await resetRuntime(for: session.sessionId, modelContext: modelContext)
+    }
+
+    func prepareForActivation(
+        session: Session,
+        isActiveProvider: Bool,
+        modelContext: ModelContext
+    ) async {
+        if isActiveProvider {
+            await closeInactiveSessionRuntimes(keeping: session.sessionId)
+        } else {
+            await deactivateAllSessionRuntimes()
+        }
         _ = modelContext
-        await resetRuntime(for: session.sessionId)
     }
 
     private func resolvedWorkingDirectory(session: Session, settings: AppSettings) -> String {
@@ -251,7 +300,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         configuration: OpenCodeCLIConfiguration,
         workingDirectory: String,
         authorizationPolicy: ToolAuthorizationPolicy
-    ) throws -> ACPExternalAgentRuntimeClient {
+    ) throws -> any OpenCodeCLIRuntimeClient {
         if let existing = runtimeClients[session.sessionId] {
             debugLog("reuse runtime session=\(session.sessionId)")
             return existing
@@ -263,12 +312,12 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
             environmentOverrides: configuration.environment
         )
         let terminalRuntime = terminalRuntimeFactory(session.sessionId, workingDirectory)
-        let client = try ACPExternalAgentRuntimeClient(
-            launchConfiguration: launchConfiguration,
-            terminalRuntime: terminalRuntime,
-            authorizationPolicy: authorizationPolicy,
-            permissionResolver: makePermissionResolver(localSessionID: session.sessionId),
-            eventSink: makeUpdateSink(localSessionID: session.sessionId)
+        let client = try runtimeClientFactory(
+            launchConfiguration,
+            terminalRuntime,
+            authorizationPolicy,
+            makePermissionResolver(localSessionID: session.sessionId),
+            makeUpdateSink(localSessionID: session.sessionId)
         )
         debugLog(
             "created runtime session=\(session.sessionId) command=\(launchConfiguration.command) cwd=\(launchConfiguration.currentDirectoryURL.path) envCount=\(launchConfiguration.environmentOverrides.count)"
@@ -303,9 +352,6 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
     private func makeUpdateSink(localSessionID: String) -> @Sendable (CopilotACPUpdate) async -> Void {
         { [weak self] update in
             guard let self else { return }
-            await MainActor.run {
-                self.debugLog("update received session=\(localSessionID) kind=\(self.describe(update: update))")
-            }
             await self.consumeOnMain(update: update, localSessionID: localSessionID)
         }
     }
@@ -362,6 +408,11 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
     }
 
     private func consume(update: CopilotACPUpdate, localSessionID: String) {
+        guard turnRouter.shouldProjectIncomingUpdate(for: localSessionID) else {
+            debugLog("update dropped session=\(localSessionID) phase=restore")
+            return
+        }
+
         guard let activeTurn = activeTurns[localSessionID] else {
             debugLog("update dropped session=\(localSessionID) no active turn")
             return
@@ -548,6 +599,14 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         return lines.joined(separator: "\n\n")
     }
 
+    private func makePendingAssistantMessage(session: Session, modelContext: ModelContext) -> Message {
+        let assistantMessage = Message.agentMessage(text: "", session: session)
+        assistantMessage.status = .pending
+        modelContext.insert(assistantMessage)
+        try? modelContext.save()
+        return assistantMessage
+    }
+
     private func finalizeAssistantMessage(
         _ assistantMessage: Message,
         stopReason: ACPStopReason,
@@ -587,6 +646,62 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         }
     }
 
+    private func resolvedBinding(
+        for localSessionID: String,
+        modelContext: ModelContext
+    ) async -> CopilotSessionBridge.Binding? {
+        if let bridgeBinding = await sessionBridge.binding(for: localSessionID, providerID: id) {
+            return bridgeBinding
+        }
+
+        guard let storedBinding = try? bindingStore(in: modelContext).binding(for: localSessionID, providerID: id),
+              let remoteSessionID = trimmedNonEmpty(storedBinding.remoteSessionID) else {
+            return nil
+        }
+
+        let bridgeBinding = CopilotSessionBridge.Binding(
+            sessionID: localSessionID,
+            providerID: id,
+            remoteSessionID: remoteSessionID,
+            cliVersion: trimmedNonEmpty(storedBinding.agentVersion),
+            negotiatedCapabilities: storedBinding.negotiatedCapabilities,
+            lastHandshakeAt: storedBinding.lastHandshakeAt,
+            lastSelectedModel: trimmedNonEmpty(storedBinding.lastSelectedModel),
+            lastSelectedAgentName: trimmedNonEmpty(storedBinding.lastSelectedAgentName)
+        )
+        await sessionBridge.upsert(bridgeBinding)
+        return bridgeBinding
+    }
+
+    private func persistBinding(
+        sessionID: String,
+        remoteSessionID: String,
+        capabilities: ACPExternalAgentCapabilitySnapshot,
+        selectedModel: String?,
+        modelContext: ModelContext
+    ) async {
+        let binding = CopilotSessionBridge.Binding(
+            sessionID: sessionID,
+            providerID: id,
+            remoteSessionID: remoteSessionID,
+            cliVersion: capabilities.agentVersion,
+            negotiatedCapabilities: capabilities,
+            lastHandshakeAt: Date(),
+            lastSelectedModel: selectedModel,
+            lastSelectedAgentName: nil
+        )
+        await sessionBridge.upsert(binding)
+        _ = try? bindingStore(in: modelContext).upsert(
+            sessionID: sessionID,
+            providerID: id,
+            remoteSessionID: remoteSessionID,
+            agentVersion: capabilities.agentVersion,
+            capabilities: capabilities,
+            selectedModel: selectedModel,
+            selectedAgentName: nil
+        )
+    }
+
     private func markCancelledIfNeeded(sessionID: String) {
         if let activeTurn = activeTurns.removeValue(forKey: sessionID) {
             activeTurn.assistantMessage.status = .cancelled
@@ -599,14 +714,53 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         }
     }
 
-    private func resetRuntime(for localSessionID: String) async {
+    private func closeInactiveSessionRuntimes(keeping localSessionID: String) async {
+        let inactiveSessionIDs = runtimeClients.keys.filter { $0 != localSessionID }
+        for inactiveSessionID in inactiveSessionIDs {
+            permissionCenter.cancelRequests(for: inactiveSessionID)
+            if let runtimeClient = runtimeClients.removeValue(forKey: inactiveSessionID) {
+                debugLog("close inactive runtime session=\(inactiveSessionID)")
+                await runtimeClient.close()
+            }
+            sessionRuntimeResetter(inactiveSessionID)
+            markCancelledIfNeeded(sessionID: inactiveSessionID)
+        }
+    }
+
+    private func deactivateAllSessionRuntimes() async {
+        let activeSessionIDs = Array(runtimeClients.keys)
+        for activeSessionID in activeSessionIDs {
+            permissionCenter.cancelRequests(for: activeSessionID)
+            if let runtimeClient = runtimeClients.removeValue(forKey: activeSessionID) {
+                debugLog("deactivate runtime session=\(activeSessionID)")
+                await runtimeClient.close()
+            }
+            sessionRuntimeResetter(activeSessionID)
+            markCancelledIfNeeded(sessionID: activeSessionID)
+        }
+    }
+
+    private func resetRuntime(
+        for localSessionID: String,
+        modelContext: ModelContext,
+        removeBinding: Bool = true
+    ) async {
         permissionCenter.cancelRequests(for: localSessionID)
+        turnRouter.reset(sessionID: localSessionID)
         if let runtimeClient = runtimeClients.removeValue(forKey: localSessionID) {
             debugLog("reset runtime session=\(localSessionID)")
             await runtimeClient.close()
         }
-        await sessionBridge.removeBinding(for: localSessionID, providerID: id)
+        sessionRuntimeResetter(localSessionID)
+        if removeBinding {
+            await sessionBridge.removeBinding(for: localSessionID, providerID: id)
+            try? bindingStore(in: modelContext).removeBinding(for: localSessionID, providerID: id)
+        }
         activeTurns.removeValue(forKey: localSessionID)
+    }
+
+    private func bindingStore(in modelContext: ModelContext) -> ACPExternalSessionBindingStore {
+        ACPExternalSessionBindingStore(modelContext: modelContext)
     }
 
     private func approvalMode(for configuration: OpenCodeCLIConfiguration) -> ToolApprovalMode {
@@ -673,6 +827,22 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         case .permissionRequested(let id, let kind, _, _):
             return "permission:\(kind.rawValue)#\(id)"
         }
+    }
+
+    private static func makeRuntimeClient(
+        launchConfiguration: ACPExternalAgentLaunchConfiguration,
+        terminalRuntime: TerminalTaskRuntime,
+        authorizationPolicy: ToolAuthorizationPolicy,
+        permissionResolver: @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
+        eventSink: @escaping @Sendable (CopilotACPUpdate) async -> Void
+    ) throws -> any OpenCodeCLIRuntimeClient {
+        try ACPExternalAgentRuntimeClient(
+            launchConfiguration: launchConfiguration,
+            terminalRuntime: terminalRuntime,
+            authorizationPolicy: authorizationPolicy,
+            permissionResolver: permissionResolver,
+            eventSink: eventSink
+        )
     }
 }
 

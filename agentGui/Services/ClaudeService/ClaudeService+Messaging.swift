@@ -25,10 +25,12 @@ extension ClaudeService {
         defer { isStreaming = false }
 
         let settings = AppSettings.getOrCreate(in: modelContext)
-        let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
-        await resetInactiveExecutionProviders(
-            for: session,
-            activeProviderID: provider.id,
+        let registry = executionProviderRegistry(for: modelContext)
+        let provider = registry.provider(for: session, settings: settings)
+        await executionRuntimeCoordinator.prepareForActivation(
+            session: session,
+            activeProvider: provider,
+            registry: registry,
             modelContext: modelContext
         )
 
@@ -60,10 +62,12 @@ extension ClaudeService {
         defer { isStreaming = false }
 
         let settings = AppSettings.getOrCreate(in: modelContext)
-        let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
-        await resetInactiveExecutionProviders(
-            for: session,
-            activeProviderID: provider.id,
+        let registry = executionProviderRegistry(for: modelContext)
+        let provider = registry.provider(for: session, settings: settings)
+        await executionRuntimeCoordinator.prepareForActivation(
+            session: session,
+            activeProvider: provider,
+            registry: registry,
             modelContext: modelContext
         )
         do {
@@ -92,10 +96,12 @@ extension ClaudeService {
         defer { isStreaming = false }
 
         let settings = AppSettings.getOrCreate(in: modelContext)
-        let provider = executionProviderRegistry(for: modelContext).provider(for: session, settings: settings)
-        await resetInactiveExecutionProviders(
-            for: session,
-            activeProviderID: provider.id,
+        let registry = executionProviderRegistry(for: modelContext)
+        let provider = registry.provider(for: session, settings: settings)
+        await executionRuntimeCoordinator.prepareForActivation(
+            session: session,
+            activeProvider: provider,
+            registry: registry,
             modelContext: modelContext
         )
         do {
@@ -126,9 +132,12 @@ extension ClaudeService {
         selectedProviderID: ConversationExecutionProviderID,
         modelContext: ModelContext
     ) async {
-        await resetInactiveExecutionProviders(
-            for: session,
-            activeProviderID: selectedProviderID,
+        let registry = executionProviderRegistry(for: modelContext)
+        let activeProvider = registry.allProviders.first(where: { $0.id == selectedProviderID }) ?? registry.builtIn
+        await executionRuntimeCoordinator.prepareForActivation(
+            session: session,
+            activeProvider: activeProvider,
+            registry: registry,
             modelContext: modelContext
         )
     }
@@ -275,20 +284,6 @@ extension ClaudeService {
         executionProviderRegistry = registry
         _ = modelContext
         return registry
-    }
-
-    private func resetInactiveExecutionProviders(
-        for session: Session,
-        activeProviderID: ConversationExecutionProviderID,
-        modelContext: ModelContext
-    ) async {
-        let registry = executionProviderRegistry(for: modelContext)
-        for provider in registry.allProviders where provider.id != activeProviderID {
-            await provider.resetSessionState(session: session, modelContext: modelContext)
-            if provider.id == .githubCopilotCLI || provider.id == .openCodeCLI {
-                resetExternalACPTerminalTaskRuntime(for: session.sessionId, providerID: provider.id)
-            }
-        }
     }
 
     private func resumeSendBuiltIn(

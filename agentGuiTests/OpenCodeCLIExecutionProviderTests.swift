@@ -121,6 +121,467 @@ struct OpenCodeCLIExecutionProviderTests {
         #expect(logText.contains("prompt=hello opencode"))
     }
 
+      @Test func providerClosesInactiveSessionRuntimeAndRestoresBindingWhenSwitchingSessions() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+          executablePath: "/usr/bin/env",
+          defaultModel: "",
+          defaultApprovalMode: "default",
+          environment: [:],
+          useACPStdIO: true
+        )
+        let sessionA = Session.fixture(title: "OpenCode A")
+        let sessionB = Session.fixture(title: "OpenCode B")
+        modelContext.insert(settings)
+        modelContext.insert(sessionA)
+        modelContext.insert(sessionB)
+        try modelContext.save()
+
+        let runtimeA1 = RuntimeClientStub(
+          handshake: ACPExternalAgentSessionHandshake(
+            remoteSessionID: "remote-a",
+            capabilities: ACPExternalAgentCapabilitySnapshot(
+              loadSession: true,
+              supportsSessionModelOverride: true,
+              agentVersion: "0.1.0"
+            )
+          ),
+          stopReason: .endTurn,
+          updates: []
+        )
+        let runtimeB1 = RuntimeClientStub(
+          handshake: ACPExternalAgentSessionHandshake(
+            remoteSessionID: "remote-b",
+            capabilities: ACPExternalAgentCapabilitySnapshot(
+              loadSession: true,
+              supportsSessionModelOverride: true,
+              agentVersion: "0.1.0"
+            )
+          ),
+          stopReason: .endTurn,
+          updates: []
+        )
+        let runtimeA2 = RuntimeClientStub(
+          handshake: ACPExternalAgentSessionHandshake(
+            remoteSessionID: "remote-a",
+            capabilities: ACPExternalAgentCapabilitySnapshot(
+              loadSession: true,
+              supportsSessionModelOverride: true,
+              agentVersion: "0.1.0"
+            )
+          ),
+          stopReason: .endTurn,
+          updates: []
+        )
+        var runtimeQueue = [runtimeA1, runtimeB1, runtimeA2]
+
+        let provider = OpenCodeCLIExecutionProvider(
+          availabilityService: availabilityService(),
+          terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+          permissionCenter: ACPPermissionCenter(),
+          runtimeClientFactory: { _, _, _, _, updateSink in
+            let runtimeClient = try #require(runtimeQueue.isEmpty == false ? runtimeQueue.removeFirst() : nil)
+            runtimeClient.updateSink = updateSink
+            return runtimeClient
+          }
+        )
+
+        try await provider.send(
+          ConversationExecutionRequest(
+            text: "session-a-first",
+            session: sessionA,
+            modelID: "",
+            selectedFilePath: nil,
+            selectedText: nil,
+            directives: [],
+            modelContext: modelContext
+          )
+        )
+        try await provider.send(
+          ConversationExecutionRequest(
+            text: "session-b-first",
+            session: sessionB,
+            modelID: "",
+            selectedFilePath: nil,
+            selectedText: nil,
+            directives: [],
+            modelContext: modelContext
+          )
+        )
+        try await provider.send(
+          ConversationExecutionRequest(
+            text: "session-a-second",
+            session: sessionA,
+            modelID: "",
+            selectedFilePath: nil,
+            selectedText: nil,
+            directives: [],
+            modelContext: modelContext
+          )
+        )
+
+        #expect(runtimeA1.closeCallCount == 1)
+        #expect(runtimeB1.closeCallCount == 1)
+        #expect(runtimeA1.ensureSessionRemoteSessionIDs == [nil])
+        #expect(runtimeB1.ensureSessionRemoteSessionIDs == [nil])
+        #expect(runtimeA2.ensureSessionRemoteSessionIDs == ["remote-a"])
+      }
+
+      @Test func providerRestoresRemoteBindingFromPersistentStoreWithFreshProviderInstance() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+          executablePath: "/usr/bin/env",
+          defaultModel: "",
+          defaultApprovalMode: "default",
+          environment: [:],
+          useACPStdIO: true
+        )
+        let session = Session.fixture(title: "OpenCode Restore")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let firstRuntime = RuntimeClientStub(
+          handshake: ACPExternalAgentSessionHandshake(
+            remoteSessionID: "remote-restored",
+            capabilities: ACPExternalAgentCapabilitySnapshot(
+              loadSession: true,
+              supportsSessionModelOverride: true,
+              agentVersion: "0.1.0"
+            )
+          ),
+          stopReason: .endTurn,
+          updates: []
+        )
+        let firstProvider = OpenCodeCLIExecutionProvider(
+          availabilityService: availabilityService(),
+          terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+          permissionCenter: ACPPermissionCenter(),
+          runtimeClientFactory: { _, _, _, _, updateSink in
+            firstRuntime.updateSink = updateSink
+            return firstRuntime
+          }
+        )
+
+        try await firstProvider.send(
+          ConversationExecutionRequest(
+            text: "first-send",
+            session: session,
+            modelID: "",
+            selectedFilePath: nil,
+            selectedText: nil,
+            directives: [],
+            modelContext: modelContext
+          )
+        )
+
+        let restoredRuntime = RuntimeClientStub(
+          handshake: ACPExternalAgentSessionHandshake(
+            remoteSessionID: "remote-restored",
+            capabilities: ACPExternalAgentCapabilitySnapshot(
+              loadSession: true,
+              supportsSessionModelOverride: true,
+              agentVersion: "0.1.0"
+            )
+          ),
+          stopReason: .endTurn,
+          updates: []
+        )
+        let restoredProvider = OpenCodeCLIExecutionProvider(
+          sessionBridge: CopilotSessionBridge(),
+          availabilityService: availabilityService(),
+          terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+          permissionCenter: ACPPermissionCenter(),
+          runtimeClientFactory: { _, _, _, _, updateSink in
+            restoredRuntime.updateSink = updateSink
+            return restoredRuntime
+          }
+        )
+
+        try await restoredProvider.send(
+          ConversationExecutionRequest(
+            text: "second-send",
+            session: session,
+            modelID: "",
+            selectedFilePath: nil,
+            selectedText: nil,
+            directives: [],
+            modelContext: modelContext
+          )
+        )
+
+        #expect(firstRuntime.ensureSessionRemoteSessionIDs == [nil])
+        #expect(restoredRuntime.ensureSessionRemoteSessionIDs == ["remote-restored"])
+      }
+
+  @Test func sendDoesNotProjectReplayUpdatesFromLoadedSessionIntoCurrentTurn() async throws {
+    let modelContext = try makeModelContext()
+    let settings = AppSettings.testFixture(apiKey: "")
+    settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+      executablePath: "/usr/bin/env",
+      defaultModel: "",
+      defaultApprovalMode: "default",
+      environment: [:],
+      useACPStdIO: true
+    )
+    let session = Session.fixture(title: "OpenCode Replay Restore")
+    modelContext.insert(settings)
+    modelContext.insert(session)
+    modelContext.insert(
+      ACPExternalSessionBinding(
+        localSessionID: session.sessionId,
+        providerIDRaw: ConversationExecutionProviderID.openCodeCLI.rawValue,
+        remoteSessionID: "remote-restored",
+        agentVersion: "0.1.0"
+      )
+    )
+    try modelContext.save()
+
+    let runtimeClient = RuntimeClientStub(
+      handshake: ACPExternalAgentSessionHandshake(
+        remoteSessionID: "remote-restored",
+        capabilities: ACPExternalAgentCapabilitySnapshot(
+          loadSession: true,
+          supportsSessionModelOverride: false,
+          agentVersion: "0.1.0"
+        )
+      ),
+      stopReason: .endTurn,
+      ensureSessionUpdates: [
+        .session(
+          .agentMessageChunk(
+            ACPContentChunk(
+              meta: nil,
+              content: .text(ACPTextContentBlock(meta: nil, annotations: nil, text: "历史 OpenCode 回复"))
+            )
+          )
+        ),
+        .session(
+          .toolCall(
+            ACPToolCall(
+              meta: nil,
+              content: nil,
+              kind: "read_file",
+              locations: nil,
+              rawInput: .object(["file_path": .string("/tmp/history-open.txt")]),
+              rawOutput: nil,
+              status: "completed",
+              title: "历史 OpenCode 工具",
+              toolCallID: "tool-history-open"
+            )
+          )
+        )
+      ],
+      updates: [
+        .session(
+          .toolCall(
+            ACPToolCall(
+              meta: nil,
+              content: nil,
+              kind: "run_in_terminal",
+              locations: nil,
+              rawInput: nil,
+              rawOutput: nil,
+              status: "in_progress",
+              title: "OpenCode 实时工具",
+              toolCallID: "tool-live-open"
+            )
+          )
+        ),
+        .session(
+          .toolCallUpdate(
+            ACPToolCallUpdatePayload(
+              meta: nil,
+              content: nil,
+              kind: "run_in_terminal",
+              locations: nil,
+              rawInput: nil,
+              rawOutput: .string("open live output"),
+              status: "success",
+              title: "OpenCode 实时工具",
+              toolCallID: "tool-live-open"
+            )
+          )
+        ),
+        .session(
+          .agentMessageChunk(
+            ACPContentChunk(
+              meta: nil,
+              content: .text(ACPTextContentBlock(meta: nil, annotations: nil, text: "OpenCode 实时回复"))
+            )
+          )
+        )
+      ]
+    )
+
+    let provider = OpenCodeCLIExecutionProvider(
+      sessionBridge: CopilotSessionBridge(),
+      availabilityService: availabilityService(),
+      terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+      permissionCenter: ACPPermissionCenter(),
+      runtimeClientFactory: { _, _, _, _, updateSink in
+        runtimeClient.updateSink = updateSink
+        return runtimeClient
+      }
+    )
+
+    try await provider.send(
+      ConversationExecutionRequest(
+        text: "继续 OpenCode 任务",
+        session: session,
+        modelID: "",
+        selectedFilePath: nil,
+        selectedText: nil,
+        directives: [],
+        modelContext: modelContext
+      )
+    )
+
+    let assistantMessage = try #require(session.messages.first(where: { $0.direction == .agent }))
+    let toolCalls = assistantMessage.agentRounds.flatMap(\.toolCalls)
+
+    #expect(runtimeClient.ensureSessionRemoteSessionIDs == ["remote-restored"])
+    #expect(assistantMessage.textContent == "OpenCode 实时回复")
+    #expect(toolCalls.count == 1)
+    #expect(toolCalls.first?.toolCallId == "tool-live-open")
+    #expect(toolCalls.first?.title == "OpenCode 实时工具")
+    #expect(toolCalls.first?.terminalOutput == "open live output")
+  }
+
+  @Test func sendSeparatesPermissionRequestsFromToolExecutionRecords() async throws {
+    let modelContext = try makeModelContext()
+    let settings = AppSettings.testFixture(apiKey: "")
+    settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+      executablePath: "/usr/bin/env",
+      defaultModel: "",
+      defaultApprovalMode: "default",
+      environment: [:],
+      useACPStdIO: true
+    )
+    let session = Session.fixture(title: "OpenCode Permission Execute")
+    modelContext.insert(settings)
+    modelContext.insert(session)
+    try modelContext.save()
+
+    let permissionCenter = ACPPermissionCenter()
+    let permissionRequest = ACPRequestPermissionRequest(
+      meta: nil,
+      options: [
+        ACPPermissionOption(meta: nil, kind: .allowOnce, name: "Allow once", optionID: "allow-once"),
+        ACPPermissionOption(meta: nil, kind: .rejectOnce, name: "Reject once", optionID: "reject-once")
+      ],
+      sessionID: "remote-open-permission",
+      toolCall: ACPToolCallUpdatePayload(
+        meta: nil,
+        content: .object(["reason": .string("需要执行 shell 命令")]),
+        kind: "run_in_terminal",
+        locations: nil,
+        rawInput: nil,
+        rawOutput: nil,
+        status: "pending",
+        title: "run tests",
+        toolCallID: "tool-run"
+      )
+    )
+    let runtimeClient = PermissionRuntimeClientStub(
+      handshake: ACPExternalAgentSessionHandshake(
+        remoteSessionID: "remote-open-permission",
+        capabilities: ACPExternalAgentCapabilitySnapshot(
+          loadSession: true,
+          supportsSessionModelOverride: true,
+          agentVersion: "0.1.0"
+        )
+      ),
+      stopReason: .endTurn,
+      permissionRequest: permissionRequest,
+      authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .alwaysRequireHuman),
+      updates: [
+        .session(
+          .toolCall(
+            ACPToolCall(
+              meta: nil,
+              content: nil,
+              kind: "run_in_terminal",
+              locations: nil,
+              rawInput: nil,
+              rawOutput: nil,
+              status: "in_progress",
+              title: "run tests",
+              toolCallID: "tool-run"
+            )
+          )
+        ),
+        .session(
+          .toolCallUpdate(
+            ACPToolCallUpdatePayload(
+              meta: nil,
+              content: nil,
+              kind: "run_in_terminal",
+              locations: nil,
+              rawInput: nil,
+              rawOutput: .string("swift test"),
+              status: "success",
+              title: "run tests",
+              toolCallID: "tool-run"
+            )
+          )
+        )
+      ]
+    )
+
+    let provider = OpenCodeCLIExecutionProvider(
+      availabilityService: availabilityService(),
+      terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+      permissionCenter: permissionCenter,
+      runtimeClientFactory: { _, _, _, permissionResolver, updateSink in
+        runtimeClient.permissionResolver = permissionResolver
+        runtimeClient.updateSink = updateSink
+        return runtimeClient
+      }
+    )
+
+    let sendTask = Task {
+      try await provider.send(
+        ConversationExecutionRequest(
+          text: "run tests",
+          session: session,
+          modelID: "",
+          selectedFilePath: nil,
+          selectedText: nil,
+          directives: [],
+          modelContext: modelContext
+        )
+      )
+    }
+
+    while permissionCenter.pendingRequests.isEmpty {
+      await Task.yield()
+    }
+
+    let pending = try #require(permissionCenter.pendingRequests.first)
+    permissionCenter.selectOption(requestID: pending.id, optionID: "allow-once")
+
+    try await sendTask.value
+
+    let assistantMessage = try #require(session.messages.first(where: { $0.direction == .agent }))
+    let toolCalls = try #require(assistantMessage.agentRounds.first?.toolCalls)
+
+    #expect(toolCalls.count == 2)
+
+    let permissionRecord = try #require(toolCalls.first(where: { $0.isPermissionRequest }))
+    #expect(permissionRecord.permissionTargetToolCallId == "tool-run")
+    #expect(permissionRecord.status == .success)
+    #expect(permissionRecord.toolResultSummary == "权限已批准")
+
+    let executionRecord = try #require(toolCalls.first(where: { !$0.isPermissionRequest }))
+    #expect(executionRecord.toolCallId == "tool-run")
+    #expect(executionRecord.kind == .execute)
+    #expect(executionRecord.status == .success)
+    #expect(executionRecord.terminalOutput == "swift test")
+  }
+
     private func makeModelContext() throws -> ModelContext {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
@@ -130,6 +591,7 @@ struct OpenCodeCLIExecutionProviderTests {
             Message.self,
             ToolCall.self,
             AgentRound.self,
+            ACPExternalSessionBinding.self,
             configurations: config
         )
         return ModelContext(container)
@@ -258,3 +720,119 @@ end
         return scriptURL
     }
 }
+
+  @MainActor
+  private final class RuntimeClientStub: OpenCodeCLIRuntimeClient {
+    let handshake: ACPExternalAgentSessionHandshake
+    let stopReason: ACPStopReason
+    let ensureSessionUpdates: [CopilotACPUpdate]
+    let updates: [CopilotACPUpdate]
+    var updateSink: (@Sendable (CopilotACPUpdate) async -> Void)?
+
+    private(set) var promptRequests: [(String, String)] = []
+    private(set) var setModelRequests: [(String, String)] = []
+    private(set) var cancelledSessionIDs: [String] = []
+    private(set) var ensureSessionRemoteSessionIDs: [String?] = []
+    private(set) var closeCallCount: Int = 0
+
+    init(
+      handshake: ACPExternalAgentSessionHandshake,
+      stopReason: ACPStopReason,
+      ensureSessionUpdates: [CopilotACPUpdate] = [],
+      updates: [CopilotACPUpdate],
+      updateSink: (@Sendable (CopilotACPUpdate) async -> Void)? = nil
+    ) {
+      self.handshake = handshake
+      self.stopReason = stopReason
+      self.ensureSessionUpdates = ensureSessionUpdates
+      self.updates = updates
+      self.updateSink = updateSink
+    }
+
+    func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> ACPExternalAgentSessionHandshake {
+      _ = workingDirectory
+      ensureSessionRemoteSessionIDs.append(remoteSessionID)
+      for update in ensureSessionUpdates {
+        if let updateSink {
+          await updateSink(update)
+        }
+      }
+      return handshake
+    }
+
+    func setModel(_ modelID: String, sessionID: String) async throws {
+      setModelRequests.append((modelID, sessionID))
+    }
+
+    func prompt(text: String, sessionID: String) async throws -> ACPStopReason {
+      promptRequests.append((text, sessionID))
+      for update in updates {
+        if let updateSink {
+          await updateSink(update)
+        }
+      }
+      return stopReason
+    }
+
+    func cancel(sessionID: String) async throws {
+      cancelledSessionIDs.append(sessionID)
+    }
+
+    func close() async {
+      closeCallCount += 1
+    }
+  }
+
+  @MainActor
+  private final class PermissionRuntimeClientStub: OpenCodeCLIRuntimeClient {
+    let handshake: ACPExternalAgentSessionHandshake
+    let stopReason: ACPStopReason
+    let permissionRequest: ACPRequestPermissionRequest
+    let authorizationPolicy: ToolAuthorizationPolicy
+    let updates: [CopilotACPUpdate]
+
+    var permissionResolver: ((ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?)?
+    var updateSink: (@Sendable (CopilotACPUpdate) async -> Void)?
+
+    init(
+      handshake: ACPExternalAgentSessionHandshake,
+      stopReason: ACPStopReason,
+      permissionRequest: ACPRequestPermissionRequest,
+      authorizationPolicy: ToolAuthorizationPolicy,
+      updates: [CopilotACPUpdate] = []
+    ) {
+      self.handshake = handshake
+      self.stopReason = stopReason
+      self.permissionRequest = permissionRequest
+      self.authorizationPolicy = authorizationPolicy
+      self.updates = updates
+    }
+
+    func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> ACPExternalAgentSessionHandshake {
+      _ = workingDirectory
+      _ = remoteSessionID
+      return handshake
+    }
+
+    func setModel(_ modelID: String, sessionID: String) async throws {
+      _ = modelID
+      _ = sessionID
+    }
+
+    func prompt(text: String, sessionID: String) async throws -> ACPStopReason {
+      _ = text
+      _ = sessionID
+      await updateSink?(.permission(permissionRequest))
+      _ = await permissionResolver?(permissionRequest, authorizationPolicy)
+      for update in updates {
+        await updateSink?(update)
+      }
+      return stopReason
+    }
+
+    func cancel(sessionID: String) async throws {
+      _ = sessionID
+    }
+
+    func close() async {}
+  }

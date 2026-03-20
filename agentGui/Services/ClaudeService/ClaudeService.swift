@@ -121,6 +121,9 @@ final class ClaudeService {
     /// Optional execution provider registry. Tests can inject a stub registry; production lazily builds one.
     var executionProviderRegistry: ConversationExecutionProviderRegistry?
 
+    /// Shared runtime activation coordinator used to coordinate providers that share an execution runtime scope.
+    var executionRuntimeCoordinator = ConversationExecutionRuntimeCoordinator()
+
     /// Shared ACP permission center used by external ACP-backed executors.
     var acpPermissionCenter = ACPPermissionCenter()
 
