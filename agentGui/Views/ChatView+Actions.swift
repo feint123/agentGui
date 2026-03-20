@@ -9,6 +9,79 @@ import AppKit
 
 extension ChatView {
 
+    private func updateSessionExecutionPreferences(_ mutate: (inout SessionExecutionPreferences) -> Void) {
+        var preferences = session.executionPreferences
+        mutate(&preferences)
+        session.executionPreferences = preferences
+        try? modelContext.save()
+    }
+
+    private func normalizedOptionalModelID(_ modelID: String, comparedTo fallback: String) -> String? {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed == fallback ? nil : trimmed
+    }
+
+    private func normalizedCopilotApprovalOverride(_ rawValue: String, comparedTo fallback: String) -> String? {
+        let normalized = GitHubCopilotCLIApprovalModeOption.resolved(from: rawValue).rawValue
+        return normalized == GitHubCopilotCLIApprovalModeOption.resolved(from: fallback).rawValue ? nil : normalized
+    }
+
+    private func resolvedBuiltInModelID(settings: AppSettings) -> String {
+        SessionExecutionPreferencesResolver.builtInModelID(for: session, settings: settings)
+    }
+
+    private func resolvedCopilotConfiguration(settings: AppSettings) -> GitHubCopilotCLIConfiguration {
+        SessionExecutionPreferencesResolver.gitHubCopilotCLIConfiguration(for: session, settings: settings)
+    }
+
+    var builtInComposerModelSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                return resolvedBuiltInModelID(settings: settings)
+            },
+            set: { newValue in
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                updateSessionExecutionPreferences { preferences in
+                    preferences.builtInModelID = normalizedOptionalModelID(newValue, comparedTo: settings.selectedModel)
+                }
+            }
+        )
+    }
+
+    var copilotComposerModelSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                return resolvedCopilotConfiguration(settings: settings).defaultModel
+            },
+            set: { newValue in
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                let fallback = settings.githubCopilotCLIConfiguration.defaultModel
+                updateSessionExecutionPreferences { preferences in
+                    preferences.gitHubCopilotCLI.modelID = normalizedOptionalModelID(newValue, comparedTo: fallback)
+                }
+            }
+        )
+    }
+
+    var copilotComposerApprovalModeSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                return resolvedCopilotConfiguration(settings: settings).normalizedApprovalMode.rawValue
+            },
+            set: { newValue in
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                let fallback = settings.githubCopilotCLIConfiguration.defaultApprovalMode
+                updateSessionExecutionPreferences { preferences in
+                    preferences.gitHubCopilotCLI.approvalMode = normalizedCopilotApprovalOverride(newValue, comparedTo: fallback)
+                }
+            }
+        )
+    }
+
     // MARK: - Send Message
 
     func sendMessage() async {
@@ -77,7 +150,7 @@ extension ChatView {
         modelContext.insert(userMessage)
         try? modelContext.save()
 
-        let modelId = settings.selectedModel
+        let modelId = resolvedBuiltInModelID(settings: settings)
         let selectedFilePath: String?
         if showFileContext || showSelectionContext {
             selectedFilePath = workspaceState.selectedFile?.standardizedFileURL.path
@@ -220,7 +293,7 @@ extension ChatView {
             do {
                 try await claudeService.regenerate(
                     session: session,
-                    modelId: settings.selectedModel,
+                    modelId: resolvedBuiltInModelID(settings: settings),
                     modelContext: modelContext
                 )
             } catch is CancellationError {
@@ -240,7 +313,7 @@ extension ChatView {
                     message: message,
                     newText: newText,
                     session: session,
-                    modelId: settings.selectedModel,
+                    modelId: resolvedBuiltInModelID(settings: settings),
                     modelContext: modelContext
                 )
             } catch is CancellationError {

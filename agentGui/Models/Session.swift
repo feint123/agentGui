@@ -39,6 +39,9 @@ final class Session {
     /// same persistent record.  Use the computed `plan` property to decode it.
     var planJson: String = ""
 
+    /// Serialised session-scoped execution preferences for provider-specific composer overrides.
+    var executionPreferencesJSON: String = "{}"
+
     /// 关联的消息
     @Relationship(deleteRule: .cascade, inverse: \Message.session)
     var messages: [Message] = []

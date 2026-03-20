@@ -46,6 +46,8 @@ extension ChatView {
                         copilotAvailabilityStatus: copilotComposerAvailabilityStatus
                     )
 
+                    composerExecutionPreferencesControls
+
                     if resolvedExecutionProviderID == .githubCopilotCLI,
                        copilotComposerAvailabilityStatus.kind != .available {
                         Text(copilotComposerAvailabilityStatus.summaryText)
@@ -140,6 +142,38 @@ extension ChatView {
             mentionQuery: mentionQuery,
             todoPresentation: todoCardPresentation
         )
+    }
+
+    @ViewBuilder
+    private var composerExecutionPreferencesControls: some View {
+        switch resolvedExecutionProviderID {
+        case .builtInAgent:
+            ExecutionOptionPicker(
+                title: "",
+                options: AppSettings.availableModelOptions(inheritingTitle: "跟随全局设置"),
+                selection: builtInComposerModelSelectionBinding,
+                accessibilityIdentifier: "chat.builtInModelPicker"
+            )
+        case .githubCopilotCLI:
+            ExecutionOptionPicker(
+                title: "",
+                options: GitHubCopilotCLIConfiguration.modelOptions(
+                    inheritingTitle: "跟随设置默认",
+                    including: copilotComposerModelSelectionBinding.wrappedValue
+                ),
+                selection: copilotComposerModelSelectionBinding,
+                accessibilityIdentifier: "chat.copilotModelPicker"
+            )
+
+            ExecutionOptionPicker(
+                title: "",
+                options: GitHubCopilotCLIApprovalModeOption.allCases.map {
+                    ExecutionOptionItem(id: $0.rawValue, title: $0.title)
+                },
+                selection: copilotComposerApprovalModeSelectionBinding,
+                accessibilityIdentifier: "chat.copilotApprovalModePicker"
+            )
+        }
     }
 
     // MARK: - Context Chips

@@ -18,7 +18,8 @@ struct ChatExecutionProviderPicker: View {
             Label("\(selection.displayName)", systemImage: "bolt.horizontal.circle")
                 .font(.caption)
         }
-        .menuStyle(.borderlessButton)
+        .pickerStyle(.menu)
+        .controlSize(.small)
         .accessibilityIdentifier("chat.executionProviderPicker")
     }
 }

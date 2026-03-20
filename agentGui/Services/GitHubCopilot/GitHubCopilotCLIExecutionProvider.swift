@@ -81,7 +81,10 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
 
     func send(_ request: ConversationExecutionRequest) async throws {
         let settings = AppSettings.getOrCreate(in: request.modelContext)
-        let configuration = settings.githubCopilotCLIConfiguration
+        let configuration = SessionExecutionPreferencesResolver.gitHubCopilotCLIConfiguration(
+            for: request.session,
+            settings: settings
+        )
         let authorizationPolicy = authorizationPolicyFactory.makePolicy(
             from: settings,
             approvalMode: approvalMode(for: configuration)
@@ -586,7 +589,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
             .lowercased() {
         case "never":
             return .none
-        case "default", "on-request", "on_request", "onrequest", "auto":
+        case "auto", "automatic", "always":
             return .subjectPolicy
         default:
             return .alwaysRequireHuman

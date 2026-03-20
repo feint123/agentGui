@@ -288,6 +288,19 @@ extension AppSettings {
 
 // MARK: - Available Models
 extension AppSettings {
+    static func availableModelOptions(inheritingTitle: String? = nil) -> [ExecutionOptionItem] {
+        var options: [ExecutionOptionItem] = []
+        if let inheritingTitle {
+            options.append(ExecutionOptionItem(id: "", title: inheritingTitle))
+        }
+        options.append(contentsOf: availableModels.map { ExecutionOptionItem(id: $0.id, title: $0.name) })
+        return options
+    }
+
+    static func displayName(for modelID: String) -> String {
+        availableModels.first(where: { $0.id == modelID })?.name ?? modelID
+    }
+
     static let availableModels: [(id: String, name: String)] = [
         // Claude 4
         ("claude-opus-4-6", "Claude Opus 4.6"),

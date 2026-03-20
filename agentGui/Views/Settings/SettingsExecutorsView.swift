@@ -26,12 +26,32 @@ struct SettingsExecutorsView: View {
                 ))
                 .accessibilityIdentifier("settings.executors.copilotPathField")
 
-                TextField("默认模型（可选）", text: store.persistedGitHubCopilotCLIConfigurationBinding(
-                    get: { $0.defaultModel },
-                    userMessage: "Copilot CLI 默认模型未成功保存",
-                    set: { $0.defaultModel = $1 }
-                ))
-                .accessibilityIdentifier("settings.executors.copilotModelField")
+                ExecutionOptionPicker(
+                    title: "默认模型",
+                    options: GitHubCopilotCLIConfiguration.modelOptions(
+                        inheritingTitle: "跟随 GitHub Copilot CLI 默认",
+                        including: store.settings.githubCopilotCLIConfiguration.defaultModel
+                    ),
+                    selection: store.persistedGitHubCopilotCLIConfigurationBinding(
+                        get: { $0.defaultModel },
+                        userMessage: "Copilot CLI 默认模型未成功保存",
+                        set: { $0.defaultModel = $1 }
+                    ),
+                    accessibilityIdentifier: "settings.executors.copilotModelField"
+                )
+
+                ExecutionOptionPicker(
+                    title: "默认审批模式",
+                    options: GitHubCopilotCLIApprovalModeOption.allCases.map {
+                        ExecutionOptionItem(id: $0.rawValue, title: $0.title)
+                    },
+                    selection: store.persistedGitHubCopilotCLIConfigurationBinding(
+                        get: { $0.normalizedApprovalMode.rawValue },
+                        userMessage: "Copilot CLI 审批模式未成功保存",
+                        set: { $0.defaultApprovalMode = GitHubCopilotCLIApprovalModeOption.resolved(from: $1).rawValue }
+                    ),
+                    accessibilityIdentifier: "settings.executors.copilotApprovalModePicker"
+                )
 
                 TextField("自定义 Agent 名称（可选）", text: store.persistedGitHubCopilotCLIConfigurationBinding(
                     get: { $0.customAgentName },

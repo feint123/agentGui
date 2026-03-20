@@ -322,14 +322,70 @@ struct GitHubCopilotCLIExecutionProviderTests {
         #expect(binding?.lastSelectedModel == nil)
     }
 
-    @Test func sendMapsDefaultApprovalModeToSubjectPolicy() async throws {
+    @Test func sendMapsDefaultApprovalModeToAlwaysRequireHuman() async throws {
         let approvalMode = try await capturedApprovalMode(for: "default")
-        #expect(approvalMode == .subjectPolicy)
+        #expect(approvalMode == .alwaysRequireHuman)
     }
 
-    @Test func sendMapsOnRequestApprovalModeToSubjectPolicy() async throws {
+    @Test func sendMapsOnRequestApprovalModeToAlwaysRequireHuman() async throws {
         let approvalMode = try await capturedApprovalMode(for: "on-request")
-        #expect(approvalMode == .subjectPolicy)
+        #expect(approvalMode == .alwaysRequireHuman)
+    }
+
+    @Test func sendAppliesSessionLevelCopilotModelAndApprovalOverrides() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "gpt-5",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Session Override")
+        session.executionPreferences = SessionExecutionPreferences(
+            builtInModelID: nil,
+            gitHubCopilotCLI: GitHubCopilotCLISessionPreferences(
+                modelID: "gpt-5-mini",
+                approvalMode: "never"
+            )
+        )
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let runtimeClient = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-session-override", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+        var capturedApprovalMode: ToolApprovalMode?
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, authorizationPolicy, _, updateSink in
+                capturedApprovalMode = authorizationPolicy.approvalMode
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "hello copilot",
+                session: session,
+                modelID: "claude-sonnet-4-6",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        #expect(runtimeClient.setModelRequests.count == 1)
+        #expect(runtimeClient.setModelRequests.first?.0 == "gpt-5-mini")
+        #expect(capturedApprovalMode == Optional.some(.none))
     }
 
     @Test func sendFinalizesOutstandingReadToolCallsWhenTurnEnds() async throws {
