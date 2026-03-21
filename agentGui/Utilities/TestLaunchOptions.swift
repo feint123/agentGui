@@ -2,7 +2,7 @@ import Foundation
 
 struct TestLaunchOptions {
     let isUITestMode: Bool
-    let initialTab: AppTab
+    let initialWorkbenchItem: WorkbenchNavigationItem
     let preloadAPIKey: Bool
     let preloadMessages: Bool
     let preloadToolCall: Bool
@@ -36,10 +36,10 @@ struct TestLaunchOptions {
         suppressOnboarding = Self.boolValue(for: "-com.agentgui.test.suppressOnboarding", in: arguments)
 
         if let rawTab = Self.stringValue(for: "-com.agentgui.test.initialTab", in: arguments),
-           let parsedTab = AppTab(rawValue: rawTab) {
-            initialTab = parsedTab
+           let parsedTab = WorkbenchNavigationItem(launchArgument: rawTab) {
+            initialWorkbenchItem = parsedTab
         } else {
-            initialTab = .chat
+            initialWorkbenchItem = .defaultItem
         }
 
     }

@@ -57,6 +57,7 @@ final class BackgroundTaskManagementViewModel {
     private let modelContext: ModelContext
     private let persistenceCoordinator: PersistenceCoordinator?
     private let notificationCenter: NotificationCenter
+    private let sessionFactory: BackgroundTaskSessionFactory
 
     private(set) var tasks: [BackgroundAgentTask] = []
     private(set) var sessionOptions: [SessionOption] = []
@@ -128,11 +129,13 @@ final class BackgroundTaskManagementViewModel {
     init(
         modelContext: ModelContext,
         persistenceCoordinator: PersistenceCoordinator?,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        sessionFactory: BackgroundTaskSessionFactory = BackgroundTaskSessionFactory()
     ) {
         self.modelContext = modelContext
         self.persistenceCoordinator = persistenceCoordinator
         self.notificationCenter = notificationCenter
+        self.sessionFactory = sessionFactory
         refresh()
         if selectedTask == nil {
             makeNewTask()
@@ -207,12 +210,10 @@ final class BackgroundTaskManagementViewModel {
         let title = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt = draftPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { throw ValidationError.missingTitle }
-        guard let sessionID = draftSessionID, !sessionID.isEmpty else { throw ValidationError.missingSession }
         guard !prompt.isEmpty else { throw ValidationError.missingPrompt }
 
         if let selectedTask {
             selectedTask.title = title
-            selectedTask.sessionId = sessionID
             selectedTask.taskPrompt = prompt
             selectedTask.workspacePath = normalizedOptional(draftWorkspacePath)
             selectedTask.workingDirectoryPath = normalizedOptional(draftWorkingDirectoryPath)
@@ -223,11 +224,13 @@ final class BackgroundTaskManagementViewModel {
             selectedTask.executionPolicy = draftExecutionPolicy
             selectedTask.authorizationPolicy = draftAuthorizationPolicy
             selectedTask.updatedAt = Date()
+            let session = try sessionFactory.ensureSession(for: selectedTask, desiredTitle: title, modelContext: modelContext)
+            selectedTask.sessionId = session.sessionId
         } else {
             let task = BackgroundAgentTask(
                 title: title,
                 isEnabled: draftIsEnabled,
-                sessionId: sessionID,
+                sessionId: "",
                 taskPrompt: prompt,
                 systemPromptOverride: normalizedOptional(draftSystemPromptOverride),
                 workspacePath: normalizedOptional(draftWorkspacePath),
@@ -238,6 +241,8 @@ final class BackgroundTaskManagementViewModel {
                 executionPolicy: draftExecutionPolicy
             )
             modelContext.insert(task)
+            let session = try sessionFactory.ensureSession(for: task, desiredTitle: title, modelContext: modelContext)
+            task.sessionId = session.sessionId
             selectedTask = task
         }
 
@@ -302,7 +307,32 @@ final class BackgroundTaskManagementViewModel {
     }
 
     func taskListSubtitle(for task: BackgroundAgentTask) -> String {
-        sessionOption(for: task.sessionId)?.title ?? task.sessionId
+        sessionOption(for: task.sessionId)?.title ?? task.dedicatedSessionTitle()
+    }
+
+    var draftDedicatedSessionTitle: String {
+        if let selectedTask {
+            return sessionOption(for: selectedTask.sessionId)?.title ?? selectedTask.dedicatedSessionTitle(fallbackTitle: draftTitle)
+        }
+
+        let trimmed = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "后台任务" : trimmed
+    }
+
+    var draftDedicatedSessionBindingSummary: String {
+        if let selectedTask, selectedTask.sessionId.isEmpty == false {
+            return "已绑定专属只读会话"
+        }
+        return "保存后自动创建专属只读会话"
+    }
+
+    var draftDedicatedSessionDetail: String {
+        if let selectedTask,
+           let session = sessionOption(for: selectedTask.sessionId),
+           session.detail.isEmpty == false {
+            return session.detail
+        }
+        return "执行结果和失败摘要都会只写回这个后台任务的专属会话。"
     }
 
     func editorTitle(for task: BackgroundAgentTask?) -> String {
@@ -514,7 +544,7 @@ final class BackgroundTaskManagementViewModel {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return true }
 
-        let sessionTitle = sessionOption(for: task.sessionId)?.title ?? ""
+        let sessionTitle = sessionOption(for: task.sessionId)?.title ?? task.dedicatedSessionTitle()
         return task.title.localizedStandardContains(query)
             || task.taskPrompt.localizedStandardContains(query)
             || sessionTitle.localizedStandardContains(query)

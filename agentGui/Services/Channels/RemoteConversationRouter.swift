@@ -40,13 +40,20 @@ struct RemoteConversationRouter {
                 needsSave = true
             }
             selected.binding.updatedAt = message.receivedAt
+            configure(selected.session, for: message)
             selected.session.updatedAt = message.receivedAt
             try modelContext.save()
             return selected.session
         }
 
         let sessionTitle = makeSessionTitle(for: message)
-        let session = Session(title: sessionTitle)
+        let session = Session(
+            title: sessionTitle,
+            kind: .channel,
+            sourceIdentifier: sourceIdentifier(for: message),
+            sourceDisplayName: sourceDisplayName(for: message),
+            readOnlyReasonOverride: SessionKind.channel.defaultReadOnlyReason
+        )
         let binding = RemoteConversationBinding(
             channelKind: message.channelKind,
             externalConversationID: message.externalConversationID,
@@ -61,8 +68,24 @@ struct RemoteConversationRouter {
         return session
     }
 
+    private func configure(_ session: Session, for message: InboundChannelMessage) {
+        session.kind = .channel
+        session.title = makeSessionTitle(for: message)
+        session.sourceIdentifier = sourceIdentifier(for: message)
+        session.sourceDisplayName = sourceDisplayName(for: message)
+        session.readOnlyReasonOverride = SessionKind.channel.defaultReadOnlyReason
+    }
+
     private func makeSessionTitle(for message: InboundChannelMessage) -> String {
         let peer = message.externalUserID.isEmpty ? message.externalConversationID : message.externalUserID
         return "\(message.channelKind.displayName) · \(peer)"
+    }
+
+    private func sourceIdentifier(for message: InboundChannelMessage) -> String {
+        "\(message.channelKind.rawValue):\(message.externalConversationID)"
+    }
+
+    private func sourceDisplayName(for message: InboundChannelMessage) -> String {
+        makeSessionTitle(for: message)
     }
 }

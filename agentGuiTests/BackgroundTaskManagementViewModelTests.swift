@@ -5,34 +5,9 @@ import Testing
 
 @MainActor
 struct BackgroundTaskManagementViewModelTests {
-    @Test func makeNewTaskUsesExistingSessionsInsteadOfManualSessionEntry() throws {
+    @Test func saveDraftCreatesDedicatedBackgroundSessionAutomatically() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let older = Session.fixture(sessionId: "session-older", title: "旧会话")
-        older.updatedAt = Date(timeIntervalSince1970: 100)
-        let newer = Session.fixture(sessionId: "session-newer", title: "最新会话")
-        newer.updatedAt = Date(timeIntervalSince1970: 200)
-        context.insert(older)
-        context.insert(newer)
-        try context.save()
-
-        let viewModel = BackgroundTaskManagementViewModel(
-            modelContext: context,
-            persistenceCoordinator: nil
-        )
-
-        viewModel.makeNewTask()
-
-        #expect(viewModel.sessionOptions.map(\.id) == ["session-newer", "session-older"])
-        #expect(viewModel.draftSessionID == "session-newer")
-    }
-
-    @Test func saveDraftCreatesTaskUsingSelectedSession() throws {
-        let container = try makeContainer()
-        let context = ModelContext(container)
-        let session = Session.fixture(sessionId: "session-1", title: "日报会话")
-        context.insert(session)
-        try context.save()
 
         let viewModel = BackgroundTaskManagementViewModel(
             modelContext: context,
@@ -41,14 +16,70 @@ struct BackgroundTaskManagementViewModelTests {
         viewModel.makeNewTask()
         viewModel.draftTitle = "日报"
         viewModel.draftPrompt = "汇总今日进展"
-        viewModel.draftSessionID = session.sessionId
+
+        try viewModel.saveDraft()
+
+        let task = try #require(context.fetch(FetchDescriptor<BackgroundAgentTask>()).first)
+        let session = try #require(context.fetch(FetchDescriptor<Session>()).first)
+        #expect(task.sessionId == session.sessionId)
+        #expect(session.kind == .backgroundTask)
+        #expect(session.isReadOnly)
+        #expect(session.sourceIdentifier == task.id.uuidString)
+        #expect(session.title == "日报")
+    }
+
+    @Test func saveDraftReusesExistingDedicatedBackgroundSessionWhenEditingTask() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let viewModel = BackgroundTaskManagementViewModel(
+            modelContext: context,
+            persistenceCoordinator: nil
+        )
+        viewModel.makeNewTask()
+        viewModel.draftTitle = "日报"
+        viewModel.draftPrompt = "汇总今日进展"
+
+        try viewModel.saveDraft()
+
+        let task = try #require(context.fetch(FetchDescriptor<BackgroundAgentTask>()).first)
+        let firstSessionID = task.sessionId
+
+        viewModel.selectTask(task)
+        viewModel.draftPrompt = "更新后的提示词"
 
         try viewModel.saveDraft()
 
         let tasks = try context.fetch(FetchDescriptor<BackgroundAgentTask>())
         #expect(tasks.count == 1)
-        #expect(tasks.first?.sessionId == session.sessionId)
-        #expect(tasks.first?.title == "日报")
+        #expect(tasks.first?.sessionId == firstSessionID)
+        #expect(try context.fetch(FetchDescriptor<Session>()).count == 1)
+    }
+
+    @Test func saveDraftSynchronizesDedicatedSessionTitleWithTaskTitle() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let viewModel = BackgroundTaskManagementViewModel(
+            modelContext: context,
+            persistenceCoordinator: nil
+        )
+        viewModel.makeNewTask()
+        viewModel.draftTitle = "日报"
+        viewModel.draftPrompt = "汇总今日进展"
+
+        try viewModel.saveDraft()
+
+        let task = try #require(context.fetch(FetchDescriptor<BackgroundAgentTask>()).first)
+        viewModel.selectTask(task)
+        viewModel.draftTitle = "晚间日报"
+
+        try viewModel.saveDraft()
+
+        let session = try #require(context.fetch(FetchDescriptor<Session>()).first)
+        #expect(session.sessionId == task.sessionId)
+        #expect(session.title == "晚间日报")
+        #expect(session.sourceDisplayName.contains("晚间日报"))
     }
 
     @Test func saveDraftPersistsScheduleAndExecutionEdits() throws {
@@ -204,12 +235,9 @@ struct BackgroundTaskManagementViewModelTests {
         #expect(viewModel.authorizationPresetDescription(for: .actLimited).contains("文件写入"))
     }
 
-    @Test func saveDraftRejectsMissingSessionSelection() throws {
+    @Test func saveDraftRejectsMissingPromptWithoutSessionSelection() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let session = Session.fixture(sessionId: "session-1", title: "日报会话")
-        context.insert(session)
-        try context.save()
 
         let viewModel = BackgroundTaskManagementViewModel(
             modelContext: context,
@@ -217,8 +245,7 @@ struct BackgroundTaskManagementViewModelTests {
         )
         viewModel.makeNewTask()
         viewModel.draftTitle = "日报"
-        viewModel.draftPrompt = "汇总今日进展"
-        viewModel.draftSessionID = nil
+        viewModel.draftPrompt = "   "
 
         #expect(throws: BackgroundTaskManagementViewModel.ValidationError.self) {
             try viewModel.saveDraft()

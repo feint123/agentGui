@@ -5,6 +5,36 @@ import Testing
 
 @MainActor
 struct BackgroundSessionResultWriterTests {
+    @Test func writerResolvesDedicatedSessionByTaskSourceIdentifier() throws {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: Session.self, Message.self, configurations: configuration)
+        let context = ModelContext(container)
+        let task = BackgroundAgentTask.fixture(title: "日报", sessionId: "stale-session")
+        let session = Session.fixture(
+            sessionId: "session-background",
+            title: "日报",
+            kind: .backgroundTask,
+            sourceIdentifier: task.id.uuidString,
+            sourceDisplayName: "后台任务 · 日报"
+        )
+        context.insert(session)
+        try context.save()
+
+        let writer = BackgroundSessionResultWriter(persistenceCoordinator: .shared)
+
+        let written = try writer.writeSuccessResult(
+            task: task,
+            output: "后台执行完成",
+            summary: "success",
+            modelContext: context
+        )
+
+        let messages = try context.fetch(FetchDescriptor<Message>()).sorted { $0.sequence < $1.sequence }
+        #expect(messages.count == 2)
+        #expect(messages.last?.session?.sessionId == "session-background")
+        #expect(written?.session?.sessionId == "session-background")
+    }
+
     @Test func writerAppendsSystemAndAgentMessages() throws {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: Session.self, Message.self, configurations: configuration)

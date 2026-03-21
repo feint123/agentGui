@@ -21,6 +21,27 @@ struct SessionExecutionPreferencesTests {
         #expect(SessionExecutionPreferencesResolver.builtInModelID(for: session, settings: settings) == "claude-opus-4-6")
     }
 
+    @Test func builtInApprovalModeFallsBackToGlobalSettingWhenSessionOverrideMissing() {
+        let session = Session.fixture()
+        let settings = AppSettings.testFixture(selectedModel: "claude-sonnet-4-6")
+        settings.builtInDefaultApprovalMode = "default"
+
+        #expect(SessionExecutionPreferencesResolver.builtInApprovalMode(for: session, settings: settings) == .defaultApprovals)
+    }
+
+    @Test func builtInApprovalModeUsesSessionOverrideWhenPresent() {
+        let session = Session.fixture()
+        let settings = AppSettings.testFixture(selectedModel: "claude-sonnet-4-6")
+        settings.builtInDefaultApprovalMode = "default"
+        session.executionPreferences = SessionExecutionPreferences(
+            builtInModelID: nil,
+            builtInApprovalMode: "never",
+            gitHubCopilotCLI: .init()
+        )
+
+        #expect(SessionExecutionPreferencesResolver.builtInApprovalMode(for: session, settings: settings) == .bypassApprovals)
+    }
+
     @Test func copilotConfigurationMergesSessionOverridesOverGlobalDefaults() {
         let session = Session.fixture()
         let settings = AppSettings.testFixture()

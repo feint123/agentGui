@@ -5,6 +5,19 @@ import Testing
 
 @MainActor
 struct SessionDeletionCoordinatorTests {
+    @Test func deletionCoordinatorRejectsReadOnlySessions() throws {
+        let harness = try SessionDeletionHarness.make()
+        let session = Session.fixture(sessionId: "session-channel", title: "Channel", kind: .channel)
+        harness.context.insert(session)
+        try harness.context.save()
+
+        #expect(throws: SessionDeletionCoordinatorError.self) {
+            try harness.coordinator.delete(session, modelContext: harness.context)
+        }
+
+        #expect(try harness.context.fetch(FetchDescriptor<Session>()).count == 1)
+    }
+
     @Test func deletionCoordinatorRemovesSessionAndChannelResources() throws {
         let harness = try SessionDeletionHarness.make()
         let session = Session.fixture(sessionId: "session-1", title: "Delete Me")

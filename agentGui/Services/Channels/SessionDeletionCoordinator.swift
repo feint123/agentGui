@@ -4,6 +4,9 @@ import SwiftData
 @MainActor
 struct SessionDeletionCoordinator {
     func delete(_ session: Session, modelContext: ModelContext) throws {
+        guard session.isReadOnly == false else {
+            throw SessionDeletionCoordinatorError.readOnlySession(session.sessionId)
+        }
         pruneChannelResources(for: session, modelContext: modelContext)
         modelContext.delete(session)
         try modelContext.save()
@@ -11,13 +14,15 @@ struct SessionDeletionCoordinator {
 
     func deleteAllSessions(
         modelContext: ModelContext,
+        sessions explicitSessions: [Session]? = nil,
         batchSize: Int = 50
     ) async {
-        let sessions = (try? modelContext.fetch(FetchDescriptor<Session>())) ?? []
+        let sessions = explicitSessions ?? ((try? modelContext.fetch(FetchDescriptor<Session>())) ?? [])
         let effectiveBatchSize = max(1, batchSize)
         var pendingDeletes = 0
 
         for session in sessions {
+            guard session.isReadOnly == false else { continue }
             pruneChannelResources(for: session, modelContext: modelContext)
             modelContext.delete(session)
             pendingDeletes += 1
@@ -74,4 +79,8 @@ struct SessionDeletionCoordinator {
         }
         return conversationIDs.contains(receipt.externalConversationID)
     }
+}
+
+enum SessionDeletionCoordinatorError: Error, Equatable {
+    case readOnlySession(String)
 }

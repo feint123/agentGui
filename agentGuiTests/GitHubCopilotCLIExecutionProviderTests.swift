@@ -454,14 +454,19 @@ struct GitHubCopilotCLIExecutionProviderTests {
         #expect(binding?.lastSelectedModel == nil)
     }
 
-    @Test func sendMapsDefaultApprovalModeToSubjectPolicy() async throws {
+    @Test func sendMapsDefaultApprovalModeToDefaultApprovals() async throws {
         let approvalMode = try await capturedApprovalMode(for: "default")
-        #expect(approvalMode == .subjectPolicy)
+        #expect(approvalMode == .defaultApprovals)
     }
 
-    @Test func sendMapsOnRequestApprovalModeToSubjectPolicy() async throws {
+    @Test func sendMapsOnRequestApprovalModeToDefaultApprovals() async throws {
         let approvalMode = try await capturedApprovalMode(for: "on-request")
-        #expect(approvalMode == .subjectPolicy)
+        #expect(approvalMode == .defaultApprovals)
+    }
+
+    @Test func sendMapsNeverApprovalModeToBypassApprovals() async throws {
+        let approvalMode = try await capturedApprovalMode(for: "never")
+        #expect(approvalMode == .bypassApprovals)
     }
 
     @Test func sendFinalizesOutstandingReadToolCallsWhenTurnEnds() async throws {
@@ -716,7 +721,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-permission", cliVersion: "1.2.3"),
             stopReason: .endTurn,
             permissionRequest: permissionRequest,
-            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .alwaysRequireHuman)
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .defaultApprovals)
         )
 
         let provider = GitHubCopilotCLIExecutionProvider(
@@ -800,7 +805,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-permission-execute", cliVersion: "1.2.3"),
             stopReason: .endTurn,
             permissionRequest: permissionRequest,
-            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .alwaysRequireHuman),
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .defaultApprovals),
             updates: [
                 .session(
                     .toolCall(

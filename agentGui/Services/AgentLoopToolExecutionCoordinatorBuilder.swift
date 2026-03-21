@@ -9,6 +9,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
     let claudeService: ClaudeService
     let service: any AnthropicService
     let modelId: String
+    let toolApprovalMode: ToolApprovalMode
     let settings: AppSettings
     let sessionId: String
     let modelContext: ModelContext
@@ -25,6 +26,13 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                         settings: settings,
                         sessionId: sessionId,
                         modelContext: modelContext
+                    )
+                },
+                requestApprovalIfNeeded: { name, input, record in
+                    await requestApprovalIfNeeded(
+                        toolName: name,
+                        input: input,
+                        record: record
                     )
                 },
                 executeTool: { name, input in
@@ -54,6 +62,50 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                 }
             )
         )
+    }
+
+    private func requestApprovalIfNeeded(
+        toolName: String,
+        input: MessageResponse.Content.Input,
+        record: ToolCall
+    ) async -> ToolExecutionResult? {
+        guard claudeService.currentSession?.sessionId == sessionId else {
+            return nil
+        }
+        guard requestRequiresApproval(toolName: toolName, input: input) else {
+            return nil
+        }
+
+        let source = ACPPermissionCenter.RequestSource(providerID: .builtInAgent, localSessionID: sessionId)
+        let response = await claudeService.acpPermissionCenter.resolveBuiltInToolApproval(
+            toolName: toolName,
+            input: input,
+            source: source,
+            toolCallID: record.toolCallId,
+            title: record.title,
+            approvalMode: toolApprovalMode
+        )
+
+        guard let response else {
+            return ToolExecutionResult.permissionDenied("Error: permission approval was cancelled")
+        }
+
+        switch response.outcome {
+        case .selected:
+            return nil
+        case .cancelled:
+            return ToolExecutionResult.permissionDenied("Error: permission approval was rejected")
+        case .other:
+            return ToolExecutionResult.permissionDenied("Error: permission approval returned an unsupported outcome")
+        }
+    }
+
+    private func requestRequiresApproval(
+        toolName: String,
+        input: MessageResponse.Content.Input
+    ) -> Bool {
+        toolApprovalMode == .defaultApprovals
+            && ACPPermissionPolicyEvaluator.approvalScope(for: toolName, command: input["command"]?.stringValue) != nil
     }
 
     private func startForegroundBashObservation(

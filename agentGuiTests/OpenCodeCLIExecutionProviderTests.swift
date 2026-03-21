@@ -496,7 +496,7 @@ struct OpenCodeCLIExecutionProviderTests {
       ),
       stopReason: .endTurn,
       permissionRequest: permissionRequest,
-      authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .alwaysRequireHuman),
+      authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .defaultApprovals),
       updates: [
         .session(
           .toolCall(

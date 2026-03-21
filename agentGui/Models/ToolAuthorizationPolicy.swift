@@ -59,10 +59,40 @@ enum ToolAuthorizationPreset: String, Codable, CaseIterable, Sendable {
     }
 }
 
-enum ToolApprovalMode: String, Codable, Sendable {
-    case none
-    case subjectPolicy
-    case alwaysRequireHuman
+enum ToolApprovalMode: String, Sendable {
+    case defaultApprovals = "default"
+    case bypassApprovals = "never"
+
+    static func resolved(from rawValue: String?) -> ToolApprovalMode {
+        let normalized = rawValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch normalized {
+        case "never", "none", "bypass":
+            return .bypassApprovals
+        default:
+            return .defaultApprovals
+        }
+    }
+}
+
+extension ToolApprovalMode: Codable {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        self = Self.resolved(from: rawValue)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+enum ToolApprovalScope: String, Hashable, Sendable {
+    case shell
+    case web
 }
 
 struct ToolAuthorizationPolicy: Codable, Equatable, Sendable {
@@ -73,7 +103,7 @@ struct ToolAuthorizationPolicy: Codable, Equatable, Sendable {
     init(
         preset: ToolAuthorizationPreset = .observeOnly,
         capabilityLevels: [ToolCapabilityID: ToolCapabilityLevel]? = nil,
-        approvalMode: ToolApprovalMode = .none
+        approvalMode: ToolApprovalMode = .bypassApprovals
     ) {
         self.preset = preset
         self.capabilityLevels = capabilityLevels ?? Self.defaultCapabilityLevels(for: preset)

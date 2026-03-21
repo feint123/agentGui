@@ -24,6 +24,9 @@ final class AppSettings {
     /// 默认对话执行器 ID
     var defaultExecutionProviderID: String = ConversationExecutionProviderID.builtInAgent.rawValue
 
+    /// 内置执行器默认审批模式
+    var builtInDefaultApprovalMode: String = "default"
+
     /// 主题模式
     var themeMode: ThemeMode
 
@@ -126,6 +129,7 @@ final class AppSettings {
         self.baseURL = ""
         self.selectedModel = "claude-sonnet-4-6"
         self.defaultExecutionProviderID = ConversationExecutionProviderID.builtInAgent.rawValue
+        self.builtInDefaultApprovalMode = "default"
         self.themeMode = .system
         self.messageFontSize = 14.0
         self.enableTextEditorTool = true
@@ -268,6 +272,34 @@ extension AppSettings {
 
 // MARK: - Shared Instance
 extension AppSettings {
+    @discardableResult
+    func normalizeGlobalToolPermissionBaseline() -> Bool {
+        var didChange = false
+
+        if enableTextEditorTool == false {
+            enableTextEditorTool = true
+            didChange = true
+        }
+        if enableBashTool == false {
+            enableBashTool = true
+            didChange = true
+        }
+        if enableWebSearchTool == false {
+            enableWebSearchTool = true
+            didChange = true
+        }
+        if enableWebFetchTool == false {
+            enableWebFetchTool = true
+            didChange = true
+        }
+        if enableLSPTools == false {
+            enableLSPTools = true
+            didChange = true
+        }
+
+        return didChange
+    }
+
     /// 获取或创建单例设置
     @MainActor
     static func getOrCreate(
@@ -276,10 +308,23 @@ extension AppSettings {
     ) -> AppSettings {
         let descriptor = FetchDescriptor<AppSettings>()
         if let existing = try? context.fetch(descriptor).first {
+            let didNormalize = existing.normalizeGlobalToolPermissionBaseline()
+            if didNormalize {
+                if let persistenceCoordinator {
+                    try? persistenceCoordinator.save(
+                        context,
+                        domain: .settings,
+                        userMessage: "工具权限全局基线未成功更新"
+                    )
+                } else {
+                    try? context.save()
+                }
+            }
             return existing
         }
 
         let settings = AppSettings()
+        _ = settings.normalizeGlobalToolPermissionBaseline()
         context.insert(settings)
         if let persistenceCoordinator {
             try? persistenceCoordinator.save(

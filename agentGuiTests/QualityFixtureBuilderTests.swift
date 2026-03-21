@@ -15,7 +15,7 @@ struct QualityFixtureBuilderTests {
         ])
 
         #expect(options.isUITestMode)
-        #expect(options.initialTab == .skills)
+        #expect(options.initialWorkbenchItem == .skills)
         #expect(options.preloadAPIKey)
         #expect(options.preloadMessages)
         #expect(options.recoveryMode)
@@ -28,7 +28,7 @@ struct QualityFixtureBuilderTests {
         ])
 
         #expect(options.isUITestMode)
-        #expect(options.initialTab == .chat)
+        #expect(options.initialWorkbenchItem == .sessions)
     }
 
     @Test func recoveryScenarioFixtureBuildsDeterministicRecords() throws {

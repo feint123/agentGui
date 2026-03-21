@@ -95,6 +95,7 @@ private extension AgentLoopRunRequest {
             system: nil,
             maxRounds: 2,
             toolExecutionContext: .mainAgent,
+            toolApprovalMode: .bypassApprovals,
             runSource: "test",
             runLabel: nil,
             requestedBudgetSeconds: nil

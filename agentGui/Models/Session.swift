@@ -33,6 +33,18 @@ final class Session {
     /// 会话级默认执行器 ID
     var defaultExecutionProviderID: String = ConversationExecutionProviderID.builtInAgent.rawValue
 
+    /// 持久化的会话来源类型。
+    var kindRaw: String = SessionKind.local.rawValue
+
+    /// 上游来源唯一标识，例如渠道会话 ID / 后台任务 ID。
+    var sourceIdentifier: String = ""
+
+    /// 上游来源展示名称，例如“飞书 · 团队群”或“日报任务”。
+    var sourceDisplayName: String = ""
+
+    /// 可选的只读提示文案覆盖值。
+    var readOnlyReasonOverride: String = ""
+
     /// Serialised `ExecutionPlan` JSON for this session.
     /// Written by the `create_execution_plan` tool (regular tasks) and mirrored from
     /// the workflow runtime when a plan artifact is produced, so both paths share the
@@ -60,20 +72,51 @@ final class Session {
 
     init(
         sessionId: String = UUID().uuidString,
-        title: String = "新对话"
+        title: String = "新对话",
+        kind: SessionKind = .local,
+        sourceIdentifier: String = "",
+        sourceDisplayName: String = "",
+        readOnlyReasonOverride: String = ""
     ) {
         self.sessionId = sessionId
         self.title = title
         self.createdAt = Date()
         self.updatedAt = Date()
         self.isActive = false
+        self.kindRaw = kind.rawValue
+        self.sourceIdentifier = sourceIdentifier
+        self.sourceDisplayName = sourceDisplayName
+        self.readOnlyReasonOverride = readOnlyReasonOverride
     }
 }
 
 // MARK: - Computed Properties
 extension Session {
+    var kind: SessionKind {
+        get { SessionKind(rawValue: kindRaw) ?? .local }
+        set { kindRaw = newValue.rawValue }
+    }
+
     var executionProviderID: ConversationExecutionProviderID {
         ConversationExecutionProviderID(rawValue: defaultExecutionProviderID) ?? .builtInAgent
+    }
+
+    var isReadOnly: Bool {
+        kind.isReadOnlyByDefault
+    }
+
+    var readOnlyReason: String {
+        if !readOnlyReasonOverride.isEmpty {
+            return readOnlyReasonOverride
+        }
+        return kind.defaultReadOnlyReason
+    }
+
+    var displaySourceTitle: String {
+        if !sourceDisplayName.isEmpty {
+            return sourceDisplayName
+        }
+        return kind.defaultSourceTitle
     }
 
     /// Decoded `ExecutionPlan` for this session, or `nil` if none has been created yet.
@@ -109,9 +152,20 @@ extension Session {
     static func fixture(
         sessionId: String = UUID().uuidString,
         title: String = "Test Session",
-        workingDirectory: String = ""
+        workingDirectory: String = "",
+        kind: SessionKind = .local,
+        sourceIdentifier: String = "",
+        sourceDisplayName: String = "",
+        readOnlyReasonOverride: String = ""
     ) -> Session {
-        let session = Session(sessionId: sessionId, title: title)
+        let session = Session(
+            sessionId: sessionId,
+            title: title,
+            kind: kind,
+            sourceIdentifier: sourceIdentifier,
+            sourceDisplayName: sourceDisplayName,
+            readOnlyReasonOverride: readOnlyReasonOverride
+        )
         session.workingDirectory = workingDirectory
         return session
     }

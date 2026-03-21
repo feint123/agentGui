@@ -125,8 +125,13 @@ final class BuiltInConversationExecutionProvider: ConversationExecutionProvider 
     }
 
     func cancel(session: Session, modelContext: ModelContext) async {
-        _ = session
         _ = modelContext
+        claudeService.acpPermissionCenter.cancelRequests(for: session.sessionId)
+    }
+
+    func resetSessionState(session: Session, modelContext: ModelContext) async {
+        _ = modelContext
+        claudeService.acpPermissionCenter.cancelRequests(for: session.sessionId)
     }
 }
 

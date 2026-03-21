@@ -1,8 +1,14 @@
 import SwiftUI
 
 struct GitPanelView: View {
+    let showsBackground: Bool
+
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
     @Environment(WorkspaceState.self) private var workspaceState
+
+    init(showsBackground: Bool = true) {
+        self.showsBackground = showsBackground
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -21,7 +27,12 @@ struct GitPanelView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+        .background {
+            if showsBackground {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.primary.opacity(0.03))
+            }
+        }
         .accessibilityIdentifier("git.panel")
         .alert(
             "Git 操作失败",

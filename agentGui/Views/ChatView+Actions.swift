@@ -54,6 +54,22 @@ extension ChatView {
         )
     }
 
+    var builtInComposerApprovalModeSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                return SessionExecutionPreferencesResolver.builtInApprovalMode(for: session, settings: settings).rawValue
+            },
+            set: { newValue in
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                let fallback = settings.builtInDefaultApprovalMode
+                updateSessionExecutionPreferences { preferences in
+                    preferences.builtInApprovalMode = normalizedCopilotApprovalOverride(newValue, comparedTo: fallback)
+                }
+            }
+        )
+    }
+
     var copilotComposerModelSelectionBinding: Binding<String> {
         Binding(
             get: {
@@ -121,6 +137,11 @@ extension ChatView {
     // MARK: - Send Message
 
     func sendMessage() async {
+        guard sessionInteractionPolicy.canSend else {
+            errorMessage = sessionInteractionPolicy.readOnlyReason
+            return
+        }
+
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return
@@ -283,6 +304,10 @@ extension ChatView {
     }
 
     func sendReadinessError(settings: AppSettings) -> String? {
+        if sessionInteractionPolicy.canSend == false {
+            return sessionInteractionPolicy.readOnlyReason
+        }
+
         switch resolvedExecutionProviderID {
         case .builtInAgent:
             return claudeService.isConfigured ? "" : "请先在「设置」中配置 Anthropic API Key"

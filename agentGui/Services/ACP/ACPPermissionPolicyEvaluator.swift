@@ -3,16 +3,43 @@ import Foundation
 struct ACPPermissionPolicyEvaluator {
     nonisolated static func defaultResponse(
         for request: ACPRequestPermissionRequest,
-        policy: ToolAuthorizationPolicy
+        policy: ToolAuthorizationPolicy,
+        preferPersistentGrant: Bool = false
     ) -> ACPRequestPermissionResponse {
-        guard policy.approvalMode != .alwaysRequireHuman,
-              let selectedOption = bestAllowOption(from: request.options, policy: policy, toolKind: request.toolCall.kind) else {
+        guard let selectedOption = bestAllowOption(
+            from: request.options,
+            policy: policy,
+            toolKind: request.toolCall.kind,
+            preferPersistentGrant: preferPersistentGrant
+        ) else {
             return cancellationResponse()
         }
 
-        return ACPRequestPermissionResponse(
+        return selectedResponse(optionID: selectedOption.optionID)
+    }
+
+    nonisolated static func defaultResponse(
+        from options: [ACPPermissionOption],
+        toolKind: String?,
+        policy: ToolAuthorizationPolicy,
+        preferPersistentGrant: Bool = false
+    ) -> ACPRequestPermissionResponse {
+        guard let selectedOption = bestAllowOption(
+            from: options,
+            policy: policy,
+            toolKind: toolKind,
+            preferPersistentGrant: preferPersistentGrant
+        ) else {
+            return cancellationResponse()
+        }
+
+        return selectedResponse(optionID: selectedOption.optionID)
+    }
+
+    nonisolated static func selectedResponse(optionID: String) -> ACPRequestPermissionResponse {
+        ACPRequestPermissionResponse(
             meta: nil,
-            outcome: .selected(ACPSelectedPermissionOutcome(meta: nil, optionID: selectedOption.optionID))
+            outcome: .selected(ACPSelectedPermissionOutcome(meta: nil, optionID: optionID))
         )
     }
 
@@ -49,14 +76,46 @@ struct ACPPermissionPolicyEvaluator {
     nonisolated static func bestAllowOption(
         from options: [ACPPermissionOption],
         policy: ToolAuthorizationPolicy,
-        toolKind: String?
+        toolKind: String?,
+        preferPersistentGrant: Bool = false
     ) -> ACPPermissionOption? {
         guard allowsToolCall(toolKind, policy: policy) else {
             return nil
         }
 
-        return options.first(where: { $0.kind == .allowOnce })
-            ?? options.first(where: { $0.kind == .allowAlways })
+        let preferredKinds: [ACPPermissionOptionKind] = preferPersistentGrant
+            ? [.allowAlways, .allowOnce]
+            : [.allowOnce, .allowAlways]
+
+        for kind in preferredKinds {
+            if let option = options.first(where: { $0.kind == kind }) {
+                return option
+            }
+        }
+
+        return nil
+    }
+
+    nonisolated static func approvalScope(
+        for toolKind: String?,
+        command rawCommand: String? = nil
+    ) -> ToolApprovalScope? {
+        let classifiedKind = ToolKind.classify(rawName: toolKind, command: rawCommand)
+        let normalizedKind = normalizedToolToken(toolKind)
+
+        switch classifiedKind {
+        case .execute:
+            return .shell
+        case .fetch:
+            return .web
+        case .search:
+            if normalizedKind?.contains("web") == true || normalizedKind?.contains("browser") == true {
+                return .web
+            }
+            return nil
+        default:
+            return nil
+        }
     }
 
     private nonisolated static func normalizedToolToken(_ value: String?) -> String? {

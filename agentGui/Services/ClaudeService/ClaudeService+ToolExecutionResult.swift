@@ -30,6 +30,10 @@ struct ToolExecutionResult {
         }
     }
 
+    var isPermissionDenied: Bool {
+        status == .permissionDenied
+    }
+
     /// Maps ToolResultStatus to the persistent ToolCall.status stored in SwiftData.
     var toolCallStatus: ToolStatus {
         status == .success ? .success : .failed

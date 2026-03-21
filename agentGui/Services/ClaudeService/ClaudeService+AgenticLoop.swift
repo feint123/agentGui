@@ -35,6 +35,7 @@ extension ClaudeService {
             system: system,
             maxRounds: maxRounds,
             toolExecutionContext: .mainAgent,
+            toolApprovalMode: SessionExecutionPreferencesResolver.builtInApprovalMode(for: session, settings: settings),
             runSource: "mainAgent",
             runLabel: assistantMessage.textContent,
             requestedBudgetSeconds: nil
@@ -106,6 +107,7 @@ extension ClaudeService {
             system: makeEphemeralSystemPrompt(systemPrompt),
             maxRounds: maxRounds,
             toolExecutionContext: .mainAgent,
+            toolApprovalMode: .bypassApprovals,
             runSource: "remoteChannel",
             runLabel: text,
             requestedBudgetSeconds: nil
@@ -162,6 +164,7 @@ extension ClaudeService {
             system: system,
             maxRounds: maxRounds,
             toolExecutionContext: toolExecutionContext,
+            toolApprovalMode: .bypassApprovals,
             runSource: toolExecutionContext == .backgroundTask ? "backgroundTask" : "coreLoop",
             runLabel: nil,
             requestedBudgetSeconds: nil
@@ -202,6 +205,7 @@ extension ClaudeService {
             claudeService: self,
             service: request.service,
             modelId: request.modelId,
+            toolApprovalMode: request.toolApprovalMode,
             settings: runtime.settings,
             sessionId: runtime.sessionId,
             modelContext: runtime.modelContext

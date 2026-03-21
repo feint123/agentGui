@@ -22,6 +22,10 @@ struct RemoteConversationRouterTests {
         let bindings = try harness.context.fetch(FetchDescriptor<RemoteConversationBinding>())
 
         #expect(session.title.contains("Feishu"))
+        #expect(session.kind == .channel)
+        #expect(session.isReadOnly)
+        #expect(session.sourceIdentifier == "feishu:p2p-chat-1")
+        #expect(session.sourceDisplayName.contains("Feishu"))
         #expect(bindings.count == 1)
         #expect(bindings.first?.sessionID == session.sessionId)
         #expect(bindings.first?.session?.sessionId == session.sessionId)

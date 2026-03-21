@@ -22,6 +22,25 @@ struct SettingsExecutorsView: View {
             }
 
             Section {
+                ExecutionOptionPicker(
+                    title: "默认审批模式",
+                    options: GitHubCopilotCLIApprovalModeOption.allCases.map {
+                        ExecutionOptionItem(id: $0.rawValue, title: $0.title)
+                    },
+                    selection: store.persistedSettingsBinding(
+                        get: { GitHubCopilotCLIApprovalModeOption.resolved(from: store.settings.builtInDefaultApprovalMode).rawValue },
+                        userMessage: "内置执行器审批模式未成功保存",
+                        set: { store.settings.builtInDefaultApprovalMode = GitHubCopilotCLIApprovalModeOption.resolved(from: $0).rawValue }
+                    ),
+                    accessibilityIdentifier: "settings.executors.builtInApprovalModePicker"
+                )
+            } header: {
+                Text("内置执行器")
+            } footer: {
+                Text("default approvals 会审批 Bash 和 Web 操作；bypass approvals 不做操作审批。")
+            }
+
+            Section {
                 TextField("Copilot 可执行文件路径", text: store.persistedGitHubCopilotCLIConfigurationBinding(
                     get: { $0.executablePath },
                     userMessage: "Copilot CLI 可执行文件路径未成功保存",

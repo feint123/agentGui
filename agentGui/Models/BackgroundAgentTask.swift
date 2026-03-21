@@ -100,6 +100,19 @@ final class BackgroundAgentTask {
 }
 
 extension BackgroundAgentTask {
+    var dedicatedSessionSourceIdentifier: String {
+        id.uuidString
+    }
+
+    func dedicatedSessionTitle(fallbackTitle: String? = nil) -> String {
+        let candidate = (fallbackTitle ?? title).trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidate.isEmpty ? "后台任务" : candidate
+    }
+
+    func dedicatedSessionSourceDisplayName(fallbackTitle: String? = nil) -> String {
+        "后台任务 · \(dedicatedSessionTitle(fallbackTitle: fallbackTitle))"
+    }
+
     @MainActor
     static func fixture(
         taskKey: String = "background-task",

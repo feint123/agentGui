@@ -23,7 +23,7 @@ final class BackgroundSessionResultWriter {
         let policy = task.executionPolicy
         guard policy.appendUserVisibleMessage else { return nil }
 
-        let session = try resolveSession(id: task.sessionId, modelContext: modelContext)
+        let session = try resolveSession(for: task, modelContext: modelContext)
         let message: Message?
 
         switch policy.resultDeliveryMode {
@@ -58,7 +58,7 @@ final class BackgroundSessionResultWriter {
         let policy = task.executionPolicy
         guard policy.appendUserVisibleMessage else { return nil }
 
-        let session = try resolveSession(id: task.sessionId, modelContext: modelContext)
+        let session = try resolveSession(for: task, modelContext: modelContext)
         let message: Message?
 
         switch policy.resultDeliveryMode {
@@ -89,6 +89,23 @@ final class BackgroundSessionResultWriter {
             throw BackgroundSessionResultWriterError.sessionNotFound(id)
         }
         return session
+    }
+
+    private func resolveSession(for task: BackgroundAgentTask, modelContext: ModelContext) throws -> Session {
+        let sessions = try modelContext.fetch(FetchDescriptor<Session>())
+
+        if let session = sessions.first(where: { $0.sessionId == task.sessionId }) {
+            return session
+        }
+
+        if let session = sessions.first(where: {
+            $0.kind == .backgroundTask && $0.sourceIdentifier == task.dedicatedSessionSourceIdentifier
+        }) {
+            task.sessionId = session.sessionId
+            return session
+        }
+
+        throw BackgroundSessionResultWriterError.sessionNotFound(task.sessionId)
     }
 }
 

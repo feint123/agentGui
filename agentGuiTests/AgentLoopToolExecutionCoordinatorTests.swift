@@ -149,11 +149,44 @@ struct AgentLoopToolExecutionCoordinatorTests {
 
         #expect(outcome.result.text == "default:web_fetch")
     }
+
+    @Test func approvalGateCanShortCircuitExecutionBeforeToolRuns() async {
+        final class Probe {
+            var executed = false
+            var startedObservation = false
+        }
+
+        let probe = Probe()
+        let coordinator = AgentLoopToolExecutionCoordinator(
+            dependencies: .fixture(
+                requestApprovalIfNeeded: { _, _, _ in
+                    .permissionDenied("权限审批未通过")
+                },
+                executeTool: { _, _ in
+                    probe.executed = true
+                    return .success("should-not-run")
+                },
+                startForegroundBashObservation: { _, _ in
+                    probe.startedObservation = true
+                    return Task { }
+                }
+            )
+        )
+        let pendingTool = AgentLoopPendingTool(id: "call-approval", name: "bash", partialJson: "{\"command\":\"pwd\"}")
+        let record = ToolCall.fixture(toolCallId: "call-approval", kind: .execute)
+
+        let outcome = await coordinator.execute(pendingTool: pendingTool, record: record)
+
+        #expect(outcome.result.isPermissionDenied)
+        #expect(!probe.executed)
+        #expect(!probe.startedObservation)
+    }
 }
 
 private extension AgentLoopToolExecutionCoordinator.Dependencies {
     static func fixture(
         runSubagent: @escaping (MessageResponse.Content.Input, ToolCall) async -> AgentMessage = { _, _ in .text("subagent", sender: "worker") },
+        requestApprovalIfNeeded: @escaping (String, MessageResponse.Content.Input, ToolCall) async -> ToolExecutionResult? = { _, _, _ in nil },
         executeTool: @escaping (String, MessageResponse.Content.Input) async -> ToolExecutionResult = { name, _ in .success(name) },
         normalizeBashRequest: @escaping (MessageResponse.Content.Input) throws -> BashToolRequest = { _ in
             BashToolRequest(
@@ -170,6 +203,7 @@ private extension AgentLoopToolExecutionCoordinator.Dependencies {
     ) -> AgentLoopToolExecutionCoordinator.Dependencies {
         .init(
             runSubagent: runSubagent,
+            requestApprovalIfNeeded: requestApprovalIfNeeded,
             executeTool: executeTool,
             normalizeBashRequest: normalizeBashRequest,
             startForegroundBashObservation: startForegroundBashObservation,

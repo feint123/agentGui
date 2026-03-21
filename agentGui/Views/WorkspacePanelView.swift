@@ -19,14 +19,11 @@ struct WorkspacePanelView: View {
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
     @Environment(PersistenceCoordinator.self) private var persistenceCoordinator
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.openWindow) private var openWindow
     private let launchOptions = TestLaunchOptions.current
 
     // MARK: - State
 
     @State private var treeViewModel = WorkspaceTreeViewModel()
-    @State private var showsLSPDiagnosticsPopover = false
-    @State private var showsLSPManagementPopover = false
 
     // MARK: - Body
 
@@ -36,17 +33,8 @@ struct WorkspacePanelView: View {
         VStack(spacing: 0) {
             directoryBar
             workspaceActionBar
-            GitPanelView()
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
-            Divider()
-                .opacity(0.4)
             treeContent
                 .frame(maxHeight: .infinity, alignment: .top)
-            Divider()
-                .opacity(0.4)
-            lspStatusFooter
         }
         .accessibilityIdentifier("panel.workspace")
         .onAppear {
@@ -326,89 +314,6 @@ struct WorkspacePanelView: View {
         .accessibilityIdentifier("workspace.searchEmptyState")
     }
 
-    private var lspStatusFooter: some View {
-        let _ = claudeService.lspPresentationRevision
-        let presenter = WorkspacePanelLSPFooterPresenter(
-            claudeService: claudeService,
-            persistenceCoordinator: persistenceCoordinator,
-            modelContext: modelContext
-        )
-        let status = presenter.status(
-            workingDirectory: treeViewModel.currentDirectory?.path ?? "",
-            selectedFilePath: workspaceState.selectedFile?.standardizedFileURL.path
-        )
-
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("LSP")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Text(status.stateText)
-                    .font(.caption)
-                    .foregroundStyle(presenter.tone(for: status.stateText).color)
-                    .lineLimit(1)
-            }
-
-            if let fileName = status.selectedFileName {
-                Text(fileName)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            HStack(spacing: 8) {
-                Label(status.serverID ?? "未绑定", systemImage: "dot.radiowaves.left.and.right")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Spacer(minLength: 0)
-
-                Button {
-                    showsLSPManagementPopover.toggle()
-                } label: {
-                    Label("管理", systemImage: "slider.horizontal.3")
-                        .font(.caption2)
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showsLSPManagementPopover, arrowEdge: .bottom) {
-                    LSPManagementPopoverView(
-                        viewModel: presenter.managementViewModel(onPersistSettings: { userMessage, mutation in
-                            persistSettingsMutation(userMessage: userMessage, mutation: mutation)
-                        }),
-                        onOpenSettings: {
-                            openWindow(id: SettingsWindowScene.id)
-                            showsLSPManagementPopover = false
-                        }
-                    )
-                }
-            }
-
-            HStack(spacing: 8) {
-                Button {
-                    showsLSPDiagnosticsPopover.toggle()
-                } label: {
-                    lspCountChip(title: "错误", count: status.errorCount, color: .red)
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showsLSPDiagnosticsPopover, arrowEdge: .bottom) {
-                    LSPDiagnosticsPopoverView(status: status)
-                }
-
-                Button {
-                    showsLSPDiagnosticsPopover.toggle()
-                } label: {
-                    lspCountChip(title: "警告", count: status.warningCount, color: .orange)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .accessibilityIdentifier("workspace.lspStatusFooter")
-    }
-
     // MARK: - Actions
 
     private func chooseDirectory() {
@@ -463,20 +368,6 @@ struct WorkspacePanelView: View {
             treeViewModel.errorMessage = userMessage
             return false
         }
-    }
-
-    private func lspCountChip(title: String, count: Int, color: Color) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(color)
-                .frame(width: 6, height: 6)
-            Text("\(title) \(count)")
-                .font(.caption2)
-                .monospacedDigit()
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(color.opacity(0.10), in: Capsule())
     }
 
     private func copySelectionRelativePaths() {

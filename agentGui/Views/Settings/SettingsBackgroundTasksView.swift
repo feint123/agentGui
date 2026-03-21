@@ -48,7 +48,7 @@ struct SettingsBackgroundTasksView: View {
                 NavigationLink(value: BackgroundTaskEditorRoute.newTask) {
                     Label("新建任务", systemImage: "plus")
                 }
-                .disabled(!store.settings.backgroundAgentEnabled || viewModel.sessionOptions.isEmpty)
+                .disabled(!store.settings.backgroundAgentEnabled)
                 .accessibilityIdentifier("settings.background.newTaskButton")
             }
         }
@@ -150,7 +150,7 @@ struct SettingsBackgroundTasksView: View {
             }
 
             if viewModel.tasks.isEmpty {
-                Text(viewModel.sessionOptions.isEmpty ? "先创建一个会话，再新增后台任务。" : "还没有后台任务，点击右上角“新建任务”。")
+                Text("还没有后台任务，点击右上角“新建任务”。")
                     .foregroundStyle(.secondary)
             } else if viewModel.visibleTasks.isEmpty {
                 Text("没有匹配的任务。")
@@ -256,21 +256,14 @@ private struct BackgroundTaskEditorView: View {
                 }
             }
 
-            if viewModel.sessionOptions.isEmpty {
-                Section {
-                    Text("后台任务必须把结果回写到已有会话。先创建一个会话，再回来配置任务。")
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                overviewSection
-                basicsSection
-                workspaceSection
-                scheduleSection
-                executionSection
-                toolsSection
-                recentRunsSection
-                currentStatusSection
-            }
+            overviewSection
+            basicsSection
+            workspaceSection
+            scheduleSection
+            executionSection
+            toolsSection
+            recentRunsSection
+            currentStatusSection
         }
         .formStyle(.grouped)
         .navigationTitle(viewModel.editorTitle(for: viewModel.selectedTask))
@@ -294,7 +287,7 @@ private struct BackgroundTaskEditorView: View {
                     .help("保存任务")
                     .accessibilityLabel("保存任务")
                     .buttonStyle(.borderedProminent)
-                    .disabled(!store.settings.backgroundAgentEnabled || viewModel.sessionOptions.isEmpty)
+                    .disabled(!store.settings.backgroundAgentEnabled)
                     .accessibilityIdentifier("settings.background.saveTaskButton")
             }
         }
@@ -349,24 +342,22 @@ private struct BackgroundTaskEditorView: View {
                 .disabled(!store.settings.backgroundAgentEnabled)
             
             TextField("任务标题", text: $viewModel.draftTitle)
-           
-            Picker("结果写回会话", selection: Binding(
-                get: { viewModel.draftSessionID ?? "" },
-                set: { newValue in
-                    viewModel.draftSessionID = newValue.isEmpty ? nil : newValue
-                }
-            )) {
-                ForEach(viewModel.sessionOptions) { session in
-                    Text(session.title).tag(session.id)
-                }
-            }
-        
 
-            if let session = viewModel.sessionOption(for: viewModel.draftSessionID) {
-                Text(session.detail)
-                    .font(.caption)
+            LabeledContent("专属会话") {
+                Text(viewModel.draftDedicatedSessionTitle)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
             }
+
+            LabeledContent("绑定状态") {
+                Text(viewModel.draftDedicatedSessionBindingSummary)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+            }
+
+            Text(viewModel.draftDedicatedSessionDetail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
     
             TextField("任务提示词", text: $viewModel.draftPrompt, axis: .vertical)
                 .lineLimit(5...10)
@@ -697,7 +688,7 @@ private struct BackgroundTaskEditorView: View {
         case .missingTitle:
             return "请输入任务标题。"
         case .missingSession:
-            return "请选择结果写回的会话。"
+            return "后台任务会话绑定失败。"
         case .missingPrompt:
             return "请输入任务提示词。"
         }

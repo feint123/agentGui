@@ -103,6 +103,7 @@ extension ClaudeService {
             system: system,
             maxRounds: definition.maxRounds,
             toolExecutionContext: .subagent,
+            toolApprovalMode: .bypassApprovals,
             runSource: "subagent",
             runLabel: definition.name,
             requestedBudgetSeconds: nil

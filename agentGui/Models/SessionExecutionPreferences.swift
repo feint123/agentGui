@@ -2,15 +2,18 @@ import Foundation
 
 struct SessionExecutionPreferences: Codable, Equatable, Sendable {
     var builtInModelID: String?
+    var builtInApprovalMode: String?
     var gitHubCopilotCLI: GitHubCopilotCLISessionPreferences
     var openCodeCLI: OpenCodeCLISessionPreferences
 
     init(
         builtInModelID: String? = nil,
+        builtInApprovalMode: String? = nil,
         gitHubCopilotCLI: GitHubCopilotCLISessionPreferences = .init(),
         openCodeCLI: OpenCodeCLISessionPreferences = .init()
     ) {
         self.builtInModelID = builtInModelID?.trimmedNonEmpty
+        self.builtInApprovalMode = builtInApprovalMode?.trimmedNonEmpty
         self.gitHubCopilotCLI = gitHubCopilotCLI
         self.openCodeCLI = openCodeCLI
     }
@@ -45,6 +48,13 @@ struct OpenCodeCLISessionPreferences: Codable, Equatable, Sendable {
 enum SessionExecutionPreferencesResolver {
     static func builtInModelID(for session: Session, settings: AppSettings) -> String {
         session.executionPreferences.builtInModelID?.trimmedNonEmpty ?? settings.selectedModel
+    }
+
+    static func builtInApprovalMode(for session: Session, settings: AppSettings) -> ToolApprovalMode {
+        ToolApprovalMode.resolved(
+            from: session.executionPreferences.builtInApprovalMode?.trimmedNonEmpty
+                ?? settings.builtInDefaultApprovalMode
+        )
     }
 
     static func gitHubCopilotCLIConfiguration(for session: Session, settings: AppSettings) -> GitHubCopilotCLIConfiguration {

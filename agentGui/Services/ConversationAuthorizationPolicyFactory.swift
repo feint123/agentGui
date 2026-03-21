@@ -5,7 +5,7 @@ struct ConversationAuthorizationPolicyFactory {
 
     nonisolated func makePolicy(
         from settings: AppSettings,
-        approvalMode: ToolApprovalMode = .none
+        approvalMode: ToolApprovalMode = .bypassApprovals
     ) -> ToolAuthorizationPolicy {
         var levels = Dictionary(uniqueKeysWithValues: ToolCapabilityID.allCases.map { ($0, ToolCapabilityLevel.disabled) })
 

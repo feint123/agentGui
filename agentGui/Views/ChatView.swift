@@ -92,6 +92,7 @@ struct ChatView: View {
                         }
                     )
                 }
+                readOnlyBanner
                 messagesArea
                 inputArea
             }
@@ -171,6 +172,57 @@ struct ChatView: View {
 
     var effectiveStreamingState: Bool {
         usesExecutionProjectionUI ? sessionExecutionProjection.isRunning : claudeService.isStreaming
+    }
+
+    var sessionInteractionPolicy: SessionInteractionPolicy {
+        SessionInteractionPolicy(session: session)
+    }
+}
+
+extension ChatView {
+    @ViewBuilder
+    var readOnlyBanner: some View {
+        if sessionInteractionPolicy.readOnlyReason.isEmpty == false {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(session.displaySourceTitle)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text(sessionInteractionPolicy.readOnlyReason)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                if sessionInteractionPolicy.canCloneAsLocal {
+                    Button("复制为本地会话") {
+                        cloneReadOnlySessionFromBanner()
+                    }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .accessibilityIdentifier("chat.readOnlyBanner")
+            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+        }
+    }
+
+    private func cloneReadOnlySessionFromBanner() {
+        do {
+            _ = try SessionToolbarActions(modelContext: modelContext, workspaceState: workspaceState)
+                .cloneCurrentSessionAsLocal()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

@@ -44,16 +44,20 @@ struct ReliabilityCenterView: View {
                                         try? runtimeRecoveryService.markViewed(snapshot, in: modelContext)
                                         viewModel.refresh(using: modelContext)
                                     }
+                                    .buttonStyle(.glass)
+
                                     Button("中断") {
                                         try? runtimeRecoveryService.markInterrupted(snapshot, in: modelContext)
                                         viewModel.refresh(using: modelContext)
                                     }
+                                    .buttonStyle(.glass)
+
                                     Button("清理", role: .destructive) {
                                         try? runtimeRecoveryService.clear(snapshot, in: modelContext)
                                         viewModel.refresh(using: modelContext)
                                     }
+                                    .buttonStyle(.glass)
                                 }
-                                .buttonStyle(.bordered)
                             }
                             .padding(.vertical, 4)
                         }
@@ -83,6 +87,7 @@ struct ReliabilityCenterView: View {
                     Button("导出全量备份") {
                         viewModel.exportAllBackup(using: modelContext)
                     }
+                    .buttonStyle(.glassProminent)
 
                     if let status = viewModel.lastBackupStatus {
                         Text(status)
@@ -93,11 +98,13 @@ struct ReliabilityCenterView: View {
                 }
             }
             .navigationTitle("诊断中心")
+            .accessibilityIdentifier("reliability.root")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button("刷新") {
                         viewModel.refresh(using: modelContext)
                     }
+                    .buttonStyle(.glass)
                 }
             }
             .onAppear {

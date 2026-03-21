@@ -59,8 +59,10 @@ extension ChatView {
                         selection: executionProviderSelectionRawValueBinding,
                         accessibilityIdentifier: "chat.executionProviderPicker"
                     )
+                    .disabled(sessionInteractionPolicy.canSend == false)
 
                     composerExecutionPreferencesControls
+                        .disabled(sessionInteractionPolicy.canSend == false)
 
                     if resolvedExecutionProviderID == .githubCopilotCLI,
                        copilotComposerAvailabilityStatus.kind != .available {
@@ -118,7 +120,7 @@ extension ChatView {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .glassEffect(isDropTargeted ? .regular.interactive().tint(Color.accentColor.opacity(0.3)): .regular,
+            .glassEffect(composerShellGlass,
                          in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .padding(.horizontal, 16)
         .padding(.bottom, 6)
@@ -144,6 +146,16 @@ extension ChatView {
         await refreshOpenCodeComposerAvailabilityStatus()
     }
 }
+
+    private var composerShellGlass: Glass {
+        if isDropTargeted {
+            return .regular.interactive().tint(Color.accentColor.opacity(0.3))
+        }
+        if sessionInteractionPolicy.canSend == false {
+            return .regular.tint(Color.secondary.opacity(0.12))
+        }
+        return .regular
+    }
 
     private func applyUITestInitialComposerTextIfNeeded() {
         guard testLaunchOptions.isUITestMode,
@@ -188,6 +200,15 @@ extension ChatView {
                 options: AppSettings.availableModelOptions(inheritingTitle: "跟随全局设置"),
                 selection: builtInComposerModelSelectionBinding,
                 accessibilityIdentifier: "chat.builtInModelPicker"
+            )
+
+            ExecutionOptionPicker(
+                title: "",
+                options: GitHubCopilotCLIApprovalModeOption.allCases.map {
+                    ExecutionOptionItem(id: $0.rawValue, title: $0.title)
+                },
+                selection: builtInComposerApprovalModeSelectionBinding,
+                accessibilityIdentifier: "chat.builtInApprovalModePicker"
             )
         case .githubCopilotCLI:
             ExecutionOptionPicker(
@@ -442,6 +463,7 @@ var fileChipsRow: some View {
     var canSend: Bool {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
+        guard sessionInteractionPolicy.canSend else { return false }
 
         let settings = AppSettings.getOrCreate(in: modelContext)
         return (sendReadinessError(settings: settings) ?? "") .isEmpty

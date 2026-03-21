@@ -779,16 +779,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
     }
 
     private func approvalMode(for configuration: OpenCodeCLIConfiguration) -> ToolApprovalMode {
-        switch configuration.defaultApprovalMode
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() {
-        case "never":
-            return .none
-        case "auto", "automatic", "always":
-            return .subjectPolicy
-        default:
-            return .alwaysRequireHuman
-        }
+        ToolApprovalMode.resolved(from: configuration.defaultApprovalMode)
     }
 
     private func selectedModelID(for configuration: OpenCodeCLIConfiguration) -> String? {

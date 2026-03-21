@@ -9,6 +9,7 @@ struct AgentLoopToolExecutionOutcome {
 struct AgentLoopToolExecutionCoordinator {
     struct Dependencies {
         let runSubagent: (MessageResponse.Content.Input, ToolCall) async -> AgentMessage
+        let requestApprovalIfNeeded: (String, MessageResponse.Content.Input, ToolCall) async -> ToolExecutionResult?
         let executeTool: (String, MessageResponse.Content.Input) async -> ToolExecutionResult
         let normalizeBashRequest: (MessageResponse.Content.Input) throws -> BashToolRequest
         let startForegroundBashObservation: (BashToolRequest, ToolCall) async -> Task<Void, Never>?
@@ -52,6 +53,10 @@ struct AgentLoopToolExecutionCoordinator {
             bashRequest = normalizedBashRequest
             effectiveInput["task_id"] = .string(record.toolCallId)
             record.terminalTaskId = record.toolCallId
+        }
+
+        if let approvalResult = await dependencies.requestApprovalIfNeeded(pendingTool.name, effectiveInput, record) {
+            return AgentLoopToolExecutionOutcome(result: approvalResult, record: record)
         }
 
         let shouldObserveForegroundBash = bashRequest?.executionMode == .attached

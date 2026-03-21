@@ -10,6 +10,7 @@ struct AgentLoopRunRequest {
     let system: MessageParameter.System?
     let maxRounds: Int
     let toolExecutionContext: ToolContext
+    let toolApprovalMode: ToolApprovalMode
     let runSource: String
     let runLabel: String?
     let requestedBudgetSeconds: TimeInterval?

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftAnthropic
 
 @MainActor
 @Observable
@@ -47,6 +48,12 @@ final class ACPPermissionCenter: @unchecked Sendable {
     @ObservationIgnored
     private var continuations: [String: CheckedContinuation<ACPRequestPermissionResponse?, Never>] = [:]
 
+    @ObservationIgnored
+    private var requestScopes: [String: ToolApprovalScope] = [:]
+
+    @ObservationIgnored
+    private var rememberedSessionApprovals: [String: Set<ToolApprovalScope>] = [:]
+
     func resolve(
         request: ACPRequestPermissionRequest,
         source: RequestSource,
@@ -56,8 +63,17 @@ final class ACPPermissionCenter: @unchecked Sendable {
             return ACPPermissionPolicyEvaluator.cancellationResponse()
         }
 
-        guard policy.approvalMode == .alwaysRequireHuman else {
-            return ACPPermissionPolicyEvaluator.defaultResponse(for: request, policy: policy)
+        let scope = ACPPermissionPolicyEvaluator.approvalScope(for: request.toolCall.kind)
+        guard shouldQueueApproval(
+            for: source.localSessionID,
+            scope: scope,
+            approvalMode: policy.approvalMode
+        ) else {
+            return ACPPermissionPolicyEvaluator.defaultResponse(
+                for: request,
+                policy: policy,
+                preferPersistentGrant: hasRememberedApproval(for: source.localSessionID, scope: scope)
+            )
         }
 
         let pendingRequest = PendingRequest(
@@ -74,10 +90,49 @@ final class ACPPermissionCenter: @unchecked Sendable {
             requestedAt: Date()
         )
 
-        return await withCheckedContinuation { continuation in
-            continuations[pendingRequest.id] = continuation
-            pendingRequests.append(pendingRequest)
+        return await enqueuePendingRequest(pendingRequest, scope: scope)
+    }
+
+    func resolveBuiltInToolApproval(
+        toolName: String,
+        input: MessageResponse.Content.Input,
+        source: RequestSource,
+        toolCallID: String,
+        title: String?,
+        approvalMode: ToolApprovalMode
+    ) async -> ACPRequestPermissionResponse? {
+        let scope = ACPPermissionPolicyEvaluator.approvalScope(
+            for: toolName,
+            command: input["command"]?.stringValue
+        )
+        let options = Self.defaultBuiltInOptions()
+
+        guard shouldQueueApproval(
+            for: source.localSessionID,
+            scope: scope,
+            approvalMode: approvalMode
+        ) else {
+            return Self.defaultBuiltInResponse(
+                options: options,
+                preferPersistentGrant: hasRememberedApproval(for: source.localSessionID, scope: scope)
+            )
         }
+
+        let pendingRequest = PendingRequest(
+            id: UUID().uuidString,
+            source: source,
+            remoteSessionID: source.localSessionID,
+            toolCallID: toolCallID,
+            toolKind: ToolKind.classify(rawName: toolName, command: input["command"]?.stringValue),
+            title: Self.nonEmpty(title) ?? ToolKind.classify(rawName: toolName).displayName,
+            reason: Self.builtInReason(for: toolName, input: input),
+            options: options.map {
+                PendingOption(id: $0.optionID, kind: $0.kind, name: $0.name)
+            },
+            requestedAt: Date()
+        )
+
+        return await enqueuePendingRequest(pendingRequest, scope: scope)
     }
 
     func pendingRequest(localSessionID: String, toolCallID: String) -> PendingRequest? {
@@ -91,6 +146,13 @@ final class ACPPermissionCenter: @unchecked Sendable {
     }
 
     func selectOption(requestID: String, optionID: String) {
+        if let pendingRequest = pendingRequests.first(where: { $0.id == requestID }),
+           let selectedOption = pendingRequest.options.first(where: { $0.id == optionID }),
+           selectedOption.kind == .allowAlways,
+           let scope = requestScopes[requestID] {
+            rememberedSessionApprovals[pendingRequest.source.localSessionID, default: []].insert(scope)
+        }
+
         finish(
             requestID: requestID,
             response: ACPRequestPermissionResponse(
@@ -115,8 +177,84 @@ final class ACPPermissionCenter: @unchecked Sendable {
     }
 
     private func finish(requestID: String, response: ACPRequestPermissionResponse?) {
+        requestScopes.removeValue(forKey: requestID)
         pendingRequests.removeAll { $0.id == requestID }
         continuations.removeValue(forKey: requestID)?.resume(returning: response)
+    }
+
+    private func enqueuePendingRequest(
+        _ pendingRequest: PendingRequest,
+        scope: ToolApprovalScope?
+    ) async -> ACPRequestPermissionResponse? {
+        return await withCheckedContinuation { continuation in
+            continuations[pendingRequest.id] = continuation
+            if let scope {
+                requestScopes[pendingRequest.id] = scope
+            }
+            pendingRequests.append(pendingRequest)
+        }
+    }
+
+    private func shouldQueueApproval(
+        for localSessionID: String,
+        scope: ToolApprovalScope?,
+        approvalMode: ToolApprovalMode
+    ) -> Bool {
+        guard approvalMode == .defaultApprovals,
+              let scope else {
+            return false
+        }
+
+        return hasRememberedApproval(for: localSessionID, scope: scope) == false
+    }
+
+    private func hasRememberedApproval(
+        for localSessionID: String,
+        scope: ToolApprovalScope?
+    ) -> Bool {
+        guard let scope else {
+            return false
+        }
+
+        return rememberedSessionApprovals[localSessionID]?.contains(scope) == true
+    }
+
+    private static func defaultBuiltInResponse(
+        options: [ACPPermissionOption],
+        preferPersistentGrant: Bool
+    ) -> ACPRequestPermissionResponse {
+        let preferredKinds: [ACPPermissionOptionKind] = preferPersistentGrant
+            ? [.allowAlways, .allowOnce]
+            : [.allowOnce, .allowAlways]
+
+        for kind in preferredKinds {
+            if let option = options.first(where: { $0.kind == kind }) {
+                return ACPPermissionPolicyEvaluator.selectedResponse(optionID: option.optionID)
+            }
+        }
+
+        return ACPPermissionPolicyEvaluator.cancellationResponse()
+    }
+
+    private static func defaultBuiltInOptions() -> [ACPPermissionOption] {
+        [
+            ACPPermissionOption(meta: nil, kind: .rejectOnce, name: "拒绝", optionID: "reject-once"),
+            ACPPermissionOption(meta: nil, kind: .allowOnce, name: "允许一次", optionID: "allow-once"),
+            ACPPermissionOption(meta: nil, kind: .allowAlways, name: "本会话始终允许", optionID: "allow-always")
+        ]
+    }
+
+    private static func builtInReason(for toolName: String, input: MessageResponse.Content.Input) -> String? {
+        switch toolName {
+        case "bash":
+            return Self.nonEmpty(input["command"]?.stringValue)
+        case "web_search":
+            return Self.nonEmpty(input["query"]?.stringValue)
+        case "web_fetch":
+            return Self.nonEmpty(input["url"]?.stringValue)
+        default:
+            return nil
+        }
     }
 
     private static func reason(from request: ACPRequestPermissionRequest) -> String? {

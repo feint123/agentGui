@@ -50,6 +50,7 @@ struct BackgroundAgentLoopAdapter: BackgroundAgentLoopAdapting {
             system: makeEphemeralSystemPrompt(systemPrompt),
             maxRounds: policy.maxTurns,
             toolExecutionContext: .backgroundTask,
+            toolApprovalMode: .bypassApprovals,
             runSource: "backgroundTask",
             runLabel: task.title,
             requestedBudgetSeconds: policy.maxExecutionSeconds
