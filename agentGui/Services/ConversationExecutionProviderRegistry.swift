@@ -1,7 +1,8 @@
 import Foundation
 import SwiftData
 
-enum ConversationExecutionRuntimeScope: Equatable, Sendable {
+enum ConversationExecutionRuntimeScope: String, Equatable, Sendable {
+    case builtIn
     case externalACP
 }
 
@@ -13,6 +14,30 @@ struct ConversationExecutionRequest {
     let selectedText: String?
     let directives: [ChatInputDirective]
     let modelContext: ModelContext
+    let sourceUserMessageID: UUID?
+    let targetAgentMessageID: UUID?
+
+    init(
+        text: String,
+        session: Session,
+        modelID: String,
+        selectedFilePath: String?,
+        selectedText: String?,
+        directives: [ChatInputDirective],
+        modelContext: ModelContext,
+        sourceUserMessageID: UUID? = nil,
+        targetAgentMessageID: UUID? = nil
+    ) {
+        self.text = text
+        self.session = session
+        self.modelID = modelID
+        self.selectedFilePath = selectedFilePath
+        self.selectedText = selectedText
+        self.directives = directives
+        self.modelContext = modelContext
+        self.sourceUserMessageID = sourceUserMessageID
+        self.targetAgentMessageID = targetAgentMessageID
+    }
 }
 
 struct ConversationRegenerationRequest {
@@ -60,6 +85,7 @@ extension ConversationExecutionProvider {
 @MainActor
 final class BuiltInConversationExecutionProvider: ConversationExecutionProvider {
     let id: ConversationExecutionProviderID = .builtInAgent
+    let runtimeScope: ConversationExecutionRuntimeScope? = .builtIn
 
     private unowned let claudeService: ClaudeService
 
@@ -75,6 +101,7 @@ final class BuiltInConversationExecutionProvider: ConversationExecutionProvider 
             selectedFilePath: request.selectedFilePath,
             selectedText: request.selectedText,
             directives: request.directives,
+            targetAgentMessageID: request.targetAgentMessageID,
             modelContext: request.modelContext
         )
     }
@@ -114,6 +141,21 @@ struct ConversationExecutionProviderRegistry {
 
     func providers(in runtimeScope: ConversationExecutionRuntimeScope) -> [any ConversationExecutionProvider] {
         allProviders.filter { $0.runtimeScope == runtimeScope }
+    }
+
+    func provider(for providerID: ConversationExecutionProviderID) -> any ConversationExecutionProvider {
+        switch providerID {
+        case .builtInAgent:
+            return builtIn
+        case .githubCopilotCLI:
+            return copilot
+        case .openCodeCLI:
+            return openCode
+        }
+    }
+
+    func compatibilityDriver(for providerID: ConversationExecutionProviderID) -> any ConversationExecutionDriver {
+        LegacyConversationExecutionDriver(provider: provider(for: providerID))
     }
 
     func provider(for session: Session, settings: AppSettings) -> any ConversationExecutionProvider {

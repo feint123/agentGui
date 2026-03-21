@@ -27,13 +27,13 @@ struct ClaudeServiceMessagingTests {
         claudeService.service = fakeService
 
         do {
-            try await claudeService.sendMessage(
+            try await claudeService.sendMessageBuiltIn(
                 text: "放松一下",
                 session: session,
                 modelId: "claude-test",
                 modelContext: modelContext
             )
-            Issue.record("Expected sendMessage to fail after the fake service captured the request")
+            Issue.record("Expected sendMessageBuiltIn to fail after the fake service captured the request")
         } catch {
             // Expected: the fake service aborts after capturing the outgoing parameter.
         }
@@ -72,13 +72,13 @@ struct ClaudeServiceMessagingTests {
         claudeService.service = fakeService
 
         do {
-            try await claudeService.sendMessage(
+            try await claudeService.sendMessageBuiltIn(
                 text: "放松一下",
                 session: session,
                 modelId: "claude-test",
                 modelContext: modelContext
             )
-            Issue.record("Expected sendMessage to fail after the fake service captured the request")
+            Issue.record("Expected sendMessageBuiltIn to fail after the fake service captured the request")
         } catch {
             // Expected: the fake service aborts after capturing the outgoing parameter.
         }
@@ -106,6 +106,8 @@ struct ClaudeServiceMessagingTests {
             Session.self,
             SessionTaskState.self,
             Message.self,
+            ExecutionJob.self,
+            ExecutionAttempt.self,
             ToolCall.self,
             AgentRound.self,
             configurations: config

@@ -60,4 +60,22 @@ final class ChatFlowUITests: UITestBase {
         XCTAssertTrue(identifiedElement("chat.agentMessage.auditDisclosure").exists, app.debugDescription)
         XCTAssertFalse(identifiedElement("chat.agentMessage.auditTrace").exists, app.debugDescription)
     }
+
+    @MainActor
+    func testComposerRemainsEditableWhileSessionHasRunningJobAndNextMessageQueues() throws {
+        launchApp(arguments: [
+            "-com.agentgui.test.preloadMessages", "false",
+            "-com.agentgui.test.executionFixture", "runningWithQueueSupport"
+        ])
+
+        let input = identifiedElement("chat.inputField")
+        XCTAssertTrue(input.waitForExistence(timeout: 2), app.debugDescription)
+        XCTAssertTrue(input.isEnabled)
+
+        input.click()
+        input.typeText("queue next message")
+        identifiedElement("chat.sendButton").click()
+
+        XCTAssertTrue(app.staticTexts["队列 1"].waitForExistence(timeout: 2), app.debugDescription)
+    }
 }

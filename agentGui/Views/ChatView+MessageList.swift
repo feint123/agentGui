@@ -44,7 +44,7 @@ extension ChatView {
                     if let message = messagesByID[row.id] {
                         MessageBubbleView(
                             snapshot: row,
-                            isStreaming: claudeService.isStreaming,
+                            isStreaming: effectiveStreamingState,
                             onCopy: { copyMessage(message) },
                             onEdit: row.direction == .user
                                 ? { newText in editAndResend(message: message, newText: newText) }
@@ -96,7 +96,7 @@ extension ChatView {
             }
             .onChange(of: allMessages.last?.textContent) { _, _ in
                 if ChatMessageListAutoScrollPolicy.shouldScrollForStreaming(
-                    isStreaming: claudeService.isStreaming,
+                    isStreaming: effectiveStreamingState,
                     isPinnedToBottom: isMessageListPinnedToBottom
                 ) {
                     scrollToBottom(proxy: proxy)

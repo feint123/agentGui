@@ -13,6 +13,15 @@ extension ChatView {
         TestLaunchOptions.current
     }
 
+    private var composerExecutionPresentation: ChatComposerExecutionPresentation {
+        ChatComposerExecutionPresentation.resolve(
+            usesExecutionProjectionUI: usesExecutionProjectionUI,
+            projection: sessionExecutionProjection,
+            legacyIsStreaming: claudeService.isStreaming,
+            canSend: canSend
+        )
+    }
+
     // MARK: - Input Area
 
     var inputArea: some View {
@@ -70,12 +79,25 @@ extension ChatView {
                     }
 
                     Spacer(minLength: 0)
+
+                    if composerExecutionPresentation.showsRunningBadge {
+                        Text("运行中")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let queueBadgeText = composerExecutionPresentation.queueBadgeText {
+                        Text(queueBadgeText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("chat.queueBadge")
+                    }
                 }
 
                 HStack(alignment: .bottom, spacing: 10) {
                     MentionAwareEditor(
                         text: $inputText,
-                        isDisabled: claudeService.isStreaming,
+                        isDisabled: composerExecutionPresentation.isComposerDisabled,
                         onTextChange: { updateComposerAssistState($0) },
                         onMoveSelection: { handleComposerSelectionMove(delta: $0) },
                         onCommitSelection: { commitComposerSelection() },
@@ -361,28 +383,58 @@ var fileChipsRow: some View {
 
     var sendButton: some View {
         Group {
-            if claudeService.isStreaming {
-                Button {
-                    stopStreaming()
-                } label: {
-                    Image(systemName: "stop.circle.fill")
-                        .font(.system(size: 30))
-                        .foregroundStyle(.red)
+            if composerExecutionPresentation.showsSendButton && composerExecutionPresentation.showsStopButton {
+                HStack(spacing: 8) {
+                    if composerExecutionPresentation.showsStopButton {
+                        Button {
+                            stopStreaming()
+                        } label: {
+                            Image(systemName: "stop.circle.fill")
+                                .font(.system(size: 30))
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("chat.stopButton")
+                    }
+
+                    Button {
+                        activeTask = Task { await sendMessage() }
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(composerExecutionPresentation.isSendDisabled)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .accessibilityIdentifier("chat.sendButton")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("chat.stopButton")
             } else {
-                Button {
-                    activeTask = Task { await sendMessage() }
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 30))
-                        .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.4))
+                if composerExecutionPresentation.showsStopButton {
+                    Button {
+                        stopStreaming()
+                    } label: {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("chat.stopButton")
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .keyboardShortcut(.return, modifiers: .command)
-                .accessibilityIdentifier("chat.sendButton")
+
+                if composerExecutionPresentation.showsSendButton {
+                    Button {
+                        activeTask = Task { await sendMessage() }
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(composerExecutionPresentation.isSendDisabled)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .accessibilityIdentifier("chat.sendButton")
+                }
             }
         }
     }

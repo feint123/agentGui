@@ -159,6 +159,19 @@ struct ChatView: View {
         }
         return ""
     }
+
+    var sessionExecutionProjection: SessionExecutionProjection {
+        claudeService.executionProjectionStore.projection(for: session.sessionId)
+    }
+
+    var usesExecutionProjectionUI: Bool {
+        sessionExecutionProjection.isRunning ||
+        sessionExecutionProjection.queuedCount > 0
+    }
+
+    var effectiveStreamingState: Bool {
+        usesExecutionProjectionUI ? sessionExecutionProjection.isRunning : claudeService.isStreaming
+    }
 }
 
 // MARK: - Preview

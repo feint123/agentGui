@@ -16,6 +16,7 @@ final class ClaudeService {
 
     // MARK: - Observable State
 
+    @available(*, deprecated, message: "Use executionProjectionStore per session")
     var isStreaming: Bool = false
     var lastError: String?
 
@@ -120,6 +121,12 @@ final class ClaudeService {
 
     /// Optional execution provider registry. Tests can inject a stub registry; production lazily builds one.
     var executionProviderRegistry: ConversationExecutionProviderRegistry?
+
+    /// Per-session execution projections used by the queue-aware runtime migration.
+    var executionProjectionStore = ExecutionProjectionStore()
+
+    /// Optional job-driven execution orchestrator. When unset, messaging falls back to the legacy provider path.
+    var executionOrchestrator: ConversationExecutionOrchestrator?
 
     /// Shared runtime activation coordinator used to coordinate providers that share an execution runtime scope.
     var executionRuntimeCoordinator = ConversationExecutionRuntimeCoordinator()

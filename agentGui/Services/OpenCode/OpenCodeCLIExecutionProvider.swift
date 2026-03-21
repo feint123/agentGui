@@ -159,7 +159,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
                 session: request.session,
                 remoteSessionID: remoteBinding?.remoteSessionID
             )
-            let assistantMessage = makePendingAssistantMessage(session: request.session, modelContext: request.modelContext)
+            let assistantMessage = resolveAssistantMessage(for: request)
             activeTurns[request.session.sessionId] = ActiveTurnState(
                 assistantMessage: assistantMessage,
                 modelContext: request.modelContext
@@ -597,6 +597,21 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         }
 
         return lines.joined(separator: "\n\n")
+    }
+
+    private func resolveAssistantMessage(for request: ConversationExecutionRequest) -> Message {
+        if let targetAgentMessageID = request.targetAgentMessageID,
+           let assistantMessage = request.session.messages.first(where: { $0.id == targetAgentMessageID }) {
+            assistantMessage.status = .pending
+            assistantMessage.errorMessage = nil
+            if assistantMessage.textContent == nil {
+                assistantMessage.textContent = ""
+            }
+            try? request.modelContext.save()
+            return assistantMessage
+        }
+
+        return makePendingAssistantMessage(session: request.session, modelContext: request.modelContext)
     }
 
     private func makePendingAssistantMessage(session: Session, modelContext: ModelContext) -> Message {

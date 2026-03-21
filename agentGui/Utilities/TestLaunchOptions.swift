@@ -13,6 +13,7 @@ struct TestLaunchOptions {
     let todoFixtureMode: String?
     let initialComposerText: String?
     let chatProjectionFixture: String?
+    let executionFixtureMode: String?
     let suppressOnboarding: Bool
 
     static var current: TestLaunchOptions {
@@ -31,6 +32,7 @@ struct TestLaunchOptions {
         todoFixtureMode = Self.stringValue(for: "-com.agentgui.test.todoFixtureMode", in: arguments)
         initialComposerText = Self.stringValue(for: "-com.agentgui.test.initialComposerText", in: arguments)
         chatProjectionFixture = Self.stringValue(for: "-com.agentgui.test.chatProjectionFixture", in: arguments)
+        executionFixtureMode = Self.stringValue(for: "-com.agentgui.test.executionFixture", in: arguments)
         suppressOnboarding = Self.boolValue(for: "-com.agentgui.test.suppressOnboarding", in: arguments)
 
         if let rawTab = Self.stringValue(for: "-com.agentgui.test.initialTab", in: arguments),

@@ -8,6 +8,7 @@ import SwiftData
 final class PersistenceCoordinator {
     enum SaveDomain: String, Codable {
         case settings
+        case execution
         case sessionMessages
         case toolCalls
         case sessionTaskState
@@ -15,7 +16,7 @@ final class PersistenceCoordinator {
 
         var isCritical: Bool {
             switch self {
-            case .sessionMessages, .toolCalls:
+            case .execution, .sessionMessages, .toolCalls:
                 return true
             case .settings, .sessionTaskState, .backupRestore:
                 return false

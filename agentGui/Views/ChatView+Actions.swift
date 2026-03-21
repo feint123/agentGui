@@ -357,7 +357,7 @@ extension ChatView {
     }
 
     func regenerate() {
-        guard !claudeService.isStreaming else { return }
+        guard !effectiveStreamingState else { return }
         activeTask = Task {
             let settings = AppSettings.getOrCreate(in: modelContext)
             do {
@@ -375,7 +375,7 @@ extension ChatView {
     }
 
     func editAndResend(message: Message, newText: String) {
-        guard !claudeService.isStreaming else { return }
+        guard !effectiveStreamingState else { return }
         activeTask = Task {
             let settings = AppSettings.getOrCreate(in: modelContext)
             do {

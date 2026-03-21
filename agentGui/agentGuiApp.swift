@@ -48,6 +48,8 @@ enum PersistenceSchema {
         IntegrityIssue.self,
         BackgroundAgentTask.self,
         BackgroundAgentTaskRun.self,
+        ExecutionJob.self,
+        ExecutionAttempt.self,
     ]
 
     static let sharedModelTypeNames: [String] = sharedModelTypes.map { String(describing: $0) }
@@ -159,6 +161,9 @@ struct agentGuiApp: App {
                         }
                     }
                     Task { @MainActor in
+                        await claudeService.bootstrapExecutionRuntime(modelContext: context)
+                    }
+                    Task { @MainActor in
                         try? await channelBootstrap.startEnabledChannels(modelContext: context)
                         await channelBootstrap.stopDisabledChannels(modelContext: context)
                     }
@@ -220,6 +225,14 @@ struct agentGuiApp: App {
 
         if let chatProjectionFixture = launchOptions.chatProjectionFixture {
             ensureChatProjectionFixture(for: session, mode: chatProjectionFixture, in: context)
+        }
+
+        if let executionFixtureMode = launchOptions.executionFixtureMode {
+            ensureExecutionProjectionFixture(for: session, mode: executionFixtureMode, in: context)
+            if settings.apiKey.isEmpty {
+                settings.apiKey = "sk-ant-ui-test"
+                settingsChanged = true
+            }
         }
 
         if let todoFixtureMode = launchOptions.todoFixtureMode {
@@ -399,5 +412,64 @@ struct agentGuiApp: App {
             domain: .sessionMessages,
             userMessage: "UI 测试聊天投影夹具初始化未成功保存"
         )
+    }
+
+    @MainActor
+    private func ensureExecutionProjectionFixture(for session: Session, mode: String, in context: ModelContext) {
+        switch mode {
+        case "runningWithQueueSupport":
+            session.defaultExecutionProviderID = ConversationExecutionProviderID.builtInAgent.rawValue
+            claudeService.executionProjectionStore.setProjection(
+                SessionExecutionProjection(
+                    sessionID: session.sessionId,
+                    runningJobID: UUID(),
+                    queuedJobIDs: [],
+                    queuedCount: 0,
+                    isRunning: true,
+                    canEditComposer: true,
+                    canSubmitNewJob: true,
+                    activeProviderID: .builtInAgent
+                )
+            )
+
+            if claudeService.executionOrchestrator == nil {
+                claudeService.executionOrchestrator = ConversationExecutionOrchestrator(
+                    modelContext: context,
+                    persistenceStore: ExecutionPersistenceStore(
+                        modelContext: context,
+                        persistenceCoordinator: .shared
+                    ),
+                    projectionStore: claudeService.executionProjectionStore,
+                    scheduler: ExecutionScheduler(maxConcurrentJobs: 2),
+                    runtimePool: ExecutionRuntimePool(),
+                    providerRegistry: claudeService.executionProviderRegistry ?? ConversationExecutionProviderRegistry(
+                        builtIn: BuiltInConversationExecutionProvider(claudeService: claudeService),
+                        copilot: GitHubCopilotCLIExecutionProvider(
+                            terminalRuntimeFactory: { [unowned claudeService] sessionID, workingDirectory in
+                                claudeService.getExternalACPTerminalTaskRuntime(
+                                    for: sessionID,
+                                    providerID: .githubCopilotCLI,
+                                    workingDirectory: workingDirectory
+                                )
+                            },
+                            permissionCenter: claudeService.acpPermissionCenter
+                        ),
+                        openCode: OpenCodeCLIExecutionProvider(
+                            terminalRuntimeFactory: { [unowned claudeService] sessionID, workingDirectory in
+                                claudeService.getExternalACPTerminalTaskRuntime(
+                                    for: sessionID,
+                                    providerID: .openCodeCLI,
+                                    workingDirectory: workingDirectory
+                                )
+                            },
+                            permissionCenter: claudeService.acpPermissionCenter
+                        )
+                    ),
+                    runtimeCoordinator: claudeService.executionRuntimeCoordinator
+                )
+            }
+        default:
+            break
+        }
     }
 }
