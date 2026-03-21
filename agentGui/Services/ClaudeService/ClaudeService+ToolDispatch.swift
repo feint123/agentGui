@@ -16,9 +16,10 @@ extension ClaudeService {
         toolName: String,
         sourceKind: LargeTextPayload.SourceKind,
         sourceDescriptor: String,
-        settings: AppSettings
+        settings: AppSettings,
+        baseResult: ToolExecutionResult? = nil
     ) async -> ToolExecutionResult {
-        let detected = ToolExecutionResult.detect(rawText, toolName: toolName)
+        let detected = baseResult ?? ToolExecutionResult.detect(rawText, toolName: toolName)
         guard !detected.isError else { return detected }
 
         let decision = toolResultBudgetController.decide(
@@ -73,7 +74,11 @@ extension ClaudeService {
             status: detected.status,
             mediaContent: detected.mediaContent,
             rawOutputText: rawText,
-            envelope: envelope
+            envelope: envelope,
+            changeProposalID: detected.changeProposalID,
+            changeProposalState: detected.changeProposalState,
+            changeProposalSnapshot: detected.changeProposalSnapshot,
+            changeProposalDiffContent: detected.changeProposalDiffContent
         )
     }
 
@@ -105,9 +110,25 @@ extension ClaudeService {
         let sessionId = session.sessionId
         switch name {
         case "str_replace_based_edit_tool", "str_replace_editor":
-            let raw = await executeTextEditorTool(input: input)
+            let raw = await executeTextEditorTool(
+                input: input,
+                sessionID: sessionId,
+                baseWorkspaceRoot: textEditorBaseWorkspaceRoot(
+                    forPath: input["path"]?.stringValue,
+                    session: session,
+                    settings: settings
+                ),
+                modelContext: modelContext
+            )
             let descriptor = input["path"]?.stringValue ?? name
-            return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .file, sourceDescriptor: descriptor, settings: settings)
+            return await wrapLargeTextToolResult(
+                rawText: raw.text,
+                toolName: name,
+                sourceKind: .file,
+                sourceDescriptor: descriptor,
+                settings: settings,
+                baseResult: raw
+            )
         case "bash":
             let wd = effectiveWorkingDirectory(session: session, settings: settings)
             let runtime = getTerminalTaskRuntime(for: sessionId, workingDirectory: wd)
@@ -161,6 +182,7 @@ extension ClaudeService {
     // MARK: - Effective Working Directory
 
     func effectiveWorkingDirectory(session: Session, settings: AppSettings) -> String? {
+        if !session.workingDirectory.isEmpty { return session.workingDirectory }
         if !settings.workingDirectory.isEmpty { return settings.workingDirectory }
         return nil
     }
@@ -174,12 +196,29 @@ extension ClaudeService {
         sessionId: String,
         modelContext: ModelContext
     ) async -> ToolExecutionResult {
+        let session = sessionForTextEditorExecution(sessionId: sessionId, modelContext: modelContext)
         let wd = settings.workingDirectory.isEmpty ? nil : settings.workingDirectory
         switch name {
         case "str_replace_based_edit_tool", "str_replace_editor":
-            let raw = await executeTextEditorTool(input: input)
+            let raw = await executeTextEditorTool(
+                input: input,
+                sessionID: sessionId,
+                baseWorkspaceRoot: textEditorBaseWorkspaceRoot(
+                    forPath: input["path"]?.stringValue,
+                    session: session,
+                    settings: settings
+                ),
+                modelContext: modelContext
+            )
             let descriptor = input["path"]?.stringValue ?? name
-            return await wrapLargeTextToolResult(rawText: raw, toolName: name, sourceKind: .file, sourceDescriptor: descriptor, settings: settings)
+            return await wrapLargeTextToolResult(
+                rawText: raw.text,
+                toolName: name,
+                sourceKind: .file,
+                sourceDescriptor: descriptor,
+                settings: settings,
+                baseResult: raw
+            )
         case "bash":
             let runtime = getTerminalTaskRuntime(for: sessionId, workingDirectory: wd)
             let raw = await executeBashTool(input: input, runtime: runtime, workingDirectory: wd)
@@ -227,6 +266,29 @@ extension ClaudeService {
         default:
             return .unknownTool(name)
         }
+    }
+
+    private func sessionForTextEditorExecution(sessionId: String, modelContext: ModelContext) -> Session? {
+        let targetSessionID = sessionId
+        let descriptor = FetchDescriptor<Session>(
+            predicate: #Predicate { $0.sessionId == targetSessionID }
+        )
+        return try? modelContext.fetch(descriptor).first
+    }
+
+    private func textEditorBaseWorkspaceRoot(
+        forPath path: String?,
+        session: Session?,
+        settings: AppSettings
+    ) -> String? {
+        if let session, let workingDirectory = effectiveWorkingDirectory(session: session, settings: settings) {
+            return workingDirectory
+        }
+        if !settings.workingDirectory.isEmpty {
+            return settings.workingDirectory
+        }
+        guard let path else { return nil }
+        return URL(fileURLWithPath: path).deletingLastPathComponent().path
     }
 
     private func executeLSPTool(

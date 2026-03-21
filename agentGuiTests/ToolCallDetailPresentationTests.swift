@@ -106,4 +106,17 @@ struct ToolCallDetailPresentationTests {
         #expect(sections.contains { $0.label == "未关闭声明" && $0.text == "2" })
         #expect(sections.contains { $0.label == "已反驳声明" && $0.text == "1" })
     }
+
+    @Test func editDetailSectionsIncludeChangeReviewStatus() {
+        let toolCall = ToolCall(toolCallId: "tool-5", kind: .edit)
+        toolCall.filePath = "/tmp/README.md"
+        toolCall.diffContent = "@@ -1 +1 @@\n-old\n+new"
+        toolCall.changeProposalID = UUID()
+        toolCall.changeProposalStateRaw = ChangeProposalState.readyForReview.rawValue
+
+        let row = ToolCallRowPresentation.make(for: toolCall)
+        let sections = ToolCallDetailPresentation.sections(for: toolCall, row: row)
+
+        #expect(sections.contains { $0.label == "审查状态" && $0.text == "待审查" })
+    }
 }

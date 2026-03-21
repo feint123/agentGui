@@ -62,6 +62,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
     private let turnRouter = ACPExternalSessionTurnRouter()
 
     private var runtimeClients: [String: any GitHubCopilotCLIRuntimeClient] = [:]
+    private var runtimeWorkingDirectories: [String: String] = [:]
     private var activeTurns: [String: ActiveTurnState] = [:]
 
     init(
@@ -105,13 +106,17 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
                 for: request.session.sessionId,
                 modelContext: request.modelContext
             )
-            let workingDirectory = resolvedWorkingDirectory(session: request.session, settings: settings)
+            let workingDirectory = resolvedWorkingDirectory(
+                session: request.session,
+                settings: settings,
+                override: request.workingDirectoryOverride
+            )
             await prepareForActivation(
                 session: request.session,
                 isActiveProvider: true,
                 modelContext: request.modelContext
             )
-            let runtimeClient = try makeRuntimeClientIfNeeded(
+            let runtimeClient = try await makeRuntimeClientIfNeeded(
                 session: request.session,
                 configuration: configuration,
                 workingDirectory: workingDirectory,
@@ -263,7 +268,14 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         _ = modelContext
     }
 
-    private func resolvedWorkingDirectory(session: Session, settings: AppSettings) -> String {
+    private func resolvedWorkingDirectory(
+        session: Session,
+        settings: AppSettings,
+        override: String?
+    ) -> String {
+        if let override, !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return override
+        }
         if let sessionDirectory = session.workingDirectory.nonEmptyValue {
             return sessionDirectory
         }
@@ -278,9 +290,16 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         configuration: GitHubCopilotCLIConfiguration,
         workingDirectory: String,
         authorizationPolicy: ToolAuthorizationPolicy
-    ) throws -> any GitHubCopilotCLIRuntimeClient {
+    ) async throws -> any GitHubCopilotCLIRuntimeClient {
         if let existing = runtimeClients[session.sessionId] {
-            return existing
+            if runtimeWorkingDirectories[session.sessionId] == workingDirectory {
+                return existing
+            }
+
+            await existing.close()
+            runtimeClients.removeValue(forKey: session.sessionId)
+            runtimeWorkingDirectories.removeValue(forKey: session.sessionId)
+            sessionRuntimeResetter(session.sessionId)
         }
 
         let launchConfiguration = runtimeFactory.makeLaunchConfiguration(
@@ -296,6 +315,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
             makeUpdateSink(localSessionID: session.sessionId)
         )
         runtimeClients[session.sessionId] = client
+        runtimeWorkingDirectories[session.sessionId] = workingDirectory
         return client
     }
 
@@ -698,6 +718,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
             if let runtimeClient = runtimeClients.removeValue(forKey: inactiveSessionID) {
                 await runtimeClient.close()
             }
+            runtimeWorkingDirectories.removeValue(forKey: inactiveSessionID)
             sessionRuntimeResetter(inactiveSessionID)
             turnRouter.reset(sessionID: inactiveSessionID)
             markCancelledIfNeeded(sessionID: inactiveSessionID)
@@ -711,6 +732,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
             if let runtimeClient = runtimeClients.removeValue(forKey: activeSessionID) {
                 await runtimeClient.close()
             }
+            runtimeWorkingDirectories.removeValue(forKey: activeSessionID)
             sessionRuntimeResetter(activeSessionID)
             turnRouter.reset(sessionID: activeSessionID)
             markCancelledIfNeeded(sessionID: activeSessionID)
@@ -727,6 +749,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
         if let runtimeClient = runtimeClients.removeValue(forKey: localSessionID) {
             await runtimeClient.close()
         }
+        runtimeWorkingDirectories.removeValue(forKey: localSessionID)
         sessionRuntimeResetter(localSessionID)
         if removeBinding {
             await sessionBridge.removeBinding(for: localSessionID, providerID: id)

@@ -222,7 +222,8 @@ extension ClaudeService {
             scheduler: ExecutionScheduler(maxConcurrentJobs: 2),
             runtimePool: ExecutionRuntimePool(),
             providerRegistry: executionProviderRegistry(for: modelContext),
-            runtimeCoordinator: executionRuntimeCoordinator
+            runtimeCoordinator: executionRuntimeCoordinator,
+            changeReviewProjectionStore: changeReviewProjectionStore
         )
         executionOrchestrator = orchestrator
         await orchestrator.restorePendingJobs()

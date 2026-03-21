@@ -141,6 +141,12 @@ struct AgentLoopHookDependencyFactory {
         record.toolResultInjectedChars = context.metadata["toolResultInjectedChars"] as? Int
         record.toolResultInjectionMode = context.metadata["toolResultInjectionMode"] as? String
         record.toolPayloadLastReadRange = context.metadata["toolPayloadLastReadRange"] as? String
+        record.changeProposalID = context.metadata["changeProposalID"] as? UUID
+        record.changeProposalStateRaw = context.metadata["changeProposalStateRaw"] as? String
+        if let diffContent = context.metadata["changeProposalDiffContent"] as? String,
+           !diffContent.isEmpty {
+            record.diffContent = diffContent
+        }
         if let payloadReadCount = context.metadata["toolPayloadReadCount"] as? Int {
             record.toolPayloadReadCount = payloadReadCount
         }

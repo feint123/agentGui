@@ -22,6 +22,17 @@ extension ChatView {
         )
     }
 
+    private var changeReviewProjection: SessionChangeReviewProjection {
+        changeReviewProjectionStore.projection(forSessionID: session.sessionId)
+    }
+
+    private var changeReviewBadgeText: String {
+        if changeReviewProjection.pendingFileCount > 0 {
+            return "\(changeReviewProjection.pendingFileCount) 个文件待审查"
+        }
+        return "\(changeReviewProjection.pendingProposalCount) 个提案待审查"
+    }
+
     // MARK: - Input Area
 
     var inputArea: some View {
@@ -93,6 +104,15 @@ extension ChatView {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .accessibilityIdentifier("chat.queueBadge")
+                    }
+
+                    if changeReviewProjection.pendingProposalCount > 0 {
+                        Button(changeReviewBadgeText) {
+                            openChangeReviewFromComposer()
+                        }
+                        .buttonStyle(.glass)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("chat.changeReviewBadge")
                     }
                 }
 
@@ -281,6 +301,11 @@ extension ChatView {
             )
         }
         return workspaceState.editorSelectedLineRange?.displayText ?? "已选文本"
+    }
+
+    private func openChangeReviewFromComposer() {
+        guard let proposalID = changeReviewProjection.proposalIDs.first else { return }
+        workspaceState.selectChangeProposal(proposalID)
     }
 
     func contextChip(systemImage: String, label: String, tint: Color, onRemove: @escaping () -> Void) -> some View {

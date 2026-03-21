@@ -5,6 +5,7 @@
 
 import Foundation
 import SwiftAnthropic
+import SwiftData
 
 // MARK: - Text Editor Tool
 
@@ -12,7 +13,12 @@ extension ClaudeService {
 
     /// Dispatches text editor commands. Runs all blocking file I/O off the MainActor
     /// via Task.detached to prevent freezing the UI.
-    func executeTextEditorTool(input: MessageResponse.Content.Input) async -> String {
+    func executeTextEditorTool(
+        input: MessageResponse.Content.Input,
+        sessionID: String,
+        baseWorkspaceRoot: String?,
+        modelContext: ModelContext
+    ) async -> ToolExecutionResult {
         // Extract input values on MainActor before hopping off
         let command   = input["command"]?.stringValue
         let path      = input["path"]?.stringValue
@@ -22,28 +28,102 @@ extension ClaudeService {
         let insertLine = input["insert_line"]?.intValue
         let viewRange  = input["view_range"]?.arrayValue?.compactMap { $0.intValue }
 
-        return await Task.detached(priority: .userInitiated) {
-            guard let command else { return "Error: missing 'command' parameter" }
-            guard let path    else { return "Error: missing 'path' parameter" }
+        guard let command else { return .missingParameter("command") }
+        guard let path else { return .missingParameter("path") }
 
-            switch command {
-            case "view", "read", "open":
-                return Self.textEditorView(path: path, viewRange: viewRange)
-            case "str_replace":
-                guard let oldStr else { return "Error: missing 'old_str'" }
-                return Self.textEditorStrReplace(path: path, oldStr: oldStr, newStr: newStr ?? "")
-            case "create":
-                guard let fileText else { return "Error: missing 'file_text'" }
-                return Self.textEditorWrite(path: path, fileText: fileText)
-            case "write":
-                return Self.textEditorWrite(path: path, fileText: newStr ?? fileText ?? "")
-            case "insert":
-                guard let insertLine, let newStr else { return "Error: missing parameters" }
-                return Self.textEditorInsert(path: path, insertLine: insertLine, newStr: newStr)
-            default:
-                return "Error: unknown command '\(command)'"
+        switch command {
+        case "view", "read", "open":
+            return await Task.detached(priority: .userInitiated) {
+                .success(Self.textEditorView(path: path, viewRange: viewRange))
+            }.value
+        case "str_replace":
+            guard let oldStr else { return .missingParameter("old_str") }
+            return await stageTextEditorDraft(
+                sessionID: sessionID,
+                baseWorkspaceRoot: baseWorkspaceRoot,
+                modelContext: modelContext
+            ) {
+                try DirectIntentDraft.strReplace(path: path, oldStr: oldStr, newStr: newStr ?? "")
             }
+        case "create":
+            guard let fileText else { return .missingParameter("file_text") }
+            return await stageTextEditorDraft(
+                sessionID: sessionID,
+                baseWorkspaceRoot: baseWorkspaceRoot,
+                modelContext: modelContext
+            ) {
+                try DirectIntentDraft.write(path: path, fileText: fileText)
+            }
+        case "write":
+            return await stageTextEditorDraft(
+                sessionID: sessionID,
+                baseWorkspaceRoot: baseWorkspaceRoot,
+                modelContext: modelContext
+            ) {
+                try DirectIntentDraft.write(path: path, fileText: newStr ?? fileText ?? "")
+            }
+        case "insert":
+            guard let insertLine, let newStr else {
+                return .failure("Error: missing parameters")
+            }
+            return await stageTextEditorDraft(
+                sessionID: sessionID,
+                baseWorkspaceRoot: baseWorkspaceRoot,
+                modelContext: modelContext
+            ) {
+                try DirectIntentDraft.insert(path: path, insertLine: insertLine, newStr: newStr)
+            }
+        default:
+            return .unknownTool(command)
+        }
+    }
+
+    private func stageTextEditorDraft(
+        sessionID: String,
+        baseWorkspaceRoot: String?,
+        modelContext: ModelContext,
+        makeDraft: @escaping @Sendable () throws -> DirectIntentDraft
+    ) async -> ToolExecutionResult {
+        let draftResult = await Task.detached(priority: .userInitiated) {
+            Result { try makeDraft() }
         }.value
+
+        switch draftResult {
+        case .failure(let error):
+            return ToolExecutionResult.detect(
+                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                toolName: "str_replace_based_edit_tool"
+            )
+        case .success(let draft):
+            let backend = DirectIntentBackend(
+                modelContext: modelContext,
+                projectionStore: changeReviewProjectionStore
+            )
+
+            do {
+                let snapshot = try await backend.stageDraft(
+                    draft,
+                    sessionID: sessionID,
+                    baseWorkspaceRoot: baseWorkspaceRoot
+                )
+                let fileCount = snapshot.fileChanges.count
+                let summary = "已创建待审查变更提案（\(fileCount) 个文件）。在 Apply 前不会修改真实工作区。"
+                return ToolExecutionResult(
+                    summary,
+                    status: .success,
+                    rawOutputText: summary,
+                    changeProposalID: snapshot.proposal.id,
+                    changeProposalState: snapshot.proposal.state,
+                    changeProposalSnapshot: snapshot,
+                    changeProposalDiffContent: snapshot.fileChanges.first?.unifiedDiff
+                )
+            } catch {
+                return ToolExecutionResult.detect(
+                    (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                    toolName: "str_replace_based_edit_tool"
+                )
+            }
+        }
     }
 
     // MARK: - File Operations (nonisolated static — no actor isolation needed)
@@ -90,66 +170,5 @@ extension ClaudeService {
         return (clampedStart, clampedEnd)
     }
 
-    nonisolated private static func textEditorStrReplace(path: String, oldStr: String, newStr: String) -> String {
-        do {
-            let content = try String(contentsOfFile: path, encoding: .utf8)
-            let count = content.components(separatedBy: oldStr).count - 1
-            if count == 0 { return "Error: old_str not found in '\(path)'" }
-            if count > 1 { return "Error: old_str appears \(count) times (ambiguous). Add more context." }
-            let updated = content.replacingOccurrences(of: oldStr, with: newStr, options: .literal)
-            try updated.write(toFile: path, atomically: true, encoding: .utf8)
-            return "Replaced text in '\(path)'.\n\nVerification:\n\(readBackFile(path: path))"
-        } catch {
-            return "Error: \(error.localizedDescription)"
-        }
-    }
-
-    nonisolated private static func textEditorWrite(path: String, fileText: String) -> String {
-        do {
-            let dir = (path as NSString).deletingLastPathComponent
-            if !dir.isEmpty {
-                try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-            }
-            try fileText.write(toFile: path, atomically: true, encoding: .utf8)
-            return "Written '\(path)'.\n\nVerification:\n\(readBackFile(path: path))"
-        } catch {
-            return "Error: \(error.localizedDescription)"
-        }
-    }
-
-    nonisolated private static func textEditorInsert(path: String, insertLine: Int, newStr: String) -> String {
-        do {
-            let content = try String(contentsOfFile: path, encoding: .utf8)
-            var lines = content.components(separatedBy: "\n")
-            let idx = max(0, min(insertLine, lines.count))
-            lines.insert(contentsOf: newStr.components(separatedBy: "\n"), at: idx)
-            try lines.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
-            return "Inserted text after line \(insertLine) in '\(path)'.\n\nVerification:\n\(readBackFile(path: path))"
-        } catch {
-            return "Error: \(error.localizedDescription)"
-        }
-    }
-
-    /// Reads back a file for verification. Shows all lines if ≤100, otherwise first 100 with a note.
-    nonisolated private static func readBackFile(path: String) -> String {
-        do {
-            let content = try String(contentsOfFile: path, encoding: .utf8)
-            let lines = content.components(separatedBy: "\n")
-            let totalLines = lines.count
-            let limit = 100
-            if totalLines <= limit {
-                return lines.enumerated()
-                    .map { "\($0.offset + 1)\t\($0.element)" }
-                    .joined(separator: "\n")
-            } else {
-                let preview = lines.prefix(limit).enumerated()
-                    .map { "\($0.offset + 1)\t\($0.element)" }
-                    .joined(separator: "\n")
-                return "\(preview)\n(file has \(totalLines) lines total, showing first \(limit))"
-            }
-        } catch {
-            return "(could not read back file: \(error.localizedDescription))"
-        }
-    }
 }
 

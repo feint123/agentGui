@@ -17,6 +17,10 @@ struct ToolExecutionResult {
     let mediaContent: [MessageParameter.Message.Content.ContentObject]
     let rawOutputText: String?
     let envelope: ToolResultEnvelope?
+    let changeProposalID: UUID?
+    let changeProposalState: ChangeProposalState?
+    let changeProposalSnapshot: ChangeProposalReviewSnapshot?
+    let changeProposalDiffContent: String?
 
     /// True when the result represents any kind of failure; maps directly to `is_error` in the
     /// Anthropic tool-result block so the model receives a structured failure signal.
@@ -45,13 +49,21 @@ struct ToolExecutionResult {
         status: ToolResultStatus = .success,
         mediaContent: [MessageParameter.Message.Content.ContentObject] = [],
         rawOutputText: String? = nil,
-        envelope: ToolResultEnvelope? = nil
+        envelope: ToolResultEnvelope? = nil,
+        changeProposalID: UUID? = nil,
+        changeProposalState: ChangeProposalState? = nil,
+        changeProposalSnapshot: ChangeProposalReviewSnapshot? = nil,
+        changeProposalDiffContent: String? = nil
     ) {
         self.status = status
         self.text = text
         self.mediaContent = mediaContent
         self.rawOutputText = rawOutputText
         self.envelope = envelope
+        self.changeProposalID = changeProposalID
+        self.changeProposalState = changeProposalState
+        self.changeProposalSnapshot = changeProposalSnapshot
+        self.changeProposalDiffContent = changeProposalDiffContent
     }
 
     // MARK: Named factory methods

@@ -27,6 +27,8 @@ struct FileEditorView: View {
     var body: some View {
         Group {
             switch FileEditorDisplayMode.resolve(from: workspaceState) {
+            case .changeProposalReview(let proposalID):
+                ChangeProposalReviewView(proposalID: proposalID)
             case .gitDiff(let title, let diffText):
                 GitDiffView(title: title, diffText: diffText)
             case .file(let fileURL):

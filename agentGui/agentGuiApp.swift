@@ -28,12 +28,26 @@ struct SettingsMenuCommands: Commands {
     }
 }
 
+struct WorkspaceMenuCommands: Commands {
+    var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("打开/切换工作区...") {
+                WorkspaceDirectorySelectionCoordinator.requestFromSystemMenu()
+            }
+            .keyboardShortcut("o", modifiers: .command)
+        }
+    }
+}
+
 enum PersistenceSchema {
     static let currentVersion = 1
 
     static let sharedModelTypes: [any PersistentModel.Type] = [
         AppSettings.self,
         Session.self,
+        ChangeProposal.self,
+        ProposedFileChange.self,
+        ChangeReviewDecision.self,
         ACPExternalSessionBinding.self,
         Message.self,
         ChannelAccountBinding.self,
@@ -53,6 +67,32 @@ enum PersistenceSchema {
     ]
 
     static let sharedModelTypeNames: [String] = sharedModelTypes.map { String(describing: $0) }
+}
+
+@MainActor
+enum ChangeReviewBootstrapper {
+    static func restorePendingProposals(
+        modelContext: ModelContext,
+        projectionStore: ChangeReviewProjectionStore,
+        persistenceCoordinator: PersistenceCoordinator = .shared
+    ) async throws {
+        var descriptor = FetchDescriptor<ChangeProposal>()
+        descriptor.sortBy = [SortDescriptor(\ChangeProposal.updatedAt, order: .reverse)]
+
+        let proposals = try modelContext.fetch(descriptor)
+        let store = ChangeProposalStore(
+            modelContext: modelContext,
+            persistenceCoordinator: persistenceCoordinator
+        )
+
+        for proposal in proposals where proposal.state.isPendingReview {
+            let snapshot = try await store.reviewSnapshot(for: proposal.id)
+            guard snapshot.fileChanges.contains(where: { $0.state.isPendingReview }) else {
+                continue
+            }
+            projectionStore.set(snapshot)
+        }
+    }
 }
 
 @main
@@ -174,6 +214,7 @@ struct agentGuiApp: App {
         }
         .modelContainer(sharedModelContainer)
         .commands {
+            WorkspaceMenuCommands()
             SettingsMenuCommands()
         }
 
@@ -465,7 +506,8 @@ struct agentGuiApp: App {
                             permissionCenter: claudeService.acpPermissionCenter
                         )
                     ),
-                    runtimeCoordinator: claudeService.executionRuntimeCoordinator
+                    runtimeCoordinator: claudeService.executionRuntimeCoordinator,
+                    changeReviewProjectionStore: claudeService.changeReviewProjectionStore
                 )
             }
         default:

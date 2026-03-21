@@ -5,6 +5,39 @@ import Testing
 @MainActor
 struct WorkspaceTreeViewModelTests {
 
+    @Test func searchDefaultsToExpandedForSidebarFiltering() {
+        let viewModel = WorkspaceTreeViewModel()
+
+        #expect(viewModel.searchPresentationState == .expanded)
+    }
+
+    @Test func selectionSummaryTextReflectsCurrentSelection() {
+        let viewModel = WorkspaceTreeViewModel()
+        let workspaceState = WorkspaceState()
+        let readme = FileNode(
+            id: URL(fileURLWithPath: "/tmp/ws/README.md"),
+            name: "README.md",
+            isDirectory: false,
+            children: nil
+        )
+        let notes = FileNode(
+            id: URL(fileURLWithPath: "/tmp/ws/Notes.md"),
+            name: "Notes.md",
+            isDirectory: false,
+            children: nil
+        )
+
+        viewModel.rootNodes = [readme, notes]
+
+        #expect(viewModel.selectionSummaryText == nil)
+
+        viewModel.selectNode(readme, additive: false, workspaceState: workspaceState)
+        #expect(viewModel.selectionSummaryText == "已选：README.md")
+
+        viewModel.selectNode(notes, additive: true, workspaceState: workspaceState)
+        #expect(viewModel.selectionSummaryText == "已选 2 项")
+    }
+
     @Test func commandToggleKeepsPrimarySelectionAndAddsSecondarySelection() {
         let viewModel = WorkspaceTreeViewModel()
         let workspaceState = WorkspaceState()

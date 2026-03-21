@@ -72,6 +72,9 @@ final class ClaudeService {
     /// Shared payload store for large tool outputs that should not be injected inline.
     var toolPayloadStore = ToolPayloadStore()
 
+    /// Session-scoped review projections produced by staged file edits.
+    var changeReviewProjectionStore: ChangeReviewProjectionStore?
+
     /// Shared budget controller used to shape large tool results before they are appended to the model context.
     var toolResultBudgetController = ToolResultBudgetController()
 

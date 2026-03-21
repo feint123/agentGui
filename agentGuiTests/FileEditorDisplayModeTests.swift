@@ -27,6 +27,17 @@ struct FileEditorDisplayModeTests {
         #expect(mode == .file(fileURL))
     }
 
+    @Test func resolvesChangeProposalReviewModeWhenProposalIsSelected() {
+        let workspaceState = WorkspaceState()
+        let proposalID = UUID()
+
+        workspaceState.selectChangeProposal(proposalID, filePath: "README.md")
+
+        let mode = FileEditorDisplayMode.resolve(from: workspaceState)
+
+        #expect(mode == .changeProposalReview(proposalID: proposalID))
+    }
+
     @Test func resolvesEmptyModeWhenNoFileOrDiffExists() {
         let workspaceState = WorkspaceState()
 

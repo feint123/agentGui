@@ -4,11 +4,11 @@ import SwiftData
 struct WorkbenchSidebarView: View {
     @Environment(WorkbenchState.self) private var workbenchState
     @Environment(WorkspaceState.self) private var workspaceState
+    @Namespace private var navigationGlassNamespace
 
     var body: some View {
         VStack(spacing: 0) {
             navigationBar
-            Divider()
             currentPanelContainer
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
@@ -16,29 +16,27 @@ struct WorkbenchSidebarView: View {
     }
 
     private var navigationBar: some View {
-        GlassEffectContainer(spacing: 8) {
-            HStack(spacing: 4) {
+        GlassEffectContainer(spacing: 12) {
+            HStack(spacing: 6) {
                 ForEach(WorkbenchNavigationItem.allCases, id: \.self) { item in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            workbenchState.selectedItem = item
+                    WorkbenchSidebarNavigationButton(
+                        item: item,
+                        isSelected: workbenchState.selectedItem == item,
+                        namespace: navigationGlassNamespace,
+                        action: {
+                            select(item)
                         }
-                    } label: {
-                        Image(systemName: item.systemImage)
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 30, height: 30)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(workbenchState.selectedItem == item ? .primary : .secondary)
-                    .glassEffect(selectionEffect(for: item), in: Capsule())
-                    .help(item.title)
-                    .accessibilityLabel(item.title)
-                    .accessibilityIdentifier(item.accessibilityIdentifier)
+                    )
                 }
             }
+            .padding(4)
+            .frame(maxWidth: .infinity)
+            .glassEffect(.regular, in: Capsule())
+            .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
         }
-        .padding(8)
-        .padding(.bottom, 2)
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
     }
 
     private var currentPanelContainer: some View {
@@ -79,11 +77,62 @@ struct WorkbenchSidebarView: View {
         }
     }
 
-    private func selectionEffect(for item: WorkbenchNavigationItem) -> Glass {
-        if workbenchState.selectedItem == item {
-            return .regular.interactive().tint(Color.accentColor.opacity(0.24))
-        } else {
-            return .regular.interactive()
+    private func select(_ item: WorkbenchNavigationItem) {
+        guard workbenchState.selectedItem != item else { return }
+
+        withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
+            workbenchState.selectedItem = item
+        }
+    }
+}
+
+private struct WorkbenchSidebarNavigationButton: View {
+    let item: WorkbenchNavigationItem
+    let isSelected: Bool
+    let namespace: Namespace.ID
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: item.systemImage)
+                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .contentShape(Capsule())
+                .background(buttonBackground)
+                .overlay {
+                    if isSelected {
+                        Capsule()
+                            .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(foregroundStyle)
+        .help(item.title)
+        .accessibilityLabel(item.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier(item.accessibilityIdentifier)
+        .scaleEffect(isHovered && !isSelected ? 1.03 : 1)
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .onHover { isHovered = $0 }
+    }
+
+    private var foregroundStyle: some ShapeStyle {
+        isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private var buttonBackground: some View {
+        if isSelected {
+            Capsule()
+                .fill(Color.accentColor.opacity(0.20))
+                .matchedGeometryEffect(id: "workbench.sidebar.selection", in: namespace)
+        } else if isHovered {
+            Capsule()
+                .fill(Color.primary.opacity(0.06))
         }
     }
 }

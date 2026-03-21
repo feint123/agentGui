@@ -93,6 +93,9 @@ enum ToolCallDetailPresentation {
         if let summary = row.secondaryText, !summary.isEmpty {
             sections.append(.init(label: "变更摘要", text: summary, monospaced: false, lineLimit: 3))
         }
+        if let reviewStatus = changeProposalStatusText(for: toolCall.changeProposalState) {
+            sections.append(.init(label: "审查状态", text: reviewStatus, monospaced: false, lineLimit: 2))
+        }
         return sections
     }
 
@@ -316,6 +319,24 @@ enum ToolCallDetailPresentation {
         return summaryLine(from: row.detailText)
     }
 
+    private static func changeProposalStatusText(for state: ChangeProposalState?) -> String? {
+        guard let state, state.isPendingReview else { return nil }
+        switch state {
+        case .readyForReview:
+            return "待审查"
+        case .partiallyApproved:
+            return "部分已应用，仍待审查"
+        case .conflicted:
+            return "存在冲突，待处理"
+        case .collecting:
+            return "正在收集变更"
+        case .applying:
+            return "正在应用"
+        case .applied, .discarded, .failed:
+            return nil
+        }
+    }
+
     private static func summaryLine(from text: String?) -> String? {
         guard let text else { return nil }
         return text
@@ -327,6 +348,7 @@ enum ToolCallDetailPresentation {
 
 struct ToolCallDetailContentView: View {
     @Environment(ClaudeService.self) private var claudeService
+    @Environment(WorkspaceState.self) private var workspaceState
     @Environment(\.modelContext) private var modelContext
 
     let toolCall: ToolCall
@@ -335,10 +357,68 @@ struct ToolCallDetailContentView: View {
     @State private var terminalInputDraft = ""
     @State private var isSendingTerminalInput = false
 
+    private var detailSections: [ToolCallDetailSection] {
+        ToolCallDetailPresentation.sections(for: toolCall, row: row)
+    }
+
+    private var proposalLinkText: String? {
+        guard toolCall.changeProposalID != nil,
+              let state = toolCall.changeProposalState,
+              state.isPendingReview else {
+            return nil
+        }
+
+        switch state {
+        case .conflicted:
+            return "打开冲突提案"
+        case .partiallyApproved:
+            return "继续审查变更"
+        default:
+            return "打开变更提案"
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let proposalLinkText {
+                Button {
+                    openChangeProposal()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.caption)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(proposalLinkText)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                            if let state = toolCall.changeProposalState {
+                                Text(state.rawValue)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(8)
+                    .background(Color.blue.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("toolDetail.proposalLink")
+            }
+
             if ToolCallDetailPresentation.showsPrimaryTerminalScreen(for: toolCall, row: row) {
                 ManagedTerminalScreenDetailView(toolCall: toolCall)
+            }
+
+            ForEach(detailSections) { section in
+                detailTextBlock(
+                    label: section.label,
+                    text: section.text,
+                    monospaced: section.monospaced,
+                    lineLimit: section.lineLimit,
+                    maxHeight: section.maxHeight
+                )
             }
 
             if showsManualTakeoverInput {
@@ -450,6 +530,11 @@ struct ToolCallDetailContentView: View {
             )
             isSendingTerminalInput = false
         }
+    }
+
+    private func openChangeProposal() {
+        guard let proposalID = toolCall.changeProposalID else { return }
+        workspaceState.selectChangeProposal(proposalID)
     }
 
 }

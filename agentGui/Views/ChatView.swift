@@ -19,10 +19,12 @@ struct ChatView: View {
     @Environment(SkillService.self) var skillService
     @Environment(WorkspaceState.self) var workspaceState
     @Environment(RuntimeRecoveryService.self) var runtimeRecoveryService
+    @Environment(ChangeReviewProjectionStore.self) var changeReviewProjectionStore
 
     // MARK: - Properties
 
     let session: Session
+    let showsNavigationChrome: Bool
 
     @Query var allMessages: [Message]
     @Query(sort: \Session.updatedAt, order: .reverse) var allSessions: [Session]
@@ -64,8 +66,9 @@ struct ChatView: View {
 
     // MARK: - Initializer
 
-    init(session: Session) {
+    init(session: Session, showsNavigationChrome: Bool = true) {
         self.session = session
+        self.showsNavigationChrome = showsNavigationChrome
         let sessionId = session.sessionId
         _allMessages = Query(
             filter: #Predicate<Message> { $0.session?.sessionId == sessionId },
@@ -98,8 +101,10 @@ struct ChatView: View {
             }
         }
         .accessibilityIdentifier("panel.chat")
-        .navigationTitle(session.title)
-        .navigationSubtitle(navigationSubtitleText)
+        .modifier(ChatNavigationChromeModifier(
+            title: showsNavigationChrome ? session.title : nil,
+            subtitle: showsNavigationChrome ? navigationSubtitleText : nil
+        ))
         .toolbar { toolbarContent }
         .alert("错误", isPresented: .constant(errorMessage != nil)) {
             Button("确定") { errorMessage = nil }
@@ -222,6 +227,27 @@ extension ChatView {
                 .cloneCurrentSessionAsLocal()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct ChatNavigationChromeModifier: ViewModifier {
+    let title: String?
+    let subtitle: String?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let title {
+            if let subtitle, !subtitle.isEmpty {
+                content
+                    .navigationTitle(title)
+                    .navigationSubtitle(subtitle)
+            } else {
+                content
+                    .navigationTitle(title)
+            }
+        } else {
+            content
         }
     }
 }

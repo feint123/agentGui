@@ -53,6 +53,17 @@ struct AgentLoopRoundExecutor {
             metadata["toolPayloadReadCount"] = 1
         }
 
+        if let changeProposalID = result.changeProposalID {
+            metadata["changeProposalID"] = changeProposalID
+        }
+        if let changeProposalState = result.changeProposalState {
+            metadata["changeProposalStateRaw"] = changeProposalState.rawValue
+        }
+        if let changeProposalDiffContent = result.changeProposalDiffContent,
+           !changeProposalDiffContent.isEmpty {
+            metadata["changeProposalDiffContent"] = changeProposalDiffContent
+        }
+
         return metadata
     }
 

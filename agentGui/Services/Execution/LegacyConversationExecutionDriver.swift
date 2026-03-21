@@ -83,7 +83,8 @@ final class LegacyConversationExecutionDriver: ConversationExecutionDriver {
                 directives: directives,
                 modelContext: context.modelContext,
                 sourceUserMessageID: job.sourceUserMessageID,
-                targetAgentMessageID: job.targetAgentMessageID
+                targetAgentMessageID: job.targetAgentMessageID,
+                workingDirectoryOverride: context.workingDirectoryOverride
             )
         }
     }

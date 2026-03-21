@@ -3,6 +3,15 @@ import SwiftData
 
 @MainActor
 final class ConversationExecutionOrchestrator {
+    private struct PreparedDispatchContext {
+        let driverContext: ExecutionDriverContext
+        let reviewContext: WorkspaceReviewContext?
+    }
+
+    private struct WorkspaceReviewContext {
+        let baseSnapshot: WorkspaceTextSnapshot
+    }
+
     private let modelContext: ModelContext
     private let persistenceStore: ExecutionPersistenceStore
     let projectionStore: ExecutionProjectionStore
@@ -10,8 +19,11 @@ final class ConversationExecutionOrchestrator {
     private let runtimePool: ExecutionRuntimePool
     private let providerRegistry: ConversationExecutionProviderRegistry
     private let runtimeCoordinator: ConversationExecutionRuntimeCoordinator
+    private let changeReviewProjectionStore: ChangeReviewProjectionStore?
+    private let workspaceChangeCaptureExecutor: DetachedWorkspaceChangeCaptureExecutor
     private var mailboxes: [String: SessionExecutionMailbox] = [:]
     private var activeAttemptIDsByJobID: [UUID: UUID] = [:]
+    private var pendingCancellationJobIDs = Set<UUID>()
     private var hasRestoredPersistedJobs = false
 
     init(
@@ -21,7 +33,10 @@ final class ConversationExecutionOrchestrator {
         scheduler: ExecutionScheduler,
         runtimePool: ExecutionRuntimePool,
         providerRegistry: ConversationExecutionProviderRegistry,
-        runtimeCoordinator: ConversationExecutionRuntimeCoordinator
+        runtimeCoordinator: ConversationExecutionRuntimeCoordinator,
+        changeReviewProjectionStore: ChangeReviewProjectionStore? = nil,
+        workspaceChangeCaptureService: WorkspaceChangeCaptureService = WorkspaceChangeCaptureService(),
+        workspaceChangeCaptureExecutor: DetachedWorkspaceChangeCaptureExecutor? = nil
     ) {
         self.modelContext = modelContext
         self.persistenceStore = persistenceStore
@@ -30,6 +45,9 @@ final class ConversationExecutionOrchestrator {
         self.runtimePool = runtimePool
         self.providerRegistry = providerRegistry
         self.runtimeCoordinator = runtimeCoordinator
+        self.changeReviewProjectionStore = changeReviewProjectionStore
+        self.workspaceChangeCaptureExecutor = workspaceChangeCaptureExecutor
+            ?? DetachedWorkspaceChangeCaptureExecutor(service: workspaceChangeCaptureService)
     }
 
     func enqueue(_ command: EnqueueExecutionCommand) async throws -> ExecutionJobHandle {
@@ -72,6 +90,7 @@ final class ConversationExecutionOrchestrator {
             return
         }
 
+        pendingCancellationJobIDs.insert(runningJobID)
         let driver = runtimePool.driver(for: job.providerID, registry: providerRegistry)
         await driver.cancel(jobID: runningJobID, sessionID: sessionID)
     }
@@ -171,9 +190,26 @@ final class ConversationExecutionOrchestrator {
         updateProjectionForRunningJob(jobID: candidate.jobID, sessionID: candidate.sessionID, providerID: job.providerID)
 
         let driver = runtimePool.driver(for: job.providerID, registry: providerRegistry)
+        let preparedContext: PreparedDispatchContext
+        do {
+            preparedContext = try await prepareDispatchContext(
+                for: job,
+                session: session,
+                runtimeScope: provider.runtimeScope
+            )
+        } catch {
+            await finish(job: job, outcome: .failed, errorMessage: error.localizedDescription)
+            return
+        }
+
+        if pendingCancellationJobIDs.remove(job.id) != nil {
+            await finish(job: job, outcome: .cancelled, errorMessage: nil)
+            return
+        }
+
         let stream = driver.execute(
             job,
-            context: ExecutionDriverContext(session: session, modelContext: modelContext)
+            context: preparedContext.driverContext
         )
 
         Task { @MainActor [weak self] in
@@ -184,15 +220,144 @@ final class ConversationExecutionOrchestrator {
                     case .started:
                         break
                     case .finished(_, let outcome):
+                        await self.captureReviewArtifactsIfNeeded(
+                            for: job,
+                            session: session,
+                            reviewContext: preparedContext.reviewContext
+                        )
                         await self.finish(job: job, outcome: outcome, errorMessage: nil)
                     }
                 }
             } catch is CancellationError {
+                await self.captureReviewArtifactsIfNeeded(
+                    for: job,
+                    session: session,
+                    reviewContext: preparedContext.reviewContext
+                )
                 await self.finish(job: job, outcome: .cancelled, errorMessage: nil)
             } catch {
+                await self.captureReviewArtifactsIfNeeded(
+                    for: job,
+                    session: session,
+                    reviewContext: preparedContext.reviewContext
+                )
                 await self.finish(job: job, outcome: .failed, errorMessage: error.localizedDescription)
             }
         }
+    }
+
+    private func prepareDispatchContext(
+        for job: ExecutionJob,
+        session: Session,
+        runtimeScope: ConversationExecutionRuntimeScope?
+    ) async throws -> PreparedDispatchContext {
+        guard runtimeScope == .externalACP,
+              let sourceRoot = resolvedWorkspaceRoot(for: session) else {
+            return PreparedDispatchContext(
+                driverContext: ExecutionDriverContext(session: session, modelContext: modelContext),
+                reviewContext: nil
+            )
+        }
+
+        let baseSnapshot = try await workspaceChangeCaptureExecutor.captureSnapshot(root: sourceRoot)
+        return PreparedDispatchContext(
+            driverContext: ExecutionDriverContext(session: session, modelContext: modelContext),
+            reviewContext: WorkspaceReviewContext(
+                baseSnapshot: WorkspaceTextSnapshot(
+                    root: baseSnapshot.root,
+                    filesByRelativePath: baseSnapshot.filesByRelativePath
+                )
+            )
+        )
+    }
+
+    private func captureReviewArtifactsIfNeeded(
+        for job: ExecutionJob,
+        session: Session,
+        reviewContext: WorkspaceReviewContext?
+    ) async {
+        guard let reviewContext else {
+            return
+        }
+
+        guard let proposal = try? await materializeChangeProposal(
+            for: job,
+            session: session,
+            reviewContext: reviewContext
+        ) else {
+            return
+        }
+
+        if let changeReviewProjectionStore,
+           let snapshot = try? await ChangeProposalStore(modelContext: modelContext).reviewSnapshot(for: proposal.id) {
+            changeReviewProjectionStore.set(snapshot)
+        }
+    }
+
+    private func materializeChangeProposal(
+        for job: ExecutionJob,
+        session: Session,
+        reviewContext: WorkspaceReviewContext
+    ) async throws -> ChangeProposal? {
+        let artifacts = try await workspaceChangeCaptureExecutor.collectArtifacts(from: reviewContext.baseSnapshot)
+        guard !artifacts.isEmpty else {
+            return nil
+        }
+
+        let proposalStore = ChangeProposalStore(modelContext: modelContext)
+        let latestAgentMessageID = session.messages
+            .filter { $0.direction == .agent }
+            .sorted { $0.sequence < $1.sequence }
+            .last?
+            .id
+        let proposal = try await proposalStore.createProposal(
+            sessionID: session.sessionId,
+            jobID: job.id,
+            messageID: latestAgentMessageID,
+            providerID: job.providerID,
+            baseWorkspaceRoot: reviewContext.baseSnapshot.root.path
+        )
+
+        for artifact in artifacts {
+            try await proposalStore.upsertFileChange(
+                proposalID: proposal.id,
+                relativePath: artifact.relativePath,
+                absolutePath: artifact.absolutePath,
+                changeKind: artifact.changeKind,
+                unifiedDiff: artifact.unifiedDiff,
+                baseContentHash: artifact.baseContentHash,
+                stagedContentHash: artifact.stagedContentHash,
+                baseContentSnapshot: artifact.baseContentSnapshot,
+                stagedContentSnapshot: artifact.stagedContentSnapshot,
+                lineAdditions: artifact.lineAdditions,
+                lineDeletions: artifact.lineDeletions
+            )
+        }
+
+        try await proposalStore.updateProposal(
+            proposalID: proposal.id,
+            state: .readyForReview,
+            summary: "待审查变更：\(artifacts.count) 个文件"
+        )
+        return proposal
+    }
+
+    private func resolvedWorkspaceRoot(for session: Session) -> URL? {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let preferredPath = session.workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? settings.workingDirectory
+            : session.workingDirectory
+        let trimmed = preferredPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        let url = URL(fileURLWithPath: trimmed).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        return url
     }
 
     private func finish(
@@ -200,6 +365,7 @@ final class ConversationExecutionOrchestrator {
         outcome: ExecutionJobState,
         errorMessage: String?
     ) async {
+        pendingCancellationJobIDs.remove(job.id)
         guard let attemptID = activeAttemptIDsByJobID.removeValue(forKey: job.id) else {
             return
         }

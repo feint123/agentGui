@@ -16,6 +16,7 @@ struct ConversationExecutionRequest {
     let modelContext: ModelContext
     let sourceUserMessageID: UUID?
     let targetAgentMessageID: UUID?
+    let workingDirectoryOverride: String?
 
     init(
         text: String,
@@ -26,7 +27,8 @@ struct ConversationExecutionRequest {
         directives: [ChatInputDirective],
         modelContext: ModelContext,
         sourceUserMessageID: UUID? = nil,
-        targetAgentMessageID: UUID? = nil
+        targetAgentMessageID: UUID? = nil,
+        workingDirectoryOverride: String? = nil
     ) {
         self.text = text
         self.session = session
@@ -37,6 +39,7 @@ struct ConversationExecutionRequest {
         self.modelContext = modelContext
         self.sourceUserMessageID = sourceUserMessageID
         self.targetAgentMessageID = targetAgentMessageID
+        self.workingDirectoryOverride = workingDirectoryOverride
     }
 }
 

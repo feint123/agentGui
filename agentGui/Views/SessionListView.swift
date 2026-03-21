@@ -36,7 +36,6 @@ struct SessionListView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerBar
-            Divider()
             Group {
                 if sessions.isEmpty {
                     emptyStateView
@@ -177,7 +176,7 @@ struct SessionListView: View {
                 }
             }
         }
-        .listStyle(.plain)
+        .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .accessibilityIdentifier("sessionList.list")
     }

@@ -2,9 +2,11 @@ import SwiftUI
 import SwiftData
 
 struct WorkbenchShellView: View {
+    @Environment(ClaudeService.self) private var claudeService
     @State private var workspaceState = WorkspaceState()
     @State private var workbenchState = WorkbenchState(selectedItem: TestLaunchOptions.current.initialWorkbenchItem)
     @State private var gitPanelViewModel = GitPanelViewModel()
+    @State private var changeReviewProjectionStore = ChangeReviewProjectionStore()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     @Environment(\.modelContext) private var modelContext
@@ -16,9 +18,15 @@ struct WorkbenchShellView: View {
     init() {}
 
     var body: some View {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let titlePresentation = WorkbenchTitlePresentation.make(
+            selectedItem: workbenchState.selectedItem,
+            workspaceState: workspaceState,
+            globalWorkingDirectory: settings.workingDirectory
+        )
+
         NavigationSplitView(columnVisibility: $columnVisibility) {
             WorkbenchSidebarView()
-                .navigationTitle(workbenchState.selectedItem.title)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 360)
         } content: {
             FileEditorView()
@@ -26,19 +34,34 @@ struct WorkbenchShellView: View {
                 .navigationSplitViewColumnWidth(min: 280, ideal: 400)
         } detail: {
             if let session = workspaceState.selectedSession {
-                ChatView(session: session)
+                ChatView(session: session, showsNavigationChrome: false)
                     .accessibilityIdentifier("panel.chat")
             } else {
                 emptyDetailState
                     .accessibilityIdentifier("panel.chat.empty")
             }
         }
+        .navigationTitle(titlePresentation.title)
+        .navigationSubtitle(titlePresentation.subtitle)
         .navigationSplitViewStyle(.balanced)
+        .background(WorkbenchWindowConfigurator(presentation: titlePresentation))
         .environment(workspaceState)
         .environment(workbenchState)
         .environment(gitPanelViewModel)
-        .onAppear(perform: configureInitialSelection)
+        .environment(changeReviewProjectionStore)
+        .onAppear(perform: configureOnAppear)
         .onChange(of: sessions, initial: false, synchronizeSessionSelection)
+    }
+
+    private func configureOnAppear() {
+        claudeService.changeReviewProjectionStore = changeReviewProjectionStore
+        Task { @MainActor in
+            try? await ChangeReviewBootstrapper.restorePendingProposals(
+                modelContext: modelContext,
+                projectionStore: changeReviewProjectionStore
+            )
+        }
+        configureInitialSelection()
     }
 
     private func configureInitialSelection() {

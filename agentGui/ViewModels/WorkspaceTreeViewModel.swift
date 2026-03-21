@@ -15,7 +15,7 @@ final class WorkspaceTreeViewModel {
     var treeSearchText = ""
     var selectedTreeNodeID: URL?
     var selectedTreeNodeIDs: Set<URL> = []
-    var searchPresentationState: WorkspaceSearchPresentationState = .collapsed
+    var searchPresentationState: WorkspaceSearchPresentationState = .expanded
     var inlineEdit: WorkspaceTreeInlineEdit?
     var pendingDeleteNode: FileNode?
     var pendingDeleteNodeIDs: Set<URL> = []
@@ -424,6 +424,18 @@ final class WorkspaceTreeViewModel {
 
     var pendingDeleteSelectionCount: Int {
         pendingDeleteNodeIDs.count
+    }
+
+    var selectionSummaryText: String? {
+        let nodes = selectedNodes()
+        switch nodes.count {
+        case 0:
+            return nil
+        case 1:
+            return "已选：\(nodes[0].name)"
+        default:
+            return "已选 \(nodes.count) 项"
+        }
     }
 
     func clearPendingDelete() {

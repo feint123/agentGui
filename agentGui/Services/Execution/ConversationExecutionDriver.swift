@@ -4,6 +4,17 @@ import SwiftData
 struct ExecutionDriverContext {
     let session: Session
     let modelContext: ModelContext
+    let workingDirectoryOverride: String?
+
+    init(
+        session: Session,
+        modelContext: ModelContext,
+        workingDirectoryOverride: String? = nil
+    ) {
+        self.session = session
+        self.modelContext = modelContext
+        self.workingDirectoryOverride = workingDirectoryOverride
+    }
 }
 
 enum ExecutionDriverEvent: Equatable, Sendable {

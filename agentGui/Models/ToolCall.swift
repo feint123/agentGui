@@ -37,6 +37,12 @@ final class ToolCall {
     /// Structured summary for large text results.
     var toolResultSummary: String?
 
+    /// Linked change proposal ID when this tool produced a reviewable workspace proposal.
+    var changeProposalID: UUID?
+
+    /// Snapshot of the linked proposal state for compact UI presentation.
+    var changeProposalStateRaw: String?
+
     /// Whether this record represents an ACP permission request rather than the tool execution itself.
     var isPermissionRequest: Bool=false
 
@@ -179,6 +185,8 @@ final class ToolCall {
         self.diffContent = nil
         self.terminalOutput = nil
         self.toolResultSummary = nil
+        self.changeProposalID = nil
+        self.changeProposalStateRaw = nil
         self.isPermissionRequest = false
         self.permissionTargetToolCallId = nil
         self.toolPayloadRef = nil
@@ -300,6 +308,11 @@ extension ToolCall {
 
     var permissionLookupToolCallId: String {
         permissionTargetToolCallId ?? toolCallId
+    }
+
+    var changeProposalState: ChangeProposalState? {
+        guard let changeProposalStateRaw else { return nil }
+        return ChangeProposalState(rawValue: changeProposalStateRaw)
     }
 }
 

@@ -5,7 +5,6 @@
 
 import SwiftUI
 import SwiftData
-import AppKit
 
 // MARK: - WorkspacePanelView
 
@@ -32,7 +31,6 @@ struct WorkspacePanelView: View {
 
         VStack(spacing: 0) {
             directoryBar
-            workspaceActionBar
             treeContent
                 .frame(maxHeight: .infinity, alignment: .top)
         }
@@ -62,6 +60,9 @@ struct WorkspacePanelView: View {
         .onChange(of: workspaceState.selectedFile) { _, _ in
             treeViewModel.syncSelection(with: workspaceState.selectedFile)
             triggerWorkspaceLSPBootstrap()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WorkspaceDirectorySelectionCoordinator.requestNotification)) { _ in
+            chooseDirectory()
         }
         .alert("删除项目", isPresented: Binding(
             get: { treeViewModel.pendingDeleteNode != nil },
@@ -93,34 +94,42 @@ struct WorkspacePanelView: View {
     // MARK: - Top directory bar
 
     private var directoryBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "folder.fill")
-                .foregroundStyle(.secondary)
-                .font(.system(size: 11))
-            Text(treeViewModel.currentDirectory?.lastPathComponent ?? "无工作目录")
-                .font(.caption)
-                .foregroundStyle(treeViewModel.currentDirectory == nil ? .tertiary : .primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button(action: chooseDirectory) {
-                Image(systemName: "folder.badge.plus")
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help("选择工作目录")
-            .accessibilityIdentifier("workspace.chooseDirectoryButton")
+        VStack(alignment: .leading, spacing: 10) {
+            searchControl
+            workspaceActionBar
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        // .background(.bar)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
         .accessibilityIdentifier("workspace.selector")
     }
 
     private var workspaceActionBar: some View {
-        HStack(spacing: 8) {
-            searchControl
+        HStack(spacing: 10) {
+            Label(selectionHintText, systemImage: selectionHintSymbol)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 8)
+
+            Menu {
+                Button("新建文件") {
+                    treeViewModel.beginCreate(kind: .file, from: treeViewModel.selectedNode())
+                }
+
+                Button("新建文件夹") {
+                    treeViewModel.beginCreate(kind: .folder, from: treeViewModel.selectedNode())
+                }
+            } label: {
+                Label("新建", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(treeViewModel.currentDirectory == nil)
+            .help("创建文件或文件夹")
+            .accessibilityIdentifier("workspace.createMenuButton")
 
             Menu {
                 Button("在访达中打开") {
@@ -132,54 +141,26 @@ struct WorkspacePanelView: View {
                     copySelectionRelativePaths()
                 }
                 .disabled(!treeViewModel.hasSelection)
+
+                Divider()
+
+                Button("重命名") {
+                    treeViewModel.beginRename(for: treeViewModel.selectedNode())
+                }
+                .disabled(treeViewModel.selectedNode() == nil || treeViewModel.hasMultipleSelection)
+
+                Button("删除", role: .destructive) {
+                    treeViewModel.confirmDelete(nil)
+                }
+                .disabled(!treeViewModel.hasSelection)
             } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 12, weight: .semibold))
+                Label("更多", systemImage: "ellipsis.circle")
             }
-            .menuStyle(.borderlessButton)
-            .accessibilityLabel("批量操作")
-            .help("批量操作")
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel("更多操作")
+            .help("显示更多文件操作")
             .accessibilityIdentifier("workspace.selectionActionsButton")
-
-            Button(action: { treeViewModel.beginCreate(kind: .file, from: treeViewModel.selectedNode()) }) {
-                Image(systemName: "doc.badge.plus")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .buttonStyle(.borderless)
-            .disabled(treeViewModel.currentDirectory == nil)
-            .accessibilityLabel("新建文件")
-            .help("新建文件")
-            .accessibilityIdentifier("workspace.newFileButton")
-
-            Button(action: { treeViewModel.beginCreate(kind: .folder, from: treeViewModel.selectedNode()) }) {
-                Image(systemName: "folder.badge.plus")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .buttonStyle(.borderless)
-            .disabled(treeViewModel.currentDirectory == nil)
-            .accessibilityLabel("新建文件夹")
-            .help("新建文件夹")
-            .accessibilityIdentifier("workspace.newFolderButton")
-
-            Button(action: { treeViewModel.beginRename(for: treeViewModel.selectedNode()) }) {
-                Image(systemName: "pencil")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .buttonStyle(.borderless)
-            .disabled(treeViewModel.selectedNode() == nil || treeViewModel.hasMultipleSelection)
-            .accessibilityLabel("重命名")
-            .help("重命名")
-            .accessibilityIdentifier("workspace.renameButton")
-
-            Button(role: .destructive, action: { treeViewModel.confirmDelete(nil) }) {
-                Image(systemName: "trash")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .buttonStyle(.borderless)
-            .disabled(!treeViewModel.hasSelection)
-            .accessibilityLabel("删除")
-            .help("删除")
-            .accessibilityIdentifier("workspace.deleteButton")
 
             if launchOptions.isUITestMode {
                 Text("workspace.searchPresentation.\(treeViewModel.searchPresentationState == .expanded ? "expanded" : "collapsed")")
@@ -193,56 +174,39 @@ struct WorkspacePanelView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        // .background(.bar)
+        .padding(.top, 2)
+        .padding(.bottom, 8)
         .accessibilityIdentifier("workspace.actionBar")
     }
 
-    @ViewBuilder
     private var searchControl: some View {
-        if treeViewModel.searchPresentationState == .expanded {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("搜索文件或文件夹", text: $treeViewModel.treeSearchText)
-                    .textFieldStyle(.plain)
-                    .onSubmit {
-                        treeViewModel.openSingleSearchResultIfPossible(workspaceState: workspaceState)
-                    }
-                    .accessibilityIdentifier("workspace.searchField")
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField("过滤文件和文件夹", text: $treeViewModel.treeSearchText)
+                .textFieldStyle(.plain)
+                .onSubmit {
+                    treeViewModel.openSingleSearchResultIfPossible(workspaceState: workspaceState)
+                }
+                .accessibilityIdentifier("workspace.searchField")
+
+            if !treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        treeViewModel.collapseSearch()
-                    }
+                    treeViewModel.treeSearchText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("workspace.searchCollapseButton")
+                .accessibilityIdentifier("workspace.searchClearButton")
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-            .onExitCommand {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    treeViewModel.collapseSearch()
-                }
-            }
-            .transition(.move(edge: .leading).combined(with: .opacity))
-        } else {
-            Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    treeViewModel.expandSearch()
-                }
-            } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("展开搜索")
-            .help("搜索文件或文件夹")
-            .accessibilityIdentifier("workspace.searchToggleButton")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .onExitCommand {
+            treeViewModel.treeSearchText = ""
         }
     }
 
@@ -288,7 +252,7 @@ struct WorkspacePanelView: View {
                 Text("无工作目录")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.secondary)
-                Text("点击右上角选择目录")
+                Text("从\"文件\"菜单打开或切换工作区")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -305,7 +269,7 @@ struct WorkspacePanelView: View {
                 Text(treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "当前目录为空" : "未找到匹配项")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.secondary)
-                Text(treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "使用上方按钮创建文件或文件夹" : "尝试更换关键字或清空搜索")
+                Text(treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "使用上方\"新建\"菜单创建文件或文件夹" : "尝试更换关键字或清空搜索")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -317,27 +281,22 @@ struct WorkspacePanelView: View {
     // MARK: - Actions
 
     private func chooseDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.title = "选择工作目录"
-        panel.prompt = "选择"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        treeViewModel.setDirectory(url.standardizedFileURL) { directory in
-            await gitPanelViewModel.refresh(for: directory, workspaceState: workspaceState)
-        }
-        let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
-        settings.workingDirectory = url.path
-        do {
-            try persistenceCoordinator.save(
-                modelContext,
-                domain: .settings,
-                userMessage: "工作目录未成功保存"
-            )
-        } catch {
+        guard let url = WorkspaceDirectorySelectionCoordinator.presentOpenPanel() else { return }
+        guard WorkspaceDirectorySelectionCoordinator.applySelection(
+            url,
+            workspaceState: workspaceState,
+            modelContext: modelContext,
+            persistenceCoordinator: persistenceCoordinator,
+            userMessage: "工作目录未成功保存"
+        ) else {
+            treeViewModel.errorMessage = "工作目录未成功保存"
             return
         }
+
+        treeViewModel.setDirectory(url) { directory in
+            await gitPanelViewModel.refresh(for: directory, workspaceState: workspaceState)
+        }
+        triggerWorkspaceLSPBootstrap()
     }
 
     private func triggerWorkspaceLSPBootstrap() {
@@ -375,6 +334,30 @@ struct WorkspacePanelView: View {
         guard !relativePaths.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(relativePaths.sorted().joined(separator: "\n"), forType: .string)
+    }
+
+    private var selectionHintText: String {
+        if let selectionSummaryText = treeViewModel.selectionSummaryText {
+            return selectionSummaryText
+        }
+
+        if treeViewModel.currentDirectory == nil {
+            return "从\"文件\"菜单打开工作区。"
+        }
+
+        return "右键文件查看更多操作。"
+    }
+
+    private var selectionHintSymbol: String {
+        if treeViewModel.hasMultipleSelection {
+            return "checklist"
+        }
+
+        if treeViewModel.hasSelection {
+            return "checkmark.circle"
+        }
+
+        return treeViewModel.currentDirectory == nil ? "folder.badge.questionmark" : "cursorarrow.click"
     }
 
     private var workspaceTreeActions: WorkspaceTreeOutlineView.ActionHandlers {

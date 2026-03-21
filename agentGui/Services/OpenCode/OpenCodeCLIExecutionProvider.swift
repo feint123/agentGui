@@ -56,6 +56,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
     private let turnRouter = ACPExternalSessionTurnRouter()
 
     private var runtimeClients: [String: any OpenCodeCLIRuntimeClient] = [:]
+    private var runtimeWorkingDirectories: [String: String] = [:]
     private var activeTurns: [String: ActiveTurnState] = [:]
 
     init(
@@ -107,7 +108,11 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
                 for: request.session.sessionId,
                 modelContext: request.modelContext
             )
-            let workingDirectory = resolvedWorkingDirectory(session: request.session, settings: settings)
+            let workingDirectory = resolvedWorkingDirectory(
+                session: request.session,
+                settings: settings,
+                override: request.workingDirectoryOverride
+            )
             debugLog(
                 "send preparing session=\(request.session.sessionId) workingDirectory=\(workingDirectory) remoteBinding=\(remoteBinding?.remoteSessionID ?? "(none)")"
             )
@@ -116,7 +121,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
                 isActiveProvider: true,
                 modelContext: request.modelContext
             )
-            let runtimeClient = try makeRuntimeClientIfNeeded(
+            let runtimeClient = try await makeRuntimeClientIfNeeded(
                 session: request.session,
                 configuration: configuration,
                 workingDirectory: workingDirectory,
@@ -285,7 +290,14 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         _ = modelContext
     }
 
-    private func resolvedWorkingDirectory(session: Session, settings: AppSettings) -> String {
+    private func resolvedWorkingDirectory(
+        session: Session,
+        settings: AppSettings,
+        override: String?
+    ) -> String {
+        if let override = trimmedNonEmpty(override) {
+            return override
+        }
         if let sessionDirectory = trimmedNonEmpty(session.workingDirectory) {
             return sessionDirectory
         }
@@ -300,10 +312,18 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         configuration: OpenCodeCLIConfiguration,
         workingDirectory: String,
         authorizationPolicy: ToolAuthorizationPolicy
-    ) throws -> any OpenCodeCLIRuntimeClient {
+    ) async throws -> any OpenCodeCLIRuntimeClient {
         if let existing = runtimeClients[session.sessionId] {
-            debugLog("reuse runtime session=\(session.sessionId)")
-            return existing
+            if runtimeWorkingDirectories[session.sessionId] == workingDirectory {
+                debugLog("reuse runtime session=\(session.sessionId)")
+                return existing
+            }
+
+            debugLog("recreate runtime for new working directory session=\(session.sessionId) cwd=\(workingDirectory)")
+            await existing.close()
+            runtimeClients.removeValue(forKey: session.sessionId)
+            runtimeWorkingDirectories.removeValue(forKey: session.sessionId)
+            sessionRuntimeResetter(session.sessionId)
         }
 
         let launchConfiguration = runtimeFactory.makeLaunchConfiguration(
@@ -323,6 +343,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
             "created runtime session=\(session.sessionId) command=\(launchConfiguration.command) cwd=\(launchConfiguration.currentDirectoryURL.path) envCount=\(launchConfiguration.environmentOverrides.count)"
         )
         runtimeClients[session.sessionId] = client
+        runtimeWorkingDirectories[session.sessionId] = workingDirectory
         return client
     }
 
@@ -737,6 +758,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
                 debugLog("close inactive runtime session=\(inactiveSessionID)")
                 await runtimeClient.close()
             }
+            runtimeWorkingDirectories.removeValue(forKey: inactiveSessionID)
             sessionRuntimeResetter(inactiveSessionID)
             markCancelledIfNeeded(sessionID: inactiveSessionID)
         }
@@ -750,6 +772,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
                 debugLog("deactivate runtime session=\(activeSessionID)")
                 await runtimeClient.close()
             }
+            runtimeWorkingDirectories.removeValue(forKey: activeSessionID)
             sessionRuntimeResetter(activeSessionID)
             markCancelledIfNeeded(sessionID: activeSessionID)
         }
@@ -766,6 +789,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
             debugLog("reset runtime session=\(localSessionID)")
             await runtimeClient.close()
         }
+        runtimeWorkingDirectories.removeValue(forKey: localSessionID)
         sessionRuntimeResetter(localSessionID)
         if removeBinding {
             await sessionBridge.removeBinding(for: localSessionID, providerID: id)

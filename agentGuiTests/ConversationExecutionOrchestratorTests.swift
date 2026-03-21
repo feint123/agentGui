@@ -25,6 +25,7 @@ struct ConversationExecutionOrchestratorTests {
         #expect(projection.isRunning == true)
         #expect(projection.queuedCount == 0)
         #expect(harness.driver.executedJobIDs == [handle.jobID])
+        #expect(harness.driver.executionContexts.map(\.workingDirectoryOverride) == [nil])
     }
 
     @Test func claudeServiceSendMessageRoutesThroughOrchestratorWithoutFeatureGate() async throws {
@@ -195,6 +196,52 @@ struct ConversationExecutionOrchestratorTests {
         #expect(projection.queuedCount == 0)
     }
 
+    @Test func cancellingDuringSnapshotPreparationPreventsDriverExecution() async throws {
+        let workspaceRoot = try makeTemporaryDirectory()
+        let snapshotGate = SnapshotGate()
+        let executor = DetachedWorkspaceChangeCaptureExecutor(
+            captureSnapshotOperation: { root in
+                snapshotGate.markStarted()
+                snapshotGate.waitUntilReleased()
+                return WorkspaceTextSnapshot(root: root, filesByRelativePath: [:])
+            },
+            collectArtifactsOperation: { _ in [] }
+        )
+        let harness = try ExecutionOrchestratorHarness.make(
+            sessionWorkingDirectory: workspaceRoot.path,
+            workspaceChangeCaptureExecutor: executor
+        )
+
+        let enqueueTask = Task {
+            try await harness.orchestrator.enqueue(
+                .fixture(
+                    sessionID: harness.session.sessionId,
+                    providerID: .githubCopilotCLI,
+                    sourceUserMessageID: harness.userMessage.id,
+                    text: "cancel me",
+                    modelID: "gpt-5"
+                )
+            )
+        }
+
+        #expect(snapshotGate.waitUntilStarted())
+
+        await harness.orchestrator.cancelRunning(in: harness.session.sessionId)
+        snapshotGate.release()
+
+        let handle = try await enqueueTask.value
+        let projection = harness.projectionStore.projection(for: harness.session.sessionId)
+        let jobs = try harness.modelContext.fetch(FetchDescriptor<ExecutionJob>()).reduce(into: [UUID: ExecutionJob]()) {
+            $0[$1.id] = $1
+        }
+
+        #expect(harness.driver.executedJobIDs.isEmpty)
+        #expect(harness.driver.cancelledJobIDs == [handle.jobID])
+        #expect(jobs[handle.jobID]?.state == .cancelled)
+        #expect(projection.runningJobID == nil)
+        #expect(projection.isRunning == false)
+    }
+
     @Test func restorePendingJobsDispatchesPersistedQueuedJob() async throws {
         let persistenceHarness = try ExecutionPersistenceHarness.make()
         persistenceHarness.session.defaultExecutionProviderID = ConversationExecutionProviderID.githubCopilotCLI.rawValue
@@ -301,9 +348,15 @@ private struct ExecutionOrchestratorHarness {
     let driver: DriverSpy
     let orchestrator: ConversationExecutionOrchestrator
 
-    static func make() throws -> Self {
+    static func make(
+        sessionWorkingDirectory: String? = nil,
+        workspaceChangeCaptureExecutor: DetachedWorkspaceChangeCaptureExecutor? = nil
+    ) throws -> Self {
         let persistenceHarness = try ExecutionPersistenceHarness.make()
         persistenceHarness.session.defaultExecutionProviderID = ConversationExecutionProviderID.githubCopilotCLI.rawValue
+        if let sessionWorkingDirectory {
+            persistenceHarness.session.workingDirectory = sessionWorkingDirectory
+        }
         let projectionStore = ExecutionProjectionStore()
         let driver = DriverSpy(providerID: .githubCopilotCLI)
         let registry = ConversationExecutionProviderRegistry(
@@ -323,7 +376,8 @@ private struct ExecutionOrchestratorHarness {
                 return fallbackRegistry.compatibilityDriver(for: providerID)
             }),
             providerRegistry: registry,
-            runtimeCoordinator: ConversationExecutionRuntimeCoordinator()
+            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(),
+            workspaceChangeCaptureExecutor: workspaceChangeCaptureExecutor
         )
 
         return Self(
@@ -335,6 +389,33 @@ private struct ExecutionOrchestratorHarness {
             orchestrator: orchestrator
         )
     }
+}
+
+private final class SnapshotGate: @unchecked Sendable {
+    private let startedSemaphore = DispatchSemaphore(value: 0)
+    private let releaseSemaphore = DispatchSemaphore(value: 0)
+
+    func markStarted() {
+        startedSemaphore.signal()
+    }
+
+    func waitUntilStarted(timeout: TimeInterval = 1) -> Bool {
+        startedSemaphore.wait(timeout: .now() + timeout) == .success
+    }
+
+    func release() {
+        releaseSemaphore.signal()
+    }
+
+    func waitUntilReleased() {
+        releaseSemaphore.wait()
+    }
+}
+
+private func makeTemporaryDirectory() throws -> URL {
+    let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
 }
 
 private extension EnqueueExecutionCommand {
@@ -452,6 +533,7 @@ private final class DriverSpy: ConversationExecutionDriver {
 
     private(set) var executedJobIDs: [UUID] = []
     private(set) var cancelledJobIDs: [UUID] = []
+    private(set) var executionContexts: [ExecutionDriverContext] = []
     private var finishContinuations: [UUID: AsyncThrowingStream<ExecutionDriverEvent, Error>.Continuation] = [:]
     private var startedJobIDs = Set<UUID>()
     private var cancelledJobs = Set<UUID>()
@@ -463,9 +545,9 @@ private final class DriverSpy: ConversationExecutionDriver {
     }
 
     func execute(_ job: ExecutionJob, context: ExecutionDriverContext) -> AsyncThrowingStream<ExecutionDriverEvent, Error> {
-        _ = context
         return AsyncThrowingStream { continuation in
             self.executedJobIDs.append(job.id)
+            self.executionContexts.append(context)
             self.startedJobIDs.insert(job.id)
             continuation.yield(.started(jobID: job.id))
             self.finishContinuations[job.id] = continuation

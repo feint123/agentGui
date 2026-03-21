@@ -39,6 +39,30 @@ struct GitDiffPresentationTests {
         #expect(presentation.sections.isEmpty)
     }
 
+    @Test func tracksLongestLineCharacterCountForLayoutSizing() {
+        let diffText = """
+        @@ -1,1 +1,1 @@
+        -short
+        +this is a much longer replacement line for sizing
+        """
+
+        let presentation = GitDiffPresentation.build(title: "file.swift", diffText: diffText)
+
+        #expect(presentation.longestLineCharacterCount == "this is a much longer replacement line for sizing".count + 1)
+    }
+
+    @Test func layoutMetricsClampToViewportWhenDiffIsCompact() {
+        let width = GitDiffLayoutMetrics.contentWidth(viewportWidth: 480, longestLineCharacterCount: 12)
+
+        #expect(width == 480)
+    }
+
+    @Test func layoutMetricsExpandWhenDiffLineIsWide() {
+        let width = GitDiffLayoutMetrics.contentWidth(viewportWidth: 480, longestLineCharacterCount: 120)
+
+        #expect(width > 480)
+    }
+
     @Test func detectsBinaryDiffEmptyStateReason() {
         let descriptor = GitDiffEmptyStateDescriptor.make(
             title: "docs/image.png",

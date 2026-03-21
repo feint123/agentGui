@@ -124,6 +124,7 @@ enum ToolCallBubbleHeaderPresentation {
 struct ToolCallBubbleView: View {
 
     @Environment(ClaudeService.self) private var claudeService
+    @Environment(WorkspaceState.self) private var workspaceState
     @Environment(\.modelContext) private var modelContext
 
     let toolCall: ToolCall
@@ -149,6 +150,26 @@ struct ToolCallBubbleView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerRow
+            if let proposalLinkText {
+                Divider().opacity(0.08)
+                Button {
+                    openChangeProposal()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.caption2)
+                        Text(proposalLinkText)
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("toolCall.proposalLink")
+            }
             if shouldShowDetails {
                 Divider().opacity(0.12)
                 ToolCallDetailContentView(toolCall: toolCall, row: rowPresentation)
@@ -186,6 +207,23 @@ struct ToolCallBubbleView: View {
 
     private var headerBadges: [ToolCallBubbleBadge] {
         ToolCallBubbleHeaderPresentation.badges(for: toolCall, row: rowPresentation)
+    }
+
+    private var proposalLinkText: String? {
+        guard toolCall.changeProposalID != nil,
+              let state = toolCall.changeProposalState,
+              state.isPendingReview else {
+            return nil
+        }
+
+        switch state {
+        case .conflicted:
+            return "查看冲突提案"
+        case .partiallyApproved:
+            return "继续审查变更"
+        default:
+            return "查看变更提案"
+        }
     }
 
     private var iconName: String {
@@ -334,6 +372,11 @@ struct ToolCallBubbleView: View {
         case .warning:
             return Color.orange.opacity(0.14)
         }
+    }
+
+    private func openChangeProposal() {
+        guard let proposalID = toolCall.changeProposalID else { return }
+        workspaceState.selectChangeProposal(proposalID)
     }
 
     @ViewBuilder

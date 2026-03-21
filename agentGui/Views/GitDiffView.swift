@@ -140,6 +140,15 @@ struct GitDiffPresentation: Equatable {
     let changeSummary: ChangeSummary
     let sections: [Section]
 
+    var longestLineCharacterCount: Int {
+        let rowWidth = sections
+            .flatMap(\.rows)
+            .map { $0.prefix.count + $0.text.count }
+            .max() ?? 0
+        let headerWidth = sections.map(\.header.count).max() ?? 0
+        return max(rowWidth, headerWidth)
+    }
+
     static func build(title: String, diffText: String) -> GitDiffPresentation {
         let lines = diffText.split(whereSeparator: \ .isNewline).map(String.init)
         guard !lines.isEmpty else {
@@ -217,13 +226,27 @@ struct GitDiffPresentation: Equatable {
     }
 }
 
+struct GitDiffLayoutMetrics {
+    private static let rowChromeWidth: CGFloat = 158
+    private static let approximateMonospacedCharacterWidth: CGFloat = 7.4
+
+    static func contentWidth(viewportWidth: CGFloat, longestLineCharacterCount: Int) -> CGFloat {
+        let estimatedLineWidth = rowChromeWidth + (CGFloat(max(longestLineCharacterCount, 0)) * approximateMonospacedCharacterWidth)
+        return max(viewportWidth, estimatedLineWidth.rounded(.up))
+    }
+}
+
 enum FileEditorDisplayMode: Equatable {
     case empty
     case file(URL)
     case gitDiff(title: String, diffText: String)
+    case changeProposalReview(proposalID: UUID)
 
     @MainActor
     static func resolve(from workspaceState: WorkspaceState) -> FileEditorDisplayMode {
+        if let proposalID = workspaceState.selectedChangeProposalID {
+            return .changeProposalReview(proposalID: proposalID)
+        }
         if let title = workspaceState.selectedGitDiffTitle,
            let diffText = workspaceState.selectedGitDiffText,
            !diffText.isEmpty {
@@ -242,6 +265,23 @@ struct GitDiffView: View {
 
     let title: String
     let diffText: String
+    let backButtonTitle: String
+    let sourceLabel: String?
+    let onBack: (() -> Void)?
+
+    init(
+        title: String,
+        diffText: String,
+        backButtonTitle: String = "返回文件",
+        sourceLabel: String? = nil,
+        onBack: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.diffText = diffText
+        self.backButtonTitle = backButtonTitle
+        self.sourceLabel = sourceLabel
+        self.onBack = onBack
+    }
 
     private var presentation: GitDiffPresentation {
         GitDiffPresentation.build(title: title, diffText: diffText)
@@ -257,18 +297,34 @@ struct GitDiffView: View {
             Divider()
             if presentation.sections.isEmpty {
                 emptyState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView([.vertical, .horizontal]) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        summaryCard
-                        ForEach(presentation.sections) { section in
-                            hunkSection(section)
+                GeometryReader { proxy in
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            summaryCard
+
+                            ScrollView(.horizontal) {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    ForEach(presentation.sections) { section in
+                                        hunkSection(section)
+                                    }
+                                }
+                                .frame(
+                                    minWidth: GitDiffLayoutMetrics.contentWidth(
+                                        viewportWidth: max(proxy.size.width - 28, 0),
+                                        longestLineCharacterCount: presentation.longestLineCharacterCount
+                                    ),
+                                    alignment: .leading
+                                )
+                            }
+                            .scrollIndicators(.visible)
                         }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(NSColor.textBackgroundColor))
                 }
-                .background(Color(NSColor.textBackgroundColor))
             }
         }
         .accessibilityIdentifier("git.diff")
@@ -278,9 +334,13 @@ struct GitDiffView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Button {
-                    workspaceState.clearGitDiffSelection()
+                    if let onBack {
+                        onBack()
+                    } else {
+                        workspaceState.clearGitDiffSelection()
+                    }
                 } label: {
-                    Label("返回文件", systemImage: "chevron.left")
+                    Label(backButtonTitle, systemImage: "chevron.left")
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("git.diff.back")
@@ -303,7 +363,7 @@ struct GitDiffView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if let sourceLabel = diffSourceLabel {
+                if let sourceLabel = resolvedSourceLabel {
                     Text(sourceLabel)
                         .font(.caption.weight(.medium))
                         .padding(.horizontal, 8)
@@ -348,6 +408,8 @@ struct GitDiffView: View {
             Text(section.header)
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -384,6 +446,8 @@ struct GitDiffView: View {
 
             Text(verbatim: row.text)
                 .font(.system(size: 12, design: .monospaced))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .textSelection(.enabled)
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -464,6 +528,10 @@ struct GitDiffView: View {
         case nil:
             return nil
         }
+    }
+
+    private var resolvedSourceLabel: String? {
+        sourceLabel ?? diffSourceLabel
     }
 
     private var emptyState: some View {
