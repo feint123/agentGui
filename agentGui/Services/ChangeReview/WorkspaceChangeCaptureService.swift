@@ -145,15 +145,27 @@ struct DetachedWorkspaceChangeCaptureExecutor: Sendable {
     }
 
     func captureSnapshot(root: URL) async throws -> WorkspaceTextSnapshot {
-        try await Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) {
             try captureSnapshotOperation(root)
-        }.value
+        }
+
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     func collectArtifacts(from baseSnapshot: WorkspaceTextSnapshot) async throws -> [ChangeReviewFileArtifact] {
-        try await Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) {
             try collectArtifactsOperation(baseSnapshot)
-        }.value
+        }
+
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 }
 
@@ -176,6 +188,10 @@ struct WorkspaceChangeCaptureService: @unchecked Sendable {
 
         var filesByRelativePath: [String: WorkspaceTextSnapshot.FileEntry] = [:]
         for case let fileURL as URL in enumerator {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+
             let normalizedFileURL = fileURL.standardizedFileURL
             let values = try normalizedFileURL.resourceValues(forKeys: [.isRegularFileKey])
             guard values.isRegularFile == true else {
@@ -197,42 +213,56 @@ struct WorkspaceChangeCaptureService: @unchecked Sendable {
 
     func collectArtifacts(from baseSnapshot: WorkspaceTextSnapshot) throws -> [ChangeReviewFileArtifact] {
         let stagedSnapshot = try captureSnapshot(root: baseSnapshot.root)
-        return collectArtifacts(from: baseSnapshot, to: stagedSnapshot)
+        return try collectArtifacts(from: baseSnapshot, to: stagedSnapshot)
     }
 
     func collectArtifacts(
         from baseSnapshot: WorkspaceTextSnapshot,
         to stagedSnapshot: WorkspaceTextSnapshot
-    ) -> [ChangeReviewFileArtifact] {
+    ) throws -> [ChangeReviewFileArtifact] {
         let allPaths = Set(baseSnapshot.filesByRelativePath.keys)
             .union(stagedSnapshot.filesByRelativePath.keys)
             .sorted()
 
-        return allPaths.compactMap { relativePath in
+        var artifacts: [ChangeReviewFileArtifact] = []
+        for relativePath in allPaths {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+
             let baseEntry = baseSnapshot.filesByRelativePath[relativePath]
             let stagedEntry = stagedSnapshot.filesByRelativePath[relativePath]
             let baseContent = baseEntry?.contents
             let stagedContent = stagedEntry?.contents
 
             guard baseContent != stagedContent else {
-                return nil
+                continue
             }
 
             let absolutePath = stagedEntry?.absolutePath
                 ?? baseEntry?.absolutePath
                 ?? baseSnapshot.root.appending(path: relativePath).path
 
-            return ChangeReviewArtifactBuilder.build(
+            artifacts.append(ChangeReviewArtifactBuilder.build(
                 relativePath: relativePath,
                 absolutePath: absolutePath,
                 baseContent: baseContent,
                 stagedContent: stagedContent
-            )
+            ))
         }
+
+        return artifacts
     }
 
     private func readableTextContents(at fileURL: URL) throws -> String? {
+        if Task.isCancelled {
+            throw CancellationError()
+        }
+
         let data = try Data(contentsOf: fileURL)
+        if Task.isCancelled {
+            throw CancellationError()
+        }
         guard !data.contains(0) else {
             return nil
         }

@@ -224,7 +224,7 @@ struct ConversationExecutionOrchestratorTests {
             )
         }
 
-        #expect(snapshotGate.waitUntilStarted())
+        #expect(await snapshotGate.waitUntilStarted())
 
         await harness.orchestrator.cancelRunning(in: harness.session.sessionId)
         snapshotGate.release()
@@ -392,15 +392,38 @@ private struct ExecutionOrchestratorHarness {
 }
 
 private final class SnapshotGate: @unchecked Sendable {
-    private let startedSemaphore = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var didStart = false
+    private var startContinuation: CheckedContinuation<Bool, Never>?
     private let releaseSemaphore = DispatchSemaphore(value: 0)
 
     func markStarted() {
-        startedSemaphore.signal()
+        lock.lock()
+        didStart = true
+        let continuation = startContinuation
+        startContinuation = nil
+        lock.unlock()
+        continuation?.resume(returning: true)
     }
 
-    func waitUntilStarted(timeout: TimeInterval = 1) -> Bool {
-        startedSemaphore.wait(timeout: .now() + timeout) == .success
+    func waitUntilStarted() async -> Bool {
+        lock.lock()
+        if didStart {
+            lock.unlock()
+            return true
+        }
+        lock.unlock()
+
+        return await withCheckedContinuation { continuation in
+            lock.lock()
+            if didStart {
+                lock.unlock()
+                continuation.resume(returning: true)
+                return
+            }
+            startContinuation = continuation
+            lock.unlock()
+        }
     }
 
     func release() {
@@ -491,9 +514,16 @@ private struct ClaudeServiceExecutionHarness {
 @MainActor
 private final class ProviderSpy: ConversationExecutionProvider {
     let id: ConversationExecutionProviderID
+    let runtimeScope: ConversationExecutionRuntimeScope?
 
     init(id: ConversationExecutionProviderID) {
         self.id = id
+        self.runtimeScope = switch id {
+        case .builtInAgent:
+            .builtIn
+        case .githubCopilotCLI, .openCodeCLI:
+            .externalACP
+        }
     }
 
     func send(_ request: ConversationExecutionRequest) async throws {

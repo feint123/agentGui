@@ -74,6 +74,28 @@ struct WorkspaceChangeCaptureServiceTests {
         #expect(recorder.value(for: "snapshot") == false)
         #expect(recorder.value(for: "artifacts") == false)
     }
+
+    @Test func detachedExecutorPropagatesCancellationToBackgroundTask() async throws {
+        let executor = DetachedWorkspaceChangeCaptureExecutor(
+            captureSnapshotOperation: { root in
+                while !Task.isCancelled {
+                    Thread.sleep(forTimeInterval: 0.001)
+                }
+                _ = root
+                throw CancellationError()
+            },
+            collectArtifactsOperation: { _ in [] }
+        )
+
+        let task = Task {
+            try await executor.captureSnapshot(root: URL(fileURLWithPath: "/tmp/agentgui-workspace-capture-cancel"))
+        }
+        task.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await task.value
+        }
+    }
 }
 
 private struct WorkspaceChangeCaptureHarness {

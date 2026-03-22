@@ -23,6 +23,7 @@ final class ConversationExecutionOrchestrator {
     private let workspaceChangeCaptureExecutor: DetachedWorkspaceChangeCaptureExecutor
     private var mailboxes: [String: SessionExecutionMailbox] = [:]
     private var activeAttemptIDsByJobID: [UUID: UUID] = [:]
+    private var activePreparationTasksByJobID: [UUID: Task<PreparedDispatchContext, Error>] = [:]
     private var pendingCancellationJobIDs = Set<UUID>()
     private var hasRestoredPersistedJobs = false
 
@@ -91,6 +92,7 @@ final class ConversationExecutionOrchestrator {
         }
 
         pendingCancellationJobIDs.insert(runningJobID)
+        activePreparationTasksByJobID[runningJobID]?.cancel()
         let driver = runtimePool.driver(for: job.providerID, registry: providerRegistry)
         await driver.cancel(jobID: runningJobID, sessionID: sessionID)
     }
@@ -173,13 +175,6 @@ final class ConversationExecutionOrchestrator {
         }
 
         let provider = providerRegistry.provider(for: job.providerID)
-        await runtimeCoordinator.prepareForActivation(
-            session: session,
-            activeProvider: provider,
-            registry: providerRegistry,
-            modelContext: modelContext
-        )
-
         guard let attempt = try? persistenceStore.start(jobID: candidate.jobID, runtimeScope: provider.runtimeScope) else {
             _ = await mailbox.finishRunning(jobID: candidate.jobID)
             await scheduler.markFinished(jobID: candidate.jobID, sessionID: candidate.sessionID)
@@ -189,15 +184,37 @@ final class ConversationExecutionOrchestrator {
         activeAttemptIDsByJobID[candidate.jobID] = attempt.id
         updateProjectionForRunningJob(jobID: candidate.jobID, sessionID: candidate.sessionID, providerID: job.providerID)
 
+        await runtimeCoordinator.prepareForActivation(
+            session: session,
+            activeProvider: provider,
+            registry: providerRegistry,
+            modelContext: modelContext
+        )
+
+        if pendingCancellationJobIDs.remove(job.id) != nil {
+            await finish(job: job, outcome: .cancelled, errorMessage: nil)
+            return
+        }
+
         let driver = runtimePool.driver(for: job.providerID, registry: providerRegistry)
-        let preparedContext: PreparedDispatchContext
-        do {
-            preparedContext = try await prepareDispatchContext(
+        let preparationTask = Task {
+            try await prepareDispatchContext(
                 for: job,
                 session: session,
                 runtimeScope: provider.runtimeScope
             )
+        }
+        activePreparationTasksByJobID[job.id] = preparationTask
+        let preparedContext: PreparedDispatchContext
+        do {
+            preparedContext = try await preparationTask.value
+            activePreparationTasksByJobID.removeValue(forKey: job.id)
+        } catch is CancellationError {
+            activePreparationTasksByJobID.removeValue(forKey: job.id)
+            await finish(job: job, outcome: .cancelled, errorMessage: nil)
+            return
         } catch {
+            activePreparationTasksByJobID.removeValue(forKey: job.id)
             await finish(job: job, outcome: .failed, errorMessage: error.localizedDescription)
             return
         }
@@ -365,6 +382,8 @@ final class ConversationExecutionOrchestrator {
         outcome: ExecutionJobState,
         errorMessage: String?
     ) async {
+        activePreparationTasksByJobID[job.id]?.cancel()
+        activePreparationTasksByJobID.removeValue(forKey: job.id)
         pendingCancellationJobIDs.remove(job.id)
         guard let attemptID = activeAttemptIDsByJobID.removeValue(forKey: job.id) else {
             return
