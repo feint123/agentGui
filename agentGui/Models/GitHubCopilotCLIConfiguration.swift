@@ -12,6 +12,8 @@ struct ExecutionOptionItem: Identifiable, Equatable, Hashable, Sendable {
     }
 }
 
+typealias GitHubCopilotCLIConfiguration = ACPCLIConfiguration
+
 enum GitHubCopilotCLIApprovalModeOption: String, CaseIterable, Codable, Sendable {
     case defaultApprovals = "default"
     case bypassApprovals = "never"
@@ -36,23 +38,69 @@ enum GitHubCopilotCLIApprovalModeOption: String, CaseIterable, Codable, Sendable
     }
 }
 
-struct GitHubCopilotCLIConfiguration: Codable, Equatable, Sendable {
+struct ACPCLIConfiguration: Codable, Equatable, Sendable {
     var executablePath: String
     var defaultModel: String
-    var customAgentName: String
     var defaultApprovalMode: String
-    var useACPStdIO: Bool
 
-    static let `default` = GitHubCopilotCLIConfiguration(
+    init(
+        executablePath: String,
+        defaultModel: String,
+        defaultApprovalMode: String
+    ) {
+        self.executablePath = executablePath
+        self.defaultModel = defaultModel
+        self.defaultApprovalMode = defaultApprovalMode
+    }
+
+    init(
+        executablePath: String,
+        defaultModel: String,
+        customAgentName: String,
+        defaultApprovalMode: String,
+        useACPStdIO: Bool
+    ) {
+        _ = customAgentName
+        _ = useACPStdIO
+        self.init(
+            executablePath: executablePath,
+            defaultModel: defaultModel,
+            defaultApprovalMode: defaultApprovalMode
+        )
+    }
+
+    init(
+        executablePath: String,
+        defaultModel: String,
+        defaultApprovalMode: String,
+        environment: [String: String],
+        useACPStdIO: Bool
+    ) {
+        _ = environment
+        _ = useACPStdIO
+        self.init(
+            executablePath: executablePath,
+            defaultModel: defaultModel,
+            defaultApprovalMode: defaultApprovalMode
+        )
+    }
+}
+
+extension ACPCLIConfiguration {
+    static let githubCopilotDefault = ACPCLIConfiguration(
         executablePath: "copilot",
         defaultModel: "",
-        customAgentName: "",
-        defaultApprovalMode: "default",
-        useACPStdIO: true
+        defaultApprovalMode: "default"
+    )
+
+    static let openCodeDefault = ACPCLIConfiguration(
+        executablePath: "opencode",
+        defaultModel: "",
+        defaultApprovalMode: "default"
     )
 }
 
-extension GitHubCopilotCLIConfiguration {
+extension ACPCLIConfiguration {
     static let curatedModelOptions: [ExecutionOptionItem] = [
         ExecutionOptionItem(id: "gpt-4.1", title: "GPT-4.1"),
         ExecutionOptionItem(id: "gpt-5-mini", title: "GPT-5 mini"),
@@ -81,7 +129,7 @@ extension GitHubCopilotCLIConfiguration {
         ExecutionOptionItem(id: "goldeneye", title: "Goldeneye")
     ]
 
-    static func modelOptions(
+    static func copilotModelOptions(
         inheritingTitle: String? = nil,
         including currentSelection: String
     ) -> [ExecutionOptionItem] {
@@ -103,7 +151,7 @@ extension GitHubCopilotCLIConfiguration {
         GitHubCopilotCLIApprovalModeOption.resolved(from: defaultApprovalMode)
     }
 
-    func applying(_ sessionPreferences: GitHubCopilotCLISessionPreferences) -> GitHubCopilotCLIConfiguration {
+    func applying(_ sessionPreferences: GitHubCopilotCLISessionPreferences) -> ACPCLIConfiguration {
         var configuration = self
         if let modelID = sessionPreferences.modelID?.nonEmptyValue {
             configuration.defaultModel = modelID

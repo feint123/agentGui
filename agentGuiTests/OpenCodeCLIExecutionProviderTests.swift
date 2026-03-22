@@ -5,23 +5,32 @@ import Testing
 
 @MainActor
 struct OpenCodeCLIExecutionProviderTests {
+  @Test func openCodeDescriptorCapturesProviderSpecificExecutionBehavior() {
+    let descriptor = ACPExternalAgentDescriptor.openCode
+
+    #expect(descriptor.defaultArguments == ["acp"])
+    #expect(descriptor.supportsSessionModelOverrideByDefault == false)
+    #expect(descriptor.supportsCustomAgentName == false)
+    #expect(descriptor.executionBehavior.requiresCapabilityNegotiationForModelOverride)
+    #expect(descriptor.executionBehavior.supportsEnvironmentOverrides == false)
+  }
+
     @Test func sendPersistsSessionBindingAndAppliesModelOverrideWhenCapabilityAllows() async throws {
         let modelContext = try makeModelContext()
         let workingDirectory = makeTemporaryDirectory()
         let logFile = workingDirectory.appendingPathComponent("opencode.log")
-        let agentScript = try makeOpenCodeAgentScript(in: workingDirectory)
+        let agentScript = try makeOpenCodeAgentScript(
+          in: workingDirectory,
+          logFile: logFile,
+          responseText: "open response",
+          supportsModelOverride: true
+        )
 
         let settings = AppSettings.testFixture(apiKey: "")
         settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
             executablePath: agentScript.path,
             defaultModel: "gpt-5",
-            defaultApprovalMode: "default",
-            environment: [
-                "OPENCODE_TEST_LOG_PATH": logFile.path,
-                "OPENCODE_TEST_RESPONSE_TEXT": "open response",
-                "OPENCODE_TEST_SUPPORTS_MODEL_OVERRIDE": "1"
-            ],
-            useACPStdIO: true
+          defaultApprovalMode: "default"
         )
         let session = Session.fixture(title: "OpenCode")
         session.workingDirectory = workingDirectory.path
@@ -71,19 +80,18 @@ struct OpenCodeCLIExecutionProviderTests {
         let modelContext = try makeModelContext()
         let workingDirectory = makeTemporaryDirectory()
         let logFile = workingDirectory.appendingPathComponent("opencode.log")
-        let agentScript = try makeOpenCodeAgentScript(in: workingDirectory)
+        let agentScript = try makeOpenCodeAgentScript(
+          in: workingDirectory,
+          logFile: logFile,
+          responseText: "open response",
+          supportsModelOverride: false
+        )
 
         let settings = AppSettings.testFixture(apiKey: "")
         settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
             executablePath: agentScript.path,
             defaultModel: "gpt-5",
-            defaultApprovalMode: "default",
-            environment: [
-                "OPENCODE_TEST_LOG_PATH": logFile.path,
-                "OPENCODE_TEST_RESPONSE_TEXT": "open response",
-                "OPENCODE_TEST_SUPPORTS_MODEL_OVERRIDE": "0"
-            ],
-            useACPStdIO: true
+          defaultApprovalMode: "default"
         )
         let session = Session.fixture(title: "OpenCode No Override")
         session.workingDirectory = workingDirectory.path
@@ -443,11 +451,85 @@ struct OpenCodeCLIExecutionProviderTests {
     let toolCalls = assistantMessage.agentRounds.flatMap(\.toolCalls)
 
     #expect(runtimeClient.ensureSessionRemoteSessionIDs == ["remote-restored"])
-    #expect(assistantMessage.textContent == "OpenCode 实时回复")
-    #expect(toolCalls.count == 1)
-    #expect(toolCalls.first?.toolCallId == "tool-live-open")
-    #expect(toolCalls.first?.title == "OpenCode 实时工具")
-    #expect(toolCalls.first?.terminalOutput == "open live output")
+    ExternalACPProviderAssertionHelpers.expectLiveTurnProjection(
+      assistantMessage: assistantMessage,
+      toolCalls: toolCalls,
+      expectedText: "OpenCode 实时回复",
+      expectedToolCallID: "tool-live-open",
+      expectedToolTitle: "OpenCode 实时工具",
+      expectedToolOutput: "open live output"
+    )
+  }
+
+  @Test func cancelForwardsToActiveRuntimeAndSettlesOutstandingToolCalls() async throws {
+    let modelContext = try makeModelContext()
+    let settings = AppSettings.testFixture(apiKey: "")
+    settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+      executablePath: "/usr/bin/env",
+      defaultModel: "",
+      defaultApprovalMode: "default",
+      environment: [:],
+      useACPStdIO: true
+    )
+    let session = Session.fixture(title: "OpenCode Cancel")
+    modelContext.insert(settings)
+    modelContext.insert(session)
+    try modelContext.save()
+
+    let runtimeClient = RuntimeClientStub(
+      handshake: ACPExternalAgentSessionHandshake(
+        remoteSessionID: "remote-cancel",
+        capabilities: ACPExternalAgentCapabilitySnapshot(
+          loadSession: true,
+          supportsSessionModelOverride: false,
+          agentVersion: "0.1.0"
+        )
+      ),
+      stopReason: .cancelled,
+      updates: [
+        .session(
+          .toolCall(
+            ACPToolCall(
+              meta: nil,
+              content: nil,
+              kind: "run_in_terminal",
+              locations: nil,
+              rawInput: nil,
+              rawOutput: nil,
+              status: "running",
+              title: "run command",
+              toolCallID: "tool-run-open"
+            )
+          )
+        )
+      ]
+    )
+    let provider = OpenCodeCLIExecutionProvider(
+      terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+      permissionCenter: ACPPermissionCenter(),
+      runtimeClientFactory: { _, _, _, _, updateSink in
+        runtimeClient.updateSink = updateSink
+        return runtimeClient
+      }
+    )
+
+    try await provider.send(
+      ConversationExecutionRequest(
+        text: "cancel me",
+        session: session,
+        modelID: "",
+        selectedFilePath: nil,
+        selectedText: nil,
+        directives: [],
+        modelContext: modelContext
+      )
+    )
+    await provider.cancel(session: session, modelContext: modelContext)
+
+    #expect(runtimeClient.cancelledSessionIDs == ["remote-cancel"])
+
+    let assistantMessage = try #require(session.messages.first(where: { $0.direction == .agent }))
+    ExternalACPProviderAssertionHelpers.expectCancelledMessageSettlesToolCalls(assistantMessage)
   }
 
   @Test func sendSeparatesPermissionRequestsFromToolExecutionRecords() async throws {
@@ -613,15 +695,22 @@ struct OpenCodeCLIExecutionProviderTests {
         )
     }
 
-    private func makeOpenCodeAgentScript(in directory: URL) throws -> URL {
+    private func makeOpenCodeAgentScript(
+      in directory: URL,
+      logFile: URL,
+      responseText: String,
+      supportsModelOverride: Bool
+    ) throws -> URL {
         let scriptURL = directory.appendingPathComponent("opencode-test-agent")
-        let script = #"""
+      let escapedLogPath = logFile.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+      let escapedResponseText = responseText.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+      let script = """
 #!/usr/bin/env ruby
 require "json"
 
-log_path = ENV["OPENCODE_TEST_LOG_PATH"]
-response_text = ENV.fetch("OPENCODE_TEST_RESPONSE_TEXT", "done")
-supports_model_override = ENV.fetch("OPENCODE_TEST_SUPPORTS_MODEL_OVERRIDE", "0") == "1"
+    log_path = "\(escapedLogPath)"
+    response_text = "\(escapedResponseText)"
+  supports_model_override = \(supportsModelOverride ? "true" : "false")
 
 def append_log(path, line)
   return unless path && !path.empty?
@@ -713,7 +802,7 @@ loop do
     abort("unexpected method #{method}")
   end
 end
-"""#
+"""
 
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)

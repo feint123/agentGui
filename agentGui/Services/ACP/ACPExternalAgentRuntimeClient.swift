@@ -100,7 +100,7 @@ private actor ACPExternalAgentClientHandler: ACPClientHandler {
 }
 
 @MainActor
-final class ACPExternalAgentRuntimeClient {
+final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient {
     private let managedRuntime: ACPManagedClientRuntime
     private let supportsSessionModelOverrideFallback: Bool
     private var capabilitySnapshot: ACPExternalAgentCapabilitySnapshot?

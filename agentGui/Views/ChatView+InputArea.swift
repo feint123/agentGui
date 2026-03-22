@@ -255,7 +255,7 @@ extension ChatView {
         case .githubCopilotCLI:
             ExecutionOptionPicker(
                 title: "",
-                options: GitHubCopilotCLIConfiguration.modelOptions(
+                options: ACPCLIConfiguration.copilotModelOptions(
                     inheritingTitle: "跟随设置默认",
                     including: copilotComposerModelSelectionBinding.wrappedValue
                 ),

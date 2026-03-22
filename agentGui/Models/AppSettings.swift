@@ -139,11 +139,11 @@ final class AppSettings {
         self.extendedThinkingBudget = 10000
         self.enabledSkillNamesJSON = "[]"
         self.githubCopilotCLIConfigurationJSON = (try? String(
-            data: JSONEncoder().encode(GitHubCopilotCLIConfiguration.default),
+            data: JSONEncoder().encode(ACPCLIConfiguration.githubCopilotDefault),
             encoding: .utf8
         )) ?? "{}"
         self.openCodeCLIConfigurationJSON = (try? String(
-            data: JSONEncoder().encode(OpenCodeCLIConfiguration.default),
+            data: JSONEncoder().encode(ACPCLIConfiguration.openCodeDefault),
             encoding: .utf8
         )) ?? "{}"
         self.enableWebSearchTool = false
@@ -173,11 +173,11 @@ final class AppSettings {
 
 // MARK: - Skill Helpers
 extension AppSettings {
-    var githubCopilotCLIConfiguration: GitHubCopilotCLIConfiguration {
+    var githubCopilotCLIConfiguration: ACPCLIConfiguration {
         get {
             guard let data = githubCopilotCLIConfigurationJSON.data(using: .utf8),
-                  let configuration = try? JSONDecoder().decode(GitHubCopilotCLIConfiguration.self, from: data) else {
-                return .default
+                  let configuration = try? JSONDecoder().decode(ACPCLIConfiguration.self, from: data) else {
+                return .githubCopilotDefault
             }
             return configuration
         }
@@ -186,11 +186,11 @@ extension AppSettings {
         }
     }
 
-    var openCodeCLIConfiguration: OpenCodeCLIConfiguration {
+    var openCodeCLIConfiguration: ACPCLIConfiguration {
         get {
             guard let data = openCodeCLIConfigurationJSON.data(using: .utf8),
-                  let configuration = try? JSONDecoder().decode(OpenCodeCLIConfiguration.self, from: data) else {
-                return .default
+                  let configuration = try? JSONDecoder().decode(ACPCLIConfiguration.self, from: data) else {
+                return .openCodeDefault
             }
             return configuration
         }

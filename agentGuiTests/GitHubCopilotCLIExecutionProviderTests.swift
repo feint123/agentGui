@@ -5,9 +5,48 @@ import Testing
 
 @MainActor
 struct GitHubCopilotCLIExecutionProviderTests {
+    @Test func copilotDescriptorCapturesProviderSpecificExecutionBehavior() {
+        let descriptor = ACPExternalAgentDescriptor.githubCopilot
+
+        #expect(descriptor.defaultArguments == ["--acp", "--stdio"])
+        #expect(descriptor.supportsSessionModelOverrideByDefault)
+        #expect(descriptor.supportsCustomAgentName == false)
+        #expect(descriptor.executionBehavior.requiresCapabilityNegotiationForModelOverride == false)
+        #expect(descriptor.executionBehavior.supportsEnvironmentOverrides == false)
+    }
+
+    @Test func buildRuntimeClientUsesSharedExternalACPRuntimeClientByDefault() async throws {
+        let workingDirectory = makeTemporaryDirectory()
+        let executableURL = try makeIdleExecutable(in: workingDirectory)
+        let provider = GitHubCopilotCLIExecutionProvider(
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter()
+        )
+        let session = Session.fixture(title: "Copilot Shared Runtime")
+
+        let runtimeClient = try await provider.buildRuntimeClient(
+            configuration: GitHubCopilotCLIConfiguration(
+                executablePath: executableURL.path,
+                defaultModel: "",
+                customAgentName: "",
+                defaultApprovalMode: "default",
+                useACPStdIO: true
+            ),
+            session: session,
+            workingDirectory: workingDirectory.path,
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
+            permissionResolver: { _, _ in nil },
+            updateSink: { _ in }
+        )
+
+        #expect(runtimeClient is ACPExternalAgentRuntimeClient)
+
+        await runtimeClient.close()
+    }
+
     @Test func runtimeClientDoesNotReloadAlreadyAttachedSession() async throws {
         let workingDirectory = makeTemporaryDirectory()
-        let runtimeClient = try ACPGitHubCopilotCLIRuntimeClient(
+        let runtimeClient = try ACPExternalAgentRuntimeClient(
             launchConfiguration: GitHubCopilotCLILaunchConfiguration(
                 command: "/usr/bin/ruby",
                 arguments: ["-rjson", "-e", sessionLoadOnlyRubyAgentScript],
@@ -15,6 +54,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             ),
             terminalRuntime: TerminalTaskRuntime.makeForTests(),
             authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
+            supportsSessionModelOverrideFallback: true,
             eventSink: { _ in }
         )
 
@@ -34,7 +74,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
 
     @Test func runtimeClientLoadsExistingSessionInsteadOfCallingResume() async throws {
         let workingDirectory = makeTemporaryDirectory()
-        let runtimeClient = try ACPGitHubCopilotCLIRuntimeClient(
+        let runtimeClient = try ACPExternalAgentRuntimeClient(
             launchConfiguration: GitHubCopilotCLILaunchConfiguration(
                 command: "/usr/bin/ruby",
                 arguments: ["-rjson", "-e", sessionLoadOnlyRubyAgentScript],
@@ -42,6 +82,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             ),
             terminalRuntime: TerminalTaskRuntime.makeForTests(),
             authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
+            supportsSessionModelOverrideFallback: true,
             eventSink: { _ in }
         )
 
@@ -58,7 +99,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
 
     @Test func runtimeClientRejectsSwitchingToDifferentRemoteSessionOnSameRuntime() async throws {
         let workingDirectory = makeTemporaryDirectory()
-        let runtimeClient = try ACPGitHubCopilotCLIRuntimeClient(
+        let runtimeClient = try ACPExternalAgentRuntimeClient(
             launchConfiguration: GitHubCopilotCLILaunchConfiguration(
                 command: "/usr/bin/ruby",
                 arguments: ["-rjson", "-e", sessionLoadOnlyRubyAgentScript],
@@ -66,6 +107,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             ),
             terminalRuntime: TerminalTaskRuntime.makeForTests(),
             authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
+            supportsSessionModelOverrideFallback: true,
             eventSink: { _ in }
         )
 
@@ -80,7 +122,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
                 remoteSessionID: "remote-other"
             )
             Issue.record("Expected runtime client to reject switching to a different remote session")
-        } catch let error as GitHubCopilotCLIExecutionProviderError {
+        } catch let error as ACPExternalAgentRuntimeError {
             switch error {
             case .sessionAlreadyAttached(let current, let requested):
                 #expect(current == "remote-existing")
@@ -118,7 +160,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
             permissionCenter: ACPPermissionCenter(),
             runtimeClientFactory: { _, _, _, _, updateSink in
-                try ACPGitHubCopilotCLIRuntimeClient(
+                try ACPExternalAgentRuntimeClient(
                     launchConfiguration: GitHubCopilotCLILaunchConfiguration(
                         command: "/usr/bin/ruby",
                         arguments: ["-rjson", "-e", multiTurnSessionReuseRubyAgentScript],
@@ -126,6 +168,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
                     ),
                     terminalRuntime: TerminalTaskRuntime.makeForTests(),
                     authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
+                    supportsSessionModelOverrideFallback: true,
                     eventSink: updateSink
                 )
             }
@@ -289,11 +332,14 @@ struct GitHubCopilotCLIExecutionProviderTests {
         let toolCalls = assistantMessage.agentRounds.flatMap(\.toolCalls)
 
         #expect(runtimeClient.ensureSessionRemoteSessionIDs == ["remote-restored"])
-        #expect(assistantMessage.textContent == "实时回复")
-        #expect(toolCalls.count == 1)
-        #expect(toolCalls.first?.toolCallId == "tool-live")
-        #expect(toolCalls.first?.title == "实时工具")
-        #expect(toolCalls.first?.terminalOutput == "echo live")
+        ExternalACPProviderAssertionHelpers.expectLiveTurnProjection(
+            assistantMessage: assistantMessage,
+            toolCalls: toolCalls,
+            expectedText: "实时回复",
+            expectedToolCallID: "tool-live",
+            expectedToolTitle: "实时工具",
+            expectedToolOutput: "echo live"
+        )
     }
 
     @Test func sendProjectsCopilotUpdatesIntoAssistantMessageAndTools() async throws {
@@ -933,6 +979,9 @@ struct GitHubCopilotCLIExecutionProviderTests {
         await provider.cancel(session: session, modelContext: modelContext)
 
         #expect(runtimeClient.cancelledSessionIDs == ["remote-cancel"])
+
+        let assistantMessage = try #require(session.messages.first(where: { $0.direction == .agent }))
+        ExternalACPProviderAssertionHelpers.expectCancelledMessageSettlesToolCalls(assistantMessage)
     }
 
     private func makeModelContext() throws -> ModelContext {
@@ -953,6 +1002,14 @@ struct GitHubCopilotCLIExecutionProviderTests {
     private func makeTemporaryDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func makeIdleExecutable(in directory: URL) throws -> URL {
+        let url = directory.appendingPathComponent("fake-copilot")
+        let script = "#!/bin/sh\ncat >/dev/null\n"
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url
     }
 

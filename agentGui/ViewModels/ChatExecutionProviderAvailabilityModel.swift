@@ -31,7 +31,7 @@ final class ChatExecutionProviderAvailabilityModel {
         }
     }
 
-    func refreshCopilotStatus(configuration: GitHubCopilotCLIConfiguration) async {
+    func refreshCopilotStatus(configuration: ACPCLIConfiguration) async {
         await refreshStatus(for: .githubCopilotCLI, executablePath: configuration.executablePath)
     }
 
@@ -40,12 +40,10 @@ final class ChatExecutionProviderAvailabilityModel {
             switch providerID {
             case .githubCopilotCLI:
                 return try await GitHubCopilotCLIAvailabilityService().checkStatus(
-                    configuration: GitHubCopilotCLIConfiguration(
+                    configuration: ACPCLIConfiguration(
                         executablePath: executablePath,
                         defaultModel: "",
-                        customAgentName: "",
-                        defaultApprovalMode: "default",
-                        useACPStdIO: true
+                        defaultApprovalMode: "default"
                     )
                 )
             case .openCodeCLI:

@@ -45,12 +45,10 @@ struct SessionExecutionPreferencesTests {
     @Test func copilotConfigurationMergesSessionOverridesOverGlobalDefaults() {
         let session = Session.fixture()
         let settings = AppSettings.testFixture()
-        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+        settings.githubCopilotCLIConfiguration = ACPCLIConfiguration(
             executablePath: "copilot",
             defaultModel: "gpt-5",
-            customAgentName: "",
-            defaultApprovalMode: "default",
-            useACPStdIO: true
+            defaultApprovalMode: "default"
         )
         session.executionPreferences = SessionExecutionPreferences(
             builtInModelID: nil,
@@ -70,12 +68,10 @@ struct SessionExecutionPreferencesTests {
     @Test func openCodeConfigurationMergesSessionOverridesOverGlobalDefaults() {
         let session = Session.fixture()
         let settings = AppSettings.testFixture()
-        settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+        settings.openCodeCLIConfiguration = ACPCLIConfiguration(
             executablePath: "opencode",
             defaultModel: "openai/gpt-5",
-            defaultApprovalMode: "default",
-            environment: [:],
-            useACPStdIO: true
+            defaultApprovalMode: "default"
         )
         session.executionPreferences = SessionExecutionPreferences(
             builtInModelID: nil,

@@ -8,16 +8,37 @@ struct ACPExternalAgentDescriptor: Equatable, Sendable {
     let supportsSessionModelOverrideByDefault: Bool
     let supportsCustomAgentName: Bool
     let defaultEnvironment: [String: String]
+    let executionBehavior: ACPExternalProviderExecutionBehavior
 }
 
 extension ACPExternalAgentDescriptor {
+    static let githubCopilot = ACPExternalAgentDescriptor(
+        providerID: .githubCopilotCLI,
+        displayName: "GitHub Copilot",
+        defaultExecutablePath: ACPCLIConfiguration.githubCopilotDefault.executablePath,
+        defaultArguments: ["--acp", "--stdio"],
+        supportsSessionModelOverrideByDefault: true,
+        supportsCustomAgentName: false,
+        defaultEnvironment: [:],
+        executionBehavior: ACPExternalProviderExecutionBehavior(
+            requiresCapabilityNegotiationForModelOverride: false,
+            supportsEnvironmentOverrides: false,
+            supportsCustomAgentName: false
+        )
+    )
+
     static let openCode = ACPExternalAgentDescriptor(
         providerID: .openCodeCLI,
         displayName: "OpenCode",
-        defaultExecutablePath: OpenCodeCLIConfiguration.default.executablePath,
+        defaultExecutablePath: ACPCLIConfiguration.openCodeDefault.executablePath,
         defaultArguments: ["acp"],
         supportsSessionModelOverrideByDefault: false,
         supportsCustomAgentName: false,
-        defaultEnvironment: [:]
+        defaultEnvironment: [:],
+        executionBehavior: ACPExternalProviderExecutionBehavior(
+            requiresCapabilityNegotiationForModelOverride: true,
+            supportsEnvironmentOverrides: false,
+            supportsCustomAgentName: false
+        )
     )
 }

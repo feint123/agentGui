@@ -50,7 +50,7 @@ struct SettingsExecutorsView: View {
 
                 ExecutionOptionPicker(
                     title: "默认模型",
-                    options: GitHubCopilotCLIConfiguration.modelOptions(
+                    options: ACPCLIConfiguration.copilotModelOptions(
                         inheritingTitle: "跟随 GitHub Copilot CLI 默认",
                         including: store.settings.githubCopilotCLIConfiguration.defaultModel
                     ),
@@ -74,35 +74,22 @@ struct SettingsExecutorsView: View {
                     ),
                     accessibilityIdentifier: "settings.executors.copilotApprovalModePicker"
                 )
-
-                TextField("自定义 Agent 名称（可选）", text: store.persistedGitHubCopilotCLIConfigurationBinding(
-                    get: { $0.customAgentName },
-                    userMessage: "Copilot CLI Agent 名称未成功保存",
-                    set: { $0.customAgentName = $1 }
-                ))
-                .accessibilityIdentifier("settings.executors.copilotAgentField")
-
-                Toggle("使用 ACP stdio 模式", isOn: store.persistedGitHubCopilotCLIConfigurationBinding(
-                    get: { $0.useACPStdIO },
-                    userMessage: "Copilot CLI ACP 设置未成功保存",
-                    set: { $0.useACPStdIO = $1 }
-                ))
-                .disabled(true)
-
-                Text(store.gitHubCopilotCLIAvailabilityStatus.summaryText)
-                    .foregroundStyle(statusColor(for: store.gitHubCopilotCLIAvailabilityStatus))
-                    .accessibilityIdentifier("settings.executors.copilotStatus")
-
-                Button("重新检测") {
-                    Task {
-                        await store.refreshGitHubCopilotCLIAvailabilityStatus()
+                HStack {
+                    Text(store.gitHubCopilotCLIAvailabilityStatus.summaryText)
+                        .foregroundStyle(statusColor(for: store.gitHubCopilotCLIAvailabilityStatus))
+                        .accessibilityIdentifier("settings.executors.copilotStatus")
+                    Spacer()
+                    Button("重新检测") {
+                        Task {
+                            await store.refreshGitHubCopilotCLIAvailabilityStatus()
+                        }
                     }
+                    .accessibilityIdentifier("settings.executors.refreshButton")
                 }
-                .accessibilityIdentifier("settings.executors.refreshButton")
             } header: {
                 Text("GitHub Copilot CLI")
             } footer: {
-                Text("第一版仅支持 copilot --acp --stdio。")
+                Text("配置项已统一为可执行文件、默认模型和默认审批模式。")
             }
 
             Section {
@@ -136,27 +123,22 @@ struct SettingsExecutorsView: View {
                     ),
                     accessibilityIdentifier: "settings.executors.openCodeApprovalModePicker"
                 )
-
-                Toggle("使用 ACP stdio 模式", isOn: store.persistedOpenCodeCLIConfigurationBinding(
-                    get: { $0.useACPStdIO },
-                    userMessage: "OpenCode CLI ACP 设置未成功保存",
-                    set: { $0.useACPStdIO = $1 }
-                ))
-
-                Text(store.openCodeCLIAvailabilityStatus.summaryText)
-                    .foregroundStyle(statusColor(for: store.openCodeCLIAvailabilityStatus))
-                    .accessibilityIdentifier("settings.executors.openCodeStatus")
-
-                Button("重新检测") {
-                    Task {
-                        await store.refreshOpenCodeCLIAvailabilityStatus()
+                HStack {
+                    Text(store.openCodeCLIAvailabilityStatus.summaryText)
+                        .foregroundStyle(statusColor(for: store.openCodeCLIAvailabilityStatus))
+                        .accessibilityIdentifier("settings.executors.openCodeStatus")
+                    Spacer()
+                    Button("重新检测") {
+                        Task {
+                            await store.refreshOpenCodeCLIAvailabilityStatus()
+                        }
                     }
+                    .accessibilityIdentifier("settings.executors.refreshOpenCodeButton")
                 }
-                .accessibilityIdentifier("settings.executors.refreshOpenCodeButton")
             } header: {
                 Text("OpenCode CLI")
             } footer: {
-                Text("当前通过 opencode acp 接入外部 ACP 执行器。")
+                Text("配置项已统一为可执行文件、默认模型和默认审批模式。")
             }
         }
         .formStyle(.grouped)

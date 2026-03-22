@@ -57,17 +57,17 @@ enum SessionExecutionPreferencesResolver {
         )
     }
 
-    static func gitHubCopilotCLIConfiguration(for session: Session, settings: AppSettings) -> GitHubCopilotCLIConfiguration {
+    static func gitHubCopilotCLIConfiguration(for session: Session, settings: AppSettings) -> ACPCLIConfiguration {
         settings.githubCopilotCLIConfiguration.applying(session.executionPreferences.gitHubCopilotCLI)
     }
 
-    static func openCodeCLIConfiguration(for session: Session, settings: AppSettings) -> OpenCodeCLIConfiguration {
+    static func openCodeCLIConfiguration(for session: Session, settings: AppSettings) -> ACPCLIConfiguration {
         settings.openCodeCLIConfiguration.applying(session.executionPreferences.openCodeCLI)
     }
 }
 
-extension OpenCodeCLIConfiguration {
-    func applying(_ sessionPreferences: OpenCodeCLISessionPreferences) -> OpenCodeCLIConfiguration {
+extension ACPCLIConfiguration {
+    func applying(_ sessionPreferences: OpenCodeCLISessionPreferences) -> ACPCLIConfiguration {
         var configuration = self
         if let modelID = sessionPreferences.modelID?.trimmedNonEmpty {
             configuration.defaultModel = modelID

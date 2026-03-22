@@ -8,7 +8,11 @@ struct ConversationExecutionProviderSelectionTests {
         let settings = AppSettings()
 
         #expect(settings.defaultExecutionProviderID == ConversationExecutionProviderID.builtInAgent.rawValue)
-        #expect(settings.githubCopilotCLIConfiguration.useACPStdIO == true)
+        #expect(settings.githubCopilotCLIConfiguration == ACPCLIConfiguration(
+            executablePath: "copilot",
+            defaultModel: "",
+            defaultApprovalMode: "default"
+        ))
     }
 
     @Test func sessionCanOverrideGlobalExecutionProvider() {
@@ -38,8 +42,11 @@ struct ConversationExecutionProviderSelectionTests {
         let settings = AppSettings()
 
         #expect(ConversationExecutionProviderID(rawValue: "opencode_cli") == .openCodeCLI)
-        #expect(settings.openCodeCLIConfiguration.executablePath == "opencode")
-        #expect(settings.openCodeCLIConfiguration.useACPStdIO == true)
+        #expect(settings.openCodeCLIConfiguration == ACPCLIConfiguration(
+            executablePath: "opencode",
+            defaultModel: "",
+            defaultApprovalMode: "default"
+        ))
         #expect(ACPExternalAgentDescriptor.openCode.defaultArguments == ["acp"])
     }
 
