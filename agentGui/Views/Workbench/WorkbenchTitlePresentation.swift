@@ -19,17 +19,22 @@ struct WorkbenchTitlePresentation: Equatable {
             )
         }
 
-        guard let directoryURL = workspaceState.effectiveWorkingDirectoryURL(globalDefault: globalWorkingDirectory) else {
+        let presentation = SessionWorkspacePresentationFactory().build(
+            session: workspaceState.selectedSession,
+            globalWorkingDirectory: globalWorkingDirectory
+        )
+
+        guard let directoryURL = presentation.representedURL else {
             return WorkbenchTitlePresentation(
-                title: selectedItem.title,
+                title: presentation.title,
                 subtitle: "",
                 representedURL: nil
             )
         }
 
         return WorkbenchTitlePresentation(
-            title: directoryURL.lastPathComponent,
-            subtitle: directoryURL.path,
+            title: presentation.title,
+            subtitle: presentation.subtitle,
             representedURL: directoryURL
         )
     }

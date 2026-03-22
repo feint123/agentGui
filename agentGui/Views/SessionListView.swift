@@ -31,6 +31,10 @@ struct SessionListView: View {
 
     var onSessionSelected: (Session) -> Void
 
+    private var globalWorkingDirectory: String {
+        AppSettings.getOrCreate(in: modelContext).workingDirectory
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -147,6 +151,7 @@ struct SessionListView: View {
                             session: item.session,
                             isSelected: workspaceState.selectedSession?.persistentModelID == item.session.persistentModelID,
                             canRename: item.canRename,
+                            globalWorkingDirectory: globalWorkingDirectory,
                             onTap: {
                                 onSessionSelected(item.session)
                             }
@@ -226,14 +231,17 @@ private struct SessionRowView: View {
     let session: Session
     let isSelected: Bool
     let canRename: Bool
+    let globalWorkingDirectory: String
     let onTap: () -> Void
 
     var body: some View {
+        let workspacePresentation = SessionWorkspacePresentationFactory().build(
+            session: session,
+            globalWorkingDirectory: globalWorkingDirectory
+        )
+
         Button(action: onTap) {
             HStack(spacing: 12) {
-                sessionIcon
-                    .frame(width: 36, height: 36)
-
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(session.title)
@@ -252,6 +260,8 @@ private struct SessionRowView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+
+                    SessionWorkspaceBadgeView(presentation: workspacePresentation)
 
                     Text(session.lastMessagePreview)
                         .font(.caption)
@@ -281,16 +291,6 @@ private struct SessionRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private var sessionIcon: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(.blue.gradient)
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.white)
-        }
     }
 }
 

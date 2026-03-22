@@ -6,6 +6,12 @@ import Testing
 @MainActor
 struct WorkspaceStateTests {
 
+    @Test func detailSelectionDefaultsToEmpty() {
+        let workspaceState = WorkspaceState()
+
+        #expect(workspaceState.detailSelection == .none)
+    }
+
     @Test func workspaceDisplayUsesGlobalDirectoryWhenSessionHasNoOverride() {
         let workspaceState = WorkspaceState()
 
@@ -49,5 +55,84 @@ struct WorkspaceStateTests {
         #expect(session.workingDirectory == selectedURL.standardizedFileURL.path)
         #expect(settings.workingDirectory == selectedURL.standardizedFileURL.path)
         #expect(workspaceState.effectiveWorkingDirectoryPath(globalDefault: "") == selectedURL.standardizedFileURL.path)
+    }
+
+    @Test func selectedFileMirrorsTypedDetailSelection() {
+        let workspaceState = WorkspaceState()
+        let fileURL = URL(fileURLWithPath: "/tmp/repo/file.swift")
+
+        workspaceState.selectedFile = fileURL
+
+        #expect(workspaceState.detailSelection == .file(fileURL.standardizedFileURL))
+    }
+
+    @Test func selectedGitDiffMirrorsTypedDetailSelectionAndClearsProposalSelection() {
+        let workspaceState = WorkspaceState()
+        let proposalID = UUID()
+        let diffURL = URL(fileURLWithPath: "/tmp/repo/file.swift")
+
+        workspaceState.selectChangeProposal(proposalID, filePath: "file.swift")
+        workspaceState.selectedGitDiffTitle = "file.swift"
+        workspaceState.selectedGitDiffText = "diff --git a/file b/file"
+        workspaceState.selectedGitDiffPath = diffURL
+
+        #expect(workspaceState.detailSelection == .gitDiff(title: "file.swift", diffText: "diff --git a/file b/file"))
+        #expect(workspaceState.selectedChangeProposalID == nil)
+        #expect(workspaceState.selectedChangeProposalFilePath == nil)
+    }
+
+    @Test func selectingProposalMirrorsTypedDetailSelection() {
+        let workspaceState = WorkspaceState()
+        let proposalID = UUID()
+
+        workspaceState.selectChangeProposal(proposalID, filePath: "README.md")
+
+        #expect(workspaceState.detailSelection == .changeProposal(proposalID: proposalID, filePath: "README.md"))
+    }
+
+    @Test func showFileDetailOpensContextWindowTab() {
+        let workspaceState = WorkspaceState()
+        let contextWindowState = WorkbenchContextWindowState()
+        let fileURL = URL(fileURLWithPath: "/tmp/repo/file.swift")
+
+        workspaceState.contextWindowState = contextWindowState
+        workspaceState.showFileDetail(fileURL)
+
+        #expect(workspaceState.detailSelection == .file(fileURL.standardizedFileURL))
+        #expect(contextWindowState.tabs.count == 1)
+        #expect(contextWindowState.tabs.first?.selection == .file(fileURL.standardizedFileURL))
+    }
+
+    @Test func selectingProposalUpdatesContextWindowProposalPath() {
+        let workspaceState = WorkspaceState()
+        let contextWindowState = WorkbenchContextWindowState()
+        let proposalID = UUID()
+
+        workspaceState.contextWindowState = contextWindowState
+        workspaceState.selectChangeProposal(proposalID, filePath: "A.swift")
+        workspaceState.selectedChangeProposalFilePath = "B.swift"
+
+        #expect(workspaceState.detailSelection == .changeProposal(proposalID: proposalID, filePath: "B.swift"))
+        #expect(contextWindowState.tabs.count == 1)
+        #expect(contextWindowState.tabs.first?.selection == .changeProposal(proposalID: proposalID, filePath: "B.swift"))
+    }
+
+    @Test func clearingTypedDetailSelectionClearsCompatibilityValues() {
+        let workspaceState = WorkspaceState()
+        let diffURL = URL(fileURLWithPath: "/tmp/repo/file.swift")
+
+        workspaceState.showGitDiffDetail(
+            path: diffURL,
+            title: "file.swift",
+            diffText: "diff --git a/file.swift b/file.swift"
+        )
+        workspaceState.showFileDetail(nil)
+
+        #expect(workspaceState.detailSelection == .none)
+        #expect(workspaceState.selectedFile == nil)
+        #expect(workspaceState.selectedGitDiffPath == nil)
+        #expect(workspaceState.selectedGitDiffTitle == nil)
+        #expect(workspaceState.selectedGitDiffText == nil)
+        #expect(workspaceState.selectedChangeProposalID == nil)
     }
 }

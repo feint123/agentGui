@@ -487,7 +487,7 @@ final class WorkspaceTreeViewModel {
 
         if let selectedFile = activeWorkspaceState.selectedFile?.standardizedFileURL,
            !availableIDs.contains(selectedFile) {
-            activeWorkspaceState.selectedFile = nil
+            activeWorkspaceState.showFileDetail(nil)
         }
 
         if let selectedGitDiffPath = activeWorkspaceState.selectedGitDiffPath?.standardizedFileURL,
@@ -511,7 +511,13 @@ final class WorkspaceTreeViewModel {
         if workspaceState.selectedFile?.standardizedFileURL != selection.selectedFile?.standardizedFileURL {
             pendingSelectedFileSyncBypass = selection.selectedFile?.standardizedFileURL
         }
-        workspaceState.selectedFile = selection.selectedFile
+        if let selectedFile = selection.selectedFile {
+            workspaceState.showFileDetail(selectedFile)
+        } else if case .file = workspaceState.detailSelection {
+            workspaceState.showFileDetail(nil)
+        } else {
+            workspaceState.selectedFile = nil
+        }
 
         if selection.selectedGitDiffPath == nil {
             workspaceState.clearGitDiffSelection()
@@ -605,7 +611,6 @@ final class WorkspaceTreeViewModel {
         if workspaceState.selectedFile?.standardizedFileURL != normalizedSelectedFile {
             pendingSelectedFileSyncBypass = normalizedSelectedFile
         }
-        workspaceState.clearGitDiffSelection()
-        workspaceState.selectedFile = normalizedSelectedFile
+        workspaceState.showFileDetail(normalizedSelectedFile)
     }
 }

@@ -117,6 +117,7 @@ struct agentGuiApp: App {
     @State private var backgroundActivityCoordinator: BackgroundActivityCoordinator?
     @State private var channelRegistry = IMChannelRegistry()
     @State private var channelRuntimeBootstrap: ChannelRuntimeBootstrap?
+    @State private var workbenchSceneServices = WorkbenchSceneServices()
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
@@ -149,6 +150,11 @@ struct agentGuiApp: App {
                 .environment(skillService)
                 .environment(runtimeRecoveryService)
                 .environment(reliabilityCenterViewModel)
+                .environment(workbenchSceneServices.workspaceState)
+                .environment(workbenchSceneServices.workbenchState)
+                .environment(workbenchSceneServices.gitPanelViewModel)
+                .environment(workbenchSceneServices.changeReviewProjectionStore)
+                .environment(workbenchSceneServices.contextWindowState)
                 .onAppear {
                     let context = sharedModelContainer.mainContext
                     seedUITestDataIfNeeded(in: context)
@@ -217,6 +223,18 @@ struct agentGuiApp: App {
             WorkspaceMenuCommands()
             SettingsMenuCommands()
         }
+
+        Window("上下文", id: WorkbenchContextWindowScene.id) {
+            WorkbenchContextWindowView()
+                .environment(claudeService)
+                .environment(workbenchSceneServices.workspaceState)
+                .environment(workbenchSceneServices.workbenchState)
+                .environment(workbenchSceneServices.gitPanelViewModel)
+                .environment(workbenchSceneServices.changeReviewProjectionStore)
+                .environment(workbenchSceneServices.contextWindowState)
+                .environment(PersistenceCoordinator.shared)
+        }
+        .modelContainer(sharedModelContainer)
 
         Window("设置", id: SettingsWindowScene.id) {
             SettingsWindowView()

@@ -74,9 +74,11 @@ final class GitPanelViewModel {
             selectedChange = change
             selectedDiffSection = change.section
             selectedDiffText = diffText
-            workspaceState.selectedGitDiffPath = change.absoluteURL
-            workspaceState.selectedGitDiffText = diffText
-            workspaceState.selectedGitDiffTitle = change.relativePath
+            workspaceState.showGitDiffDetail(
+                path: change.absoluteURL,
+                title: change.relativePath,
+                diffText: diffText
+            )
             loadError = nil
         } catch {
             loadError = error.localizedDescription

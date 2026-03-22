@@ -26,11 +26,19 @@ extension ChatView {
         changeReviewProjectionStore.projection(forSessionID: session.sessionId)
     }
 
-    private var changeReviewBadgeText: String {
-        if changeReviewProjection.pendingFileCount > 0 {
-            return "\(changeReviewProjection.pendingFileCount) 个文件待审查"
-        }
-        return "\(changeReviewProjection.pendingProposalCount) 个提案待审查"
+    private var proposalDockPresentation: ProposalDockPresentation {
+        ProposalDockPresenter().build(
+            from: changeReviewProjection,
+            snapshotsByProposalID: changeReviewProjectionStore.snapshotsByProposalID
+        )
+    }
+
+    private var displayedSlashCandidates: [ChatSlashCommandItem] {
+        Array(slashCandidates.prefix(8))
+    }
+
+    private var displayedMentionCandidates: [URL] {
+        Array(mentionCandidates.prefix(8))
     }
 
     // MARK: - Input Area
@@ -47,6 +55,27 @@ extension ChatView {
             case .none:
                 EmptyView()
             }
+
+            ProposalDockView(
+                presentation: proposalDockPresentation,
+                selectedProposalID: workspaceState.selectedChangeProposalID,
+                selectedFilePath: workspaceState.selectedChangeProposalFilePath,
+                onOpenProposal: { item in
+                    openChangeReviewFromComposer(proposalID: item.proposalID, filePath: item.filePath)
+                },
+                onApplyProposal: { item in
+                    applyProposalFromDock(item: item)
+                },
+                onDiscardProposal: { item in
+                    discardProposalFromDock(item: item)
+                },
+                onApplyAll: {
+                    applyAllProposalsFromDock()
+                },
+                onDiscardAll: {
+                    discardAllProposalsFromDock()
+                }
+            )
 
             VStack(spacing: 8) {
                 if (showFileContext && workspaceState.selectedFile != nil) ||
@@ -106,19 +135,12 @@ extension ChatView {
                             .accessibilityIdentifier("chat.queueBadge")
                     }
 
-                    if changeReviewProjection.pendingProposalCount > 0 {
-                        Button(changeReviewBadgeText) {
-                            openChangeReviewFromComposer()
-                        }
-                        .buttonStyle(.glass)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("chat.changeReviewBadge")
-                    }
                 }
 
                 HStack(alignment: .bottom, spacing: 10) {
                     MentionAwareEditor(
                         text: $inputText,
+                        height: $composerHeight,
                         isDisabled: composerExecutionPresentation.isComposerDisabled,
                         onTextChange: { updateComposerAssistState($0) },
                         onMoveSelection: { handleComposerSelectionMove(delta: $0) },
@@ -131,7 +153,7 @@ extension ChatView {
                             }
                         }
                     )
-                    .frame(minHeight: 28, maxHeight: 130)
+                    .frame(height: composerHeight)
                     .padding(.horizontal, 4)
                     .accessibilityIdentifier("chat.inputField")
 
@@ -303,9 +325,162 @@ extension ChatView {
         return workspaceState.editorSelectedLineRange?.displayText ?? "已选文本"
     }
 
-    private func openChangeReviewFromComposer() {
-        guard let proposalID = changeReviewProjection.proposalIDs.first else { return }
-        workspaceState.selectChangeProposal(proposalID)
+    private func openChangeReviewFromComposer(proposalID: UUID? = nil, filePath: String? = nil) {
+        guard let proposalID = proposalID ?? changeReviewProjection.proposalIDs.first else { return }
+        let initialPath = filePath ?? changeReviewProjectionStore
+            .snapshot(for: proposalID)?
+            .fileChanges
+            .first(where: { $0.state.isPendingReview })?
+            .relativePath
+        workspaceState.selectChangeProposal(proposalID, filePath: initialPath)
+    }
+
+    private func applyProposalFromDock(item: ProposalDockItemPresentation) {
+        guard !item.filePath.isEmpty else { return }
+
+        Task {
+            do {
+                try await ApplyEngine(
+                    modelContext: modelContext,
+                    projectionStore: changeReviewProjectionStore
+                ).apply(proposalID: item.proposalID, approvedPaths: [item.filePath])
+                reconcileProposalSelectionAfterDockAction(proposalID: item.proposalID)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func discardProposalFromDock(item: ProposalDockItemPresentation) {
+        guard !item.filePath.isEmpty else { return }
+
+        Task {
+            do {
+                try await DraftRevertService(
+                    modelContext: modelContext,
+                    projectionStore: changeReviewProjectionStore
+                ).revertFiles(
+                    proposalID: item.proposalID,
+                    relativePaths: [item.filePath]
+                )
+                reconcileProposalSelectionAfterDockAction(proposalID: item.proposalID)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func reconcileProposalSelectionAfterDockAction(proposalID: UUID) {
+        guard workspaceState.selectedChangeProposalID == proposalID else { return }
+
+        guard let snapshot = changeReviewProjectionStore.snapshot(for: proposalID),
+              snapshot.proposal.state.isPendingReview else {
+            workspaceState.clearChangeProposalSelection()
+            return
+        }
+
+        let nextPath = ChangeProposalReviewSelectionResolver.resolve(
+            in: snapshot,
+            selectedFilePath: workspaceState.selectedChangeProposalFilePath
+        )?.relativePath
+        workspaceState.selectChangeProposal(proposalID, filePath: nextPath)
+    }
+
+    private func applyAllProposalsFromDock() {
+        performProposalDockBulkAction(.apply)
+    }
+
+    private func discardAllProposalsFromDock() {
+        performProposalDockBulkAction(.discard)
+    }
+
+    private func performProposalDockBulkAction(_ action: ProposalDockBulkAction) {
+        let proposalIDs = proposalDockPresentation.actionableProposalIDs
+        guard !proposalIDs.isEmpty else { return }
+
+        Task {
+            do {
+                switch action {
+                case .apply:
+                    let applyEngine = ApplyEngine(
+                        modelContext: modelContext,
+                        projectionStore: changeReviewProjectionStore
+                    )
+                    for proposalID in proposalIDs {
+                        guard let snapshot = changeReviewProjectionStore.snapshot(for: proposalID) else {
+                            continue
+                        }
+
+                        let pendingPaths = snapshot.fileChanges
+                            .filter { $0.state.isPendingReview }
+                            .map(\.relativePath)
+                        guard !pendingPaths.isEmpty else {
+                            continue
+                        }
+
+                        try await applyEngine.apply(proposalID: proposalID, approvedPaths: pendingPaths)
+                    }
+
+                case .discard:
+                    let revertService = DraftRevertService(
+                        modelContext: modelContext,
+                        projectionStore: changeReviewProjectionStore
+                    )
+                    for proposalID in proposalIDs {
+                        guard let snapshot = changeReviewProjectionStore.snapshot(for: proposalID) else {
+                            continue
+                        }
+
+                        let pendingPaths = snapshot.fileChanges
+                            .filter { $0.state.isPendingReview }
+                            .map(\.relativePath)
+                        guard !pendingPaths.isEmpty else {
+                            continue
+                        }
+
+                        try await revertService.revertFiles(proposalID: proposalID, relativePaths: pendingPaths)
+                    }
+                }
+
+                reconcileProposalSelectionAfterDockBatchAction(proposalIDs: proposalIDs)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func reconcileProposalSelectionAfterDockBatchAction(proposalIDs: [UUID]) {
+        guard let selectedProposalID = workspaceState.selectedChangeProposalID,
+              proposalIDs.contains(selectedProposalID) else {
+            return
+        }
+
+        guard let snapshot = changeReviewProjectionStore.snapshot(for: selectedProposalID),
+              snapshot.proposal.state.isPendingReview else {
+            guard let nextProposalID = proposalDockPresentation.actionableProposalIDs.first,
+                  let nextSnapshot = changeReviewProjectionStore.snapshot(for: nextProposalID) else {
+                workspaceState.clearChangeProposalSelection()
+                return
+            }
+
+            let nextPath = ChangeProposalReviewSelectionResolver.resolve(
+                in: nextSnapshot,
+                selectedFilePath: nil
+            )?.relativePath
+            workspaceState.selectChangeProposal(nextProposalID, filePath: nextPath)
+            return
+        }
+
+        let nextPath = ChangeProposalReviewSelectionResolver.resolve(
+            in: snapshot,
+            selectedFilePath: workspaceState.selectedChangeProposalFilePath
+        )?.relativePath
+        workspaceState.selectChangeProposal(selectedProposalID, filePath: nextPath)
+    }
+
+    private enum ProposalDockBulkAction {
+        case apply
+        case discard
     }
 
     func contextChip(systemImage: String, label: String, tint: Color, onRemove: @escaping () -> Void) -> some View {
@@ -436,7 +611,7 @@ var fileChipsRow: some View {
                             stopStreaming()
                         } label: {
                             Image(systemName: "stop.circle.fill")
-                                .font(.system(size: 30))
+                                .font(.system(size: 16))
                                 .foregroundStyle(.red)
                         }
                         .buttonStyle(.plain)
@@ -447,7 +622,7 @@ var fileChipsRow: some View {
                         activeTask = Task { await sendMessage() }
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 30))
+                            .font(.system(size: 16))
                             .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.4))
                     }
                     .buttonStyle(.plain)
@@ -461,7 +636,7 @@ var fileChipsRow: some View {
                         stopStreaming()
                     } label: {
                         Image(systemName: "stop.circle.fill")
-                            .font(.system(size: 30))
+                            .font(.system(size: 16))
                             .foregroundStyle(.red)
                     }
                     .buttonStyle(.plain)
@@ -473,7 +648,7 @@ var fileChipsRow: some View {
                         activeTask = Task { await sendMessage() }
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 30))
+                            .font(.system(size: 16))
                             .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.4))
                     }
                     .buttonStyle(.plain)
@@ -536,7 +711,7 @@ var fileChipsRow: some View {
 
     @ViewBuilder
     var slashPopupCard: some View {
-        VStack(spacing: 0) {
+        ComposerAssistPanelContainer(accessibilityIdentifier: "chat.slashPopup") {
             if slashCandidates.isEmpty {
                 HStack {
                     Text("没有匹配的命令")
@@ -547,122 +722,113 @@ var fileChipsRow: some View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
             } else {
-                ForEach(Array(slashCandidates.prefix(8))) { item in
-                    slashRow(item: item)
+                ComposerSelectableList(
+                    items: displayedSlashCandidates,
+                    highlightedIndex: highlightedSlashIndex,
+                    onSelect: selectSlashItem
+                ) { item, isHighlighted in
+                    slashRow(item: item, isHighlighted: isHighlighted)
                 }
             }
         }
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
-        .accessibilityIdentifier("chat.slashPopup")
-        .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)))
     }
 
-    func slashRow(item: ChatSlashCommandItem) -> some View {
-        let isHighlighted = item.id == highlightedSlashItemID
-        return Button {
-            selectSlashItem(item)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "command")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 14)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(item.title)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        if let badge = item.badge {
-                            Text(badge)
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        if item.isEnabledByDefault {
-                            Text("已启用")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.green)
-                        }
+    func slashRow(item: ChatSlashCommandItem, isHighlighted: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "command")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(item.title)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if let badge = item.badge {
+                        Text(badge)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
                     }
-                    if !item.subtitle.isEmpty {
-                        Text(item.subtitle)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
+                    if item.isEnabledByDefault {
+                        Text("已启用")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.green)
                     }
                 }
-                Spacer()
+                if !item.subtitle.isEmpty {
+                    Text(item.subtitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(isHighlighted ? Color.accentColor.opacity(0.12) : .clear)
-            )
-            .contentShape(Rectangle())
+            Spacer()
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(isHighlighted ? Color.accentColor.opacity(0.12) : .clear)
+        )
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
     }
 
     @ViewBuilder
     var mentionPopupCard: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(mentionCandidates.prefix(8)), id: \.self) { url in
-                mentionRow(url: url)
+        ComposerAssistPanelContainer(accessibilityIdentifier: "chat.mentionPopup") {
+            ComposerSelectableList(
+                items: displayedMentionCandidates,
+                highlightedIndex: highlightedMentionIndex,
+                onSelect: handleMentionSelection
+            ) { url, isHighlighted in
+                mentionRow(url: url, isHighlighted: isHighlighted)
             }
         }
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
-        .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)))
     }
 
     @ViewBuilder
     var todoPopupCard: some View {
-        InputAreaTodoCardView(presentation: todoCardPresentation)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 4)
-            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)))
+        ComposerAssistPanelContainer(accessibilityIdentifier: "chat.todoPopup") {
+            InputAreaTodoCardView(presentation: todoCardPresentation, showsContainerChrome: false)
+        }
     }
 
-    func mentionRow(url: URL) -> some View {
+    func mentionRow(url: URL, isHighlighted: Bool) -> some View {
         let relPath: String = {
             guard !mentionWorkingDir.isEmpty,
                   url.path.hasPrefix(mentionWorkingDir + "/") else { return url.path }
             return String(url.path.dropFirst(mentionWorkingDir.count + 1))
         }()
-        return Button {
-            insertMention(url: url, relPath: relPath)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: fileIcon(for: url.lastPathComponent))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 14)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(url.lastPathComponent)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.primary)
+        return HStack(spacing: 8) {
+            Image(systemName: fileIcon(for: url.lastPathComponent))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(url.lastPathComponent)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if relPath != url.lastPathComponent {
+                    Text(relPath)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
-                    if relPath != url.lastPathComponent {
-                        Text(relPath)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
                 }
-                Spacer()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .contentShape(Rectangle())
+            Spacer()
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(isHighlighted ? Color.accentColor.opacity(0.12) : .clear)
+        )
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
     }
 
     // MARK: - @ Mention Logic
@@ -672,6 +838,7 @@ var fileChipsRow: some View {
             if mentionQuery != nil {
                 withAnimation(.easeOut(duration: 0.12)) { mentionQuery = nil }
                 mentionCandidates = []
+                highlightedMentionIndex = nil
             }
             return
         }
@@ -695,6 +862,7 @@ var fileChipsRow: some View {
             await MainActor.run {
                 withAnimation(.easeOut(duration: 0.1)) {
                     self.mentionCandidates = filtered
+                    self.highlightedMentionIndex = filtered.isEmpty ? nil : 0
                 }
             }
         }
@@ -720,6 +888,21 @@ var fileChipsRow: some View {
         }
         withAnimation(.easeOut(duration: 0.12)) { mentionQuery = nil }
         mentionCandidates = []
+        highlightedMentionIndex = nil
+    }
+
+    func handleMentionSelection(_ url: URL) {
+        let relPath: String = {
+            guard !mentionWorkingDir.isEmpty,
+                  url.path.hasPrefix(mentionWorkingDir + "/") else { return url.path }
+            return String(url.path.dropFirst(mentionWorkingDir.count + 1))
+        }()
+        insertMention(url: url, relPath: relPath)
+    }
+
+    private var highlightedSlashIndex: Int? {
+        guard let highlightedSlashItemID else { return displayedSlashCandidates.isEmpty ? nil : 0 }
+        return displayedSlashCandidates.firstIndex(where: { $0.id == highlightedSlashItemID })
     }
 
     func updateComposerAssistState(_ text: String) {
@@ -761,15 +944,30 @@ var fileChipsRow: some View {
     }
 
     func handleComposerSelectionMove(delta: Int) -> Bool {
-        guard slashQuery != nil, !slashCandidates.isEmpty else { return false }
-        var state = ChatComposerSlashState(
-            query: slashQuery,
-            candidates: slashCandidates,
-            highlightedItemID: highlightedSlashItemID
-        )
-        state.moveSelection(delta: delta)
-        highlightedSlashItemID = state.highlightedItemID
-        return true
+        if slashQuery != nil, !slashCandidates.isEmpty {
+            var controller = ComposerAssistSelectionController(
+                itemCount: displayedSlashCandidates.count,
+                selectedIndex: highlightedSlashIndex
+            )
+            controller.move(delta: delta)
+            if let selectedIndex = controller.selectedIndex,
+               selectedIndex < displayedSlashCandidates.count {
+                highlightedSlashItemID = displayedSlashCandidates[selectedIndex].id
+            }
+            return true
+        }
+
+        if mentionQuery != nil, !mentionCandidates.isEmpty {
+            var controller = ComposerAssistSelectionController(
+                itemCount: displayedMentionCandidates.count,
+                selectedIndex: highlightedMentionIndex
+            )
+            controller.move(delta: delta)
+            highlightedMentionIndex = controller.selectedIndex
+            return true
+        }
+
+        return false
     }
 
     func commitComposerSelection() -> Bool {
@@ -781,13 +979,10 @@ var fileChipsRow: some View {
             return true
         }
 
-        if let firstMention = mentionCandidates.first, mentionQuery != nil {
-            let relPath: String = {
-                guard !mentionWorkingDir.isEmpty,
-                      firstMention.path.hasPrefix(mentionWorkingDir + "/") else { return firstMention.path }
-                return String(firstMention.path.dropFirst(mentionWorkingDir.count + 1))
-            }()
-            insertMention(url: firstMention, relPath: relPath)
+        if mentionQuery != nil,
+           let highlightedMentionIndex,
+           highlightedMentionIndex < displayedMentionCandidates.count {
+            handleMentionSelection(displayedMentionCandidates[highlightedMentionIndex])
             return true
         }
 
@@ -803,6 +998,7 @@ var fileChipsRow: some View {
         if mentionQuery != nil {
             withAnimation(.easeOut(duration: 0.12)) { mentionQuery = nil }
             mentionCandidates = []
+            highlightedMentionIndex = nil
             handled = true
         }
         return handled
@@ -902,6 +1098,7 @@ private final class FileForwardingTextView: NSTextView {
 private struct MentionAwareEditor: NSViewRepresentable {
 
     @Binding var text: String
+    @Binding var height: CGFloat
     var isDisabled: Bool = false
     var onTextChange: (String) -> Void = { _ in }
     var onMoveSelection: (Int) -> Bool = { _ in false }
@@ -915,6 +1112,23 @@ private struct MentionAwareEditor: NSViewRepresentable {
         .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
         .foregroundColor: NSColor.labelColor
     ]
+
+    private final class ComposerScrollView: NSScrollView {
+        var onWidthChange: (() -> Void)?
+        private var lastMeasuredWidth: CGFloat = 0
+
+        override func layout() {
+            super.layout()
+
+            let width = contentSize.width
+            guard abs(width - lastMeasuredWidth) > 1 else {
+                return
+            }
+
+            lastMeasuredWidth = width
+            onWidthChange?()
+        }
+    }
 
     // MARK: NSViewRepresentable
 
@@ -932,7 +1146,10 @@ private struct MentionAwareEditor: NSViewRepresentable {
         tv.textColor = .labelColor
         tv.backgroundColor = .clear
         tv.drawsBackground = false
-        tv.textContainerInset = NSSize(width: 0, height: 3)
+        tv.textContainerInset = NSSize(
+            width: 0,
+            height: ChatSurfaceLayoutMetrics.composerTextContainerVerticalInset
+        )
         tv.isAutomaticQuoteSubstitutionEnabled = false
         tv.isAutomaticDashSubstitutionEnabled = false
         tv.isAutomaticSpellingCorrectionEnabled = false
@@ -943,28 +1160,37 @@ private struct MentionAwareEditor: NSViewRepresentable {
         tv.onCommitSelection = onCommitSelection
         tv.onCancelAssist = onCancelAssist
 
-        let scrollView = NSScrollView()
+        let scrollView = ComposerScrollView()
         scrollView.documentView = tv
         scrollView.backgroundColor = .clear
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = false
+        scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        scrollView.onWidthChange = {
+            context.coordinator.recalculateHeight(tv, force: true)
+        }
+        DispatchQueue.main.async {
+            context.coordinator.recalculateHeight(tv, force: true)
+        }
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let tv = scrollView.documentView as? FileForwardingTextView else { return }
+        context.coordinator.parent = self
         tv.isEditable = !isDisabled
         tv.onFileDropped = onFileDrop
         tv.onMoveSelection = onMoveSelection
         tv.onCommitSelection = onCommitSelection
         tv.onCancelAssist = onCancelAssist
+        let didUpdateText = tv.string != text
         if tv.string != text {
             let sel = tv.selectedRanges
             tv.string = text
             tv.selectedRanges = sel
             Self.applyMentionStyling(to: tv)
         }
+        context.coordinator.recalculateHeight(tv, force: didUpdateText)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -993,16 +1219,66 @@ private struct MentionAwareEditor: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MentionAwareEditor
+        private var lastMeasuredWidth: CGFloat = 0
+        private var lastMeasuredText = ""
         init(_ parent: MentionAwareEditor) { self.parent = parent }
 
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             parent.text = tv.string
             parent.onTextChange(tv.string)
+            recalculateHeight(tv, force: true)
             // Apply styling async to avoid mutating storage during its own edit cycle
             DispatchQueue.main.async { [weak tv] in
                 guard let tv else { return }
                 MentionAwareEditor.applyMentionStyling(to: tv)
+            }
+        }
+
+        func recalculateHeight(_ textView: NSTextView, force: Bool = false) {
+            guard let scrollView = textView.enclosingScrollView,
+                  let textContainer = textView.textContainer,
+                  let layoutManager = textView.layoutManager else {
+                return
+            }
+
+            let measuredWidth = scrollView.contentSize.width
+            if !force,
+               abs(lastMeasuredWidth - measuredWidth) < 1,
+               lastMeasuredText == textView.string {
+                return
+            }
+
+            lastMeasuredWidth = measuredWidth
+            lastMeasuredText = textView.string
+
+            layoutManager.ensureLayout(for: textContainer)
+            let lineHeight = layoutManager.defaultLineHeight(
+                for: textView.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+            )
+            let usedRect = layoutManager.usedRect(for: textContainer)
+            let extraLineFragmentHeight: CGFloat
+            if textView.string.last.map({ $0.isNewline }) == true {
+                extraLineFragmentHeight = layoutManager.extraLineFragmentRect.height
+            } else {
+                extraLineFragmentHeight = 0
+            }
+            let measuredTextHeight = usedRect.height + extraLineFragmentHeight
+            let unclampedHeight = ceil(
+                measuredTextHeight +
+                ChatSurfaceLayoutMetrics.composerTextContainerVerticalInset * 2 +
+                ChatSurfaceLayoutMetrics.composerHeightChromePadding
+            )
+            let resolvedHeight = ChatSurfaceLayoutMetrics.composerHeight(
+                text: textView.string,
+                measuredTextHeight: measuredTextHeight,
+                lineHeight: lineHeight
+            )
+
+            scrollView.hasVerticalScroller = unclampedHeight > resolvedHeight + 0.5
+
+            if abs(parent.height - resolvedHeight) > 0.5 {
+                parent.height = resolvedHeight
             }
         }
     }

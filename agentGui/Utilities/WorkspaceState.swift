@@ -64,15 +64,45 @@ enum WorkspaceDirectorySelectionCoordinator {
 @MainActor
 final class WorkspaceState {
 
+    @ObservationIgnored
+    var contextWindowState: WorkbenchContextWindowState?
+
+    @ObservationIgnored
+    private var isSynchronizingDetailSelection = false
+
     // MARK: - State
 
     /// 当前激活的对话（nil = 无选中对话）
     var selectedSession: Session?
 
+    var detailSelection: WorkbenchDetailSelection {
+        if let proposalID = selectedChangeProposalID {
+            return .changeProposal(
+                proposalID: proposalID,
+                filePath: selectedChangeProposalFilePath
+            )
+        }
+
+        if let title = selectedGitDiffTitle,
+           let diffText = selectedGitDiffText,
+           !diffText.isEmpty {
+            return .gitDiff(title: title, diffText: diffText)
+        }
+
+        if let selectedFile {
+            return .file(selectedFile.standardizedFileURL)
+        }
+
+        return .none
+    }
+
     /// 当前在文件编辑器中打开的文件 URL（nil = 编辑器显示空状态）
     var selectedFile: URL? {
         didSet {
-            if selectedFile != nil {
+            guard !isSynchronizingDetailSelection, selectedFile != nil else { return }
+
+            synchronizeDetailSelection {
+                selectedFile = selectedFile?.standardizedFileURL
                 clearChangeProposalSelection()
             }
         }
@@ -114,29 +144,66 @@ final class WorkspaceState {
     /// 当前在编辑区预览的 Git diff 对应文件。
     var selectedGitDiffPath: URL? {
         didSet {
-            if selectedGitDiffPath != nil {
+            guard !isSynchronizingDetailSelection, selectedGitDiffPath != nil else { return }
+
+            synchronizeDetailSelection {
+                selectedGitDiffPath = selectedGitDiffPath?.standardizedFileURL
                 clearChangeProposalSelection()
             }
         }
     }
 
     /// 当前在编辑区预览的 Git diff 文本。
-    var selectedGitDiffText: String?
+    var selectedGitDiffText: String? {
+        didSet {
+            guard !isSynchronizingDetailSelection, selectedGitDiffText != nil else { return }
+
+            synchronizeDetailSelection {
+                clearChangeProposalSelection()
+            }
+        }
+    }
 
     /// 当前 Git diff 视图标题。
-    var selectedGitDiffTitle: String?
+    var selectedGitDiffTitle: String? {
+        didSet {
+            guard !isSynchronizingDetailSelection, selectedGitDiffTitle != nil else { return }
+
+            synchronizeDetailSelection {
+                clearChangeProposalSelection()
+            }
+        }
+    }
 
     /// 当前在编辑区打开的变更提案 ID。
     var selectedChangeProposalID: UUID? {
         didSet {
-            if selectedChangeProposalID != nil {
-                clearGitDiffSelection()
+            if let selectedChangeProposalID {
+                contextWindowState?.updateChangeProposalFilePath(
+                    proposalID: selectedChangeProposalID,
+                    filePath: selectedChangeProposalFilePath
+                )
+
+                guard !isSynchronizingDetailSelection else { return }
+
+                synchronizeDetailSelection {
+                    clearGitDiffSelection()
+                }
             }
         }
     }
 
     /// 当前在变更提案审查器中选中的文件路径。
-    var selectedChangeProposalFilePath: String?
+    var selectedChangeProposalFilePath: String? {
+        didSet {
+            if let selectedChangeProposalID {
+                contextWindowState?.updateChangeProposalFilePath(
+                    proposalID: selectedChangeProposalID,
+                    filePath: selectedChangeProposalFilePath
+                )
+            }
+        }
+    }
 
     // MARK: - Computed
 
@@ -168,14 +235,59 @@ final class WorkspaceState {
         selectedGitDiffTitle = nil
     }
 
+    func showFileDetail(_ fileURL: URL?) {
+        guard let fileURL else {
+            selectedFile = nil
+            clearGitDiffSelection()
+            clearChangeProposalSelection()
+            return
+        }
+
+        selectedFile = fileURL.standardizedFileURL
+        clearGitDiffSelection()
+        clearChangeProposalSelection()
+        contextWindowState?.open(.file(fileURL.standardizedFileURL))
+    }
+
+    func showGitDiffDetail(path: URL?, title: String, diffText: String) {
+        selectedFile = nil
+        selectedGitDiffPath = path?.standardizedFileURL
+        selectedGitDiffTitle = title
+        selectedGitDiffText = diffText
+        clearChangeProposalSelection()
+        contextWindowState?.open(.gitDiff(title: title, diffText: diffText))
+    }
+
     func selectChangeProposal(_ proposalID: UUID, filePath: String? = nil) {
+        selectedFile = nil
+        clearGitDiffSelection()
         selectedChangeProposalFilePath = filePath
         selectedChangeProposalID = proposalID
+        contextWindowState?.open(.changeProposal(proposalID: proposalID, filePath: filePath))
     }
 
     func clearChangeProposalSelection() {
         selectedChangeProposalID = nil
         selectedChangeProposalFilePath = nil
+    }
+
+    func openContextWindow() {
+        if detailSelection != .none {
+            contextWindowState?.open(detailSelection)
+        } else if contextWindowState?.hasTabs == true {
+            contextWindowState?.requestPresentation()
+        }
+    }
+
+    private func synchronizeDetailSelection(_ updates: () -> Void) {
+        guard !isSynchronizingDetailSelection else {
+            updates()
+            return
+        }
+
+        isSynchronizingDetailSelection = true
+        updates()
+        isSynchronizingDetailSelection = false
     }
 }
 

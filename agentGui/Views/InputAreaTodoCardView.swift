@@ -2,7 +2,13 @@ import SwiftUI
 
 struct InputAreaTodoCardView: View {
     let presentation: ChatComposerTodoCardPresentation
+    let showsContainerChrome: Bool
     @State private var isExpanded = true
+
+    init(presentation: ChatComposerTodoCardPresentation, showsContainerChrome: Bool = true) {
+        self.presentation = presentation
+        self.showsContainerChrome = showsContainerChrome
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -53,7 +59,19 @@ struct InputAreaTodoCardView: View {
                     .accessibilityIdentifier("chat.todoCard.collapsedHint")
             }
         }
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+        .modifier(TodoCardContainerChromeModifier(isEnabled: showsContainerChrome))
         .accessibilityIdentifier("chat.todoCard")
+    }
+}
+
+private struct TodoCardContainerChromeModifier: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+        } else {
+            content
+        }
     }
 }

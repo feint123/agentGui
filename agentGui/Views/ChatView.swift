@@ -30,6 +30,7 @@ struct ChatView: View {
     @Query(sort: \Session.updatedAt, order: .reverse) var allSessions: [Session]
 
     @State var inputText = ""
+    @State var composerHeight = ChatSurfaceLayoutMetrics.composerDefaultHeight
     @State var errorMessage: String?
     @State var attachedFiles: [AttachedFile] = []
     @State var isDropTargeted = false
@@ -53,6 +54,7 @@ struct ChatView: View {
     @State var mentionQuery: String? = nil
     @State var mentionCandidates: [URL] = []
     @State var mentionWorkingDir: String = ""
+    @State var highlightedMentionIndex: Int? = nil
 
     // MARK: - Slash Command
     @State var slashQuery: String? = nil
@@ -81,23 +83,29 @@ struct ChatView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
-                if let recoverySnapshot = runtimeRecoveryService.recoveryItems(for: session.sessionId).first {
-                    RecoveryBannerView(
-                        snapshot: recoverySnapshot,
-                        onView: {
-                            try? runtimeRecoveryService.markViewed(recoverySnapshot, in: modelContext)
-                        },
-                        onInterrupt: {
-                            try? runtimeRecoveryService.markInterrupted(recoverySnapshot, in: modelContext)
-                        },
-                        onClear: {
-                            try? runtimeRecoveryService.clear(recoverySnapshot, in: modelContext)
-                        }
-                    )
-                }
                 readOnlyBanner
-                messagesArea
-                inputArea
+                if let recoverySnapshot = runtimeRecoveryService.recoveryItems(for: session.sessionId).first {
+                    ChatReadableWidthContainer {
+                        RecoveryBannerView(
+                            snapshot: recoverySnapshot,
+                            onView: {
+                                try? runtimeRecoveryService.markViewed(recoverySnapshot, in: modelContext)
+                            },
+                            onInterrupt: {
+                                try? runtimeRecoveryService.markInterrupted(recoverySnapshot, in: modelContext)
+                            },
+                            onClear: {
+                                try? runtimeRecoveryService.clear(recoverySnapshot, in: modelContext)
+                            }
+                        )
+                    }
+                }
+                ChatReadableWidthContainer {
+                    messagesArea
+                }
+                ChatReadableWidthContainer {
+                    inputArea
+                }
             }
         }
         .accessibilityIdentifier("panel.chat")
@@ -215,7 +223,7 @@ extension ChatView {
             .padding(.vertical, 12)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .padding(.horizontal, 16)
-            .padding(.top, 10)
+            .padding(.vertical, 10)
             .accessibilityIdentifier("chat.readOnlyBanner")
             .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
         }

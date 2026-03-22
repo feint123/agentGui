@@ -41,6 +41,7 @@ struct GitPanelViewModelTests {
         #expect(viewModel.selectedDiffText == "diff --git a/file b/file")
         #expect(workspaceState.selectedGitDiffText == "diff --git a/file b/file")
         #expect(workspaceState.selectedGitDiffPath == change.absoluteURL)
+        #expect(workspaceState.detailSelection == .gitDiff(title: change.relativePath, diffText: "diff --git a/file b/file"))
     }
 
     @Test func selectDiffKeepsChinesePathSelectionState() async throws {
@@ -61,6 +62,7 @@ struct GitPanelViewModelTests {
         #expect(viewModel.selectedChange?.relativePath == "文档/需求说明.md")
         #expect(viewModel.selectedDiffSection == .modified)
         #expect(workspaceState.selectedGitDiffTitle == "文档/需求说明.md")
+        #expect(workspaceState.detailSelection == .gitDiff(title: "文档/需求说明.md", diffText: "diff --git a/文档/需求说明.md b/文档/需求说明.md"))
     }
 
     @Test func refreshPreservesSelectedChangeWhenStillPresent() async throws {

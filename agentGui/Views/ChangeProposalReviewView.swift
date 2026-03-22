@@ -6,8 +6,20 @@ struct ChangeProposalReviewView: View {
     @Environment(ChangeReviewProjectionStore.self) private var changeReviewProjectionStore
 
     let proposalID: UUID
+    private let externalSelectedFilePath: Binding<String?>?
+    private let onClose: (() -> Void)?
 
     @State private var actionError: String?
+
+    init(
+        proposalID: UUID,
+        selectedFilePath: Binding<String?>? = nil,
+        onClose: (() -> Void)? = nil
+    ) {
+        self.proposalID = proposalID
+        self.externalSelectedFilePath = selectedFilePath
+        self.onClose = onClose
+    }
 
     private var applyEngine: ApplyEngine {
         ApplyEngine(modelContext: modelContext, projectionStore: changeReviewProjectionStore)
@@ -22,7 +34,11 @@ struct ChangeProposalReviewView: View {
     }
 
     private var selectedFilePathBinding: Binding<String?> {
-        Binding(
+        if let externalSelectedFilePath {
+            return externalSelectedFilePath
+        }
+
+        return Binding(
             get: { workspaceState.selectedChangeProposalFilePath },
             set: { workspaceState.selectedChangeProposalFilePath = $0 }
         )
@@ -30,52 +46,42 @@ struct ChangeProposalReviewView: View {
 
     private var selectedFileChange: ProposedFileChangeSnapshot? {
         guard let snapshot else { return nil }
-        if let selectedPath = workspaceState.selectedChangeProposalFilePath,
-           let matchingChange = snapshot.fileChanges.first(where: { $0.relativePath == selectedPath }) {
-            return matchingChange
-        }
-        return snapshot.fileChanges.first
+        return ChangeProposalReviewSelectionResolver.resolve(
+            in: snapshot,
+            selectedFilePath: selectedFilePathBinding.wrappedValue
+        )
     }
 
     var body: some View {
         Group {
             if let snapshot {
-                HSplitView {
-                    fileList(snapshot)
-                        .frame(minWidth: 200, idealWidth: 232, maxWidth: 280)
-
-                    VStack(spacing: 0) {
-                        if let selectedFileChange {
-                            GitDiffView(
-                                title: selectedFileChange.relativePath,
-                                diffText: selectedFileChange.unifiedDiff,
-                                backButtonTitle: "返回聊天",
-                                sourceLabel: "变更提案",
-                                onBack: {
-                                    workspaceState.clearChangeProposalSelection()
-                                }
-                            )
-                        } else {
-                            ContentUnavailableView(
-                                "无可审查文件",
-                                systemImage: "doc.text.magnifyingglass",
-                                description: Text("当前变更提案没有可显示的文件差异。")
-                            )
-                        }
-
-                        Divider()
-                        actionBar(snapshot: snapshot, selectedFileChange: selectedFileChange)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(.thinMaterial)
+                VStack(spacing: 0) {
+                    if let selectedFileChange {
+                        GitDiffView(
+                            title: selectedFileChange.relativePath,
+                            diffText: selectedFileChange.unifiedDiff,
+                            backButtonTitle: onClose == nil ? "返回聊天" : "关闭标签页",
+                            sourceLabel: "变更提案",
+                            onBack: {
+                                closeReview()
+                            }
+                        )
+                    } else {
+                        ContentUnavailableView(
+                            "无可审查文件",
+                            systemImage: "doc.text.magnifyingglass",
+                            description: Text("当前变更提案没有可显示的文件差异。")
+                        )
                     }
-                    .frame(minWidth: 420, maxWidth: .infinity)
-                    .layoutPriority(1)
+
+                    Divider()
+                    actionBar(snapshot: snapshot, selectedFileChange: selectedFileChange)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(.thinMaterial)
                 }
                 .onAppear {
-                    if workspaceState.selectedChangeProposalFilePath == nil {
-                        workspaceState.selectedChangeProposalFilePath = snapshot.fileChanges.first?.relativePath
-                    }
+                    syncSelectedFilePathIfNeeded(snapshot)
                 }
             } else {
                 ContentUnavailableView(
@@ -105,6 +111,7 @@ struct ChangeProposalReviewView: View {
     ) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) {
+                fileSelectionSummary(snapshot: snapshot, selectedFileChange: selectedFileChange)
                 primaryActionGroup(selectedFileChange: selectedFileChange, snapshot: snapshot)
                 destructiveActionGroup(selectedFileChange: selectedFileChange, snapshot: snapshot)
                 Spacer(minLength: 0)
@@ -112,6 +119,7 @@ struct ChangeProposalReviewView: View {
             }
 
             VStack(alignment: .leading, spacing: 10) {
+                fileSelectionSummary(snapshot: snapshot, selectedFileChange: selectedFileChange)
                 primaryActionGroup(selectedFileChange: selectedFileChange, snapshot: snapshot)
                 destructiveActionGroup(selectedFileChange: selectedFileChange, snapshot: snapshot)
                 HStack {
@@ -121,6 +129,24 @@ struct ChangeProposalReviewView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func fileSelectionSummary(
+        snapshot: ChangeProposalReviewSnapshot,
+        selectedFileChange: ProposedFileChangeSnapshot?
+    ) -> some View {
+        let pendingCount = snapshot.fileChanges.filter { $0.state.isPendingReview }.count
+
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(selectedFileChange?.relativePath ?? "当前没有选中文件")
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Text("剩余 \(pendingCount) / 共 \(snapshot.fileChanges.count) 个文件")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func primaryActionGroup(
@@ -208,87 +234,42 @@ struct ChangeProposalReviewView: View {
 
     private func closeReviewIfResolved() {
         guard let snapshot = changeReviewProjectionStore.snapshot(for: proposalID) else {
-            workspaceState.clearChangeProposalSelection()
+            closeReview()
             return
         }
         if !snapshot.proposal.state.isPendingReview {
-            workspaceState.clearChangeProposalSelection()
+            closeReview()
         }
     }
 
     private func selectNextPendingFileIfNeeded() {
         guard let snapshot = changeReviewProjectionStore.snapshot(for: proposalID) else {
-            workspaceState.selectedChangeProposalFilePath = nil
+            selectedFilePathBinding.wrappedValue = nil
             return
         }
 
-        if let selectedPath = workspaceState.selectedChangeProposalFilePath,
-           snapshot.fileChanges.contains(where: { $0.relativePath == selectedPath && $0.state.isPendingReview }) {
-            return
-        }
-
-        workspaceState.selectedChangeProposalFilePath = snapshot.fileChanges.first(where: { $0.state.isPendingReview })?.relativePath
+        selectedFilePathBinding.wrappedValue = ChangeProposalReviewSelectionResolver.resolve(
+            in: snapshot,
+            selectedFilePath: selectedFilePathBinding.wrappedValue
+        )?.relativePath
     }
 
-    private func fileList(_ snapshot: ChangeProposalReviewSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("待审查文件")
-                    .font(.headline)
-                Text("剩余 \(snapshot.fileChanges.filter { $0.state.isPendingReview }.count) / 总计 \(snapshot.fileChanges.count) 个文件")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+    private func syncSelectedFilePathIfNeeded(_ snapshot: ChangeProposalReviewSnapshot) {
+        let resolvedPath = ChangeProposalReviewSelectionResolver.resolve(
+            in: snapshot,
+            selectedFilePath: selectedFilePathBinding.wrappedValue
+        )?.relativePath
 
-            Divider()
-
-            List(selection: selectedFilePathBinding) {
-                ForEach(snapshot.fileChanges) { change in
-                    HStack(spacing: 8) {
-                        Image(systemName: iconName(for: change.changeKind))
-                            .foregroundStyle(iconTint(for: change.changeKind))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(change.relativePath)
-                                .lineLimit(1)
-                            Text("\(change.changeKind.rawValue) · \(change.state.rawValue)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .tag(Optional(change.relativePath))
-                }
-            }
-            .listStyle(.sidebar)
-        }
-        .accessibilityIdentifier("changeReview.fileList")
-    }
-
-    private func iconName(for kind: ProposedFileChangeKind) -> String {
-        switch kind {
-        case .add:
-            return "plus.square"
-        case .modify:
-            return "square.and.pencil"
-        case .delete:
-            return "trash"
-        case .rename:
-            return "arrow.left.arrow.right.square"
+        if selectedFilePathBinding.wrappedValue != resolvedPath {
+            selectedFilePathBinding.wrappedValue = resolvedPath
         }
     }
 
-    private func iconTint(for kind: ProposedFileChangeKind) -> Color {
-        switch kind {
-        case .add:
-            return .green
-        case .modify:
-            return .blue
-        case .delete:
-            return .red
-        case .rename:
-            return .orange
+    private func closeReview() {
+        if let onClose {
+            onClose()
+        } else {
+            workspaceState.clearChangeProposalSelection()
         }
     }
 }

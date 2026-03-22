@@ -51,6 +51,70 @@ struct WorkspaceChangeCaptureServiceTests {
         #expect(artifacts.first?.stagedContentSnapshot == "edited")
     }
 
+    @Test func captureSnapshotSkipsIrrelevantGeneratedDirectories() throws {
+        let harness = try WorkspaceChangeCaptureHarness.make()
+        let service = WorkspaceChangeCaptureService(fileManager: .default)
+        let fileManager = FileManager.default
+
+        let sourcesDirectory = harness.workspaceRoot.appending(path: "Sources", directoryHint: .isDirectory)
+        let nodeModulesDirectory = harness.workspaceRoot.appending(path: "node_modules/pkg", directoryHint: .isDirectory)
+        let venvDirectory = harness.workspaceRoot.appending(path: "venv/lib", directoryHint: .isDirectory)
+        let buildDirectory = harness.workspaceRoot.appending(path: "build/debug", directoryHint: .isDirectory)
+
+        try fileManager.createDirectory(at: sourcesDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: nodeModulesDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: venvDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: buildDirectory, withIntermediateDirectories: true)
+
+        try "print(\"hello\")".write(
+            to: sourcesDirectory.appending(path: "App.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ignored".write(
+            to: nodeModulesDirectory.appending(path: "index.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ignored".write(
+            to: venvDirectory.appending(path: "python3.12"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ignored".write(
+            to: buildDirectory.appending(path: "App.o"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let snapshot = try service.captureSnapshot(root: harness.workspaceRoot)
+
+        #expect(snapshot.filesByRelativePath.keys.sorted() == ["Sources/App.swift", "delete.txt", "file.txt"])
+    }
+
+    @Test func collectArtifactsIgnoresIrrelevantDirectoryChangesFromSnapshots() throws {
+        let root = URL(fileURLWithPath: "/tmp/agentgui-change-review")
+        let service = WorkspaceChangeCaptureService(fileManager: .default)
+        let baseSnapshot = WorkspaceTextSnapshot(
+            root: root,
+            filesByRelativePath: [
+                "Sources/App.swift": .init(absolutePath: "/tmp/agentgui-change-review/Sources/App.swift", contents: "old"),
+                "node_modules/pkg/index.js": .init(absolutePath: "/tmp/agentgui-change-review/node_modules/pkg/index.js", contents: "old")
+            ]
+        )
+        let stagedSnapshot = WorkspaceTextSnapshot(
+            root: root,
+            filesByRelativePath: [
+                "Sources/App.swift": .init(absolutePath: "/tmp/agentgui-change-review/Sources/App.swift", contents: "new"),
+                "node_modules/pkg/index.js": .init(absolutePath: "/tmp/agentgui-change-review/node_modules/pkg/index.js", contents: "new")
+            ]
+        )
+
+        let artifacts = try service.collectArtifacts(from: baseSnapshot, to: stagedSnapshot)
+
+        #expect(artifacts.map(\.relativePath) == ["Sources/App.swift"])
+    }
+
     @Test @MainActor func detachedExecutorRunsSnapshotAndDiffOffMainThread() async throws {
         let rootURL = URL(fileURLWithPath: "/tmp/agentgui-workspace-capture-off-main")
         let recorder = MainThreadRecorder()

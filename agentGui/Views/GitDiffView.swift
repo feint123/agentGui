@@ -236,29 +236,6 @@ struct GitDiffLayoutMetrics {
     }
 }
 
-enum FileEditorDisplayMode: Equatable {
-    case empty
-    case file(URL)
-    case gitDiff(title: String, diffText: String)
-    case changeProposalReview(proposalID: UUID)
-
-    @MainActor
-    static func resolve(from workspaceState: WorkspaceState) -> FileEditorDisplayMode {
-        if let proposalID = workspaceState.selectedChangeProposalID {
-            return .changeProposalReview(proposalID: proposalID)
-        }
-        if let title = workspaceState.selectedGitDiffTitle,
-           let diffText = workspaceState.selectedGitDiffText,
-           !diffText.isEmpty {
-            return .gitDiff(title: title, diffText: diffText)
-        }
-        if let fileURL = workspaceState.selectedFile {
-            return .file(fileURL)
-        }
-        return .empty
-    }
-}
-
 struct GitDiffView: View {
     @Environment(WorkspaceState.self) private var workspaceState
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel

@@ -171,9 +171,14 @@ struct DetachedWorkspaceChangeCaptureExecutor: Sendable {
 
 struct WorkspaceChangeCaptureService: @unchecked Sendable {
     let fileManager: FileManager
+    let pathFilter: ChangeReviewArtifactPathFilter
 
-    init(fileManager: FileManager = .default) {
+    init(
+        fileManager: FileManager = .default,
+        pathFilter: ChangeReviewArtifactPathFilter = ChangeReviewArtifactPathFilter()
+    ) {
         self.fileManager = fileManager
+        self.pathFilter = pathFilter
     }
 
     func captureSnapshot(root: URL) throws -> WorkspaceTextSnapshot {
@@ -199,6 +204,9 @@ struct WorkspaceChangeCaptureService: @unchecked Sendable {
             }
 
             let relativePath = String(normalizedFileURL.path.dropFirst(normalizedRoot.path.count + 1))
+            guard pathFilter.includes(relativePath: relativePath) else {
+                continue
+            }
             guard let contents = try readableTextContents(at: normalizedFileURL) else {
                 continue
             }
@@ -228,6 +236,10 @@ struct WorkspaceChangeCaptureService: @unchecked Sendable {
         for relativePath in allPaths {
             if Task.isCancelled {
                 throw CancellationError()
+            }
+
+            guard pathFilter.includes(relativePath: relativePath) else {
+                continue
             }
 
             let baseEntry = baseSnapshot.filesByRelativePath[relativePath]

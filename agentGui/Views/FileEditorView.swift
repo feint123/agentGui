@@ -7,14 +7,15 @@ import SwiftUI
 import AppKit
 import PDFKit
 
-/// 中间栏：文件编辑器，显示并可编辑当前在文件树中选中的文件
+/// 文件编辑器，显示并可编辑指定文件
 struct FileEditorView: View {
+
+    let fileURL: URL
 
     // MARK: - Environment
 
     @Environment(WorkspaceState.self) private var workspaceState
     @Environment(ClaudeService.self) private var claudeService
-    @Environment(GitPanelViewModel.self) private var gitPanelViewModel
     @Environment(\.modelContext) private var modelContext
 
     // MARK: - State
@@ -25,38 +26,24 @@ struct FileEditorView: View {
     // MARK: - Body
 
     var body: some View {
-        Group {
-            switch FileEditorDisplayMode.resolve(from: workspaceState) {
-            case .changeProposalReview(let proposalID):
-                ChangeProposalReviewView(proposalID: proposalID)
-            case .gitDiff(let title, let diffText):
-                GitDiffView(title: title, diffText: diffText)
-            case .file(let fileURL):
-                editorView(for: fileURL)
-            case .empty:
-                emptyState
-            }
-        }
+        editorView(for: fileURL)
         .onAppear {
             sessionController.activate()
-            if let selectedFile = workspaceState.selectedFile,
-               sessionController.document.fileURL != selectedFile.standardizedFileURL || sessionController.document.phase == .idle {
+            if sessionController.document.fileURL != fileURL.standardizedFileURL || sessionController.document.phase == .idle {
                 Task {
-                    await sessionController.open(selectedFile)
+                    await sessionController.open(fileURL)
                 }
             }
         }
         .onDisappear {
             sessionController.deactivate()
         }
-        .onChange(of: workspaceState.selectedFile) { _, newURL in
+        .onChange(of: fileURL) { _, newURL in
             workspaceState.editorSelection = nil
             Task {
                 await sessionController.open(newURL)
             }
-            if let url = newURL {
-                triggerWorkspaceLSPBootstrap(for: url)
-            }
+            triggerWorkspaceLSPBootstrap(for: newURL)
         }
         .alert("错误", isPresented: Binding(
             get: { sessionController.document.errorMessage != nil },
@@ -222,16 +209,6 @@ struct FileEditorView: View {
         }
     }
 
-    // MARK: - Empty State
-
-    private var emptyState: some View {
-        ContentUnavailableView {
-            Label("未选择文件", systemImage: "doc.text")
-        } description: {
-            Text(gitPanelViewModel.snapshot == nil ? "从左侧文件树中单击文件来打开" : "从左侧文件树或 Git 面板中选择文件")
-        }
-    }
-
     // MARK: - File I/O
 
     private func triggerWorkspaceLSPBootstrap(for url: URL) {
@@ -284,7 +261,7 @@ struct FileEditorView: View {
 // MARK: - Preview
 
 #Preview {
-    FileEditorView()
+    FileEditorView(fileURL: URL(fileURLWithPath: "/tmp/Preview.swift"))
         .environment(WorkspaceState())
         .frame(width: 400, height: 500)
 }

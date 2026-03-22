@@ -62,6 +62,7 @@ struct WorkspaceTreeViewModelTests {
         #expect(viewModel.primarySelectionID == notes.id.standardizedFileURL)
         #expect(viewModel.selectedTreeNodeIDs == [readme.id.standardizedFileURL, notes.id.standardizedFileURL])
         #expect(workspaceState.selectedFile == notes.id.standardizedFileURL)
+        #expect(workspaceState.detailSelection == .file(notes.id.standardizedFileURL))
     }
 
     @Test func outlineSelectionSyncUpdatesPrimarySelectionAndOpenFile() {
@@ -91,6 +92,7 @@ struct WorkspaceTreeViewModelTests {
         #expect(viewModel.primarySelectionID == readme.id.standardizedFileURL)
         #expect(viewModel.selectedTreeNodeIDs == [readme.id.standardizedFileURL, notes.id.standardizedFileURL])
         #expect(workspaceState.selectedFile == readme.id.standardizedFileURL)
+        #expect(workspaceState.detailSelection == .file(readme.id.standardizedFileURL))
     }
 
     @Test func internalSelectedFileSyncDoesNotCollapseMultiSelection() {
@@ -241,6 +243,7 @@ struct WorkspaceTreeViewModelTests {
         #expect(viewModel.primarySelectionID == notes.id.standardizedFileURL)
         #expect(viewModel.selectedTreeNodeIDs == [readme.id.standardizedFileURL, notes.id.standardizedFileURL])
         #expect(workspaceState.selectedFile == notes.id.standardizedFileURL)
+        #expect(workspaceState.detailSelection == .file(notes.id.standardizedFileURL))
     }
 
     @Test func listSelectionChangeRemovingPrimaryClearsOpenFileAndKeepsRemainingSelection() {

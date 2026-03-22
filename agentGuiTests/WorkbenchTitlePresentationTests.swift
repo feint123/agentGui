@@ -57,7 +57,7 @@ struct WorkbenchTitlePresentationTests {
             globalWorkingDirectory: ""
         )
 
-        #expect(presentation.title == "工作区")
+        #expect(presentation.title == "未设置工作区")
         #expect(presentation.subtitle.isEmpty)
         #expect(presentation.representedURL == nil)
     }
