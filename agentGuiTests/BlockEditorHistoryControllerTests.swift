@@ -92,7 +92,8 @@ private extension BlockEditorUndoSnapshot {
             presentation: BlockEditorPresentationSnapshot(
                 activeBlockID: blockID,
                 focus: nil,
-                selection: nil
+                selection: nil,
+                blockSelection: .empty
             ),
             serializedText: text
         )

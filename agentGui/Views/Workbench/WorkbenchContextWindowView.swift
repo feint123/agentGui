@@ -11,11 +11,11 @@ struct WorkbenchContextWindowView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    @Namespace private var tabSelectionNamespace
-
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if contextWindowState.hasTabs {
+                tabStrip
+            }
 
             if let selectedTab = contextWindowState.selectedTab {
                 content(for: selectedTab)
@@ -32,6 +32,51 @@ struct WorkbenchContextWindowView: View {
         }
         .frame(minWidth: 760, minHeight: 520)
         .background(background)
+        .navigationTitle(selectedTabTitle)
+        .navigationSubtitle(selectedTabSubtitle)
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Menu {
+                    if let selectedTab {
+                        Button("关闭当前标签页") {
+                            contextWindowState.closeTab(id: selectedTab.id)
+                        }
+
+                        Button("关闭其他标签页") {
+                            contextWindowState.closeOtherTabs(keeping: selectedTab.id)
+                        }
+                        .disabled(!contextWindowState.hasMultipleTabs)
+
+                        Button("关闭右侧标签页") {
+                            contextWindowState.closeTabsToRight(of: selectedTab.id)
+                        }
+                        .disabled(!hasTabsToRight(of: selectedTab.id))
+
+                        Divider()
+                    }
+
+                    Button("上一个标签页") {
+                        contextWindowState.selectPreviousTab()
+                    }
+                    .disabled(!contextWindowState.hasMultipleTabs)
+
+                    Button("下一个标签页") {
+                        contextWindowState.selectNextTab()
+                    }
+                    .disabled(!contextWindowState.hasMultipleTabs)
+
+                    Divider()
+
+                    Button("关闭全部标签页") {
+                        contextWindowState.closeAllTabs()
+                    }
+                    .disabled(!contextWindowState.hasTabs)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .help("标签页操作")
+            }
+        }
         .onChange(of: contextWindowState.tabs.count) { _, newCount in
             if newCount == 0 {
                 dismiss()
@@ -40,44 +85,17 @@ struct WorkbenchContextWindowView: View {
         .animation(.snappy(duration: 0.24, extraBounce: 0.03), value: contextWindowState.selectedTabID)
     }
 
-    private var header: some View {
-        VStack(spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(selectedTabTitle)
-                        .font(.title3.weight(.semibold))
-
-                    Text(selectedTabSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+    private var tabStrip: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(contextWindowState.tabs) { tab in
+                    tabButton(tab)
                 }
-
-                Spacer(minLength: 0)
-
-                SessionWorkspaceBadgeView(presentation: workspacePresentation)
-
-                Button("全部关闭") {
-                    contextWindowState.closeAllTabs()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(!contextWindowState.hasTabs)
             }
-
-            ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(contextWindowState.tabs) { tab in
-                        tabButton(tab)
-                    }
-                }
-                .padding(4)
-            }
-            .scrollIndicators(.hidden)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
+        .scrollIndicators(.hidden)
         .background(.ultraThinMaterial)
         .overlay(alignment: .bottom) {
             Divider()
@@ -130,9 +148,9 @@ struct WorkbenchContextWindowView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                .padding(.horizontal, 10)
+                .padding(.leading, 10)
+                .padding(.trailing, 4)
                 .padding(.vertical, 8)
-                .background(tabBackground(isSelected: isSelected))
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -148,20 +166,43 @@ struct WorkbenchContextWindowView: View {
             .foregroundStyle(.secondary)
             .help("关闭标签页")
         }
-        .padding(.horizontal, 2)
-        .accessibilityIdentifier("contextWindow.tab.\(tab.id.uuidString)")
-    }
+        .padding(.horizontal, 4)
+        .modifier(ContextWindowTabGlassModifier(isSelected: isSelected))
+        .contextMenu {
+            Button("关闭标签页") {
+                contextWindowState.closeTab(id: tab.id)
+            }
 
-    @ViewBuilder
-    private func tabBackground(isSelected: Bool) -> some View {
-        if isSelected {
-            Capsule()
-                .fill(Color.accentColor.opacity(0.18))
-                .matchedGeometryEffect(id: "context-window-tab", in: tabSelectionNamespace)
-        } else {
-            Capsule()
-                .fill(Color.primary.opacity(0.05))
+            Button("关闭其他标签页") {
+                contextWindowState.closeOtherTabs(keeping: tab.id)
+            }
+            .disabled(!contextWindowState.hasMultipleTabs)
+
+            Button("关闭右侧标签页") {
+                contextWindowState.closeTabsToRight(of: tab.id)
+            }
+            .disabled(!hasTabsToRight(of: tab.id))
+
+            Divider()
+
+            Button("上一个标签页") {
+                contextWindowState.selectPreviousTab()
+            }
+            .disabled(!contextWindowState.hasMultipleTabs)
+
+            Button("下一个标签页") {
+                contextWindowState.selectNextTab()
+            }
+            .disabled(!contextWindowState.hasMultipleTabs)
+
+            Divider()
+
+            Button("关闭全部标签页") {
+                contextWindowState.closeAllTabs()
+            }
+            .disabled(!contextWindowState.hasTabs)
         }
+        .accessibilityIdentifier("contextWindow.tab.\(tab.id.uuidString)")
     }
 
     private func selectedProposalFilePathBinding(for tabID: UUID) -> Binding<String?> {
@@ -225,6 +266,14 @@ struct WorkbenchContextWindowView: View {
         }
     }
 
+    private func hasTabsToRight(of tabID: UUID) -> Bool {
+        guard let tabIndex = contextWindowState.tabs.firstIndex(where: { $0.id == tabID }) else {
+            return false
+        }
+
+        return tabIndex < contextWindowState.tabs.count - 1
+    }
+
     private func tabPresentation(for selection: WorkbenchDetailSelection) -> (
         title: String,
         subtitle: String,
@@ -262,6 +311,21 @@ struct WorkbenchContextWindowView: View {
                 subtitle: resolvedSubtitle,
                 systemImage: "sparkles.rectangle.stack"
             )
+        }
+    }
+}
+
+private struct ContextWindowTabGlassModifier: ViewModifier {
+    let isSelected: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isSelected {
+            content
+                .glassEffect(.regular.interactive().tint(Color.accentColor.opacity(0.24)), in: Capsule())
+        } else {
+            content
+                .glassEffect(.regular.interactive(), in: Capsule())
         }
     }
 }

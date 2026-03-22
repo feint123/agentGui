@@ -220,7 +220,7 @@ extension AgentExecutionProjection {
                     id: toolCall.id.uuidString,
                     phase: phase,
                     title: liveTitle(for: toolCall),
-                    subtitle: row.tertiaryText ?? row.secondaryText,
+                    subtitle: ExecutionTheaterTextFormatter.clamp(row.tertiaryText ?? row.secondaryText),
                     statusText: row.statusText,
                     isCurrentAction: toolCall.id == currentToolID,
                     state: .active
@@ -238,7 +238,7 @@ extension AgentExecutionProjection {
                         id: "recent-\(toolCall.id.uuidString)",
                         phase: phaseForToolKind(toolCall.kind),
                         title: completedLiveTitle(for: toolCall),
-                        subtitle: row.secondaryText ?? row.tertiaryText,
+                        subtitle: ExecutionTheaterTextFormatter.clamp(row.secondaryText ?? row.tertiaryText),
                         statusText: recentStatusText(for: toolCall),
                         isCurrentAction: toolCall.id == currentRecentID,
                         state: .recent

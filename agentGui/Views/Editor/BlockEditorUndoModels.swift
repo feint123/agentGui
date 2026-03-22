@@ -10,6 +10,7 @@ struct BlockEditorPresentationSnapshot: Equatable {
     var activeBlockID: UUID?
     var focus: BlockEditorFocusSnapshot?
     var selection: BlockEditorSelectionSnapshot?
+    var blockSelection: BlockEditorBlockSelectionState
 }
 
 struct BlockEditorFocusSnapshot: Equatable {
@@ -52,6 +53,7 @@ struct BlockEditorRuntimeState: Equatable {
     var activeBlockID: UUID?
     var focus: BlockEditorFocusSnapshot?
     var selection: BlockEditorSelectionSnapshot?
+    var blockSelection: BlockEditorBlockSelectionState = .empty
 
     func snapshot(serializedText: String? = nil) -> BlockEditorUndoSnapshot {
         BlockEditorUndoSnapshot(
@@ -59,7 +61,8 @@ struct BlockEditorRuntimeState: Equatable {
             presentation: BlockEditorPresentationSnapshot(
                 activeBlockID: activeBlockID,
                 focus: focus,
-                selection: selection
+                selection: selection,
+                blockSelection: blockSelection
             ),
             serializedText: serializedText ?? BlockMarkdownCodec.serialize(document, fileURL: fileURL)
         )
@@ -70,5 +73,6 @@ struct BlockEditorRuntimeState: Equatable {
         activeBlockID = snapshot.presentation.activeBlockID
         focus = snapshot.presentation.focus
         selection = snapshot.presentation.selection
+        blockSelection = snapshot.presentation.blockSelection
     }
 }

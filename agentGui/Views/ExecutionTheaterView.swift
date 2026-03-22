@@ -140,6 +140,8 @@ struct ExecutionTheaterView: View {
                 Text(subtitle)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(5)
+                    .truncationMode(.tail)
                     .padding(.leading, 15)
             }
         }

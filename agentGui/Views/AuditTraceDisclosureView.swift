@@ -20,7 +20,7 @@ struct AuditTraceDisclosureView: View {
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-                }
+                }.padding(.horizontal)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("chat.agentMessage.auditDisclosure")

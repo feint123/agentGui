@@ -59,6 +59,7 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
     private let permissionCenter: ACPPermissionCenter
     private let authorizationPolicyFactory: ConversationAuthorizationPolicyFactory
     private let normalizer = CopilotACPEventNormalizer()
+    private let updateProjector = ACPExternalUpdateProjector()
     private let turnRouter = ACPExternalSessionTurnRouter()
 
     private var runtimeClients: [String: any GitHubCopilotCLIRuntimeClient] = [:]
@@ -149,12 +150,15 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
                 remoteSessionID: remoteBinding?.remoteSessionID
             )
             let assistantMessage = resolveAssistantMessage(for: request)
+            updateProjector.reset(sessionID: request.session.sessionId)
             activeTurns[request.session.sessionId] = ActiveTurnState(
                 assistantMessage: assistantMessage,
                 modelContext: request.modelContext
             )
             turnRouter.beginLiveTurn(sessionID: request.session.sessionId)
             let stopReason = try await runtimeClient.prompt(text: promptText, sessionID: handshake.remoteSessionID)
+
+            flushProjectedUpdates(for: request.session.sessionId)
 
             finalizeAssistantMessage(
                 assistantMessage,
@@ -167,10 +171,14 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
             turnRouter.finishLiveTurn(sessionID: request.session.sessionId)
         } catch is CancellationError {
             turnRouter.reset(sessionID: request.session.sessionId)
+            flushProjectedUpdates(for: request.session.sessionId)
+            updateProjector.reset(sessionID: request.session.sessionId)
             markCancelledIfNeeded(sessionID: request.session.sessionId)
             throw CancellationError()
         } catch {
             turnRouter.reset(sessionID: request.session.sessionId)
+            flushProjectedUpdates(for: request.session.sessionId)
+            updateProjector.reset(sessionID: request.session.sessionId)
             failAssistantMessage(
                 sessionID: request.session.sessionId,
                 error: error,
@@ -239,16 +247,19 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
             try? await runtimeClient.cancel(sessionID: remoteSessionID)
         }
 
-        if let activeTurn = activeTurns.removeValue(forKey: session.sessionId) {
+        if let activeTurn = activeTurns[session.sessionId] {
+            flushProjectedUpdates(for: session.sessionId)
             activeTurn.assistantMessage.status = .cancelled
             settleOutstandingToolCalls(in: activeTurn.assistantMessage, terminalStatus: .cancelled)
             if activeTurn.assistantMessage.textContent?.isEmpty ?? true {
                 activeTurn.assistantMessage.textContent = "(已取消)"
             }
             try? activeTurn.modelContext.save()
+            activeTurns.removeValue(forKey: session.sessionId)
         } else {
             _ = modelContext
         }
+        updateProjector.reset(sessionID: session.sessionId)
     }
 
     func resetSessionState(session: Session, modelContext: ModelContext) async {
@@ -401,7 +412,30 @@ final class GitHubCopilotCLIExecutionProvider: ConversationExecutionProvider {
             return
         }
 
-        for event in normalizer.normalize(update: update) {
+        let projectedEvents = updateProjector.project(
+            events: normalizer.normalize(update: update),
+            sessionID: localSessionID
+        )
+
+        for event in projectedEvents {
+            apply(event: event, to: activeTurn.assistantMessage, in: activeTurn.modelContext)
+        }
+
+        try? activeTurn.modelContext.save()
+    }
+
+    private func flushProjectedUpdates(for sessionID: String) {
+        guard let activeTurn = activeTurns[sessionID] else {
+            updateProjector.reset(sessionID: sessionID)
+            return
+        }
+
+        let pendingEvents = updateProjector.flush(sessionID: sessionID)
+        guard !pendingEvents.isEmpty else {
+            return
+        }
+
+        for event in pendingEvents {
             apply(event: event, to: activeTurn.assistantMessage, in: activeTurn.modelContext)
         }
 

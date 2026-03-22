@@ -120,7 +120,8 @@ private final class FileEditorUndoHarness {
             presentation: BlockEditorPresentationSnapshot(
                 activeBlockID: activeBlockID,
                 focus: nil,
-                selection: nil
+                selection: nil,
+                blockSelection: .empty
             ),
             serializedText: text
         )

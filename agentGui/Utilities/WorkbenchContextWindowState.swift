@@ -55,6 +55,10 @@ final class WorkbenchContextWindowState {
         !tabs.isEmpty
     }
 
+    var hasMultipleTabs: Bool {
+        tabs.count > 1
+    }
+
     func open(_ selection: WorkbenchDetailSelection) {
         let normalizedSelection = WorkbenchContextTab.normalize(selection)
         guard normalizedSelection != .none else { return }
@@ -102,6 +106,44 @@ final class WorkbenchContextWindowState {
     func closeAllTabs() {
         tabs.removeAll()
         selectedTabID = nil
+    }
+
+    func closeOtherTabs(keeping tabID: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabID }) else { return }
+        tabs = [tab]
+        selectedTabID = tabID
+    }
+
+    func closeTabsToRight(of tabID: UUID) {
+        guard let tabIndex = tabs.firstIndex(where: { $0.id == tabID }) else { return }
+        tabs = Array(tabs.prefix(tabIndex + 1))
+        if !tabs.contains(where: { $0.id == selectedTabID }) {
+            selectedTabID = tabID
+        }
+    }
+
+    func selectNextTab() {
+        guard !tabs.isEmpty else { return }
+        guard let selectedTabID,
+              let selectedIndex = tabs.firstIndex(where: { $0.id == selectedTabID }) else {
+            self.selectedTabID = tabs[0].id
+            return
+        }
+
+        let nextIndex = (selectedIndex + 1) % tabs.count
+        self.selectedTabID = tabs[nextIndex].id
+    }
+
+    func selectPreviousTab() {
+        guard !tabs.isEmpty else { return }
+        guard let selectedTabID,
+              let selectedIndex = tabs.firstIndex(where: { $0.id == selectedTabID }) else {
+            self.selectedTabID = tabs[0].id
+            return
+        }
+
+        let previousIndex = (selectedIndex - 1 + tabs.count) % tabs.count
+        self.selectedTabID = tabs[previousIndex].id
     }
 
     func updateChangeProposalFilePath(proposalID: UUID, filePath: String?) {

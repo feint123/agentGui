@@ -231,6 +231,7 @@ extension BlockEditorRuntimeState {
     private mutating func activateBlock(_ blockID: UUID, caretOffset: Int?) {
         activeBlockID = blockID
         selection = nil
+        blockSelection = .empty
         if let caretOffset {
             focus = BlockEditorFocusSnapshot(blockID: blockID, caretUTF16Offset: caretOffset)
         } else {

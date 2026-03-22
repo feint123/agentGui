@@ -69,6 +69,8 @@ struct ACPPermissionCenterTests {
         }
 
         let pending = try #require(center.pendingRequests.first)
+        #expect(pending.options.map(\ .id) == ["reject-always", "allow-once"])
+        #expect(pending.options.map(\ .name) == ["本会话始终拒绝", "允许一次"])
         center.selectOption(requestID: pending.id, optionID: "reject-always")
 
         let response = try #require(await task.value)
@@ -78,6 +80,38 @@ struct ACPPermissionCenterTests {
         default:
             Issue.record("Expected selected reject option outcome")
         }
+    }
+
+    @Test func externalOptionsAreNormalizedToConsistentOrderAndLabels() async throws {
+        let center = ACPPermissionCenter()
+        let policy = ToolAuthorizationPolicy(preset: .actLimited, approvalMode: .defaultApprovals)
+        let request = makeRequest(
+            options: [
+                ACPPermissionOption(meta: nil, kind: .allowAlways, name: "Allow forever", optionID: "allow-always"),
+                ACPPermissionOption(meta: nil, kind: .allowOnce, name: "Allow once", optionID: "allow-once"),
+                ACPPermissionOption(meta: nil, kind: .rejectOnce, name: "Reject once", optionID: "reject-once")
+            ],
+            kind: "run_in_terminal"
+        )
+
+        let task = Task {
+            await center.resolve(
+                request: request,
+                source: ACPPermissionCenter.RequestSource(providerID: .openCodeCLI, localSessionID: "local-2"),
+                policy: policy
+            )
+        }
+
+        while center.pendingRequests.isEmpty {
+            await Task.yield()
+        }
+
+        let pending = try #require(center.pendingRequests.first)
+        #expect(pending.options.map(\ .id) == ["reject-once", "allow-once", "allow-always"])
+        #expect(pending.options.map(\ .name) == ["拒绝", "允许一次", "本会话始终允许"])
+
+        center.cancel(requestID: pending.id)
+        _ = await task.value
     }
 
     @Test func deniedCapabilityCancelsWithoutQueuingApproval() async throws {

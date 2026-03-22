@@ -10,6 +10,7 @@ struct BlockRowView: View {
     @Binding var block: DocumentBlock
     let focusRequest: BlockEditorFocusRequest?
     let isActive: Bool
+    let isBlockSelected: Bool
     let mountHeavyEditor: Bool
     let listIndex: Int?
     let onTextChange: (String) -> Void
@@ -20,6 +21,8 @@ struct BlockRowView: View {
     let onReadOnlyActivate: (Int) -> Void
     let onDragRequest: () -> NSItemProvider
     let onFileDrop: ([URL]) -> Void
+    var onBlockTap: (() -> Void)? = nil
+    var onContextMenuCommand: ((BlockEditorSelectionCommand) -> Void)? = nil
     var onSelectionChange: ((InlineSelectionState) -> Void)? = nil
     var onSlashContextChange: ((BlockEditorSlashContext?) -> Void)? = nil
     var pendingFormatRequest: InlineFormatRequest? = nil
@@ -40,9 +43,40 @@ struct BlockRowView: View {
         .background(backgroundStyle)
         .overlay(
             RoundedRectangle(cornerRadius: BlockEditorTheme.blockCornerRadius)
-            .stroke(isActive ? Color.accentColor.opacity(0.055) : Color.clear, lineWidth: 1)
+            .stroke(selectionOutlineColor, lineWidth: isBlockSelected ? 1.2 : 1)
         )
         .clipShape(.rect(cornerRadius: BlockEditorTheme.blockCornerRadius))
+        .contentShape(RoundedRectangle(cornerRadius: BlockEditorTheme.blockCornerRadius))
+        .onTapGesture {
+            onBlockTap?()
+        }
+        .contextMenu {
+            if let onContextMenuCommand {
+                Button("剪切") { onContextMenuCommand(.cut) }
+                Button("复制") { onContextMenuCommand(.copy) }
+
+                Menu("复制为") {
+                    Button("Markdown") { onContextMenuCommand(.copyAs(.markdown)) }
+                    Button("纯文本") { onContextMenuCommand(.copyAs(.plainText)) }
+                    Button("HTML") { onContextMenuCommand(.copyAs(.html)) }
+                }
+
+                Divider()
+                Button("复制副本") { onContextMenuCommand(.duplicate) }
+                Button("删除") { onContextMenuCommand(.delete) }
+                Divider()
+                Button("全选") { onContextMenuCommand(.selectAll) }
+                Button("清空选择") { onContextMenuCommand(.clearSelection) }
+            }
+        }
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: BlockEditorRowFramePreferenceKey.self,
+                    value: [block.id: geo.frame(in: .named(BlockEditorLayoutCoordinateSpace.canvas))]
+                )
+            }
+        )
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.12)) {
                 isHovered = hovering
@@ -448,7 +482,20 @@ struct BlockRowView: View {
         if block.kind == .divider {
             return AnyShapeStyle(Color.clear)
         }
+        if isBlockSelected {
+            return AnyShapeStyle(Color.accentColor.opacity(colorScheme == .dark ? 0.16 : 0.1))
+        }
         return AnyShapeStyle(BlockEditorTheme.blockBackground(isActive: isActive, isHovered: isHovered, emphasis: false, scheme: colorScheme))
+    }
+
+    private var selectionOutlineColor: Color {
+        if isBlockSelected {
+            return Color.accentColor.opacity(0.45)
+        }
+        if isActive {
+            return Color.accentColor.opacity(0.055)
+        }
+        return .clear
     }
 
     private var calloutColor: Color {

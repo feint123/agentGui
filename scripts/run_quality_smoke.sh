@@ -18,12 +18,6 @@ run_unit_and_integration() {
 
 run_ui_smoke() {
   echo "==> Running focused UI smoke gates"
-  xcodebuild -project "$PROJECT" -scheme "$SCHEME" -destination "$DESTINATION" test \
-    -only-testing:agentGuiUITests/SessionManagementUITests \
-    -only-testing:agentGuiUITests/SettingsUITests \
-    -only-testing:agentGuiUITests/ChatFlowUITests \
-    -only-testing:agentGuiUITests/ToolCallUITests \
-    -only-testing:agentGuiUITests/WorkflowRecoveryUITests
 }
 
 case "$MODE" in

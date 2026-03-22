@@ -54,4 +54,56 @@ struct WorkbenchContextWindowStateTests {
         #expect(state.tabs.count == 1)
         #expect(state.selectedTab?.id == firstTabID)
     }
+
+    @Test func closeOtherTabsKeepsOnlyTargetTabSelected() {
+        let state = WorkbenchContextWindowState()
+
+        state.open(.file(URL(fileURLWithPath: "/tmp/repo/FileA.swift")))
+        state.open(.file(URL(fileURLWithPath: "/tmp/repo/FileB.swift")))
+        state.open(.file(URL(fileURLWithPath: "/tmp/repo/FileC.swift")))
+
+        let middleTabID = state.tabs[1].id
+        state.closeOtherTabs(keeping: middleTabID)
+
+        #expect(state.tabs.count == 1)
+        #expect(state.selectedTab?.id == middleTabID)
+    }
+
+    @Test func closeTabsToRightRemovesLaterTabsAndPreservesSelection() {
+        let state = WorkbenchContextWindowState()
+
+        state.open(.file(URL(fileURLWithPath: "/tmp/repo/FileA.swift")))
+        state.open(.file(URL(fileURLWithPath: "/tmp/repo/FileB.swift")))
+        state.open(.file(URL(fileURLWithPath: "/tmp/repo/FileC.swift")))
+
+        let middleTabID = state.tabs[1].id
+        state.selectTab(id: middleTabID)
+        state.closeTabsToRight(of: middleTabID)
+
+        #expect(state.tabs.map(\.id) == [state.tabs[0].id, middleTabID])
+        #expect(state.selectedTab?.id == middleTabID)
+    }
+
+    @Test func selectAdjacentTabMovesAcrossOpenTabs() {
+        let state = WorkbenchContextWindowState()
+
+        state.open(.file(URL(fileURLWithPath: "/tmp/repo/FileA.swift")))
+        state.open(.file(URL(fileURLWithPath: "/tmp/repo/FileB.swift")))
+        state.open(.file(URL(fileURLWithPath: "/tmp/repo/FileC.swift")))
+
+        let firstTabID = state.tabs[0].id
+        let secondTabID = state.tabs[1].id
+        let thirdTabID = state.tabs[2].id
+
+        state.selectTab(id: secondTabID)
+        state.selectNextTab()
+        #expect(state.selectedTab?.id == thirdTabID)
+
+        state.selectPreviousTab()
+        #expect(state.selectedTab?.id == secondTabID)
+
+        state.selectTab(id: firstTabID)
+        state.selectPreviousTab()
+        #expect(state.selectedTab?.id == thirdTabID)
+    }
 }

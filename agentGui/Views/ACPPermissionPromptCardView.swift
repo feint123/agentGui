@@ -24,15 +24,18 @@ struct ACPPermissionPromptCardView: View {
 
             HStack(spacing: 8) {
                 ForEach(request.options) { option in
-                    permissionButton(for: option)
+                    permissionActionButton(title: option.name, isPrimary: option.isAllowOption) {
+                        claudeService.acpPermissionCenter.selectOption(
+                            requestID: request.id,
+                            optionID: option.id
+                        )
+                    }
                 }
 
                 if !hasRejectOption {
-                    Button("取消") {
+                    permissionActionButton(title: "取消", isPrimary: false) {
                         claudeService.acpPermissionCenter.cancel(requestID: request.id)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
             }
         }
@@ -75,25 +78,19 @@ struct ACPPermissionPromptCardView: View {
     }
 
     @ViewBuilder
-    private func permissionButton(for option: ACPPermissionCenter.PendingOption) -> some View {
-        if option.isAllowOption {
-            Button(option.name) {
-                claudeService.acpPermissionCenter.selectOption(
-                    requestID: request.id,
-                    optionID: option.id
-                )
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+    private func permissionActionButton(
+        title: String,
+        isPrimary: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        if isPrimary {
+            Button(title, action: action)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
         } else {
-            Button(option.name) {
-                claudeService.acpPermissionCenter.selectOption(
-                    requestID: request.id,
-                    optionID: option.id
-                )
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            Button(title, action: action)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
         }
     }
 

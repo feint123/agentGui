@@ -99,6 +99,19 @@ struct BlockDocumentEditorUndoTests {
         #expect(harness.blockCount == 1)
     }
 
+    @Test func blockSelectionStateParticipatesInUndoSnapshots() {
+        let harness = BlockDocumentEditorUndoHarness(texts: ["hello", "world"])
+        let selectedID = harness.runtime.document.blocks[1].id
+
+        harness.selectBlocks([selectedID])
+        harness.deleteSelectedBlocks()
+        #expect(harness.runtime.blockSelection.selectedBlockIDs.count == 1)
+
+        harness.undo()
+        #expect(harness.runtime.document.blocks.count == 2)
+        #expect(harness.runtime.blockSelection.selectedBlockIDs == Set([selectedID]))
+    }
+
     @Test func splitBlockCanUndoAndRedo() {
         let harness = BlockDocumentEditorUndoHarness(texts: ["hello world"])
         let blockID = harness.runtime.document.blocks[0].id
@@ -262,6 +275,22 @@ private final class BlockDocumentEditorUndoHarness {
         }
     }
 
+    func selectBlocks(_ ids: Set<UUID>) {
+        runtime.blockSelection = BlockEditorBlockSelectionState(
+            selectedBlockIDs: ids,
+            primaryBlockID: ids.first,
+            anchorBlockID: ids.first,
+            source: .click,
+            marqueeSelection: nil
+        )
+    }
+
+    func deleteSelectedBlocks() {
+        driver.applyMutation(kind: .blockStructure, title: "Delete Selected", editor: &runtime) { runtime in
+            BlockEditorSelectionMutationHandler.deleteSelectedBlocks(in: &runtime)
+        }
+    }
+
     func adjustIndentation(for id: UUID, delta: Int) {
         driver.applyMutation(kind: .blockStructure, title: "Indent", editor: &runtime) { runtime in
             runtime.adjustIndentation(for: id, delta: delta)
@@ -315,7 +344,8 @@ private final class BlockDocumentEditorUndoHarness {
             fileURL: nil,
             activeBlockID: preparedBlocks.first?.id,
             focus: nil,
-            selection: nil
+            selection: nil,
+            blockSelection: .empty
         )
     }
 }
@@ -332,7 +362,8 @@ private final class BlockDocumentTypingUndoHarness {
             fileURL: nil,
             activeBlockID: block.id,
             focus: nil,
-            selection: nil
+            selection: nil,
+            blockSelection: .empty
         )
     }
 

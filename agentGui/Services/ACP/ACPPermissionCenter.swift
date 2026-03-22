@@ -84,9 +84,7 @@ final class ACPPermissionCenter: @unchecked Sendable {
             toolKind: ToolKind.classify(rawName: request.toolCall.kind),
             title: Self.nonEmpty(request.toolCall.title) ?? ToolKind.classify(rawName: request.toolCall.kind).displayName,
             reason: Self.reason(from: request),
-            options: request.options.map {
-                PendingOption(id: $0.optionID, kind: $0.kind, name: $0.name)
-            },
+            options: ACPPermissionOptionPresentation.normalizedPendingOptions(from: request.options),
             requestedAt: Date()
         )
 
@@ -126,9 +124,7 @@ final class ACPPermissionCenter: @unchecked Sendable {
             toolKind: ToolKind.classify(rawName: toolName, command: input["command"]?.stringValue),
             title: Self.nonEmpty(title) ?? ToolKind.classify(rawName: toolName).displayName,
             reason: Self.builtInReason(for: toolName, input: input),
-            options: options.map {
-                PendingOption(id: $0.optionID, kind: $0.kind, name: $0.name)
-            },
+            options: ACPPermissionOptionPresentation.normalizedPendingOptions(from: options),
             requestedAt: Date()
         )
 

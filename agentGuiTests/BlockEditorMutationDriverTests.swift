@@ -68,7 +68,8 @@ private extension BlockEditorUndoSnapshot {
             presentation: BlockEditorPresentationSnapshot(
                 activeBlockID: blockID,
                 focus: nil,
-                selection: nil
+                selection: nil,
+                blockSelection: .empty
             ),
             serializedText: text
         )
@@ -83,7 +84,8 @@ private extension BlockEditorRuntimeState {
             fileURL: fileURL,
             activeBlockID: blockID,
             focus: nil,
-            selection: nil
+            selection: nil,
+            blockSelection: .empty
         )
     }
 }

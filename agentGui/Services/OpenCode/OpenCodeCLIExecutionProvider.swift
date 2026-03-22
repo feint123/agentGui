@@ -53,6 +53,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
     private let permissionCenter: ACPPermissionCenter
     private let authorizationPolicyFactory: ConversationAuthorizationPolicyFactory
     private let normalizer = CopilotACPEventNormalizer()
+    private let updateProjector = ACPExternalUpdateProjector()
     private let turnRouter = ACPExternalSessionTurnRouter()
 
     private var runtimeClients: [String: any OpenCodeCLIRuntimeClient] = [:]
@@ -165,6 +166,7 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
                 remoteSessionID: remoteBinding?.remoteSessionID
             )
             let assistantMessage = resolveAssistantMessage(for: request)
+            updateProjector.reset(sessionID: request.session.sessionId)
             activeTurns[request.session.sessionId] = ActiveTurnState(
                 assistantMessage: assistantMessage,
                 modelContext: request.modelContext
@@ -174,6 +176,8 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
             let stopReason = try await runtimeClient.prompt(text: promptText, sessionID: handshake.remoteSessionID)
             await Task.yield()
             debugLog("prompt done session=\(request.session.sessionId) stopReason=\(stopReason)")
+
+            flushProjectedUpdates(for: request.session.sessionId)
 
             finalizeAssistantMessage(
                 assistantMessage,
@@ -188,11 +192,15 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         } catch is CancellationError {
             turnRouter.reset(sessionID: request.session.sessionId)
             debugLog("send cancelled session=\(request.session.sessionId)")
+            flushProjectedUpdates(for: request.session.sessionId)
+            updateProjector.reset(sessionID: request.session.sessionId)
             markCancelledIfNeeded(sessionID: request.session.sessionId)
             throw CancellationError()
         } catch {
             turnRouter.reset(sessionID: request.session.sessionId)
             debugLog("send failed session=\(request.session.sessionId) error=\(error.localizedDescription)")
+            flushProjectedUpdates(for: request.session.sessionId)
+            updateProjector.reset(sessionID: request.session.sessionId)
             failAssistantMessage(
                 sessionID: request.session.sessionId,
                 error: error,
@@ -261,16 +269,19 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
             try? await runtimeClient.cancel(sessionID: remoteSessionID)
         }
 
-        if let activeTurn = activeTurns.removeValue(forKey: session.sessionId) {
+        if let activeTurn = activeTurns[session.sessionId] {
+            flushProjectedUpdates(for: session.sessionId)
             activeTurn.assistantMessage.status = .cancelled
             settleOutstandingToolCalls(in: activeTurn.assistantMessage, terminalStatus: .cancelled)
             if activeTurn.assistantMessage.textContent?.isEmpty ?? true {
                 activeTurn.assistantMessage.textContent = "(已取消)"
             }
             try? activeTurn.modelContext.save()
+            activeTurns.removeValue(forKey: session.sessionId)
         } else {
             _ = modelContext
         }
+        updateProjector.reset(sessionID: session.sessionId)
     }
 
     func resetSessionState(session: Session, modelContext: ModelContext) async {
@@ -440,8 +451,27 @@ final class OpenCodeCLIExecutionProvider: ConversationExecutionProvider {
         }
 
         let events = normalizer.normalize(update: update)
-        debugLog("update normalized session=\(localSessionID) events=\(events.map(describe(event:)).joined(separator: ", "))")
-        for event in events {
+        let projectedEvents = updateProjector.project(events: events, sessionID: localSessionID)
+        debugLog("update normalized session=\(localSessionID) events=\(projectedEvents.map(describe(event:)).joined(separator: ", "))")
+        for event in projectedEvents {
+            apply(event: event, to: activeTurn.assistantMessage, in: activeTurn.modelContext)
+        }
+
+        try? activeTurn.modelContext.save()
+    }
+
+    private func flushProjectedUpdates(for sessionID: String) {
+        guard let activeTurn = activeTurns[sessionID] else {
+            updateProjector.reset(sessionID: sessionID)
+            return
+        }
+
+        let pendingEvents = updateProjector.flush(sessionID: sessionID)
+        guard !pendingEvents.isEmpty else {
+            return
+        }
+
+        for event in pendingEvents {
             apply(event: event, to: activeTurn.assistantMessage, in: activeTurn.modelContext)
         }
 

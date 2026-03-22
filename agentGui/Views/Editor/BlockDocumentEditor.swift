@@ -20,22 +20,25 @@ struct BlockDocumentEditor: View {
     var onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil
 
     @Environment(\.colorScheme) private var colorScheme
-    @State private var document = BlockDocument.empty
+    @State var document = BlockDocument.empty
     @State private var isApplyingInternalChange = false
-    @State private var slashState = BlockEditorSlashState()
+    @State var slashState = BlockEditorSlashState()
     @State private var draggedBlockID: UUID?
     @State private var dropTargetBlockID: UUID?
     @State private var dragOriginBlocks: [DocumentBlock]?
-    @State private var focusRequest: BlockEditorFocusRequest?
-    @State private var activeBlockID: UUID?
+    @State var focusRequest: BlockEditorFocusRequest?
+    @State var activeBlockID: UUID?
     @State private var editorResidency = BlockEditorResidency(maxMountedEditors: 1)
-    @State private var selectionState: InlineSelectionState?
+    @State var selectionState: InlineSelectionState?
+    @State var blockSelectionState = BlockEditorBlockSelectionState.empty
+    @State var blockFrames: [UUID: CGRect] = [:]
+    @State var marqueeBaseSelectionState = BlockEditorBlockSelectionState.empty
     @State private var pendingFormats: [UUID: InlineFormatRequest] = [:]
     @State private var syncGate = BlockDocumentSyncGate()
     @State private var historyController = BlockEditorHistoryController()
-    @State private var runtimeState = BlockEditorRuntimeState(document: .empty, fileURL: nil, activeBlockID: nil, focus: nil, selection: nil)
+    @State var runtimeState = BlockEditorRuntimeState(document: .empty, fileURL: nil, activeBlockID: nil, focus: nil, selection: nil, blockSelection: .empty)
     @State private var textEditSession: BlockEditorTextEditSession?
-    @State private var responderActivationToken = UUID()
+    @State var responderActivationToken = UUID()
 
     private let slashRegistry = BlockSlashCommandRegistry()
     private let textEditCoalescingWindow: TimeInterval = 1.0
@@ -48,6 +51,10 @@ struct BlockDocumentEditor: View {
                         dismissFloatingOverlays()
                     }
                 })
+            if let marquee = blockSelectionState.marqueeSelection {
+                marqueeOverlay(for: marquee)
+                    .zIndex(5)
+            }
             GeometryReader { geo in
                 if let state = selectionState, state.hasSelection {
                     InlineStyleToolbarView(
@@ -86,7 +93,13 @@ struct BlockDocumentEditor: View {
             BlockEditorCommandResponder(
                 activationToken: responderActivationToken,
                 onUndo: undo,
-                onRedo: redo
+                onRedo: redo,
+                onCopy: { handleSelectionKeyboardAction(.copy) },
+                onCut: { handleSelectionKeyboardAction(.cut) },
+                onDeleteSelection: { handleSelectionKeyboardAction(.delete) },
+                onDuplicate: { handleSelectionKeyboardAction(.duplicate) },
+                onSelectAll: { handleSelectionKeyboardAction(.selectAll) },
+                onClearSelection: { handleSelectionKeyboardAction(.clearSelection) }
             )
             .frame(width: 0, height: 0)
         }
@@ -108,6 +121,7 @@ struct BlockDocumentEditor: View {
             }
             .frame(maxWidth: .infinity)
         }
+        .coordinateSpace(name: BlockEditorLayoutCoordinateSpace.canvas)
         .background(editorBackground)
         .onAppear {
             initializeEditorState(from: text, resetHistory: true)
@@ -121,13 +135,18 @@ struct BlockDocumentEditor: View {
         }
         .onChange(of: document.blocks) { _, _ in
             pruneEditorResidency()
+            remapBlockSelectionToCurrentDocument()
             if syncGate.consumeAutomaticSyncRequest() {
                 syncText()
             }
         }
+        .onPreferenceChange(BlockEditorRowFramePreferenceKey.self) { frames in
+            blockFrames = frames
+        }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleExternalFileDrop(providers)
         }
+        .simultaneousGesture(marqueeGesture)
     }
 
     private func blockRow(for block: DocumentBlock, at index: Int, orderedListIndices: [UUID: Int]) -> some View {
@@ -135,6 +154,7 @@ struct BlockDocumentEditor: View {
             block: $document.blocks[index],
             focusRequest: focusRequest,
             isActive: activeBlockID == block.id,
+            isBlockSelected: blockSelectionState.selectedBlockIDs.contains(block.id),
             mountHeavyEditor: editorResidency.shouldMountEditor(for: block.id),
             listIndex: orderedListIndices[block.id],
             onTextChange: { newValue in
@@ -145,6 +165,7 @@ struct BlockDocumentEditor: View {
             },
             onFocusChange: { isFocused in
                 if isFocused {
+                    clearBlockSelection()
                     activateBlock(block.id)
                 } else {
                     flushTextEditSession()
@@ -166,9 +187,16 @@ struct BlockDocumentEditor: View {
             onFileDrop: { urls in
                 addResources(urls, after: block.id)
             },
+            onBlockTap: {
+                handleBlockTap(block.id)
+            },
+            onContextMenuCommand: { command in
+                handleSelectionContextMenuCommand(command, targetBlockID: block.id)
+            },
             onSelectionChange: { state in
                 withAnimation(.spring(response: 0.18, dampingFraction: 0.85)) {
                     if state.hasSelection {
+                        clearBlockSelection()
                         selectionState = state
                     } else if selectionState?.blockID == block.id {
                         selectionState = nil
@@ -363,6 +391,8 @@ struct BlockDocumentEditor: View {
         editorResidency.recordInteraction(with: blockID)
         runtimeState.activeBlockID = blockID
         runtimeState.selection = nil
+        runtimeState.blockSelection = .empty
+        blockSelectionState = .empty
         if let focusPosition {
             focusRequest = BlockEditorFocusRequest(blockID: blockID, position: focusPosition)
             runtimeState.focus = focusSnapshot(for: blockID, position: focusPosition)
@@ -374,6 +404,8 @@ struct BlockDocumentEditor: View {
     private func initializeEditorState(from sourceText: String, resetHistory: Bool) {
         flushTextEditSession()
         document = BlockMarkdownCodec.parse(sourceText, fileURL: fileURL)
+        blockSelectionState = .empty
+        selectionState = nil
         if let firstBlockID = document.blocks.first?.id {
             activeBlockID = firstBlockID
             focusRequest = nil
@@ -408,7 +440,7 @@ struct BlockDocumentEditor: View {
         }
     }
 
-    private func applyStructuralEdit(
+    func applyStructuralEdit(
         title: String,
         kind: BlockEditorHistoryEntry.Kind = .blockStructure,
         mergePolicy: BlockEditorHistoryEntry.MergePolicy = .never,
@@ -465,6 +497,7 @@ struct BlockDocumentEditor: View {
         activeBlockID = afterRuntime.activeBlockID
         focusRequest = nil
         selectionState = nil
+        blockSelectionState = afterRuntime.blockSelection
         syncText(manualCommit: true)
     }
 
@@ -537,6 +570,7 @@ struct BlockDocumentEditor: View {
         }
         runtimeState = runtime
         selectionState = nil
+        blockSelectionState = runtime.blockSelection
         slashState.clear()
         pendingFormats.removeAll()
         activeBlockID = runtime.activeBlockID ?? runtime.document.blocks.first?.id
@@ -558,7 +592,8 @@ struct BlockDocumentEditor: View {
             fileURL: fileURL,
             activeBlockID: activeBlockID,
             focus: runtimeState.focus,
-            selection: runtimeState.selection
+            selection: runtimeState.selection,
+            blockSelection: blockSelectionState
         )
     }
 
@@ -947,17 +982,35 @@ private struct BlockEditorCommandResponder: NSViewRepresentable {
     let activationToken: UUID
     let onUndo: () -> Void
     let onRedo: () -> Void
+    let onCopy: () -> Void
+    let onCut: () -> Void
+    let onDeleteSelection: () -> Void
+    let onDuplicate: () -> Void
+    let onSelectAll: () -> Void
+    let onClearSelection: () -> Void
 
     func makeNSView(context: Context) -> BlockEditorCommandResponderView {
         let view = BlockEditorCommandResponderView()
         view.onUndo = onUndo
         view.onRedo = onRedo
+        view.onCopy = onCopy
+        view.onCut = onCut
+        view.onDeleteSelection = onDeleteSelection
+        view.onDuplicate = onDuplicate
+        view.onSelectAll = onSelectAll
+        view.onClearSelection = onClearSelection
         return view
     }
 
     func updateNSView(_ nsView: BlockEditorCommandResponderView, context: Context) {
         nsView.onUndo = onUndo
         nsView.onRedo = onRedo
+        nsView.onCopy = onCopy
+        nsView.onCut = onCut
+        nsView.onDeleteSelection = onDeleteSelection
+        nsView.onDuplicate = onDuplicate
+        nsView.onSelectAll = onSelectAll
+        nsView.onClearSelection = onClearSelection
         guard nsView.lastActivationToken != activationToken else { return }
         nsView.lastActivationToken = activationToken
         DispatchQueue.main.async {
@@ -969,6 +1022,12 @@ private struct BlockEditorCommandResponder: NSViewRepresentable {
 final class BlockEditorCommandResponderView: NSView {
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
+    var onCopy: (() -> Void)?
+    var onCut: (() -> Void)?
+    var onDeleteSelection: (() -> Void)?
+    var onDuplicate: (() -> Void)?
+    var onSelectAll: (() -> Void)?
+    var onClearSelection: (() -> Void)?
     var lastActivationToken: UUID?
 
     override var acceptsFirstResponder: Bool { true }
@@ -980,5 +1039,55 @@ final class BlockEditorCommandResponderView: NSView {
 
     @objc func redo(_ sender: Any?) {
         onRedo?()
+    }
+
+    @objc func copy(_ sender: Any?) {
+        onCopy?()
+    }
+
+    @objc func cut(_ sender: Any?) {
+        onCut?()
+    }
+
+    @objc func delete(_ sender: Any?) {
+        onDeleteSelection?()
+    }
+
+    @objc override func deleteBackward(_ sender: Any?) {
+        onDeleteSelection?()
+    }
+
+    @objc override func selectAll(_ sender: Any?) {
+        onSelectAll?()
+    }
+
+    @objc override func cancelOperation(_ sender: Any?) {
+        onClearSelection?()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard let shortcut = BlockEditorSelectionKeyboardShortcut.resolve(
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            modifierFlags: event.modifierFlags
+        ) else {
+            super.keyDown(with: event)
+            return
+        }
+
+        switch shortcut {
+        case .copy:
+            onCopy?()
+        case .cut:
+            onCut?()
+        case .delete:
+            onDeleteSelection?()
+        case .duplicate:
+            onDuplicate?()
+        case .selectAll:
+            onSelectAll?()
+        case .clearSelection:
+            onClearSelection?()
+        }
     }
 }

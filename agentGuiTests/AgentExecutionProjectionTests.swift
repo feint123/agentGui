@@ -78,6 +78,40 @@ struct AgentExecutionProjectionTests {
         #expect(projection.theater.cards.filter(\.isCurrentAction).map(\.title) == ["已修改 MessageBubbleView.swift"])
     }
 
+    @Test func projectionTruncatesActiveCardSubtitleToFiveLines() async throws {
+        let message = Message.agentMessage(text: nil, session: Session(title: "Projection Truncation"))
+        let round = AgentRound(roundIndex: 0, message: message)
+        round.timestamp = AgentExecutionProjectionFixture.date(0)
+
+        let toolCall = ToolCall(toolCallId: "search-1", kind: .search, message: message, agentRound: round)
+        toolCall.title = "搜索日志"
+        toolCall.status = .inProgress
+        toolCall.startTime = AgentExecutionProjectionFixture.date(1)
+        toolCall.toolResultSummary = [
+            "第 1 行",
+            "第 2 行",
+            "第 3 行",
+            "第 4 行",
+            "第 5 行",
+            "第 6 行"
+        ].joined(separator: "\n")
+
+        round.toolCalls = [toolCall]
+        message.agentRounds = [round]
+        message.status = .pending
+
+        let projection = AgentExecutionProjection.make(for: message)
+
+        #expect(projection.theater.cards.count == 1)
+        #expect(projection.theater.cards[0].subtitle == [
+            "第 1 行",
+            "第 2 行",
+            "第 3 行",
+            "第 4 行",
+            "第 5 行…"
+        ].joined(separator: "\n"))
+    }
+
     @Test func permissionLookupReturnsMostRecentMatchingRequestsFirst() async throws {
         let session = Session.fixture(sessionId: "session-permission", title: "Permission Lookup")
         let message = AgentExecutionProjectionFixture.makeRunningCommandMessage(session: session)
