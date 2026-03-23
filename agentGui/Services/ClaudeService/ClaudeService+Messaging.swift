@@ -394,6 +394,12 @@ extension ClaudeService {
                         workingDirectory: workingDirectory
                     )
                 },
+                sessionRuntimeResetter: { [unowned self] sessionID in
+                    self.resetExternalACPTerminalTaskRuntime(
+                        for: sessionID,
+                        providerID: .githubCopilotCLI
+                    )
+                },
                 permissionCenter: acpPermissionCenter
             ),
             openCode: OpenCodeCLIExecutionProvider(
@@ -402,6 +408,12 @@ extension ClaudeService {
                         for: sessionID,
                         providerID: .openCodeCLI,
                         workingDirectory: workingDirectory
+                    )
+                },
+                sessionRuntimeResetter: { [unowned self] sessionID in
+                    self.resetExternalACPTerminalTaskRuntime(
+                        for: sessionID,
+                        providerID: .openCodeCLI
                     )
                 },
                 permissionCenter: acpPermissionCenter

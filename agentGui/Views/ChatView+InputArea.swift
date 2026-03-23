@@ -109,12 +109,18 @@ extension ChatView {
                         .disabled(sessionInteractionPolicy.canSend == false)
 
                     if resolvedExecutionProviderID == .githubCopilotCLI,
-                       copilotComposerAvailabilityStatus.kind != .available {
+                       executionProviderAvailabilityModel.isRefreshingCopilotStatus {
+                        composerStatusSkeleton(width: 132)
+                    } else if resolvedExecutionProviderID == .githubCopilotCLI,
+                              copilotComposerAvailabilityStatus.kind != .available {
                         Text(copilotComposerAvailabilityStatus.summaryText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                    } else if resolvedExecutionProviderID == .openCodeCLI,
+                              executionProviderAvailabilityModel.isRefreshingOpenCodeStatus {
+                        composerStatusSkeleton(width: 118)
                     } else if resolvedExecutionProviderID == .openCodeCLI,
                               openCodeComposerAvailabilityStatus.kind != .available {
                         Text(openCodeComposerAvailabilityStatus.summaryText)
@@ -126,7 +132,10 @@ extension ChatView {
 
                     Spacer(minLength: 0)
 
-                    if composerExecutionPresentation.showsRunningBadge {
+                    if isExecutionRuntimeBootstrapInFlight {
+                        composerStatusSkeleton(width: 96)
+                            .accessibilityIdentifier("chat.executionBootstrap.loading")
+                    } else if composerExecutionPresentation.showsRunningBadge {
                         Text("运行中")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -187,6 +196,9 @@ extension ChatView {
     .onAppear {
         applyUITestInitialComposerTextIfNeeded()
     }
+    .onDisappear {
+        slashStateDebouncer.cancel()
+    }
     .task(id: copilotComposerAvailabilityRefreshToken) {
         await refreshCopilotComposerAvailabilityStatus()
         await refreshOpenCodeComposerAvailabilityStatus()
@@ -201,6 +213,10 @@ extension ChatView {
             return .regular.tint(Color.secondary.opacity(0.12))
         }
         return .regular
+    }
+
+    func composerStatusSkeleton(width: CGFloat) -> some View {
+        SkeletonBlock(width: width, height: 12, cornerRadius: 6)
     }
 
     private func applyUITestInitialComposerTextIfNeeded() {
@@ -912,21 +928,45 @@ var fileChipsRow: some View {
     }
 
     func updateComposerAssistState(_ text: String) {
+        switch ChatComposerSlashUpdatePolicy.action(for: text, currentQuery: slashQuery) {
+        case .ignore:
+            if slashQuery != nil {
+                debugSlashLog(
+                    "slash query unchanged text=\(text.debugDescription) candidates=\(slashCandidates.count)"
+                )
+                ensureACPCommandsReadyForSlashQuery(text: text)
+                clearMentionStateIfNeeded()
+                return
+            }
+
+            updateMentionState(text)
+        case .clear:
+            clearSlashState()
+            updateMentionState(text)
+        case .debouncedSync(let detected):
+            clearMentionStateIfNeeded()
+            debugSlashLog(
+                "schedule slash sync token=\(detected.rawToken.debugDescription) query=\(detected.query.debugDescription)"
+            )
+            slashStateDebouncer.schedule(text: text) { debouncedText in
+                applyDebouncedSlashStateSync(with: debouncedText)
+            }
+        }
+    }
+
+    private func applyDebouncedSlashStateSync(with text: String) {
         syncSlashState(with: text)
 
-        if slashQuery != nil {
-            debugSlashLog(
-                "slash query active text=\(text.debugDescription) candidates=\(slashCandidates.count)"
-            )
-            ensureACPCommandsReadyForSlashQuery(text: text)
-            if mentionQuery != nil {
-                withAnimation(.easeOut(duration: 0.12)) { mentionQuery = nil }
-                mentionCandidates = []
-            }
+        guard slashQuery != nil else {
+            updateMentionState(text)
             return
         }
 
-        updateMentionState(text)
+        debugSlashLog(
+            "slash query active text=\(text.debugDescription) candidates=\(slashCandidates.count)"
+        )
+        ensureACPCommandsReadyForSlashQuery(text: text)
+        clearMentionStateIfNeeded()
     }
 
     func syncSlashState(with text: String) {
@@ -1081,9 +1121,22 @@ var fileChipsRow: some View {
     }
 
     func clearSlashState() {
+        slashStateDebouncer.cancel()
         slashQuery = nil
         slashCandidates = []
         highlightedSlashItemID = nil
+    }
+
+    private func clearMentionStateIfNeeded() {
+        guard mentionQuery != nil || !mentionCandidates.isEmpty || highlightedMentionIndex != nil else {
+            return
+        }
+
+        if mentionQuery != nil {
+            withAnimation(.easeOut(duration: 0.12)) { mentionQuery = nil }
+        }
+        mentionCandidates = []
+        highlightedMentionIndex = nil
     }
 
     func selectSlashItem(_ item: ChatSlashCommandItem) {

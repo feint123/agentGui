@@ -19,14 +19,13 @@ final class ACPExternalSessionFeatureStore {
     func apply(_ events: [ACPExternalSessionFeatureEvent], sessionID: String) throws {
         for event in events {
             switch event {
-            case .replaceCommands(let commands):
-                guard let first = commands.first else { continue }
-                let key = CommandCacheKey(providerID: first.providerID, remoteSessionID: first.remoteSessionID)
+            case .replaceCommands(let snapshot):
+                let key = CommandCacheKey(providerID: snapshot.providerID, remoteSessionID: snapshot.remoteSessionID)
                 print(
-                    "[ACP][feature-store] replaceCommands session=\(sessionID) provider=\(first.providerID.rawValue) remoteSession=\(first.remoteSessionID) count=\(commands.count) names=\(commands.map(\.name).joined(separator: ","))"
+                    "[ACP][feature-store] replaceCommands session=\(sessionID) provider=\(snapshot.providerID.rawValue) remoteSession=\(snapshot.remoteSessionID) count=\(snapshot.commands.count) names=\(snapshot.commands.map(\.name).joined(separator: ","))"
                 )
-                commandsCache[key] = commands
-                sessionCommandsCache[SessionCommandCacheKey(sessionID: sessionID, providerID: first.providerID)] = commands
+                commandsCache[key] = snapshot.commands
+                sessionCommandsCache[SessionCommandCacheKey(sessionID: sessionID, providerID: snapshot.providerID)] = snapshot.commands
             case .replacePlan(let snapshot):
                 print(
                     "[ACP][feature-store] replacePlan session=\(sessionID) entries=\(snapshot.entries.count)"

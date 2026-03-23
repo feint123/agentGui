@@ -43,8 +43,10 @@ struct ChatView: View {
     @State var isDeletingAllSessions = false
     @State var messageListSnapshot = ChatMessageListSnapshot.empty
     @State var messageListProjectionTrigger: ChatMessageListProjectionTrigger?
+    @State var isInitialMessageListLoadInFlight = true
     @State var isMessageListPinnedToBottom = true
     @State var isProgrammaticMessageListScrollInFlight = false
+    @State var isExecutionRuntimeBootstrapInFlight = false
 
     // MARK: - Context Chips
     @State var showFileContext = true
@@ -60,6 +62,7 @@ struct ChatView: View {
     @State var slashQuery: String? = nil
     @State var slashCandidates: [ChatSlashCommandItem] = []
     @State var highlightedSlashItemID: String? = nil
+    @State var slashStateDebouncer = ChatComposerSlashDebouncer()
     @State var isACPCommandWarmupInFlight = false
     @State var activeInputDirectives: [ChatInputDirective] = []
     @State var didApplyUITestInitialComposerText = false
@@ -157,7 +160,7 @@ struct ChatView: View {
             showSelectionContext = true
         }
         .task(id: session.sessionId) {
-            try? runtimeRecoveryService.refresh(from: modelContext)
+            await bootstrapSessionViewState()
         }
     }
 
@@ -194,6 +197,39 @@ struct ChatView: View {
 }
 
 extension ChatView {
+    func bootstrapSessionViewState() async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await refreshMessageListSnapshot(
+                    for: currentMessageListProjectionTrigger,
+                    showsLoadingPlaceholder: true
+                )
+            }
+            group.addTask {
+                await refreshRecoverySummary()
+            }
+            group.addTask {
+                await warmExecutionRuntimeIfNeeded()
+            }
+        }
+    }
+
+    private func refreshRecoverySummary() async {
+        await Task.yield()
+        try? runtimeRecoveryService.refresh(from: modelContext)
+    }
+
+    private func warmExecutionRuntimeIfNeeded() async {
+        isExecutionRuntimeBootstrapInFlight = true
+        defer { isExecutionRuntimeBootstrapInFlight = false }
+
+        await claudeService.handleExecutionProviderSelectionChange(
+            session: session,
+            selectedProviderID: resolvedExecutionProviderID,
+            modelContext: modelContext
+        )
+    }
+
     @ViewBuilder
     var readOnlyBanner: some View {
         if sessionInteractionPolicy.readOnlyReason.isEmpty == false {

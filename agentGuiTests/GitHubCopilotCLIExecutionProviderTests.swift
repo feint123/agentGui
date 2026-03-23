@@ -207,6 +207,159 @@ struct GitHubCopilotCLIExecutionProviderTests {
         #expect(assistantMessages.allSatisfy { !($0.textContent ?? "").contains("already loaded") })
     }
 
+    @Test func providerClosesInactiveSessionRuntimeAndRestoresBindingWhenSwitchingSessions() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let sessionA = Session.fixture(title: "Copilot A")
+        let sessionB = Session.fixture(title: "Copilot B")
+        modelContext.insert(settings)
+        modelContext.insert(sessionA)
+        modelContext.insert(sessionB)
+        try modelContext.save()
+
+        let runtimeA1 = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-a", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+        let runtimeB1 = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-b", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+        let runtimeA2 = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-a", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+        var runtimeQueue = [runtimeA1, runtimeB1, runtimeA2]
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            availabilityService: GitHubCopilotCLIAvailabilityService(
+                fileManager: .default,
+                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+            ),
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                let runtimeClient = try #require(runtimeQueue.isEmpty == false ? runtimeQueue.removeFirst() : nil)
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "session-a-first",
+                session: sessionA,
+                modelID: "",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "session-b-first",
+                session: sessionB,
+                modelID: "",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "session-a-second",
+                session: sessionA,
+                modelID: "",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        #expect(runtimeA1.closeCallCount == 1)
+        #expect(runtimeB1.closeCallCount == 1)
+        #expect(runtimeA1.ensureSessionRemoteSessionIDs == [nil])
+        #expect(runtimeB1.ensureSessionRemoteSessionIDs == [nil])
+        #expect(runtimeA2.ensureSessionRemoteSessionIDs == ["remote-a"])
+    }
+
+    @Test func providerRebuildsRuntimeWhenInitialEnsureSessionTimesOut() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Retry Initialize")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let stalledRuntime = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-stalled", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: [],
+            ensureSessionError: ACPExternalAgentRuntimeError.initializeTimedOut
+        )
+        let recoveredRuntime = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-recovered", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+        var runtimeQueue = [stalledRuntime, recoveredRuntime]
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            availabilityService: GitHubCopilotCLIAvailabilityService(
+                fileManager: .default,
+                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+            ),
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                let runtimeClient = try #require(runtimeQueue.isEmpty == false ? runtimeQueue.removeFirst() : nil)
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "retry initialize",
+                session: session,
+                modelID: "",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        #expect(stalledRuntime.closeCallCount == 1)
+        #expect(stalledRuntime.ensureSessionRemoteSessionIDs == [nil])
+        #expect(recoveredRuntime.ensureSessionRemoteSessionIDs == [nil])
+        let binding = try ACPExternalSessionBindingStore(modelContext: modelContext).binding(
+            for: session.sessionId,
+            providerID: .githubCopilotCLI
+        )
+        #expect(binding?.remoteSessionID == "remote-recovered")
+    }
+
     @Test func sendDoesNotProjectReplayUpdatesFromLoadedSessionIntoCurrentTurn() async throws {
         let modelContext = try makeModelContext()
         let settings = AppSettings.testFixture(apiKey: "")
@@ -984,7 +1137,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
         ExternalACPProviderAssertionHelpers.expectCancelledMessageSettlesToolCalls(assistantMessage)
     }
 
-    @Test func sendExposesSeededCommandsWhenRemoteACPDoesNotAdvertiseAny() async throws {
+    @Test func sendDoesNotExposeCommandsWhenRemoteACPDoesNotAdvertiseAny() async throws {
         let modelContext = try makeModelContext()
         let settings = AppSettings.testFixture(apiKey: "")
         settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
@@ -994,7 +1147,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
             defaultApprovalMode: "default",
             useACPStdIO: true
         )
-        let session = Session.fixture(title: "Copilot Seeded Commands")
+        let session = Session.fixture(title: "Copilot Missing Commands")
         modelContext.insert(settings)
         modelContext.insert(session)
         try modelContext.save()
@@ -1020,7 +1173,7 @@ struct GitHubCopilotCLIExecutionProviderTests {
 
         try await provider.send(
             ConversationExecutionRequest(
-                text: "seed commands",
+                text: "no remote commands",
                 session: session,
                 modelID: "",
                 selectedFilePath: nil,
@@ -1030,11 +1183,11 @@ struct GitHubCopilotCLIExecutionProviderTests {
             )
         )
 
-        let commands = provider.remoteCommands(localSessionID: session.sessionId, remoteSessionID: "remote-seeded")
-        #expect(commands.map { $0.name } == ["plan", "review", "agent"])
+        let commands = provider.remoteCommands(localSessionID: session.sessionId)
+        #expect(commands.isEmpty)
     }
 
-    @Test func sendReplacesSeededCommandsWithRemoteAdvertisedCommands() async throws {
+    @Test func sendExposesRemoteAdvertisedCommands() async throws {
         let modelContext = try makeModelContext()
         let settings = AppSettings.testFixture(apiKey: "")
         settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
@@ -1332,6 +1485,7 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
     let stopReason: ACPStopReason
     let ensureSessionUpdates: [CopilotACPUpdate]
     let updates: [CopilotACPUpdate]
+    let ensureSessionError: (any Error)?
     let promptError: (any Error)?
 
     var updateSink: (@Sendable (CopilotACPUpdate) async -> Void)?
@@ -1339,24 +1493,30 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
     private(set) var promptRequests: [(String, String)] = []
     private(set) var setModelRequests: [(String, String)] = []
     private(set) var cancelledSessionIDs: [String] = []
+    private(set) var closeCallCount = 0
 
     init(
         handshake: GitHubCopilotCLISessionHandshake,
         stopReason: ACPStopReason,
         ensureSessionUpdates: [CopilotACPUpdate] = [],
         updates: [CopilotACPUpdate],
+        ensureSessionError: (any Error)? = nil,
         promptError: (any Error)? = nil
     ) {
         self.handshake = handshake
         self.stopReason = stopReason
         self.ensureSessionUpdates = ensureSessionUpdates
         self.updates = updates
+        self.ensureSessionError = ensureSessionError
         self.promptError = promptError
     }
 
     func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> GitHubCopilotCLISessionHandshake {
         _ = workingDirectory
         ensureSessionRemoteSessionIDs.append(remoteSessionID)
+        if let ensureSessionError {
+            throw ensureSessionError
+        }
         for update in ensureSessionUpdates {
             await updateSink?(update)
         }
@@ -1382,7 +1542,9 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
         cancelledSessionIDs.append(sessionID)
     }
 
-    func close() async {}
+    func close() async {
+        closeCallCount += 1
+    }
 }
 
 private enum RuntimeClientStubError: Error {

@@ -26,8 +26,9 @@ struct SessionListView: View {
     @State private var sessionToDelete: Session?
     @State private var showingDeleteAlert = false
     @State private var errorMessage: String?
-    @State private var renameDraft: SessionRenameDraft?
+    @State private var inlineRename = InlineRenameState<String>()
     @State private var viewModel = SessionCatalogViewModel()
+    @Namespace private var selectionNamespace
 
     var onSessionSelected: (Session) -> Void
 
@@ -62,15 +63,6 @@ struct SessionListView: View {
             Button("确定") { errorMessage = nil }
         } message: {
             if let error = errorMessage { Text(error) }
-        }
-        .sheet(item: $renameDraft) { draft in
-            SessionRenameSheet(draft: draft) { newTitle in
-                do {
-                    try viewModel.rename(session: draft.session, to: newTitle)
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
-            }
         }
         .onAppear {
             viewModel.bind(modelContext: modelContext)
@@ -152,8 +144,20 @@ struct SessionListView: View {
                             isSelected: workspaceState.selectedSession?.persistentModelID == item.session.persistentModelID,
                             canRename: item.canRename,
                             globalWorkingDirectory: globalWorkingDirectory,
+                            isRenaming: inlineRename.isEditing(item.session.sessionId),
+                            renameText: renameBinding(for: item.session),
+                            selectionNamespace: selectionNamespace,
                             onTap: {
-                                onSessionSelected(item.session)
+                                selectSession(item.session)
+                            },
+                            onBeginRename: {
+                                beginInlineRename(for: item.session, canRename: item.canRename)
+                            },
+                            onCommitRename: {
+                                commitInlineRename()
+                            },
+                            onCancelRename: {
+                                inlineRename.cancel()
                             }
                         )
                         .accessibilityIdentifier("sessionList.item.\(item.session.sessionId)")
@@ -165,7 +169,7 @@ struct SessionListView: View {
                             .disabled(SessionInteractionPolicy(session: item.session).canCloneAsLocal == false)
 
                             Button("重命名") {
-                                renameDraft = SessionRenameDraft(session: item.session)
+                                beginInlineRename(for: item.session, canRename: item.canRename)
                             }
                             .disabled(item.canRename == false)
 
@@ -195,7 +199,9 @@ struct SessionListView: View {
         do {
             try modelContext.save()
             viewModel.reload()
-            onSessionSelected(newSession)
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
+                onSessionSelected(newSession)
+            }
         } catch {
             errorMessage = "创建对话失败: \(error.localizedDescription)"
         }
@@ -217,11 +223,72 @@ struct SessionListView: View {
             if let cloned = try SessionToolbarActions(modelContext: modelContext, workspaceState: workspaceState)
                 .cloneSessionAsLocal(session) {
                 viewModel.reload()
-                onSessionSelected(cloned)
+                withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
+                    onSessionSelected(cloned)
+                }
             }
         } catch {
             errorMessage = "复制本地会话失败: \(error.localizedDescription)"
         }
+    }
+
+    private func selectSession(_ session: Session) {
+        if let draft = inlineRename.draft,
+           draft.id != session.sessionId {
+            inlineRename.cancel()
+        }
+
+        withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
+            onSessionSelected(session)
+        }
+    }
+
+    private func beginInlineRename(for session: Session, canRename: Bool) {
+        guard canRename else { return }
+
+        withAnimation(.easeInOut(duration: 0.16)) {
+            inlineRename.begin(id: session.sessionId, text: session.title)
+        }
+    }
+
+    private func commitInlineRename() {
+        guard let candidate = inlineRename.commitCandidate else {
+            errorMessage = SessionCatalogViewModel.ValidationError.emptyTitle.localizedDescription
+            return
+        }
+
+        guard candidate.hasChanges else {
+            inlineRename.cancel()
+            return
+        }
+
+        guard let session = sessions.first(where: { $0.sessionId == candidate.id }) else {
+            inlineRename.cancel()
+            return
+        }
+
+        do {
+            try viewModel.rename(session: session, to: candidate.trimmedText)
+            withAnimation(.snappy(duration: 0.22, extraBounce: 0.02)) {
+                inlineRename.cancel()
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func renameBinding(for session: Session) -> Binding<String> {
+        Binding(
+            get: {
+                if inlineRename.draft?.id == session.sessionId {
+                    return inlineRename.draft?.text ?? session.title
+                }
+                return session.title
+            },
+            set: { newValue in
+                inlineRename.update(text: newValue)
+            }
+        )
     }
 }
 
@@ -232,119 +299,183 @@ private struct SessionRowView: View {
     let isSelected: Bool
     let canRename: Bool
     let globalWorkingDirectory: String
+    let isRenaming: Bool
+    @Binding var renameText: String
+    let selectionNamespace: Namespace.ID
     let onTap: () -> Void
+    let onBeginRename: () -> Void
+    let onCommitRename: () -> Void
+    let onCancelRename: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
+        Group {
+            if isRenaming {
+                rowCard
+            } else {
+                Button(action: onTap) {
+                    rowCard
+                }
+                .buttonStyle(.plain)
+                .simultaneousGesture(
+                    TapGesture(count: 2).onEnded {
+                        onBeginRename()
+                    }
+                )
+            }
+        }
+        .onHover { hovered in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovered
+            }
+        }
+    }
+
+    private var rowCard: some View {
         let workspacePresentation = SessionWorkspacePresentationFactory().build(
             session: session,
             globalWorkingDirectory: globalWorkingDirectory
         )
 
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(spacing: 6) {
+                    if isRenaming {
+                        InlineNameField(
+                            text: $renameText,
+                            placeholder: "会话名称",
+                            onCommit: onCommitRename,
+                            onCancel: onCancelRename
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 18)
+                    } else {
                         Text(session.title)
-                            .font(.body)
+                            .font(.body.weight(isSelected ? .semibold : .medium))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
-
-                        if canRename == false {
-                            Image(systemName: "lock.fill")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
                     }
 
-                    Text(session.displaySourceTitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    SessionWorkspaceBadgeView(presentation: workspacePresentation)
-
-                    Text(session.lastMessagePreview)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                    if canRename == false {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
-                Spacer()
+                Spacer(minLength: 8)
 
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(session.updatedAt.formatted(.relative(presentation: .named)))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                Text(session.updatedAt.formatted(.relative(presentation: .named)))
+                    .font(.caption2)
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.primary.opacity(0.82)) : AnyShapeStyle(.tertiary))
+                    .lineLimit(1)
+            }
 
-                    Text("\(session.messageCount) 条消息")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+            HStack(spacing: 6) {
+                SessionRowChip(systemImage: "bubble.left.and.text.bubble.right", text: session.displaySourceTitle)
+                SessionRowChip(systemImage: workspacePresentation.isMissing ? "folder.badge.questionmark" : "folder", text: workspacePresentation.title)
+                Spacer(minLength: 0)
+                Text("\(session.messageCount) 条")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .clipShape(.rect(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
-            }
-            .contentShape(Rectangle())
+
+            Text(sessionPreview)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background { rowBackground }
+        .overlay { rowBorder }
+        .contentShape(.rect(cornerRadius: 14, style: .continuous))
+        .animation(.snappy(duration: 0.18, extraBounce: 0.02), value: isSelected)
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+    }
+
+    private var rowBackground: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(rowFillColor)
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.clear)
+                        .matchedGeometryEffect(id: "session-list-selection", in: selectionNamespace)
+                }
+            }
+            .glassEffect(rowGlassEffect, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var rowBorder: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(borderColor, lineWidth: isSelected ? 1 : 0.8)
+    }
+
+    private var rowFillColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.18)
+        }
+        if isRenaming {
+            return Color.accentColor.opacity(0.08)
+        }
+        if isHovered {
+            return Color.primary.opacity(0.05)
+        }
+        return .clear
+    }
+
+    private var borderColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.34)
+        }
+        if isRenaming {
+            return Color.accentColor.opacity(0.22)
+        }
+        if isHovered {
+            return Color.primary.opacity(0.10)
+        }
+        return .clear
+    }
+
+    private var rowGlassEffect: Glass {
+        if isSelected {
+            return .regular.interactive().tint(Color.accentColor.opacity(0.18))
+        }
+        if isRenaming {
+            return .regular.interactive().tint(Color.accentColor.opacity(0.10))
+        }
+        if isHovered {
+            return .regular.interactive().tint(Color.primary.opacity(0.04))
+        }
+        return .regular
+    }
+
+    private var sessionPreview: String {
+        let preview = session.lastMessagePreview.trimmingCharacters(in: .whitespacesAndNewlines)
+        return preview.isEmpty ? "尚无消息，点击继续当前会话。" : preview
     }
 }
 
-private struct SessionRenameDraft: Identifiable {
-    let session: Session
-    let title: String
-
-    init(session: Session) {
-        self.session = session
-        self.title = session.title
-    }
-
-    var id: String {
-        session.sessionId
-    }
-}
-
-private struct SessionRenameSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let draft: SessionRenameDraft
-    let onSave: (String) -> Void
-
-    @State private var titleText: String
-
-    init(draft: SessionRenameDraft, onSave: @escaping (String) -> Void) {
-        self.draft = draft
-        self.onSave = onSave
-        _titleText = State(initialValue: draft.title)
-    }
+private struct SessionRowChip: View {
+    let systemImage: String
+    let text: String
 
     var body: some View {
-        NavigationStack {
-            Form {
-                TextField("会话名称", text: $titleText)
-                    .textFieldStyle(.roundedBorder)
-            }
-            .padding(16)
-            .navigationTitle("重命名会话")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        onSave(titleText)
-                        dismiss()
-                    }
-                }
-            }
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.caption2)
+            Text(text)
+                .lineLimit(1)
         }
-        .frame(minWidth: 360, minHeight: 160)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(.white.opacity(0.001))
+        .glassEffect(.regular, in: Capsule())
     }
 }
 

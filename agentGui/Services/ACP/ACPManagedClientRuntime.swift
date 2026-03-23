@@ -14,13 +14,19 @@ final class ACPManagedClientRuntime {
         supervisor.process?.isRunning ?? false
     }
 
+    var processIdentifier: Int32? {
+        supervisor.process?.processIdentifier
+    }
+
     static func launch(
         command: String,
         arguments: [String] = [],
         environmentOverrides: [String: String] = [:],
         currentDirectoryURL: URL? = nil,
         clientHandler: (any ACPClientHandler)? = nil,
-        standardErrorHandler: ((String) -> Void)? = nil
+        standardErrorHandler: ((String) -> Void)? = nil,
+        streamObserver: ACPConnection.StreamObserver? = nil,
+        errorObserver: ACPConnection.ErrorObserver? = nil
     ) throws -> ACPManagedClientRuntime {
         let supervisor = ACPProcessSupervisor()
         let transport = try supervisor.start(
@@ -31,7 +37,12 @@ final class ACPManagedClientRuntime {
             standardErrorHandler: standardErrorHandler
         )
         let router = clientHandler.map(ACPMessageRouter.clientRouter) ?? ACPMessageRouter()
-        let connection = ACPConnection(transport: transport, router: router)
+        let connection = ACPConnection(
+            transport: transport,
+            router: router,
+            observers: streamObserver.map { [$0] } ?? [],
+            errorObservers: errorObserver.map { [$0] } ?? []
+        )
         let runtime = ACPClientRuntime(connection: connection)
         return ACPManagedClientRuntime(runtime: runtime, supervisor: supervisor)
     }
@@ -45,7 +56,9 @@ final class ACPManagedClientRuntime {
         allowedRoots: [URL] = [],
         terminalRuntimeProvider: @escaping @Sendable (String) -> TerminalTaskRuntime,
         permissionResolver: (@Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?)? = nil,
-        standardErrorHandler: ((String) -> Void)? = nil
+        standardErrorHandler: ((String) -> Void)? = nil,
+        streamObserver: ACPConnection.StreamObserver? = nil,
+        errorObserver: ACPConnection.ErrorObserver? = nil
     ) throws -> ACPManagedClientRuntime {
         let normalizedRoots = normalizeAllowedRoots(primary: currentDirectoryURL, additional: allowedRoots)
         let localHandler = ACPLocalClientHandler(
@@ -61,7 +74,9 @@ final class ACPManagedClientRuntime {
             environmentOverrides: environmentOverrides,
             currentDirectoryURL: currentDirectoryURL,
             clientHandler: localHandler,
-            standardErrorHandler: standardErrorHandler
+            standardErrorHandler: standardErrorHandler,
+            streamObserver: streamObserver,
+            errorObserver: errorObserver
         )
     }
 

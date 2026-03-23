@@ -71,7 +71,7 @@ GitHub Copilot 官方文档确认：
 
 - slash command 文本调用本身可以立即支持，因为协议本来就是普通 prompt 文本。
 - “远端命令目录广播”和“协议原生 plan 更新”必须按 runtime 观测能力处理，不能在 client 里强假设。
-- 若要提升发现性，可以引入一层 provider 文档种子命令，但必须与远端广告列表分层，不能把静态文档列表伪装成协议事实。
+- Copilot CLI 官方 slash command 文档只能作为产品能力参考，不能被 client 伪装成 ACP 会话里的真实 command 广告。
 
 ### 3. OpenCode 调研结论
 
@@ -433,17 +433,16 @@ protocol ACPExternalProviderFeatureAdapter {
 
 #### GitHub Copilot adapter
 
-- 提供一个保守的文档种子命令集，用于提升 UX discoverability
-- 所有种子命令标记为 `source = .documentationSeed`
-- 一旦 ACP 远端真的发来 `available_commands_update`，远端结果覆盖种子列表
+- 不提供本地文档种子命令
+- 仅消费 ACP 远端实际发来的 `available_commands_update`
+- 若远端未广告 commands，则输入区不展示 Copilot ACP commands
 
 注意：
 
-- 不能把 Copilot 所有交互命令都无脑写死
-- 只应纳入官方文档明确稳定、且适合作为 ACP 前端暴露的命令
-- 推荐首批仅纳入：`/plan`、`/review`、`/agent`、`/model`、`/mcp`、`/share`、`/usage`、`/resume`、`/cwd`
+- Copilot CLI 文档列出的 slash commands 与 ACP 会话广告是两回事
+- 不能把 CLI 帮助或官方文档目录无脑写死到 ACP 前端里
 
-这能在协议理想化与 UX 实用性之间取得平衡。
+这能保持 ACP 语义真实，避免 client 展示并不存在于当前远端会话里的命令。
 
 ## Slash Commands 设计
 

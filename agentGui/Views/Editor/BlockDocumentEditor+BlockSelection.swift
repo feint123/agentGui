@@ -3,8 +3,7 @@ import SwiftUI
 
 extension BlockDocumentEditor {
     func clearBlockSelection() {
-        blockSelectionState = .empty
-        runtimeState.blockSelection = .empty
+        applyBlockSelectionState(BlockEditorBlockSelectionState.empty)
         responderActivationToken = UUID()
     }
 
@@ -32,23 +31,19 @@ extension BlockDocumentEditor {
             )
         }
 
-        selectionState = nil
+        clearInlineSelection()
         slashState.clear()
-        activeBlockID = blockSelectionState.primaryBlockID
+        applyBlockSelectionState(blockSelectionState)
+        setActiveBlock(blockSelectionState.primaryBlockID)
         focusRequest = nil
-        runtimeState.activeBlockID = activeBlockID
         runtimeState.focus = nil
-        runtimeState.selection = nil
-        runtimeState.blockSelection = blockSelectionState
         responderActivationToken = UUID()
     }
 
     func handleSelectionContextMenuCommand(_ command: BlockEditorSelectionCommand, targetBlockID: UUID) {
         if !blockSelectionState.selectedBlockIDs.contains(targetBlockID) {
-            blockSelectionState = .single(targetBlockID, source: .contextMenu)
-            runtimeState.blockSelection = blockSelectionState
-            runtimeState.activeBlockID = targetBlockID
-            activeBlockID = targetBlockID
+            applyBlockSelectionState(BlockEditorBlockSelectionState.single(targetBlockID, source: .contextMenu))
+            setActiveBlock(targetBlockID)
         }
         executeSelectionCommand(command)
     }
@@ -114,39 +109,52 @@ extension BlockDocumentEditor {
             orderedBlockIDs: document.blocks.map(\.id)
         )
         guard remapped != blockSelectionState else { return }
-        blockSelectionState = remapped
-        runtimeState.blockSelection = remapped
+        applyBlockSelectionState(remapped)
     }
 
     var marqueeGesture: some Gesture {
         DragGesture(minimumDistance: 8, coordinateSpace: .named(BlockEditorLayoutCoordinateSpace.canvas))
             .onChanged { value in
                 let isAdditive = NSApp.currentEvent?.modifierFlags.contains(.command) == true
-                if blockSelectionState.marqueeSelection == nil {
+                if marqueeSelection == nil {
                     marqueeBaseSelectionState = isAdditive ? blockSelectionState : .empty
+                    clearInlineSelection()
+                    runtimeState.focus = nil
                 }
+
+                isCollectingRowFrames = true
 
                 let marquee = BlockEditorMarqueeSelection(
                     startPoint: value.startLocation,
                     currentPoint: value.location,
                     isAdditive: isAdditive
                 )
+                marqueeSelection = marquee
 
-                blockSelectionState = BlockEditorBlockSelectionCoordinator.selectionFromMarquee(
-                    state: marqueeBaseSelectionState,
+                guard !rowFrameSnapshot.isEmpty else { return }
+
+                let result = marqueeController.reduce(
+                    baseState: marqueeBaseSelectionState,
+                    currentState: blockSelectionState,
                     orderedBlockIDs: document.blocks.map(\.id),
-                    blockFrames: blockFrames,
-                    marquee: marquee,
-                    source: .marquee
+                    rowFrames: rowFrameSnapshot,
+                    marquee: marquee
                 )
-                selectionState = nil
-                runtimeState.focus = nil
-                runtimeState.selection = nil
-                runtimeState.blockSelection = blockSelectionState
-                activeBlockID = blockSelectionState.primaryBlockID
+
+                if result.shouldMutateState {
+                    applyBlockSelectionState(result.state, syncRuntime: false)
+                }
+                if result.shouldSyncRuntimeSelection {
+                    runtimeState.blockSelection = result.state
+                }
+                if result.shouldUpdateActiveBlock {
+                    setActiveBlock(result.state.primaryBlockID, syncRuntime: false)
+                }
             }
             .onEnded { _ in
-                blockSelectionState.marqueeSelection = nil
+                marqueeSelection = nil
+                isCollectingRowFrames = false
+                rowFrameSnapshot = .empty
                 runtimeState.blockSelection = blockSelectionState
                 responderActivationToken = UUID()
             }

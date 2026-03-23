@@ -19,11 +19,12 @@ struct WorkspaceTreeRowContent: View {
                 .frame(width: 14)
 
             if isInlineEditing {
-                InlineTreeNameField(
+                InlineNameField(
                     text: Binding(
                         get: { inlineEdit?.draftName ?? node.name },
                         set: onInlineEditChange
                     ),
+                    placeholder: "输入名称",
                     onCommit: onInlineEditCommit,
                     onCancel: onInlineEditCancel
                 )

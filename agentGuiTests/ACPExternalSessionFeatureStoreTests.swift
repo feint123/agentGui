@@ -14,15 +14,21 @@ struct ACPExternalSessionFeatureStoreTests {
         )
 
         try store.apply(
-            [.replaceCommands([
-                ACPCommandDescriptor(
+            [.replaceCommands(
+                ACPCommandSnapshotDraft(
                     providerID: .openCodeCLI,
                     remoteSessionID: "remote-1",
-                    name: "review",
-                    description: "Run review",
-                    inputHint: "scope"
+                    commands: [
+                        ACPCommandDescriptor(
+                            providerID: .openCodeCLI,
+                            remoteSessionID: "remote-1",
+                            name: "review",
+                            description: "Run review",
+                            inputHint: "scope"
+                        )
+                    ]
                 )
-            ])],
+            )],
             sessionID: "session-1"
         )
 
@@ -73,16 +79,22 @@ struct ACPExternalSessionFeatureStoreTests {
         )
 
         try store.apply(
-            [.replaceCommands([
-                ACPCommandDescriptor(
+            [.replaceCommands(
+                ACPCommandSnapshotDraft(
                     providerID: .githubCopilotCLI,
                     remoteSessionID: "remote-seeded",
-                    name: "plan",
-                    description: "Create a plan",
-                    inputHint: "what to plan",
-                    source: .documentedSeed
+                    commands: [
+                        ACPCommandDescriptor(
+                            providerID: .githubCopilotCLI,
+                            remoteSessionID: "remote-seeded",
+                            name: "plan",
+                            description: "Create a plan",
+                            inputHint: "what to plan",
+                            source: .documentedSeed
+                        )
+                    ]
                 )
-            ])],
+            )],
             sessionID: "session-commands"
         )
 
@@ -131,6 +143,48 @@ struct ACPExternalSessionFeatureStoreTests {
         #expect(taskStateStore.todoItems(for: session.sessionId).isEmpty)
         let plan = try #require(try taskStateStore.taskState(for: session.sessionId)?.plan)
         #expect(plan.steps.isEmpty)
+    }
+
+    @Test func replaceCommandsUsesFullReplacementSemanticsIncludingEmptyList() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let store = ACPExternalSessionFeatureStore(
+            taskStateStore: SessionTaskStateStore(modelContext: context),
+            planProjector: ACPPlanProjector()
+        )
+
+        try store.apply(
+            [.replaceCommands(
+                ACPCommandSnapshotDraft(
+                    providerID: .openCodeCLI,
+                    remoteSessionID: "remote-commands",
+                    commands: [
+                        ACPCommandDescriptor(
+                            providerID: .openCodeCLI,
+                            remoteSessionID: "remote-commands",
+                            name: "review",
+                            description: "Run review",
+                            inputHint: "scope"
+                        )
+                    ]
+                )
+            )],
+            sessionID: "session-commands"
+        )
+
+        try store.apply(
+            [.replaceCommands(
+                ACPCommandSnapshotDraft(
+                    providerID: .openCodeCLI,
+                    remoteSessionID: "remote-commands",
+                    commands: []
+                )
+            )],
+            sessionID: "session-commands"
+        )
+
+        #expect(store.commands(for: .openCodeCLI, remoteSessionID: "remote-commands").isEmpty)
+        #expect(store.commands(for: "session-commands", providerID: .openCodeCLI).isEmpty)
     }
 
     private func makeContainer() throws -> ModelContainer {

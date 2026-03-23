@@ -31,8 +31,14 @@ struct ACPPlanSnapshotDraft: Equatable, Sendable {
     var entries: [ACPPlanEntry]
 }
 
+struct ACPCommandSnapshotDraft: Equatable, Sendable {
+    var providerID: ConversationExecutionProviderID
+    var remoteSessionID: String
+    var commands: [ACPCommandDescriptor]
+}
+
 enum ACPExternalSessionFeatureEvent: Equatable, Sendable {
-    case replaceCommands([ACPCommandDescriptor])
+    case replaceCommands(ACPCommandSnapshotDraft)
     case replacePlan(ACPPlanSnapshotDraft)
 }
 
@@ -45,6 +51,12 @@ struct ACPExternalSessionFeatureExtractor {
         switch update {
         case .session(let sessionUpdate):
             return extract(sessionUpdate: sessionUpdate, providerID: providerID, remoteSessionID: remoteSessionID)
+        case .sessionNotification(let notification):
+            return extract(
+                sessionUpdate: notification.update,
+                providerID: providerID,
+                remoteSessionID: notification.sessionID
+            )
         case .permission:
             return []
         }
@@ -59,15 +71,19 @@ struct ACPExternalSessionFeatureExtractor {
         case .availableCommandsUpdate(let payload):
             return [
                 .replaceCommands(
-                    payload.availableCommands.map {
-                        ACPCommandDescriptor(
-                            providerID: providerID,
-                            remoteSessionID: remoteSessionID,
-                            name: $0.name,
-                            description: $0.description,
-                            inputHint: $0.input?.hint
-                        )
-                    }
+                    ACPCommandSnapshotDraft(
+                        providerID: providerID,
+                        remoteSessionID: remoteSessionID,
+                        commands: payload.availableCommands.map {
+                            ACPCommandDescriptor(
+                                providerID: providerID,
+                                remoteSessionID: remoteSessionID,
+                                name: $0.name,
+                                description: $0.description,
+                                inputHint: $0.input?.hint
+                            )
+                        }
+                    )
                 )
             ]
         case .plan(let payload):

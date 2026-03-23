@@ -18,9 +18,16 @@ actor ACPConnection {
     private var errorObservers: [ErrorObserver] = []
     private var isClosed = false
 
-    init(transport: ACPTransport, router: ACPMessageRouter = ACPMessageRouter()) {
+    init(
+        transport: ACPTransport,
+        router: ACPMessageRouter = ACPMessageRouter(),
+        observers: [StreamObserver] = [],
+        errorObservers: [ErrorObserver] = []
+    ) {
         self.transport = transport
         self.router = router
+        self.observers = observers
+        self.errorObservers = errorObservers
     }
 
     deinit {

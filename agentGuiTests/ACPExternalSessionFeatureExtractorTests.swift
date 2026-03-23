@@ -24,17 +24,19 @@ struct ACPExternalSessionFeatureExtractorTests {
         )
 
         #expect(events.count == 1)
-        guard case .replaceCommands(let commands) = events[0] else {
+        guard case .replaceCommands(let snapshot) = events[0] else {
             Issue.record("Expected replaceCommands event")
             return
         }
 
-        #expect(commands.count == 1)
-        #expect(commands[0].providerID == .openCodeCLI)
-        #expect(commands[0].remoteSessionID == "remote-1")
-        #expect(commands[0].name == "review")
-        #expect(commands[0].description == "Run review")
-        #expect(commands[0].inputHint == "scope")
+        #expect(snapshot.providerID == .openCodeCLI)
+        #expect(snapshot.remoteSessionID == "remote-1")
+        #expect(snapshot.commands.count == 1)
+        #expect(snapshot.commands[0].providerID == .openCodeCLI)
+        #expect(snapshot.commands[0].remoteSessionID == "remote-1")
+        #expect(snapshot.commands[0].name == "review")
+        #expect(snapshot.commands[0].description == "Run review")
+        #expect(snapshot.commands[0].inputHint == "scope")
     }
 
     @Test func extractorBuildsReplacePlanEventFromSessionUpdate() {

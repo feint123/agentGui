@@ -1087,7 +1087,7 @@ end
       ensureSessionRemoteSessionIDs.append(remoteSessionID)
       for update in ensureSessionUpdates {
         if let updateSink {
-          await updateSink(update)
+          await updateSink(normalizedSessionUpdate(update))
         }
       }
       return handshake
@@ -1101,7 +1101,7 @@ end
       promptRequests.append((text, sessionID))
       for update in updates {
         if let updateSink {
-          await updateSink(update)
+          await updateSink(normalizedSessionUpdate(update))
         }
       }
       return stopReason
@@ -1113,6 +1113,21 @@ end
 
     func close() async {
       closeCallCount += 1
+    }
+
+    private func normalizedSessionUpdate(_ update: CopilotACPUpdate) -> CopilotACPUpdate {
+      switch update {
+      case .session(let sessionUpdate):
+        return .sessionNotification(
+          ACPSessionNotification(
+            meta: nil,
+            sessionID: handshake.remoteSessionID,
+            update: sessionUpdate
+          )
+        )
+      case .sessionNotification, .permission:
+        return update
+      }
     }
   }
 
@@ -1158,9 +1173,24 @@ end
       await updateSink?(.permission(permissionRequest))
       _ = await permissionResolver?(permissionRequest, authorizationPolicy)
       for update in updates {
-        await updateSink?(update)
+        await updateSink?(normalizedSessionUpdate(update))
       }
       return stopReason
+    }
+
+    private func normalizedSessionUpdate(_ update: CopilotACPUpdate) -> CopilotACPUpdate {
+      switch update {
+      case .session(let sessionUpdate):
+        return .sessionNotification(
+          ACPSessionNotification(
+            meta: nil,
+            sessionID: handshake.remoteSessionID,
+            update: sessionUpdate
+          )
+        )
+      case .sessionNotification, .permission:
+        return update
+      }
     }
 
     func cancel(sessionID: String) async throws {

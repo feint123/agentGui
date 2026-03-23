@@ -2,6 +2,7 @@ import Foundation
 
 enum ACPExternalAgentUpdate: Equatable, Sendable {
     case session(ACPSessionUpdate)
+    case sessionNotification(ACPSessionNotification)
     case permission(ACPRequestPermissionRequest)
 }
 
@@ -18,6 +19,8 @@ struct ACPExternalAgentEventNormalizer {
         switch update {
         case .session(let sessionUpdate):
             return normalize(sessionUpdate: sessionUpdate)
+        case .sessionNotification(let notification):
+            return normalize(sessionUpdate: notification.update)
         case .permission(let request):
             return [
                 .permissionRequested(

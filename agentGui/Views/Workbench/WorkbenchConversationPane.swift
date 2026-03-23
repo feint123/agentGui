@@ -8,15 +8,20 @@ struct WorkbenchConversationPane: View {
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
-        Group {
+        ZStack {
             if let session = workspaceState.selectedSession {
                 ChatView(session: session, showsNavigationChrome: false)
+                    .id(session.sessionId)
                     .accessibilityIdentifier("panel.chat")
+                    .transition(chatTransition)
             } else {
                 emptyState
+                    .id("chat-empty-state")
                     .accessibilityIdentifier("panel.chat.empty")
+                    .transition(chatTransition)
             }
         }
+        .animation(.snappy(duration: 0.24, extraBounce: 0.02), value: workspaceState.selectedSession?.sessionId)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button(action: openContextWindow) {
@@ -60,7 +65,16 @@ struct WorkbenchConversationPane: View {
         newSession.defaultExecutionProviderID = AppSettings.getOrCreate(in: modelContext).defaultExecutionProviderID
         modelContext.insert(newSession)
         try? modelContext.save()
-        workspaceState.selectedSession = newSession
-        workbenchState.selectedItem = .sessions
+        withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
+            workspaceState.selectedSession = newSession
+            workbenchState.selectedItem = .sessions
+        }
+    }
+
+    private var chatTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.combined(with: .scale(scale: 0.985, anchor: .center)),
+            removal: .opacity.combined(with: .move(edge: .bottom))
+        )
     }
 }

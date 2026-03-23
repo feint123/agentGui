@@ -4,7 +4,7 @@
 
 **Goal:** 为 external ACP provider 补齐 `available_commands_update` 与 `plan` 两类会话级协议能力，并把它们稳定接入当前输入区 slash 补全、会话计划持久化与 todo 展示链路。
 
-**Architecture:** 在现有 external ACP 执行框架上增加独立的 feature 流，而不是继续把所有 update 塞进文本与工具 normalizer。协议层先 typed 化 `ACPSessionUpdate` 新分支，再通过 `ACPExternalSessionFeatureExtractor`、`ACPExternalSessionFeatureStore` 与 `ACPPlanProjector` 形成 “协议快照 -> 本地状态 -> UI 投影” 三段链路；provider 差异则收口到单独 adapter，OpenCode 以远端广告为真源，Copilot 采用远端优先加文档种子兜底。
+**Architecture:** 在现有 external ACP 执行框架上增加独立的 feature 流，而不是继续把所有 update 塞进文本与工具 normalizer。协议层先 typed 化 `ACPSessionUpdate` 新分支，再通过 `ACPExternalSessionFeatureExtractor`、`ACPExternalSessionFeatureStore` 与 `ACPPlanProjector` 形成 “协议快照 -> 本地状态 -> UI 投影” 三段链路；provider 差异则收口到单独 adapter，OpenCode 与 Copilot 都只以远端 ACP 广告为真源。
 
 **Tech Stack:** Swift 6, SwiftData, Swift Testing, existing ACP runtime stack, `ACPExternalExecutionProviderBase`, `SessionTaskStateStore`, current slash command input pipeline, existing GitHub Copilot and OpenCode ACP providers.
 
@@ -14,7 +14,7 @@
 
 - 这份计划默认在独立 worktree 中执行，避免和并行 ACP 改动互相污染。
 - 全程按 @test-driven-development 执行：先写失败测试，再写最小实现，再跑通过，再提交。
-- 不解析模型 Markdown 输出来伪造 slash commands 或 plan；只消费 ACP typed update 或 provider 文档种子。
+- 不解析模型 Markdown 输出或 CLI 文档目录来伪造 slash commands 或 plan；只消费 ACP typed update。
 - 不在本次实现里本地执行 slash command；Client 只负责发现、补全、缓存和原样发送 `/command args` 文本。
 - OpenCode 作为协议黄金路径优先打通；Copilot 保持兼容，但不强假设 preview ACP 行为一定广告 commands 或发送 plan。
 - `plan` 必须按“完整替换”处理，禁止做增量 merge。
@@ -602,20 +602,13 @@ git commit -m "feat: surface acp commands and plan todos in composer"
 补两类恢复测试：
 
 - app 重启或 provider 重建后，commands cache 仍可用于 slash 补全
-- Copilot 无远端广告时返回文档种子列表；一旦后续收到远端广告，则远端覆盖种子
+- Copilot 无远端广告时返回空列表；只有后续收到远端广告后才暴露 commands
 
 示例：
 
 ```swift
-@Test func copilotDocumentedSeedCommandsAreReplacedByRemoteAdvertisedCommands() async throws {
-    let adapter = GitHubCopilotProviderFeatureAdapter()
-    let merged = adapter.mergeCommands(
-        cached: adapter.documentedSlashCommands(),
-        remote: [ACPCommandDescriptor(id: "remote:review", name: "review", description: "Remote review", inputHint: nil, source: .remoteAdvertised)]
-    )
-
-    #expect(merged.count == 1)
-    #expect(merged.first?.source == .remoteAdvertised)
+@Test func copilotDoesNotExposeCommandsWithoutRemoteAdvertisement() async throws {
+    #expect(provider.remoteCommands(localSessionID: session.sessionId).isEmpty)
 }
 ```
 
@@ -623,7 +616,7 @@ git commit -m "feat: surface acp commands and plan todos in composer"
 
 Run: `xcodebuild test -project agentGui.xcodeproj -scheme agentGui -destination 'platform=macOS,arch=arm64' -parallel-testing-enabled NO -only-testing:agentGuiTests/ACPExternalSessionFeatureStoreTests -only-testing:agentGuiTests/GitHubCopilotCLIExecutionProviderTests -only-testing:agentGuiTests/OpenCodeCLIExecutionProviderTests`
 
-Expected: FAIL because cache merge and fallback priority are still incomplete.
+Expected: FAIL because Copilot still bootstraps fallback commands instead of relying only on remote advertisement.
 
 **Step 3: Write minimal implementation**
 
@@ -634,8 +627,8 @@ Expected: FAIL because cache merge and fallback priority are still incomplete.
 
 完善 Copilot adapter：
 
-- `documentedSlashCommands()` 返回保守种子集合
-- `mergeCommands` 采用 remote 完整覆盖种子列表的策略
+- 移除文档种子 bootstrap
+- 仅保留远端 `available_commands_update` 驱动的 commands cache
 
 完善 OpenCode adapter：
 

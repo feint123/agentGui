@@ -11,6 +11,7 @@ struct BlockRowView: View {
     let focusRequest: BlockEditorFocusRequest?
     let isActive: Bool
     let isBlockSelected: Bool
+    let reportsFrameForSelection: Bool
     let mountHeavyEditor: Bool
     let listIndex: Int?
     let onTextChange: (String) -> Void
@@ -69,14 +70,7 @@ struct BlockRowView: View {
                 Button("清空选择") { onContextMenuCommand(.clearSelection) }
             }
         }
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(
-                    key: BlockEditorRowFramePreferenceKey.self,
-                    value: [block.id: geo.frame(in: .named(BlockEditorLayoutCoordinateSpace.canvas))]
-                )
-            }
-        )
+        .background(rowFrameReporter)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.12)) {
                 isHovered = hovering
@@ -126,6 +120,18 @@ struct BlockRowView: View {
         .frame(width: BlockEditorTheme.gutterWidth)
         .padding(.top, 2)
         .onDrag(onDragRequest)
+    }
+
+    @ViewBuilder
+    private var rowFrameReporter: some View {
+        if reportsFrameForSelection {
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: BlockEditorRowFramePreferenceKey.self,
+                    value: [block.id: geo.frame(in: .named(BlockEditorLayoutCoordinateSpace.canvas))]
+                )
+            }
+        }
     }
 
     private var editableTextBlock: some View {
@@ -684,16 +690,7 @@ private struct BlockReadOnlyTextContent: View {
                     )
                     .overlay(readOnlyHitTarget(sourceText: text, displayText: text, font: nsDisplayFont))
             } else {
-                InlineMarkdownText(
-                    text: text,
-                    font: displayFont,
-                    color: textColor,
-                    strikethrough: kind == .todo && isChecked
-                )
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .overlay(readOnlyHitTarget(sourceText: text, displayText: BlockInlineMarkdownProjection(sourceText: text).visibleText))
+                inlineMarkdownBlock
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -722,6 +719,21 @@ private struct BlockReadOnlyTextContent: View {
             return BlockEditorTheme.subtleText
         }
         return .primary
+    }
+
+    private var inlineMarkdownBlock: some View {
+        let renderedContent = BlockInlineMarkdownRendering.renderedContent(for: text)
+
+        return InlineMarkdownText(
+            renderedContent: renderedContent,
+            font: displayFont,
+            color: textColor,
+            strikethrough: kind == .todo && isChecked
+        )
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .overlay(readOnlyHitTarget(sourceText: text, displayText: renderedContent.displayPlainText))
     }
 
     private var nsDisplayFont: NSFont {
@@ -777,15 +789,24 @@ private struct BlockReadOnlyTextHitTarget: NSViewRepresentable {
 
 final class BlockReadOnlyTextHitTestingView: NSView {
     var sourceText: String = "" {
-        didSet { needsLayout = true }
+        didSet {
+            guard oldValue != sourceText else { return }
+            needsLayout = true
+        }
     }
 
     var text: String = "" {
-        didSet { needsLayout = true }
+        didSet {
+            guard oldValue != text else { return }
+            needsLayout = true
+        }
     }
 
     var font: NSFont = .systemFont(ofSize: 14) {
-        didSet { needsLayout = true }
+        didSet {
+            guard oldValue != font else { return }
+            needsLayout = true
+        }
     }
 
     var onActivate: ((Int) -> Void)?
@@ -817,7 +838,7 @@ final class BlockReadOnlyTextHitTestingView: NSView {
         )
         let index = layoutManager.characterIndex(for: clampedPoint, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
         let visibleOffset = max(0, min(index, text.utf16.count))
-        return BlockInlineMarkdownProjection(sourceText: sourceText).sourceOffset(forVisibleUTF16Offset: visibleOffset)
+        return BlockInlineMarkdownRendering.projection(for: sourceText).sourceOffset(forVisibleUTF16Offset: visibleOffset)
     }
 }
 

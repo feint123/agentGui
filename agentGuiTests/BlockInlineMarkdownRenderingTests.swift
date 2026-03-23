@@ -6,6 +6,37 @@ import Testing
 @MainActor
 struct BlockInlineMarkdownRenderingTests {
 
+    @Test func repeatedReadOnlyRenderingHitsSharedCache() {
+        BlockInlineMarkdownRendering.resetCacheForTesting()
+        let source = "Mix **bold** *italic* ~~strike~~ `code` [link](https://example.com)"
+
+        let first = BlockInlineMarkdownRendering.renderedContent(for: source)
+        let second = BlockInlineMarkdownRendering.renderedContent(for: source)
+        let stats = BlockInlineMarkdownRendering.cacheStatsForTesting()
+
+        #expect(first.displayPlainText == "Mix bold italic strike code link")
+        #expect(second.displayPlainText == first.displayPlainText)
+        #expect(second.projection == first.projection)
+        #expect(stats.missCount == 1)
+        #expect(stats.hitCount == 1)
+    }
+
+    @Test func resettingReadOnlyRenderingCacheDropsStoredEntries() {
+        BlockInlineMarkdownRendering.resetCacheForTesting()
+        let source = "Before **bold** after"
+
+        _ = BlockInlineMarkdownRendering.renderedContent(for: source)
+        let populated = BlockInlineMarkdownRendering.cacheStatsForTesting()
+        BlockInlineMarkdownRendering.resetCacheForTesting()
+        let cleared = BlockInlineMarkdownRendering.cacheStatsForTesting()
+
+        #expect(populated.entryCount == 1)
+        #expect(populated.missCount == 1)
+        #expect(cleared.entryCount == 0)
+        #expect(cleared.hitCount == 0)
+        #expect(cleared.missCount == 0)
+    }
+
     @Test func displayPlainTextHidesInlineMarkdownMarkers() {
         let source = "Mix **bold** *italic* ~~strike~~ `code` [link](https://example.com)"
 

@@ -312,9 +312,15 @@ extension ChatView {
         case .builtInAgent:
             return claudeService.isConfigured ? "" : "请先在「设置」中配置 Anthropic API Key"
         case .githubCopilotCLI:
+            if executionProviderAvailabilityModel.isRefreshingCopilotStatus {
+                return "正在检查 GitHub Copilot CLI…"
+            }
             let status = copilotComposerAvailabilityStatus
             return status.kind == .available ? "" : status.summaryText
         case .openCodeCLI:
+            if executionProviderAvailabilityModel.isRefreshingOpenCodeStatus {
+                return "正在检查 OpenCode…"
+            }
             let status = openCodeComposerAvailabilityStatus
             return status.kind == .available ? "" : status.summaryText
         }

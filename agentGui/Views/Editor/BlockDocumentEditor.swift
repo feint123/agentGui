@@ -31,7 +31,9 @@ struct BlockDocumentEditor: View {
     @State private var editorResidency = BlockEditorResidency(maxMountedEditors: 1)
     @State var selectionState: InlineSelectionState?
     @State var blockSelectionState = BlockEditorBlockSelectionState.empty
-    @State var blockFrames: [UUID: CGRect] = [:]
+    @State var rowFrameSnapshot = BlockEditorRowFrameSnapshot.empty
+    @State var isCollectingRowFrames = false
+    @State var marqueeSelection: BlockEditorMarqueeSelection?
     @State var marqueeBaseSelectionState = BlockEditorBlockSelectionState.empty
     @State private var pendingFormats: [UUID: InlineFormatRequest] = [:]
     @State private var syncGate = BlockDocumentSyncGate()
@@ -42,6 +44,7 @@ struct BlockDocumentEditor: View {
 
     private let slashRegistry = BlockSlashCommandRegistry()
     private let textEditCoalescingWindow: TimeInterval = 1.0
+    let marqueeController = BlockEditorMarqueeSelectionController()
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -51,7 +54,7 @@ struct BlockDocumentEditor: View {
                         dismissFloatingOverlays()
                     }
                 })
-            if let marquee = blockSelectionState.marqueeSelection {
+            if let marquee = marqueeSelection {
                 marqueeOverlay(for: marquee)
                     .zIndex(5)
             }
@@ -136,12 +139,20 @@ struct BlockDocumentEditor: View {
         .onChange(of: document.blocks) { _, _ in
             pruneEditorResidency()
             remapBlockSelectionToCurrentDocument()
+            let prunedSnapshot = rowFrameSnapshot.pruned(to: document.blocks.map(\.id))
+            if prunedSnapshot != rowFrameSnapshot {
+                rowFrameSnapshot = prunedSnapshot
+            }
             if syncGate.consumeAutomaticSyncRequest() {
                 syncText()
             }
         }
         .onPreferenceChange(BlockEditorRowFramePreferenceKey.self) { frames in
-            blockFrames = frames
+            guard isCollectingRowFrames else { return }
+            let nextSnapshot = BlockEditorRowFrameSnapshot(frames: frames)
+                .pruned(to: document.blocks.map(\.id))
+            guard nextSnapshot != rowFrameSnapshot else { return }
+            rowFrameSnapshot = nextSnapshot
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleExternalFileDrop(providers)
@@ -155,6 +166,7 @@ struct BlockDocumentEditor: View {
             focusRequest: focusRequest,
             isActive: activeBlockID == block.id,
             isBlockSelected: blockSelectionState.selectedBlockIDs.contains(block.id),
+            reportsFrameForSelection: isCollectingRowFrames,
             mountHeavyEditor: editorResidency.shouldMountEditor(for: block.id),
             listIndex: orderedListIndices[block.id],
             onTextChange: { newValue in
@@ -197,13 +209,12 @@ struct BlockDocumentEditor: View {
                 withAnimation(.spring(response: 0.18, dampingFraction: 0.85)) {
                     if state.hasSelection {
                         clearBlockSelection()
-                        selectionState = state
+                        setInlineSelection(state)
                     } else if selectionState?.blockID == block.id {
-                        selectionState = nil
+                        clearInlineSelection()
                     }
                 }
                 onSelectionChange?(selectionSnapshot(for: state))
-                updateRuntimeSelection(from: state)
             },
             onSlashContextChange: { context in
                 handleSlashContextChange(context, for: block.id)
@@ -387,12 +398,10 @@ struct BlockDocumentEditor: View {
     }
 
     private func activateBlock(_ blockID: UUID, focusPosition: BlockEditorFocusPosition? = nil) {
-        activeBlockID = blockID
+        setActiveBlock(blockID)
         editorResidency.recordInteraction(with: blockID)
-        runtimeState.activeBlockID = blockID
-        runtimeState.selection = nil
-        runtimeState.blockSelection = .empty
-        blockSelectionState = .empty
+        clearInlineSelection()
+        applyBlockSelectionState(.empty)
         if let focusPosition {
             focusRequest = BlockEditorFocusRequest(blockID: blockID, position: focusPosition)
             runtimeState.focus = focusSnapshot(for: blockID, position: focusPosition)
@@ -601,6 +610,34 @@ struct BlockDocumentEditor: View {
         runtimeState.selection = state.hasSelection ? BlockEditorSelectionSnapshot(blockID: state.blockID, range: state.selectedRange) : nil
     }
 
+    func applyBlockSelectionState(_ newState: BlockEditorBlockSelectionState, syncRuntime: Bool = true) {
+        blockSelectionState = newState
+        if syncRuntime {
+            runtimeState.blockSelection = newState
+        }
+    }
+
+    func clearInlineSelection(syncRuntime: Bool = true) {
+        selectionState = nil
+        if syncRuntime {
+            runtimeState.selection = nil
+        }
+    }
+
+    func setInlineSelection(_ state: InlineSelectionState, syncRuntime: Bool = true) {
+        selectionState = state
+        if syncRuntime {
+            updateRuntimeSelection(from: state)
+        }
+    }
+
+    func setActiveBlock(_ blockID: UUID?, syncRuntime: Bool = true) {
+        activeBlockID = blockID
+        if syncRuntime {
+            runtimeState.activeBlockID = blockID
+        }
+    }
+
     private func focusSnapshot(for blockID: UUID, position: BlockEditorFocusPosition) -> BlockEditorFocusSnapshot {
         let textLength = document.blocks.first(where: { $0.id == blockID })?.text.utf16.count ?? 0
         let projection = BlockInlineMarkdownProjection(sourceText: document.blocks.first(where: { $0.id == blockID })?.text ?? "")
@@ -693,20 +730,6 @@ struct BlockDocumentEditor: View {
             slashState.clear()
         }
         onSelectionChange?(nil)
-    }
-
-    private func makeResourceBlock(_ url: URL) -> DocumentBlock {
-        if AttachedFile.pathIsImage(url.path) {
-            var block = DocumentBlock.empty(.image)
-            block.metadata.resource = url.path
-            block.metadata.secondaryText = url.lastPathComponent
-            return block
-        }
-        var block = DocumentBlock.empty(.file)
-        block.text = url.lastPathComponent
-        block.metadata.secondaryText = url.lastPathComponent
-        block.metadata.resource = url.path
-        return block
     }
 
     private func handleExternalFileDrop(_ providers: [NSItemProvider]) -> Bool {
@@ -816,16 +839,6 @@ struct BlockDocumentEditor: View {
         }
     }
 
-    private func makeTablePresetMarkdown(rows: Int, columns: Int) -> String {
-        let safeRows = max(rows, 1)
-        let safeColumns = max(columns, 1)
-        let header = (1...safeColumns).map { "列 \($0)" }
-        let body = (1...max(safeRows - 1, 1)).map { row in
-            (1...safeColumns).map { column in "值 \(row)-\(column)" }
-        }
-        return BlockMarkdownCodec.serializeTableContent([header] + body)
-    }
-
     private func mutateBlock(id: UUID, removingSlashRange: NSRange? = nil, _ update: (inout DocumentBlock) -> Void) {
         applyStructuralEdit(title: "Mutate Block") { runtime in
             guard let index = runtime.document.blocks.firstIndex(where: { $0.id == id }) else { return }
@@ -839,29 +852,6 @@ struct BlockDocumentEditor: View {
             runtime.focus = BlockEditorFocusSnapshot(blockID: id, caretUTF16Offset: 0)
             runtime.selection = nil
         }
-    }
-
-    private func followUpKind(for kind: DocumentBlockKind) -> DocumentBlockKind {
-        switch kind {
-        case .bulletedList, .numberedList, .todo, .quote:
-            return kind
-        default:
-            return .paragraph
-        }
-    }
-
-    private func mergeSeparator(previous: DocumentBlockKind, current: DocumentBlockKind) -> String {
-        if previous == .code || previous == .source || previous == .table {
-            return "\n"
-        }
-        if current == .quote || previous == .quote {
-            return previous.textSeparatorForMerge
-        }
-        return previous.textSeparatorForMerge
-    }
-
-    private func supportsIndentation(_ kind: DocumentBlockKind) -> Bool {
-        kind == .bulletedList || kind == .numberedList || kind == .todo || kind == .quote
     }
 }
 

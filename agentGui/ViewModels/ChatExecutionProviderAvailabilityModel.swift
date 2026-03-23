@@ -8,6 +8,8 @@ final class ChatExecutionProviderAvailabilityModel {
 
     var copilotStatus: ACPCLIAvailabilityStatus = .unknown
     var openCodeStatus: ACPCLIAvailabilityStatus = .unknown
+    var isRefreshingCopilotStatus = false
+    var isRefreshingOpenCodeStatus = false
 
     init(
         probe: @escaping @Sendable (ConversationExecutionProviderID, String) async -> ACPCLIAvailabilityStatus = ChatExecutionProviderAvailabilityModel.defaultProbe
@@ -16,6 +18,9 @@ final class ChatExecutionProviderAvailabilityModel {
     }
 
     func refreshStatus(for providerID: ConversationExecutionProviderID, executablePath: String) async {
+        setRefreshing(true, for: providerID)
+        defer { setRefreshing(false, for: providerID) }
+
         let status = await probe(providerID, executablePath)
         switch providerID {
         case .githubCopilotCLI:
@@ -33,6 +38,21 @@ final class ChatExecutionProviderAvailabilityModel {
 
     func refreshCopilotStatus(configuration: ACPCLIConfiguration) async {
         await refreshStatus(for: .githubCopilotCLI, executablePath: configuration.executablePath)
+    }
+
+    private func setRefreshing(_ isRefreshing: Bool, for providerID: ConversationExecutionProviderID) {
+        switch providerID {
+        case .githubCopilotCLI:
+            if isRefreshingCopilotStatus != isRefreshing {
+                isRefreshingCopilotStatus = isRefreshing
+            }
+        case .openCodeCLI:
+            if isRefreshingOpenCodeStatus != isRefreshing {
+                isRefreshingOpenCodeStatus = isRefreshing
+            }
+        case .builtInAgent:
+            break
+        }
     }
 
     private static func defaultProbe(providerID: ConversationExecutionProviderID, executablePath: String) async -> ACPCLIAvailabilityStatus {

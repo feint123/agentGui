@@ -145,4 +145,26 @@ struct BlockEditorBlockSelectionCoordinatorTests {
         #expect(result.primaryBlockID == ids[3])
         #expect(result.anchorBlockID == ids[0])
     }
+
+    @Test func marqueeWithoutAnyMeasuredFramesProducesEmptySelection() {
+        let ids = [UUID(), UUID()]
+        let marquee = BlockEditorMarqueeSelection(
+            startPoint: CGPoint(x: 0, y: 0),
+            currentPoint: CGPoint(x: 100, y: 100),
+            isAdditive: false
+        )
+
+        let result = BlockEditorBlockSelectionCoordinator.selectionFromMarquee(
+            state: .single(ids[0]),
+            orderedBlockIDs: ids,
+            blockFrames: [:],
+            marquee: marquee,
+            source: .marquee
+        )
+
+        #expect(result.selectedBlockIDs.isEmpty)
+        #expect(result.primaryBlockID == nil)
+        #expect(result.anchorBlockID == nil)
+        #expect(result.marqueeSelection == marquee)
+    }
 }
