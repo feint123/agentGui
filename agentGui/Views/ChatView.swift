@@ -60,6 +60,7 @@ struct ChatView: View {
     @State var slashQuery: String? = nil
     @State var slashCandidates: [ChatSlashCommandItem] = []
     @State var highlightedSlashItemID: String? = nil
+    @State var isACPCommandWarmupInFlight = false
     @State var activeInputDirectives: [ChatInputDirective] = []
     @State var didApplyUITestInitialComposerText = false
     @State var showingRMSPanel = false

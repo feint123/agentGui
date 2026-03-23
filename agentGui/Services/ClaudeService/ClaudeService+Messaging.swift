@@ -253,6 +253,9 @@ extension ClaudeService {
         selectedProviderID: ConversationExecutionProviderID,
         modelContext: ModelContext
     ) async {
+        print(
+            "[ExecutionProviderSelection] localSession=\(session.sessionId) selectedProvider=\(selectedProviderID.rawValue)"
+        )
         let registry = executionProviderRegistry(for: modelContext)
         let activeProvider = registry.allProviders.first(where: { $0.id == selectedProviderID }) ?? registry.builtIn
         await executionRuntimeCoordinator.prepareForActivation(

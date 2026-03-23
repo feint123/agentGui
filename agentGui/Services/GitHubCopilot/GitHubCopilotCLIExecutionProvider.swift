@@ -75,7 +75,8 @@ final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<
             terminalRuntimeFactory: terminalRuntimeFactory,
             sessionRuntimeResetter: sessionRuntimeResetter,
             permissionCenter: permissionCenter,
-            authorizationPolicyFactory: authorizationPolicyFactory
+            authorizationPolicyFactory: authorizationPolicyFactory,
+            featureAdapter: .gitHubCopilot
         )
     }
 

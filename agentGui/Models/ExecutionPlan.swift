@@ -12,6 +12,7 @@ import Foundation
 
 enum PlanStepStatus: String, Codable, CaseIterable {
     case pending  = "pending"
+    case inProgress = "in_progress"
     case done     = "done"
     case skipped  = "skipped"
     case failed   = "failed"
@@ -19,6 +20,7 @@ enum PlanStepStatus: String, Codable, CaseIterable {
     var displayName: String {
         switch self {
         case .pending:  return "待执行"
+        case .inProgress: return "进行中"
         case .done:     return "已完成"
         case .skipped:  return "已跳过"
         case .failed:   return "失败"
@@ -28,6 +30,7 @@ enum PlanStepStatus: String, Codable, CaseIterable {
     var icon: String {
         switch self {
         case .pending:  return "circle"
+        case .inProgress: return "arrow.trianglehead.2.clockwise"
         case .done:     return "checkmark.circle.fill"
         case .skipped:  return "minus.circle"
         case .failed:   return "xmark.circle.fill"
@@ -41,6 +44,7 @@ struct PlanStep: Codable, Identifiable {
     var id: String
     var title: String
     var status: PlanStepStatus
+    var priority: String?
     /// Optional result note attached when the step completes.
     var result: String?
 
@@ -48,11 +52,13 @@ struct PlanStep: Codable, Identifiable {
         id: String = UUID().uuidString,
         title: String,
         status: PlanStepStatus = .pending,
+        priority: String? = nil,
         result: String? = nil
     ) {
         self.id = id
         self.title = title
         self.status = status
+        self.priority = priority
         self.result = result
     }
 
@@ -62,6 +68,7 @@ struct PlanStep: Codable, Identifiable {
         id     = try c.decode(String.self, forKey: .id)
         title  = try c.decode(String.self, forKey: .title)
         status = try c.decodeIfPresent(PlanStepStatus.self, forKey: .status) ?? .pending
+        priority = try c.decodeIfPresent(String.self, forKey: .priority)
         result = try c.decodeIfPresent(String.self, forKey: .result)
     }
 }

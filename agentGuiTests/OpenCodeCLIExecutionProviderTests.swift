@@ -664,6 +664,250 @@ struct OpenCodeCLIExecutionProviderTests {
     #expect(executionRecord.terminalOutput == "swift test")
   }
 
+  @Test func sendProjectsRemoteCommandsAndPlanIntoLocalFeatureState() async throws {
+    let modelContext = try makeModelContext()
+    let settings = AppSettings.testFixture(apiKey: "")
+    settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+      executablePath: "/usr/bin/env",
+      defaultModel: "",
+      defaultApprovalMode: "default",
+      environment: [:],
+      useACPStdIO: true
+    )
+    let session = Session.fixture(title: "OpenCode Features")
+    modelContext.insert(settings)
+    modelContext.insert(session)
+    try modelContext.save()
+
+    let runtimeClient = RuntimeClientStub(
+      handshake: ACPExternalAgentSessionHandshake(
+        remoteSessionID: "remote-feature",
+        capabilities: ACPExternalAgentCapabilitySnapshot(
+          loadSession: true,
+          supportsSessionModelOverride: false,
+          agentVersion: "0.1.0"
+        )
+      ),
+      stopReason: .endTurn,
+      updates: [
+        .session(
+          .availableCommandsUpdate(
+            ACPAvailableCommandsUpdatePayload(
+              availableCommands: [
+                ACPAvailableCommand(
+                  description: "Run review",
+                  input: ACPAvailableCommandInput(hint: "scope"),
+                  name: "review"
+                )
+              ]
+            )
+          )
+        ),
+        .session(
+          .plan(
+            ACPPlanUpdatePayload(
+              entries: [
+                ACPPlanEntry(content: "Write tests", priority: .medium, status: .inProgress)
+              ]
+            )
+          )
+        ),
+        .session(
+          .agentMessageChunk(
+            ACPContentChunk(
+              meta: nil,
+              content: .text(ACPTextContentBlock(meta: nil, annotations: nil, text: "done"))
+            )
+          )
+        )
+      ]
+    )
+
+    let provider = OpenCodeCLIExecutionProvider(
+      availabilityService: availabilityService(),
+      terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+      permissionCenter: ACPPermissionCenter(),
+      runtimeClientFactory: { _, _, _, _, updateSink in
+        runtimeClient.updateSink = updateSink
+        return runtimeClient
+      }
+    )
+
+    try await provider.send(
+      ConversationExecutionRequest(
+        text: "feature sync",
+        session: session,
+        modelID: "",
+        selectedFilePath: nil,
+        selectedText: nil,
+        directives: [],
+        modelContext: modelContext
+      )
+    )
+
+    let commands = provider.remoteCommands(localSessionID: session.sessionId, remoteSessionID: "remote-feature")
+    #expect(commands.map(\.name) == ["review"])
+    #expect(commands.first?.inputHint == "scope")
+
+    let taskStateStore = SessionTaskStateStore(modelContext: modelContext)
+    #expect(taskStateStore.todoItems(for: session.sessionId).map(\.title) == ["Write tests"])
+    #expect(taskStateStore.todoItems(for: session.sessionId).map(\.status) == [.inProgress])
+    #expect(provider.remotePlan(localSessionID: session.sessionId)?.entries.map(\.content) == ["Write tests"])
+  }
+
+  @Test func prepareForActivationPreloadsRemoteCommandsForSlashMenu() async throws {
+    let modelContext = try makeModelContext()
+    let settings = AppSettings.testFixture(apiKey: "")
+    settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+      executablePath: "/usr/bin/env",
+      defaultModel: "",
+      defaultApprovalMode: "default",
+      environment: [:],
+      useACPStdIO: true
+    )
+    let session = Session.fixture(title: "OpenCode Slash Warmup")
+    modelContext.insert(settings)
+    modelContext.insert(session)
+    try modelContext.save()
+
+    let runtimeClient = RuntimeClientStub(
+      handshake: ACPExternalAgentSessionHandshake(
+        remoteSessionID: "remote-warmup",
+        capabilities: ACPExternalAgentCapabilitySnapshot(
+          loadSession: true,
+          supportsSessionModelOverride: false,
+          agentVersion: "0.1.0"
+        )
+      ),
+      stopReason: .endTurn,
+      ensureSessionUpdates: [
+        .session(
+          .availableCommandsUpdate(
+            ACPAvailableCommandsUpdatePayload(
+              availableCommands: [
+                ACPAvailableCommand(
+                  description: "Run review",
+                  input: ACPAvailableCommandInput(hint: "scope"),
+                  name: "review"
+                )
+              ]
+            )
+          )
+        )
+      ],
+      updates: []
+    )
+
+    let provider = OpenCodeCLIExecutionProvider(
+      sessionBridge: CopilotSessionBridge(),
+      availabilityService: availabilityService(),
+      terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+      permissionCenter: ACPPermissionCenter(),
+      runtimeClientFactory: { _, _, _, _, updateSink in
+        runtimeClient.updateSink = updateSink
+        return runtimeClient
+      }
+    )
+
+    await provider.prepareForActivation(session: session, isActiveProvider: true, modelContext: modelContext)
+
+    let commands = provider.remoteCommands(localSessionID: session.sessionId)
+
+    #expect(runtimeClient.ensureSessionRemoteSessionIDs == [nil])
+    #expect(commands.map(\.name) == ["review"])
+    #expect(commands.first?.inputHint == "scope")
+  }
+
+  @Test func sendRestoresFeatureStateFromSessionLoadUpdates() async throws {
+    let modelContext = try makeModelContext()
+    let settings = AppSettings.testFixture(apiKey: "")
+    settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+      executablePath: "/usr/bin/env",
+      defaultModel: "",
+      defaultApprovalMode: "default",
+      environment: [:],
+      useACPStdIO: true
+    )
+    let session = Session.fixture(title: "OpenCode Restored Features")
+    modelContext.insert(settings)
+    modelContext.insert(session)
+    modelContext.insert(
+      ACPExternalSessionBinding(
+        localSessionID: session.sessionId,
+        providerIDRaw: ConversationExecutionProviderID.openCodeCLI.rawValue,
+        remoteSessionID: "remote-restored-features",
+        agentVersion: "0.1.0"
+      )
+    )
+    try modelContext.save()
+
+    let runtimeClient = RuntimeClientStub(
+      handshake: ACPExternalAgentSessionHandshake(
+        remoteSessionID: "remote-restored-features",
+        capabilities: ACPExternalAgentCapabilitySnapshot(
+          loadSession: true,
+          supportsSessionModelOverride: false,
+          agentVersion: "0.1.0"
+        )
+      ),
+      stopReason: .endTurn,
+      ensureSessionUpdates: [
+        .session(
+          .availableCommandsUpdate(
+            ACPAvailableCommandsUpdatePayload(
+              availableCommands: [
+                ACPAvailableCommand(
+                  description: "Restored review",
+                  input: ACPAvailableCommandInput(hint: "scope"),
+                  name: "review"
+                )
+              ]
+            )
+          )
+        ),
+        .session(
+          .plan(
+            ACPPlanUpdatePayload(
+              entries: [
+                ACPPlanEntry(content: "Restore state", priority: .medium, status: .pending)
+              ]
+            )
+          )
+        )
+      ],
+      updates: []
+    )
+
+    let provider = OpenCodeCLIExecutionProvider(
+      sessionBridge: CopilotSessionBridge(),
+      availabilityService: availabilityService(),
+      terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+      permissionCenter: ACPPermissionCenter(),
+      runtimeClientFactory: { _, _, _, _, updateSink in
+        runtimeClient.updateSink = updateSink
+        return runtimeClient
+      }
+    )
+
+    try await provider.send(
+      ConversationExecutionRequest(
+        text: "resume",
+        session: session,
+        modelID: "",
+        selectedFilePath: nil,
+        selectedText: nil,
+        directives: [],
+        modelContext: modelContext
+      )
+    )
+
+    let commands = provider.remoteCommands(localSessionID: session.sessionId)
+    let taskStateStore = SessionTaskStateStore(modelContext: modelContext)
+
+    #expect(commands.map(\.name) == ["review"])
+    #expect(taskStateStore.todoItems(for: session.sessionId).map(\.title) == ["Restore state"])
+  }
+
     private func makeModelContext() throws -> ModelContext {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(

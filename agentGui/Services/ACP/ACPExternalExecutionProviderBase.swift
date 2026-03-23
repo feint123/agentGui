@@ -17,12 +17,17 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     private let permissionCenter: ACPPermissionCenter
     private let authorizationPolicyFactory: ConversationAuthorizationPolicyFactory
     private let normalizer = CopilotACPEventNormalizer()
+    private let featureExtractor = ACPExternalSessionFeatureExtractor()
     private let updateProjector = ACPExternalUpdateProjector()
     private let turnRouter = ACPExternalSessionTurnRouter()
+    private let featureAdapter: ACPExternalProviderFeatureAdapter
 
     private var runtimeClients: [String: any ACPExternalProviderRuntimeClient] = [:]
     private var runtimeWorkingDirectories: [String: String] = [:]
     private var activeTurns: [String: ActiveTurnState] = [:]
+    private var featureStores: [String: ACPExternalSessionFeatureStore] = [:]
+    private var remoteSessionIDs: [String: String] = [:]
+    private var sessionContexts: [String: ModelContext] = [:]
 
     init(
         providerID: ConversationExecutionProviderID,
@@ -30,7 +35,8 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         terminalRuntimeFactory: @escaping (String, String?) -> TerminalTaskRuntime,
         sessionRuntimeResetter: @escaping @MainActor (String) -> Void,
         permissionCenter: ACPPermissionCenter,
-        authorizationPolicyFactory: ConversationAuthorizationPolicyFactory
+        authorizationPolicyFactory: ConversationAuthorizationPolicyFactory,
+        featureAdapter: ACPExternalProviderFeatureAdapter = ACPExternalProviderFeatureAdapter()
     ) {
         self.id = providerID
         self.sessionBridge = sessionBridge
@@ -38,6 +44,11 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         self.sessionRuntimeResetter = sessionRuntimeResetter
         self.permissionCenter = permissionCenter
         self.authorizationPolicyFactory = authorizationPolicyFactory
+        self.featureAdapter = featureAdapter
+    }
+
+    private func debugLog(_ message: String) {
+        print("[ACP][\(id.rawValue)] \(message)")
     }
 
     func send(_ request: ConversationExecutionRequest) async throws {
@@ -58,35 +69,23 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         }
 
         do {
-            let remoteBinding = await resolvedBinding(
-                for: request.session.sessionId,
-                modelContext: request.modelContext
-            )
-            let workingDirectory = resolvedWorkingDirectory(
-                session: request.session,
-                settings: settings,
-                override: request.workingDirectoryOverride
-            )
-
             await prepareForActivation(
                 session: request.session,
                 isActiveProvider: true,
                 modelContext: request.modelContext
             )
 
-            let runtimeClient = try await makeRuntimeClientIfNeeded(
+            let activation = try await ensureRemoteSessionPrepared(
                 session: request.session,
                 configuration: configuration,
-                workingDirectory: workingDirectory,
-                authorizationPolicy: authorizationPolicy
+                settings: settings,
+                modelContext: request.modelContext,
+                authorizationPolicy: authorizationPolicy,
+                workingDirectoryOverride: request.workingDirectoryOverride
             )
-
-            turnRouter.beginRestore(sessionID: request.session.sessionId)
-            let handshake = try await runtimeClient.ensureSession(
-                workingDirectory: workingDirectory,
-                remoteSessionID: trimmedNonEmpty(remoteBinding?.remoteSessionID)
-            )
-            turnRouter.finishRestore(sessionID: request.session.sessionId)
+            let remoteBinding = activation.remoteBinding
+            let handshake = activation.handshake
+            let runtimeClient = activation.runtimeClient
 
             let modelOverride = selectedModelOverride(for: configuration, handshake: handshake)
             if let modelOverride {
@@ -99,6 +98,16 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 configuration: configuration,
                 handshake: handshake,
                 selectedModel: modelOverride,
+                modelContext: request.modelContext
+            )
+            remoteSessionIDs[request.session.sessionId] = handshake.remoteSessionID
+
+            try applyFeatureEvents(
+                featureAdapter.bootstrapEvents(
+                    providerID: id,
+                    remoteSessionID: handshake.remoteSessionID
+                ),
+                localSessionID: request.session.sessionId,
                 modelContext: request.modelContext
             )
 
@@ -230,12 +239,57 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         isActiveProvider: Bool,
         modelContext: ModelContext
     ) async {
+        debugLog(
+            "prepareForActivation start localSession=\(session.sessionId) isActive=\(isActiveProvider)"
+        )
         if isActiveProvider {
             await closeInactiveSessionRuntimes(keeping: session.sessionId)
         } else {
             await deactivateAllSessionRuntimes()
         }
-        _ = modelContext
+
+        guard isActiveProvider else {
+            debugLog("prepareForActivation skipped because provider is inactive localSession=\(session.sessionId)")
+            return
+        }
+
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let configuration = resolveConfiguration(for: session, settings: settings)
+        guard useACPStdIO(configuration: configuration) else {
+            debugLog("prepareForActivation skipped because ACP stdio is disabled localSession=\(session.sessionId)")
+            return
+        }
+
+        let availabilityStatus = quickAvailabilityStatus(configuration: configuration)
+        guard availabilityStatus.kind == .available else {
+            debugLog(
+                "prepareForActivation skipped because provider unavailable localSession=\(session.sessionId) summary=\(availabilityStatus.summaryText)"
+            )
+            return
+        }
+
+        let authorizationPolicy = authorizationPolicyFactory.makePolicy(
+            from: settings,
+            approvalMode: approvalMode(for: configuration)
+        )
+
+        do {
+            let activation = try await ensureRemoteSessionPrepared(
+                session: session,
+                configuration: configuration,
+                settings: settings,
+                modelContext: modelContext,
+                authorizationPolicy: authorizationPolicy,
+                workingDirectoryOverride: nil
+            )
+            debugLog(
+                "prepareForActivation finished localSession=\(session.sessionId) remoteSession=\(activation.handshake.remoteSessionID) reusedBinding=\(activation.remoteBinding != nil)"
+            )
+        } catch {
+            debugLog(
+                "prepareForActivation failed localSession=\(session.sessionId) error=\(String(describing: error))"
+            )
+        }
     }
 
     func resolveConfiguration(for session: Session, settings: AppSettings) -> Configuration {
@@ -453,6 +507,25 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     }
 
     private func consume(update: CopilotACPUpdate, localSessionID: String) {
+        if let modelContext = sessionContexts[localSessionID],
+           let remoteSessionID = remoteSessionID(for: update, localSessionID: localSessionID) {
+            let featureEvents = featureExtractor.extract(
+                update: update,
+                providerID: id,
+                remoteSessionID: remoteSessionID
+            )
+            if !featureEvents.isEmpty {
+                debugLog(
+                    "consume featureEvents localSession=\(localSessionID) remoteSession=\(remoteSessionID) count=\(featureEvents.count) updates=\(describeFeatureEvents(featureEvents))"
+                )
+            }
+            try? applyFeatureEvents(featureEvents, localSessionID: localSessionID, modelContext: modelContext)
+        } else {
+            debugLog(
+                "consume missing feature context localSession=\(localSessionID) updateKind=\(describeUpdate(update)) hasModelContext=\(sessionContexts[localSessionID] != nil) remoteSession=\(remoteSessionIDs[localSessionID] ?? "nil")"
+            )
+        }
+
         guard turnRouter.shouldProjectIncomingUpdate(for: localSessionID) else {
             return
         }
@@ -769,6 +842,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 await runtimeClient.close()
             }
             runtimeWorkingDirectories.removeValue(forKey: inactiveSessionID)
+            remoteSessionIDs.removeValue(forKey: inactiveSessionID)
             sessionRuntimeResetter(inactiveSessionID)
             markCancelledIfNeeded(sessionID: inactiveSessionID)
         }
@@ -782,6 +856,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 await runtimeClient.close()
             }
             runtimeWorkingDirectories.removeValue(forKey: activeSessionID)
+            remoteSessionIDs.removeValue(forKey: activeSessionID)
             sessionRuntimeResetter(activeSessionID)
             markCancelledIfNeeded(sessionID: activeSessionID)
         }
@@ -798,16 +873,195 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             await runtimeClient.close()
         }
         runtimeWorkingDirectories.removeValue(forKey: localSessionID)
+        remoteSessionIDs.removeValue(forKey: localSessionID)
+        sessionContexts.removeValue(forKey: localSessionID)
         sessionRuntimeResetter(localSessionID)
         if removeBinding {
             await sessionBridge.removeBinding(for: localSessionID, providerID: id)
             try? bindingStore(in: modelContext).removeBinding(for: localSessionID, providerID: id)
         }
         activeTurns.removeValue(forKey: localSessionID)
+        featureStores.removeValue(forKey: localSessionID)
+    }
+
+    private struct RemoteSessionActivation {
+        let remoteBinding: CopilotSessionBridge.Binding?
+        let runtimeClient: any ACPExternalProviderRuntimeClient
+        let handshake: ACPExternalAgentSessionHandshake
+    }
+
+    private func ensureRemoteSessionPrepared(
+        session: Session,
+        configuration: Configuration,
+        settings: AppSettings,
+        modelContext: ModelContext,
+        authorizationPolicy: ToolAuthorizationPolicy,
+        workingDirectoryOverride: String?
+    ) async throws -> RemoteSessionActivation {
+        sessionContexts[session.sessionId] = modelContext
+        let remoteBinding = await resolvedBinding(
+            for: session.sessionId,
+            modelContext: modelContext
+        )
+        let workingDirectory = resolvedWorkingDirectory(
+            session: session,
+            settings: settings,
+            override: workingDirectoryOverride
+        )
+        debugLog(
+            "ensureRemoteSessionPrepared start localSession=\(session.sessionId) existingRemote=\(trimmedNonEmpty(remoteBinding?.remoteSessionID) ?? "nil") workingDirectory=\(workingDirectory)"
+        )
+
+        let runtimeClient = try await makeRuntimeClientIfNeeded(
+            session: session,
+            configuration: configuration,
+            workingDirectory: workingDirectory,
+            authorizationPolicy: authorizationPolicy
+        )
+        debugLog(
+            "ensureRemoteSessionPrepared runtime ready localSession=\(session.sessionId) reusedClient=\(runtimeClients[session.sessionId] != nil)"
+        )
+
+        turnRouter.beginRestore(sessionID: session.sessionId)
+        defer { turnRouter.finishRestore(sessionID: session.sessionId) }
+
+        let handshake = try await runtimeClient.ensureSession(
+            workingDirectory: workingDirectory,
+            remoteSessionID: trimmedNonEmpty(remoteBinding?.remoteSessionID)
+        )
+        debugLog(
+            "ensureRemoteSessionPrepared ensured session localSession=\(session.sessionId) remoteSession=\(handshake.remoteSessionID)"
+        )
+
+        await persistBinding(
+            sessionID: session.sessionId,
+            remoteSessionID: handshake.remoteSessionID,
+            configuration: configuration,
+            handshake: handshake,
+            selectedModel: nil,
+            modelContext: modelContext
+        )
+        remoteSessionIDs[session.sessionId] = handshake.remoteSessionID
+
+        try applyFeatureEvents(
+            featureAdapter.bootstrapEvents(
+                providerID: id,
+                remoteSessionID: handshake.remoteSessionID
+            ),
+            localSessionID: session.sessionId,
+            modelContext: modelContext
+        )
+        debugLog(
+            "ensureRemoteSessionPrepared bootstrap applied localSession=\(session.sessionId) remoteSession=\(handshake.remoteSessionID) cachedCommands=\(remoteCommands(localSessionID: session.sessionId, remoteSessionID: handshake.remoteSessionID).count)"
+        )
+
+        return RemoteSessionActivation(
+            remoteBinding: remoteBinding,
+            runtimeClient: runtimeClient,
+            handshake: handshake
+        )
     }
 
     private func bindingStore(in modelContext: ModelContext) -> ACPExternalSessionBindingStore {
         ACPExternalSessionBindingStore(modelContext: modelContext)
+    }
+
+    func remoteCommands(localSessionID: String, remoteSessionID: String) -> [ACPCommandDescriptor] {
+        featureStores[localSessionID]?.commands(for: id, remoteSessionID: remoteSessionID) ?? []
+    }
+
+    func remoteCommands(localSessionID: String) -> [ACPCommandDescriptor] {
+        if let cached = featureStores[localSessionID]?.commands(for: localSessionID, providerID: id),
+           !cached.isEmpty {
+            debugLog(
+                "remoteCommands hit session cache localSession=\(localSessionID) count=\(cached.count) names=\(cached.map(\.name).joined(separator: ","))"
+            )
+            return cached
+        }
+
+        guard let remoteSessionID = remoteSessionIDs[localSessionID] else {
+            debugLog("remoteCommands miss localSession=\(localSessionID) reason=no-remote-session")
+            return []
+        }
+        let commands = remoteCommands(localSessionID: localSessionID, remoteSessionID: remoteSessionID)
+        debugLog(
+            "remoteCommands resolved via remote cache localSession=\(localSessionID) remoteSession=\(remoteSessionID) count=\(commands.count) names=\(commands.map(\.name).joined(separator: ","))"
+        )
+        return commands
+    }
+
+    func remotePlan(localSessionID: String) -> ACPPlanSnapshotDraft? {
+        featureStores[localSessionID]?.plan(for: localSessionID)
+    }
+
+    private func applyFeatureEvents(
+        _ events: [ACPExternalSessionFeatureEvent],
+        localSessionID: String,
+        modelContext: ModelContext
+    ) throws {
+        guard !events.isEmpty else { return }
+        let store = featureStore(for: localSessionID, modelContext: modelContext)
+        try store.apply(events, sessionID: localSessionID)
+    }
+
+    private func featureStore(for localSessionID: String, modelContext: ModelContext) -> ACPExternalSessionFeatureStore {
+        if let existing = featureStores[localSessionID] {
+            return existing
+        }
+
+        let store = ACPExternalSessionFeatureStore(
+            taskStateStore: SessionTaskStateStore(modelContext: modelContext),
+            planProjector: ACPPlanProjector()
+        )
+        featureStores[localSessionID] = store
+        return store
+    }
+
+    private func remoteSessionID(for update: CopilotACPUpdate, localSessionID: String) -> String? {
+        switch update {
+        case .session:
+            return remoteSessionIDs[localSessionID]
+        case .permission(let request):
+            return trimmedNonEmpty(request.sessionID) ?? remoteSessionIDs[localSessionID]
+        }
+    }
+
+    private func describeUpdate(_ update: CopilotACPUpdate) -> String {
+        switch update {
+        case .session(let update):
+            switch update {
+            case .userMessageChunk:
+                return "userMessageChunk"
+            case .agentMessageChunk:
+                return "agentMessageChunk"
+            case .agentThoughtChunk:
+                return "agentThoughtChunk"
+            case .toolCall:
+                return "toolCall"
+            case .toolCallUpdate:
+                return "toolCallUpdate"
+            case .plan:
+                return "plan"
+            case .availableCommandsUpdate:
+                return "availableCommandsUpdate"
+            case .other(let kind, _):
+                return "other[\(kind)]"
+            }
+        case .permission:
+            return "permission"
+        }
+    }
+
+    private func describeFeatureEvents(_ events: [ACPExternalSessionFeatureEvent]) -> String {
+        events.map { event in
+            switch event {
+            case .replaceCommands(let commands):
+                let names = commands.map(\.name).joined(separator: ",")
+                return "replaceCommands[count=\(commands.count) names=\(names)]"
+            case .replacePlan(let snapshot):
+                return "replacePlan[entries=\(snapshot.entries.count)]"
+            }
+        }.joined(separator: ";")
     }
 
     private func settleOutstandingToolCalls(in message: Message, terminalStatus: ToolStatus) {

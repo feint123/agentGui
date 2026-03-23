@@ -49,6 +49,11 @@ enum ACPJSONValue: Codable, Equatable, Sendable {
 }
 
 extension ACPJSONValue {
+    nonisolated var arrayValue: [ACPJSONValue]? {
+        guard case .array(let value) = self else { return nil }
+        return value
+    }
+
     nonisolated var objectValue: [String: ACPJSONValue]? {
         guard case .object(let value) = self else { return nil }
         return value

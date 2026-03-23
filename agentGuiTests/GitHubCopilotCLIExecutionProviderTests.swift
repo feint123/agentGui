@@ -984,6 +984,121 @@ struct GitHubCopilotCLIExecutionProviderTests {
         ExternalACPProviderAssertionHelpers.expectCancelledMessageSettlesToolCalls(assistantMessage)
     }
 
+    @Test func sendExposesSeededCommandsWhenRemoteACPDoesNotAdvertiseAny() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Seeded Commands")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let runtimeClient = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-seeded", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+        let provider = GitHubCopilotCLIExecutionProvider(
+            availabilityService: GitHubCopilotCLIAvailabilityService(
+                fileManager: .default,
+                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+                loginShellPathResolver: { _ in nil }
+            ),
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "seed commands",
+                session: session,
+                modelID: "",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        let commands = provider.remoteCommands(localSessionID: session.sessionId, remoteSessionID: "remote-seeded")
+        #expect(commands.map { $0.name } == ["plan", "review", "agent"])
+    }
+
+    @Test func sendReplacesSeededCommandsWithRemoteAdvertisedCommands() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Remote Commands")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let runtimeClient = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-advertised", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: [
+                .session(
+                    .availableCommandsUpdate(
+                        ACPAvailableCommandsUpdatePayload(
+                            availableCommands: [
+                                ACPAvailableCommand(
+                                    description: "Remote review",
+                                    input: ACPAvailableCommandInput(hint: "changes"),
+                                    name: "review"
+                                )
+                            ]
+                        )
+                    )
+                )
+            ]
+        )
+        let provider = GitHubCopilotCLIExecutionProvider(
+            availabilityService: GitHubCopilotCLIAvailabilityService(
+                fileManager: .default,
+                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+                loginShellPathResolver: { _ in nil }
+            ),
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "remote commands",
+                session: session,
+                modelID: "",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        let commands = provider.remoteCommands(localSessionID: session.sessionId)
+        #expect(commands.map(\.name) == ["review"])
+        #expect(commands.first?.source == .remoteAdvertised)
+    }
+
     private func makeModelContext() throws -> ModelContext {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(

@@ -13,7 +13,7 @@ struct ChatComposerSlashState: Equatable {
 
         let items = registry.items(matching: detected.query)
         query = detected.query
-        candidates = Array(items.prefix(8))
+        candidates = items
 
         if candidates.contains(where: { $0.id == highlightedItemID }) == false {
             highlightedItemID = candidates.first?.id

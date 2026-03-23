@@ -586,12 +586,123 @@ struct ACPToolCallUpdatePayload: Codable, Equatable, Sendable {
     }
 }
 
+struct ACPAvailableCommandInput: Codable, Equatable, Sendable {
+    var meta: [String: ACPJSONValue]?
+    var hint: String?
+
+    init(meta: [String: ACPJSONValue]? = nil, hint: String? = nil) {
+        self.meta = meta
+        self.hint = hint
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case meta = "_meta"
+        case hint
+    }
+}
+
+struct ACPAvailableCommand: Codable, Equatable, Sendable {
+    var meta: [String: ACPJSONValue]?
+    var description: String?
+    var input: ACPAvailableCommandInput?
+    var name: String
+
+    init(
+        meta: [String: ACPJSONValue]? = nil,
+        description: String? = nil,
+        input: ACPAvailableCommandInput? = nil,
+        name: String
+    ) {
+        self.meta = meta
+        self.description = description
+        self.input = input
+        self.name = name
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case meta = "_meta"
+        case description
+        case input
+        case name
+    }
+}
+
+struct ACPAvailableCommandsUpdatePayload: Codable, Equatable, Sendable {
+    var meta: [String: ACPJSONValue]?
+    var availableCommands: [ACPAvailableCommand]
+
+    init(meta: [String: ACPJSONValue]? = nil, availableCommands: [ACPAvailableCommand]) {
+        self.meta = meta
+        self.availableCommands = availableCommands
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case meta = "_meta"
+        case availableCommands
+    }
+}
+
+enum ACPPlanEntryPriority: String, Codable, Equatable, Sendable {
+    case high
+    case medium
+    case low
+}
+
+enum ACPPlanEntryStatus: String, Codable, Equatable, Sendable {
+    case pending
+    case inProgress = "in_progress"
+    case completed
+}
+
+struct ACPPlanEntry: Codable, Equatable, Sendable {
+    var meta: [String: ACPJSONValue]?
+    var content: String
+    var priority: ACPPlanEntryPriority
+    var status: ACPPlanEntryStatus
+
+    init(
+        meta: [String: ACPJSONValue]? = nil,
+        content: String,
+        priority: ACPPlanEntryPriority,
+        status: ACPPlanEntryStatus
+    ) {
+        self.meta = meta
+        self.content = content
+        self.priority = priority
+        self.status = status
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case meta = "_meta"
+        case content
+        case priority
+        case status
+    }
+}
+
+struct ACPPlanUpdatePayload: Codable, Equatable, Sendable {
+    var meta: [String: ACPJSONValue]?
+    var entries: [ACPPlanEntry]
+
+    init(meta: [String: ACPJSONValue]? = nil, entries: [ACPPlanEntry]) {
+        self.meta = meta
+        self.entries = entries
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case meta = "_meta"
+        case entries
+    }
+}
+
 enum ACPSessionUpdate: Codable, Equatable, Sendable {
     case userMessageChunk(ACPContentChunk)
     case agentMessageChunk(ACPContentChunk)
     case agentThoughtChunk(ACPContentChunk)
     case toolCall(ACPToolCall)
     case toolCallUpdate(ACPToolCallUpdatePayload)
+    case availableCommandsUpdate(ACPAvailableCommandsUpdatePayload)
+    case plan(ACPPlanUpdatePayload)
     case other(kind: String, payload: ACPJSONValue)
 
     init(from decoder: any Decoder) throws {
@@ -612,6 +723,10 @@ enum ACPSessionUpdate: Codable, Equatable, Sendable {
             self = .toolCall(try ACPJSONValue.object(payload).decode(ACPToolCall.self))
         case "tool_call_update":
             self = .toolCallUpdate(try ACPJSONValue.object(payload).decode(ACPToolCallUpdatePayload.self))
+        case "available_commands_update":
+            self = .availableCommandsUpdate(try ACPJSONValue.object(payload).decode(ACPAvailableCommandsUpdatePayload.self))
+        case "plan":
+            self = .plan(try ACPJSONValue.object(payload).decode(ACPPlanUpdatePayload.self))
         default:
             self = .other(kind: kind, payload: .object(payload))
         }
@@ -630,6 +745,10 @@ enum ACPSessionUpdate: Codable, Equatable, Sendable {
             try container.encode(SessionUpdateEnvelope(sessionUpdate: "tool_call", payload: try ACPJSONValue.fromEncodable(value)))
         case .toolCallUpdate(let value):
             try container.encode(SessionUpdateEnvelope(sessionUpdate: "tool_call_update", payload: try ACPJSONValue.fromEncodable(value)))
+        case .availableCommandsUpdate(let value):
+            try container.encode(SessionUpdateEnvelope(sessionUpdate: "available_commands_update", payload: try ACPJSONValue.fromEncodable(value)))
+        case .plan(let value):
+            try container.encode(SessionUpdateEnvelope(sessionUpdate: "plan", payload: try ACPJSONValue.fromEncodable(value)))
         case .other(_, let payload):
             try container.encode(payload)
         }

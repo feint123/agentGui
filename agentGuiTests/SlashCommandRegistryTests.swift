@@ -71,6 +71,69 @@ struct SlashCommandRegistryTests {
         #expect(items.last?.isEnabledByDefault == false)
     }
 
+    @Test func acpCommandsSortAheadOfSkills() async throws {
+        let registry = ChatSlashCommandRegistry(
+            providers: [
+                SkillChatSlashCommandProvider(
+                    skills: [
+                        makeSkill(directoryName: "brainstorming", name: "brainstorming", description: "Explore requirements.")
+                    ],
+                    enabledSkillNames: []
+                ),
+                ACPChatSlashCommandProvider(
+                    commands: [
+                        ACPCommandDescriptor(
+                            providerID: .openCodeCLI,
+                            remoteSessionID: "remote-1",
+                            name: "plan",
+                            description: "Create a plan",
+                            inputHint: "what to plan"
+                        )
+                    ]
+                )
+            ]
+        )
+
+        let items = registry.items(matching: "")
+
+        #expect(items.map(\.title) == ["plan", "brainstorming"])
+        #expect(items.first?.kind == .agent)
+        #expect(items.first?.badge == "OpenCode")
+    }
+
+    @Test func acpCommandsPreserveAdvertisedOrderWithinAgentGroup() async throws {
+        let registry = ChatSlashCommandRegistry(
+            providers: [
+                ACPChatSlashCommandProvider(
+                    commands: [
+                        ACPCommandDescriptor(
+                            providerID: .openCodeCLI,
+                            remoteSessionID: "remote-1",
+                            name: "init",
+                            description: "Init workspace"
+                        ),
+                        ACPCommandDescriptor(
+                            providerID: .openCodeCLI,
+                            remoteSessionID: "remote-1",
+                            name: "review",
+                            description: "Review changes"
+                        ),
+                        ACPCommandDescriptor(
+                            providerID: .openCodeCLI,
+                            remoteSessionID: "remote-1",
+                            name: "ai-news-rss",
+                            description: "News"
+                        )
+                    ]
+                )
+            ]
+        )
+
+        let items = registry.items(matching: "")
+
+        #expect(items.map(\.title) == ["init", "review", "ai-news-rss"])
+    }
+
     @Test func skillServiceCanResolveSkillByDisplayNameOrDirectoryName() async throws {
         let service = SkillService()
         service.availableSkills = [

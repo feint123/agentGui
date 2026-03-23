@@ -9,6 +9,10 @@ import AppKit
 
 extension ChatView {
 
+    private func debugSlashLog(_ message: String) {
+        print("[Slash][\(resolvedExecutionProviderID.rawValue)][session=\(session.sessionId)] \(message)")
+    }
+
     private var testLaunchOptions: TestLaunchOptions {
         TestLaunchOptions.current
     }
@@ -34,7 +38,7 @@ extension ChatView {
     }
 
     private var displayedSlashCandidates: [ChatSlashCommandItem] {
-        Array(slashCandidates.prefix(8))
+        slashCandidates
     }
 
     private var displayedMentionCandidates: [URL] {
@@ -725,6 +729,8 @@ var fileChipsRow: some View {
                 ComposerSelectableList(
                     items: displayedSlashCandidates,
                     highlightedIndex: highlightedSlashIndex,
+                    maximumHeight: 320,
+                    autoScrollToHighlightedItem: true,
                     onSelect: selectSlashItem
                 ) { item, isHighlighted in
                     slashRow(item: item, isHighlighted: isHighlighted)
@@ -909,6 +915,10 @@ var fileChipsRow: some View {
         syncSlashState(with: text)
 
         if slashQuery != nil {
+            debugSlashLog(
+                "slash query active text=\(text.debugDescription) candidates=\(slashCandidates.count)"
+            )
+            ensureACPCommandsReadyForSlashQuery(text: text)
             if mentionQuery != nil {
                 withAnimation(.easeOut(duration: 0.12)) { mentionQuery = nil }
                 mentionCandidates = []
@@ -929,18 +939,84 @@ var fileChipsRow: some View {
         slashQuery = state.query
         slashCandidates = state.candidates
         highlightedSlashItemID = state.highlightedItemID
+        debugSlashLog(
+            "syncSlashState text=\(text.debugDescription) query=\(slashQuery ?? "nil") candidates=\(slashCandidates.map(\.title).joined(separator: ","))"
+        )
     }
 
     var chatSlashCommandRegistry: ChatSlashCommandRegistry {
         let settings = AppSettings.getOrCreate(in: modelContext)
+        let remoteCommandProviders: [any ChatSlashCommandProvider] = currentACPCommandProvider().map { [$0] } ?? []
         return ChatSlashCommandRegistry(
-            providers: [
+            providers: remoteCommandProviders + [
                 SkillChatSlashCommandProvider(
                     skills: skillService.availableSkills,
                     enabledSkillNames: settings.enabledSkillNames
                 )
             ]
         )
+    }
+
+    private func currentACPCommands() -> [ACPCommandDescriptor] {
+        guard resolvedExecutionProviderID != .builtInAgent,
+              let registry = claudeService.executionProviderRegistry,
+              let provider = registry.provider(for: resolvedExecutionProviderID) as? ACPChatSlashCommandSource else {
+            debugSlashLog("currentACPCommandProvider unavailable provider=\(resolvedExecutionProviderID.rawValue)")
+            return []
+        }
+
+        let commands = provider.remoteCommands(localSessionID: session.sessionId)
+        guard !commands.isEmpty else {
+            debugSlashLog("currentACPCommandProvider empty remoteCommands")
+            return []
+        }
+        debugSlashLog(
+            "currentACPCommandProvider loaded count=\(commands.count) names=\(commands.map(\.name).joined(separator: ","))"
+        )
+        return commands
+    }
+
+    private func currentACPCommandProvider() -> ACPChatSlashCommandProvider? {
+        let commands = currentACPCommands()
+        guard !commands.isEmpty else {
+            return nil
+        }
+        return ACPChatSlashCommandProvider(commands: commands)
+    }
+
+    private func ensureACPCommandsReadyForSlashQuery(text: String) {
+        let hasRemoteACPCommands = !currentACPCommands().isEmpty
+        guard ChatComposerACPWarmupPolicy.shouldWarmup(
+            slashQuery: slashQuery,
+            resolvedExecutionProviderID: resolvedExecutionProviderID,
+            hasRemoteACPCommands: hasRemoteACPCommands,
+            isWarmupInFlight: isACPCommandWarmupInFlight
+        ) else {
+            if slashQuery != nil {
+                debugSlashLog(
+                    "ensureACPCommandsReadyForSlashQuery skipped candidates=\(slashCandidates.count) hasRemoteACPCommands=\(hasRemoteACPCommands) warmupInFlight=\(isACPCommandWarmupInFlight) provider=\(resolvedExecutionProviderID.rawValue)"
+                )
+            }
+            return
+        }
+
+        isACPCommandWarmupInFlight = true
+        let providerID = resolvedExecutionProviderID
+        debugSlashLog("ensureACPCommandsReadyForSlashQuery triggering warmup text=\(text.debugDescription)")
+
+        Task {
+            await claudeService.handleExecutionProviderSelectionChange(
+                session: session,
+                selectedProviderID: providerID,
+                modelContext: modelContext
+            )
+
+            await MainActor.run {
+                isACPCommandWarmupInFlight = false
+                debugSlashLog("ensureACPCommandsReadyForSlashQuery warmup finished; re-syncing slash state")
+                syncSlashState(with: text)
+            }
+        }
     }
 
     func handleComposerSelectionMove(delta: Int) -> Bool {

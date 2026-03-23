@@ -48,4 +48,49 @@ struct ChatInputCommandParserTests {
 
         #expect(directive == .skill(SkillInputDirective(directoryName: "brainstorming", displayName: "brainstorming")))
     }
+
+    @Test func acpCommandDoesNotCreateDirective() async throws {
+        let item = ChatSlashCommandItem(
+            id: "acp:opencode:plan",
+            kind: .agent,
+            title: "plan",
+            subtitle: "Create an implementation plan",
+            aliases: [],
+            badge: "OpenCode",
+            isEnabledByDefault: true,
+            payload: .acpCommand(
+                name: "plan",
+                argumentHint: "what to plan",
+                providerID: .openCodeCLI,
+                source: .remoteAdvertised
+            )
+        )
+
+        let directive = ChatInputCommandParser.makeDirective(from: item)
+
+        #expect(directive == nil)
+    }
+
+    @Test func selectingACPCommandReplacesSlashTokenWithCommandText() async throws {
+        let item = ChatSlashCommandItem(
+            id: "acp:opencode:plan",
+            kind: .agent,
+            title: "plan",
+            subtitle: "Create an implementation plan",
+            aliases: [],
+            badge: "OpenCode",
+            isEnabledByDefault: true,
+            payload: .acpCommand(
+                name: "plan",
+                argumentHint: "what to plan",
+                providerID: .openCodeCLI,
+                source: .remoteAdvertised
+            )
+        )
+
+        let result = ChatInputCommandParser.replacingSlashToken(in: "/pl", selectedItem: item)
+
+        #expect(result.updatedText == "/plan ")
+        #expect(result.directive == nil)
+    }
 }

@@ -55,6 +55,97 @@ struct ACPModelTests {
         }
     }
 
+        @Test func sessionUpdateDecodesAvailableCommandsUpdate() throws {
+                let raw = Data("""
+                {
+                    "sessionId": "session-commands",
+                    "update": {
+                        "sessionUpdate": "available_commands_update",
+                        "availableCommands": [
+                            {
+                                "name": "plan",
+                                "description": "Create an implementation plan",
+                                "input": {
+                                    "hint": "what to plan"
+                                }
+                            }
+                        ]
+                    }
+                }
+                """.utf8)
+
+                let notification = try JSONDecoder().decode(ACPSessionNotification.self, from: raw)
+
+                switch notification.update {
+                case .availableCommandsUpdate(let payload):
+                        #expect(payload.availableCommands.count == 1)
+                        #expect(payload.availableCommands.first?.name == "plan")
+                        #expect(payload.availableCommands.first?.description == "Create an implementation plan")
+                        #expect(payload.availableCommands.first?.input?.hint == "what to plan")
+                default:
+                        Issue.record("Expected available commands update")
+                }
+        }
+
+        @Test func sessionUpdateDecodesPlanUpdate() throws {
+                let raw = Data("""
+                {
+                    "sessionId": "session-plan",
+                    "update": {
+                        "sessionUpdate": "plan",
+                        "entries": [
+                            {
+                                "content": "Inspect codebase",
+                                "priority": "high",
+                                "status": "pending"
+                            },
+                            {
+                                "content": "Write tests",
+                                "priority": "medium",
+                                "status": "in_progress"
+                            },
+                            {
+                                "content": "Ship feature",
+                                "priority": "low",
+                                "status": "completed"
+                            }
+                        ]
+                    }
+                }
+                """.utf8)
+
+                let notification = try JSONDecoder().decode(ACPSessionNotification.self, from: raw)
+
+                switch notification.update {
+                case .plan(let payload):
+                        #expect(payload.entries.map(\.content) == ["Inspect codebase", "Write tests", "Ship feature"])
+                        #expect(payload.entries.map(\.priority) == [.high, .medium, .low])
+                        #expect(payload.entries.map(\.status) == [.pending, .inProgress, .completed])
+                default:
+                        Issue.record("Expected plan update")
+                }
+        }
+
+        @Test func sessionUpdateEncodesPlanUpdate() throws {
+                let update = ACPSessionUpdate.plan(
+                        ACPPlanUpdatePayload(
+                                entries: [
+                                        ACPPlanEntry(content: "Inspect codebase", priority: .high, status: .inProgress)
+                                ]
+                        )
+                )
+
+                let encoded = try ACPJSONValue.fromEncodable(update)
+                let payload = try #require(encoded.objectValue)
+
+                #expect(payload["sessionUpdate"] == .string("plan"))
+                let entries = try #require(payload["entries"]?.arrayValue)
+                let entry = try #require(entries.first?.objectValue)
+                #expect(entry["content"] == .string("Inspect codebase"))
+                #expect(entry["priority"] == .string("high"))
+                #expect(entry["status"] == .string("in_progress"))
+        }
+
     @Test func promptRequestRoundTripsTextAndResourceLinkBlocks() throws {
         let request = ACPPromptRequest(
             meta: nil,

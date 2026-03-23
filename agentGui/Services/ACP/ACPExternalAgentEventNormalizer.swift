@@ -66,6 +66,10 @@ struct ACPExternalAgentEventNormalizer {
                     rawOutput: string(from: payload.rawOutput) ?? string(from: payload.content)
                 )
             ]
+        case .availableCommandsUpdate:
+            return []
+        case .plan:
+            return []
         case .userMessageChunk:
             return []
         case .other:

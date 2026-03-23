@@ -27,6 +27,8 @@ struct ChatInputCommandParser {
         switch item.payload {
         case .skill(let directoryName):
             return .skill(SkillInputDirective(directoryName: directoryName, displayName: item.title))
+        case .acpCommand:
+            return nil
         }
     }
 
@@ -37,9 +39,17 @@ struct ChatInputCommandParser {
         }
 
         var updated = text
-        updated.replaceSubrange(range, with: "")
-        updated = updated.replacingOccurrences(of: "  ", with: " ")
-        updated = updated.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch selectedItem.payload {
+        case .skill:
+            updated.replaceSubrange(range, with: "")
+            updated = updated.replacingOccurrences(of: "  ", with: " ")
+            updated = updated.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .acpCommand(let name, _, _, _):
+            updated.replaceSubrange(range, with: "/\(name)")
+            if range.upperBound == text.endIndex {
+                updated.append(" ")
+            }
+        }
         return ReplacementResult(updatedText: updated, directive: directive)
     }
 

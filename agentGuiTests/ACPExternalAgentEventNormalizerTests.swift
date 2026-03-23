@@ -14,6 +14,42 @@ struct ACPExternalAgentEventNormalizerTests {
         #expect(events == expected)
     }
 
+    @Test func normalizerIgnoresAvailableCommandsUpdate() {
+        let normalizer = ACPExternalAgentEventNormalizer()
+
+        let events = normalizer.normalize(
+            update: .session(
+                .availableCommandsUpdate(
+                    ACPAvailableCommandsUpdatePayload(
+                        availableCommands: [
+                            ACPAvailableCommand(description: "Run review", input: nil, name: "review")
+                        ]
+                    )
+                )
+            )
+        )
+
+        #expect(events.isEmpty)
+    }
+
+    @Test func normalizerIgnoresPlanUpdate() {
+        let normalizer = ACPExternalAgentEventNormalizer()
+
+        let events = normalizer.normalize(
+            update: .session(
+                .plan(
+                    ACPPlanUpdatePayload(
+                        entries: [
+                            ACPPlanEntry(content: "Inspect code", priority: .high, status: .inProgress)
+                        ]
+                    )
+                )
+            )
+        )
+
+        #expect(events.isEmpty)
+    }
+
     private func samplePermissionRequest() -> ACPRequestPermissionRequest {
         ACPRequestPermissionRequest(
             meta: nil,

@@ -53,7 +53,8 @@ final class OpenCodeCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCL
             terminalRuntimeFactory: terminalRuntimeFactory,
             sessionRuntimeResetter: sessionRuntimeResetter,
             permissionCenter: permissionCenter,
-            authorizationPolicyFactory: authorizationPolicyFactory
+            authorizationPolicyFactory: authorizationPolicyFactory,
+            featureAdapter: .openCode
         )
     }
 
