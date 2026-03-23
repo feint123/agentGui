@@ -375,18 +375,14 @@ struct GitHubCopilotCLIExecutionProviderTests {
         modelContext.insert(session)
         try modelContext.save()
 
-        let sessionBridge = CopilotSessionBridge()
-        await sessionBridge.upsert(
-            CopilotSessionBridge.Binding(
-                sessionID: session.sessionId,
-                providerID: .githubCopilotCLI,
-                remoteSessionID: "remote-restored",
-                cliVersion: "1.2.3",
-                negotiatedCapabilities: nil,
-                lastHandshakeAt: Date(timeIntervalSince1970: 1),
-                lastSelectedModel: nil,
-                lastSelectedAgentName: nil
-            )
+        _ = try ACPExternalSessionBindingStore(modelContext: modelContext).upsert(
+            sessionID: session.sessionId,
+            providerID: .githubCopilotCLI,
+            remoteSessionID: "remote-restored",
+            agentVersion: "1.2.3",
+            capabilities: nil,
+            selectedModel: nil,
+            selectedAgentName: nil
         )
 
         let runtimeClient = RuntimeClientStub(
@@ -460,7 +456,6 @@ struct GitHubCopilotCLIExecutionProviderTests {
         )
 
         let provider = GitHubCopilotCLIExecutionProvider(
-            sessionBridge: sessionBridge,
             terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
             permissionCenter: ACPPermissionCenter(),
             runtimeClientFactory: { _, _, _, _, updateSink in
@@ -493,6 +488,71 @@ struct GitHubCopilotCLIExecutionProviderTests {
             expectedToolTitle: "实时工具",
             expectedToolOutput: "echo live"
         )
+    }
+
+    @Test func providerRestoresFromDurableBindingWithoutBridgeMirror() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Durable Binding")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        _ = try ACPExternalSessionBindingStore(modelContext: modelContext).upsert(
+            sessionID: session.sessionId,
+            providerID: .githubCopilotCLI,
+            remoteSessionID: "remote-durable",
+            agentVersion: "1.2.3",
+            capabilities: ACPExternalAgentCapabilitySnapshot(
+                loadSession: true,
+                supportsSessionModelOverride: true,
+                agentVersion: "1.2.3"
+            ),
+            selectedModel: nil,
+            selectedAgentName: nil
+        )
+
+        let runtimeClient = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-durable", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "restore durable binding",
+                session: session,
+                modelID: "",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        let binding = try ACPExternalSessionBindingStore(modelContext: modelContext).binding(
+            for: session.sessionId,
+            providerID: .githubCopilotCLI
+        )
+
+        #expect(runtimeClient.ensureSessionRemoteSessionIDs == ["remote-durable"])
+        #expect(binding?.remoteSessionID == "remote-durable")
     }
 
     @Test func sendProjectsCopilotUpdatesIntoAssistantMessageAndTools() async throws {
@@ -618,7 +678,6 @@ struct GitHubCopilotCLIExecutionProviderTests {
         modelContext.insert(session)
         try modelContext.save()
 
-        let sessionBridge = CopilotSessionBridge()
         let runtimeClient = RuntimeClientStub(
             handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-model", cliVersion: "1.2.3"),
             stopReason: .endTurn,
@@ -626,7 +685,6 @@ struct GitHubCopilotCLIExecutionProviderTests {
         )
 
         let provider = GitHubCopilotCLIExecutionProvider(
-            sessionBridge: sessionBridge,
             terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
             permissionCenter: ACPPermissionCenter(),
             runtimeClientFactory: { _, _, _, _, updateSink in
@@ -647,7 +705,10 @@ struct GitHubCopilotCLIExecutionProviderTests {
             )
         )
 
-        let binding = await sessionBridge.binding(for: session.sessionId, providerID: .githubCopilotCLI)
+        let binding = try ACPExternalSessionBindingStore(modelContext: modelContext).binding(
+            for: session.sessionId,
+            providerID: .githubCopilotCLI
+        )
 
         #expect(runtimeClient.setModelRequests.isEmpty)
         #expect(binding?.lastSelectedModel == nil)
@@ -1494,6 +1555,7 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
     private(set) var setModelRequests: [(String, String)] = []
     private(set) var cancelledSessionIDs: [String] = []
     private(set) var closeCallCount = 0
+    private(set) var initializeCallCount = 0
 
     init(
         handshake: GitHubCopilotCLISessionHandshake,
@@ -1514,6 +1576,38 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
     func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> GitHubCopilotCLISessionHandshake {
         _ = workingDirectory
         ensureSessionRemoteSessionIDs.append(remoteSessionID)
+        if let ensureSessionError {
+            throw ensureSessionError
+        }
+        for update in ensureSessionUpdates {
+            await updateSink?(update)
+        }
+        return handshake
+    }
+
+    func initializeIfNeeded() async throws -> ACPExternalAgentCapabilitySnapshot {
+        initializeCallCount += 1
+        if let ensureSessionError {
+            throw ensureSessionError
+        }
+        return handshake.capabilities
+    }
+
+    func loadSessionIfPossible(workingDirectory: String, remoteSessionID: String) async throws -> ACPExternalAgentSessionHandshake? {
+        _ = workingDirectory
+        ensureSessionRemoteSessionIDs.append(remoteSessionID)
+        if let ensureSessionError {
+            throw ensureSessionError
+        }
+        for update in ensureSessionUpdates {
+            await updateSink?(update)
+        }
+        return handshake
+    }
+
+    func createSession(workingDirectory: String) async throws -> ACPExternalAgentSessionHandshake {
+        _ = workingDirectory
+        ensureSessionRemoteSessionIDs.append(nil)
         if let ensureSessionError {
             throw ensureSessionError
         }
@@ -1579,6 +1673,21 @@ private final class PermissionRuntimeClientStub: GitHubCopilotCLIRuntimeClient {
     func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> GitHubCopilotCLISessionHandshake {
         _ = workingDirectory
         _ = remoteSessionID
+        return handshake
+    }
+
+    func initializeIfNeeded() async throws -> ACPExternalAgentCapabilitySnapshot {
+        handshake.capabilities
+    }
+
+    func loadSessionIfPossible(workingDirectory: String, remoteSessionID: String) async throws -> ACPExternalAgentSessionHandshake? {
+        _ = workingDirectory
+        _ = remoteSessionID
+        return handshake
+    }
+
+    func createSession(workingDirectory: String) async throws -> ACPExternalAgentSessionHandshake {
+        _ = workingDirectory
         return handshake
     }
 

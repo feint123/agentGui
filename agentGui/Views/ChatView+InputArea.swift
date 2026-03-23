@@ -1048,7 +1048,8 @@ var fileChipsRow: some View {
             await claudeService.handleExecutionProviderSelectionChange(
                 session: session,
                 selectedProviderID: providerID,
-                modelContext: modelContext
+                modelContext: modelContext,
+                trigger: .slashCommandWarmup
             )
 
             await MainActor.run {

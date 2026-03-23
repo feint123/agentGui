@@ -35,6 +35,41 @@ struct ChatMessageListProjectionTrigger: Equatable {
 }
 
 @MainActor
+enum ChatMessageListProjectionRefreshCoordinator {
+    struct Result {
+        let snapshot: ChatMessageListSnapshot
+        let trigger: ChatMessageListProjectionTrigger
+        let didRefresh: Bool
+    }
+
+    static func refresh(
+        previousTrigger: ChatMessageListProjectionTrigger?,
+        previousSnapshot: ChatMessageListSnapshot,
+        messages: [Message],
+        workspaceRoot: String
+    ) -> Result {
+        let trigger = ChatMessageListProjectionTrigger(
+            messages: messages,
+            workspaceRoot: workspaceRoot
+        )
+        let incomingIDs = messages.map(\.id)
+        let snapshotIDs = previousSnapshot.rows.map(\.id)
+        let snapshotConsistentWithMessages = snapshotIDs == incomingIDs
+
+        if previousTrigger == trigger, snapshotConsistentWithMessages {
+            return Result(snapshot: previousSnapshot, trigger: trigger, didRefresh: false)
+        }
+
+        let rebuiltSnapshot = ChatMessageListSnapshotBuilder.build(
+            messages: messages,
+            workspaceRoot: workspaceRoot,
+            previous: previousSnapshot.cache
+        )
+        return Result(snapshot: rebuiltSnapshot, trigger: trigger, didRefresh: true)
+    }
+}
+
+@MainActor
 enum ChatMessageListSnapshotBuilder {
     static func build(
         messages: [Message],

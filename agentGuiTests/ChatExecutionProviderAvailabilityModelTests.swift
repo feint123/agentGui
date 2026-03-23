@@ -45,7 +45,7 @@ struct ChatExecutionProviderAvailabilityModelTests {
         #expect(model.isRefreshingCopilotStatus)
         #expect(model.isRefreshingOpenCodeStatus == false)
 
-        gate.release()
+        await gate.release()
         await refreshTask.value
 
         #expect(model.isRefreshingCopilotStatus == false)

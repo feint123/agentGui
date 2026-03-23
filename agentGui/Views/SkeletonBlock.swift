@@ -7,12 +7,18 @@ struct SkeletonBlock: View {
 
     @State private var shimmerOffset: CGFloat = -1.2
 
-    var body: some View {
+    private var blockShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    }
+
+    var body: some View {
+        blockShape
             .fill(Color.primary.opacity(0.08))
             .overlay {
                 GeometryReader { proxy in
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    let shimmerWidth = max(proxy.size.width * 0.72, 36)
+
+                    Rectangle()
                         .fill(
                             LinearGradient(
                                 colors: [
@@ -24,12 +30,18 @@ struct SkeletonBlock: View {
                                 endPoint: .trailing
                             )
                         )
-                        .scaleEffect(x: 1.8, y: 1, anchor: .center)
-                        .offset(x: shimmerOffset * proxy.size.width)
+                        .frame(width: shimmerWidth)
+                        .blur(radius: 1.5)
+                        .offset(x: shimmerOffset * (proxy.size.width + shimmerWidth))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 }
-                .clipped()
+                .mask {
+                    blockShape
+                }
+                .allowsHitTesting(false)
             }
             .frame(width: width, height: height)
+            .clipShape(blockShape)
             .task {
                 guard shimmerOffset < 1.2 else { return }
                 withAnimation(.linear(duration: 1.05).repeatForever(autoreverses: false)) {

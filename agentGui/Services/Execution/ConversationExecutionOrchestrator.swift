@@ -188,7 +188,8 @@ final class ConversationExecutionOrchestrator {
             session: session,
             activeProvider: provider,
             registry: providerRegistry,
-            modelContext: modelContext
+            modelContext: modelContext,
+            trigger: .selection
         )
 
         if pendingCancellationJobIDs.remove(job.id) != nil {

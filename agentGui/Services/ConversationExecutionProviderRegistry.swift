@@ -6,6 +6,11 @@ enum ConversationExecutionRuntimeScope: String, Equatable, Sendable {
     case externalACP
 }
 
+enum ConversationExecutionActivationTrigger: Equatable, Sendable {
+    case selection
+    case slashCommandWarmup
+}
+
 struct ConversationExecutionRequest {
     let text: String
     let session: Session
@@ -67,7 +72,12 @@ protocol ConversationExecutionProvider: AnyObject {
     func editAndResend(_ request: ConversationEditAndResendRequest) async throws
     func cancel(session: Session, modelContext: ModelContext) async
     func resetSessionState(session: Session, modelContext: ModelContext) async
-    func prepareForActivation(session: Session, isActiveProvider: Bool, modelContext: ModelContext) async
+    func prepareForActivation(
+        session: Session,
+        isActiveProvider: Bool,
+        modelContext: ModelContext,
+        trigger: ConversationExecutionActivationTrigger
+    ) async
 }
 
 extension ConversationExecutionProvider {
@@ -78,10 +88,16 @@ extension ConversationExecutionProvider {
         _ = modelContext
     }
 
-    func prepareForActivation(session: Session, isActiveProvider: Bool, modelContext: ModelContext) async {
+    func prepareForActivation(
+        session: Session,
+        isActiveProvider: Bool,
+        modelContext: ModelContext,
+        trigger: ConversationExecutionActivationTrigger
+    ) async {
         _ = session
         _ = isActiveProvider
         _ = modelContext
+        _ = trigger
     }
 }
 

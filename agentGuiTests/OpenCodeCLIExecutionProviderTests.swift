@@ -42,9 +42,7 @@ struct OpenCodeCLIExecutionProviderTests {
         modelContext.insert(session)
         try modelContext.save()
 
-        let sessionBridge = CopilotSessionBridge()
         let provider = OpenCodeCLIExecutionProvider(
-            sessionBridge: sessionBridge,
             availabilityService: availabilityService(),
             terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
             permissionCenter: ACPPermissionCenter()
@@ -63,7 +61,10 @@ struct OpenCodeCLIExecutionProviderTests {
         )
 
         let assistantMessage = try #require(session.messages.first(where: { $0.direction == .agent }))
-        let binding = await sessionBridge.binding(for: session.sessionId, providerID: .openCodeCLI)
+    let binding = try ACPExternalSessionBindingStore(modelContext: modelContext).binding(
+      for: session.sessionId,
+      providerID: .openCodeCLI
+    )
         let logText = try String(contentsOf: logFile, encoding: .utf8)
 
         #expect(assistantMessage.status == .completed)
@@ -99,9 +100,7 @@ struct OpenCodeCLIExecutionProviderTests {
         modelContext.insert(session)
         try modelContext.save()
 
-        let sessionBridge = CopilotSessionBridge()
         let provider = OpenCodeCLIExecutionProvider(
-            sessionBridge: sessionBridge,
             availabilityService: availabilityService(),
             terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
             permissionCenter: ACPPermissionCenter()
@@ -119,7 +118,10 @@ struct OpenCodeCLIExecutionProviderTests {
             )
         )
 
-        let binding = await sessionBridge.binding(for: session.sessionId, providerID: .openCodeCLI)
+        let binding = try ACPExternalSessionBindingStore(modelContext: modelContext).binding(
+          for: session.sessionId,
+          providerID: .openCodeCLI
+        )
         let logText = try String(contentsOf: logFile, encoding: .utf8)
 
         #expect(binding?.remoteSessionID == "remote-open")
@@ -298,7 +300,6 @@ struct OpenCodeCLIExecutionProviderTests {
           updates: []
         )
         let restoredProvider = OpenCodeCLIExecutionProvider(
-          sessionBridge: CopilotSessionBridge(),
           availabilityService: availabilityService(),
           terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
           permissionCenter: ACPPermissionCenter(),
@@ -425,7 +426,6 @@ struct OpenCodeCLIExecutionProviderTests {
     )
 
     let provider = OpenCodeCLIExecutionProvider(
-      sessionBridge: CopilotSessionBridge(),
       availabilityService: availabilityService(),
       terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
       permissionCenter: ACPPermissionCenter(),
@@ -799,7 +799,6 @@ struct OpenCodeCLIExecutionProviderTests {
     )
 
     let provider = OpenCodeCLIExecutionProvider(
-      sessionBridge: CopilotSessionBridge(),
       availabilityService: availabilityService(),
       terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
       permissionCenter: ACPPermissionCenter(),
@@ -809,13 +808,82 @@ struct OpenCodeCLIExecutionProviderTests {
       }
     )
 
-    await provider.prepareForActivation(session: session, isActiveProvider: true, modelContext: modelContext)
+    await provider.prepareForActivation(
+      session: session,
+      isActiveProvider: true,
+      modelContext: modelContext,
+      trigger: .slashCommandWarmup
+    )
 
     let commands = provider.remoteCommands(localSessionID: session.sessionId)
 
     #expect(runtimeClient.ensureSessionRemoteSessionIDs == [nil])
     #expect(commands.map(\.name) == ["review"])
     #expect(commands.first?.inputHint == "scope")
+  }
+
+  @Test func prepareForActivationSelectionDoesNotWarmRemoteACPState() async throws {
+    let modelContext = try makeModelContext()
+    let settings = AppSettings.testFixture(apiKey: "")
+    settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+      executablePath: "/usr/bin/env",
+      defaultModel: "",
+      defaultApprovalMode: "default",
+      environment: [:],
+      useACPStdIO: true
+    )
+    let session = Session.fixture(title: "OpenCode Selection Warmup")
+    modelContext.insert(settings)
+    modelContext.insert(session)
+    try modelContext.save()
+
+    let runtimeClient = RuntimeClientStub(
+      handshake: ACPExternalAgentSessionHandshake(
+        remoteSessionID: "remote-selection",
+        capabilities: ACPExternalAgentCapabilitySnapshot(
+          loadSession: true,
+          supportsSessionModelOverride: false,
+          agentVersion: "0.1.0"
+        )
+      ),
+      stopReason: .endTurn,
+      ensureSessionUpdates: [
+        .session(
+          .availableCommandsUpdate(
+            ACPAvailableCommandsUpdatePayload(
+              availableCommands: [
+                ACPAvailableCommand(
+                  description: "Run review",
+                  input: ACPAvailableCommandInput(hint: "scope"),
+                  name: "review"
+                )
+              ]
+            )
+          )
+        )
+      ],
+      updates: []
+    )
+
+    let provider = OpenCodeCLIExecutionProvider(
+      availabilityService: availabilityService(),
+      terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+      permissionCenter: ACPPermissionCenter(),
+      runtimeClientFactory: { _, _, _, _, updateSink in
+        runtimeClient.updateSink = updateSink
+        return runtimeClient
+      }
+    )
+
+    await provider.prepareForActivation(
+      session: session,
+      isActiveProvider: true,
+      modelContext: modelContext,
+      trigger: .selection
+    )
+
+    #expect(runtimeClient.ensureSessionRemoteSessionIDs.isEmpty)
+    #expect(provider.remoteCommands(localSessionID: session.sessionId).isEmpty)
   }
 
   @Test func sendRestoresFeatureStateFromSessionLoadUpdates() async throws {
@@ -879,7 +947,6 @@ struct OpenCodeCLIExecutionProviderTests {
     )
 
     let provider = OpenCodeCLIExecutionProvider(
-      sessionBridge: CopilotSessionBridge(),
       availabilityService: availabilityService(),
       terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
       permissionCenter: ACPPermissionCenter(),
@@ -1067,6 +1134,7 @@ end
     private(set) var cancelledSessionIDs: [String] = []
     private(set) var ensureSessionRemoteSessionIDs: [String?] = []
     private(set) var closeCallCount: Int = 0
+    private(set) var initializeCallCount: Int = 0
 
     init(
       handshake: ACPExternalAgentSessionHandshake,
@@ -1085,6 +1153,33 @@ end
     func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> ACPExternalAgentSessionHandshake {
       _ = workingDirectory
       ensureSessionRemoteSessionIDs.append(remoteSessionID)
+      for update in ensureSessionUpdates {
+        if let updateSink {
+          await updateSink(normalizedSessionUpdate(update))
+        }
+      }
+      return handshake
+    }
+
+    func initializeIfNeeded() async throws -> ACPExternalAgentCapabilitySnapshot {
+      initializeCallCount += 1
+      return handshake.capabilities
+    }
+
+    func loadSessionIfPossible(workingDirectory: String, remoteSessionID: String) async throws -> ACPExternalAgentSessionHandshake? {
+      _ = workingDirectory
+      ensureSessionRemoteSessionIDs.append(remoteSessionID)
+      for update in ensureSessionUpdates {
+        if let updateSink {
+          await updateSink(normalizedSessionUpdate(update))
+        }
+      }
+      return handshake
+    }
+
+    func createSession(workingDirectory: String) async throws -> ACPExternalAgentSessionHandshake {
+      _ = workingDirectory
+      ensureSessionRemoteSessionIDs.append(nil)
       for update in ensureSessionUpdates {
         if let updateSink {
           await updateSink(normalizedSessionUpdate(update))
@@ -1159,6 +1254,21 @@ end
     func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> ACPExternalAgentSessionHandshake {
       _ = workingDirectory
       _ = remoteSessionID
+      return handshake
+    }
+
+    func initializeIfNeeded() async throws -> ACPExternalAgentCapabilitySnapshot {
+      handshake.capabilities
+    }
+
+    func loadSessionIfPossible(workingDirectory: String, remoteSessionID: String) async throws -> ACPExternalAgentSessionHandshake? {
+      _ = workingDirectory
+      _ = remoteSessionID
+      return handshake
+    }
+
+    func createSession(workingDirectory: String) async throws -> ACPExternalAgentSessionHandshake {
+      _ = workingDirectory
       return handshake
     }
 

@@ -244,6 +244,19 @@ private final class EditingGitHubRuntimeStub: GitHubCopilotCLIRuntimeClient {
         return GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-review", cliVersion: "1.0.0")
     }
 
+    func initializeIfNeeded() async throws -> ACPExternalAgentCapabilitySnapshot {
+        GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-review", cliVersion: "1.0.0").capabilities
+    }
+
+    func loadSessionIfPossible(workingDirectory: String, remoteSessionID: String) async throws -> ACPExternalAgentSessionHandshake? {
+        _ = remoteSessionID
+        return try await ensureSession(workingDirectory: workingDirectory, remoteSessionID: remoteSessionID)
+    }
+
+    func createSession(workingDirectory: String) async throws -> ACPExternalAgentSessionHandshake {
+        try await ensureSession(workingDirectory: workingDirectory, remoteSessionID: nil)
+    }
+
     func setModel(_ modelID: String, sessionID: String) async throws {
         _ = modelID
         _ = sessionID

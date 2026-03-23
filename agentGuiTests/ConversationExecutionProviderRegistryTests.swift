@@ -300,8 +300,14 @@ private final class ProviderSpy: ConversationExecutionProvider {
         }
     }
 
-    func prepareForActivation(session: Session, isActiveProvider: Bool, modelContext: ModelContext) async {
+    func prepareForActivation(
+        session: Session,
+        isActiveProvider: Bool,
+        modelContext: ModelContext,
+        trigger: ConversationExecutionActivationTrigger
+    ) async {
         _ = modelContext
+        _ = trigger
         guard runtimeScope == .externalACP else { return }
 
         let sessionIDsToDeactivate: [String]

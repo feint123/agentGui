@@ -107,6 +107,9 @@ struct ChatView: View {
                 ChatReadableWidthContainer {
                     messagesArea
                 }
+                .task(id: currentMessageListProjectionTrigger) {
+                    await refreshMessageListSnapshotForCurrentState()
+                }
                 ChatReadableWidthContainer {
                     inputArea
                 }
@@ -200,10 +203,7 @@ extension ChatView {
     func bootstrapSessionViewState() async {
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
-                await refreshMessageListSnapshot(
-                    for: currentMessageListProjectionTrigger,
-                    showsLoadingPlaceholder: true
-                )
+                await refreshMessageListSnapshotForCurrentState(showsLoadingPlaceholder: true)
             }
             group.addTask {
                 await refreshRecoverySummary()

@@ -32,6 +32,17 @@ final class ACPExternalSessionTurnRouter {
         phases[sessionID] == .liveTurn
     }
 
+    func runtimePhase(for sessionID: String) -> ACPSessionRuntimePhase {
+        switch phases[sessionID] ?? .idle {
+        case .idle:
+            return .idle
+        case .restoring:
+            return .restoring
+        case .liveTurn:
+            return .sendingTurn
+        }
+    }
+
     func reset(sessionID: String) {
         phases.removeValue(forKey: sessionID)
     }

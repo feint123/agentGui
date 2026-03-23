@@ -38,7 +38,7 @@ extension ACPExternalAgentSessionHandshake {
 }
 
 @MainActor
-protocol GitHubCopilotCLIRuntimeClient: ACPExternalProviderRuntimeClient {}
+protocol GitHubCopilotCLIRuntimeClient: ACPExternalProviderRuntimeClient, ACPExternalProviderRuntimeTransportClient {}
 
 extension ACPExternalAgentRuntimeClient: GitHubCopilotCLIRuntimeClient {}
 
@@ -48,7 +48,7 @@ typealias GitHubCopilotCLIRuntimeClientFactory = @MainActor (
     ToolAuthorizationPolicy,
     @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
     @escaping @Sendable (CopilotACPUpdate) async -> Void
-) throws -> any ACPExternalProviderRuntimeClient
+) throws -> any GitHubCopilotCLIRuntimeClient
 
 @MainActor
 final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCLIConfiguration> {
@@ -58,7 +58,6 @@ final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<
 
     init(
         runtimeFactory: GitHubCopilotCLIRuntimeFactory = GitHubCopilotCLIRuntimeFactory(),
-        sessionBridge: CopilotSessionBridge = CopilotSessionBridge(),
         availabilityService: GitHubCopilotCLIAvailabilityService = GitHubCopilotCLIAvailabilityService(),
         terminalRuntimeFactory: @escaping (String, String?) -> TerminalTaskRuntime,
         sessionRuntimeResetter: @escaping @MainActor (String) -> Void = { _ in },
@@ -71,7 +70,6 @@ final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<
         self.runtimeClientFactory = runtimeClientFactory
         super.init(
             providerID: .githubCopilotCLI,
-            sessionBridge: sessionBridge,
             terminalRuntimeFactory: terminalRuntimeFactory,
             sessionRuntimeResetter: sessionRuntimeResetter,
             permissionCenter: permissionCenter,
@@ -111,7 +109,7 @@ final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<
         authorizationPolicy: ToolAuthorizationPolicy,
         permissionResolver: @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
         updateSink: @escaping @Sendable (CopilotACPUpdate) async -> Void
-    ) async throws -> any ACPExternalProviderRuntimeClient {
+    ) async throws -> any ACPExternalProviderRuntimeTransportClient {
         let launchConfiguration = runtimeFactory.makeLaunchConfiguration(
             executablePath: configuration.executablePath,
             workingDirectory: workingDirectory

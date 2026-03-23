@@ -7,7 +7,8 @@ struct ConversationExecutionRuntimeCoordinator {
         session: Session,
         activeProvider: any ConversationExecutionProvider,
         registry: ConversationExecutionProviderRegistry,
-        modelContext: ModelContext
+        modelContext: ModelContext,
+        trigger: ConversationExecutionActivationTrigger
     ) async {
         guard let runtimeScope = activeProvider.runtimeScope else {
             return
@@ -17,7 +18,8 @@ struct ConversationExecutionRuntimeCoordinator {
             await provider.prepareForActivation(
                 session: session,
                 isActiveProvider: provider.id == activeProvider.id,
-                modelContext: modelContext
+                modelContext: modelContext,
+                trigger: trigger
             )
         }
     }

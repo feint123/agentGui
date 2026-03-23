@@ -1,6 +1,7 @@
 import Testing
 @testable import agentGui
 
+@MainActor
 struct ChatMessageListPresentationStateTests {
     @Test func loadingStateWinsBeforeInitialSnapshotArrives() {
         let state = ChatMessageListPresentationState.resolve(

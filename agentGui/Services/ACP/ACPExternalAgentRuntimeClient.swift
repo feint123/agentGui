@@ -107,7 +107,7 @@ private actor ACPExternalAgentClientHandler: ACPClientHandler {
 }
 
 @MainActor
-final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient {
+final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACPExternalProviderRuntimeTransportClient {
     nonisolated private static let defaultLoadSessionTimeoutNanoseconds: UInt64 = 15_000_000_000
     nonisolated private static let defaultInitializeTimeoutNanoseconds: UInt64 = 15_000_000_000
 
@@ -210,12 +210,10 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient {
         if let remoteSessionID = remoteSessionID?.nonEmptyValue,
            capabilities.loadSession {
             debugLog("ensureSession attempting restore remote=\(remoteSessionID)")
-            if let handshake = await restoreSessionIfPossible(
+            if let handshake = try await loadSessionIfPossible(
                 workingDirectory: workingDirectory,
-                remoteSessionID: remoteSessionID,
-                capabilities: capabilities
+                remoteSessionID: remoteSessionID
             ) {
-                attachedSessionHandshake = handshake
                 debugLog("ensureSession restored remote=\(handshake.remoteSessionID)")
                 return handshake
             }
@@ -224,13 +222,40 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient {
             debugLog("ensureSession skip restore remote=\(remoteSessionID) reason=capability-disabled")
         }
 
-        debugLog("ensureSession requesting newSession cwd=\(workingDirectory)")
+        return try await createSession(workingDirectory: workingDirectory)
+    }
+
+    func loadSessionIfPossible(
+        workingDirectory: String,
+        remoteSessionID: String
+    ) async throws -> ACPExternalAgentSessionHandshake? {
+        let capabilities = try await initializeIfNeeded()
+        guard capabilities.loadSession else {
+            debugLog("loadSession skipped remote=\(remoteSessionID) reason=capability-disabled")
+            return nil
+        }
+
+        if let handshake = await restoreSessionIfPossible(
+            workingDirectory: workingDirectory,
+            remoteSessionID: remoteSessionID,
+            capabilities: capabilities
+        ) {
+            attachedSessionHandshake = handshake
+            return handshake
+        }
+
+        return nil
+    }
+
+    func createSession(workingDirectory: String) async throws -> ACPExternalAgentSessionHandshake {
+        let capabilities = try await initializeIfNeeded()
+        debugLog("createSession start cwd=\(workingDirectory)")
         let response = try await managedRuntime.runtime.newSession(
             ACPNewSessionRequest(cwd: workingDirectory)
         )
         let handshake = ACPExternalAgentSessionHandshake(remoteSessionID: response.sessionID, capabilities: capabilities)
         attachedSessionHandshake = handshake
-        debugLog("ensureSession newSession ready remote=\(handshake.remoteSessionID)")
+        debugLog("createSession complete remote=\(handshake.remoteSessionID)")
         return handshake
     }
 
@@ -315,7 +340,7 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient {
         debugLog("loadSession complete remote=\(request.sessionID)")
     }
 
-    private func initializeIfNeeded() async throws -> ACPExternalAgentCapabilitySnapshot {
+    func initializeIfNeeded() async throws -> ACPExternalAgentCapabilitySnapshot {
         if let capabilitySnapshot {
             debugLog("initialize reuse cached capabilities")
             return capabilitySnapshot

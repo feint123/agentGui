@@ -251,10 +251,11 @@ extension ClaudeService {
     func handleExecutionProviderSelectionChange(
         session: Session,
         selectedProviderID: ConversationExecutionProviderID,
-        modelContext: ModelContext
+        modelContext: ModelContext,
+        trigger: ConversationExecutionActivationTrigger = .selection
     ) async {
         print(
-            "[ExecutionProviderSelection] localSession=\(session.sessionId) selectedProvider=\(selectedProviderID.rawValue)"
+            "[ExecutionProviderSelection] localSession=\(session.sessionId) selectedProvider=\(selectedProviderID.rawValue) trigger=\(String(describing: trigger))"
         )
         let registry = executionProviderRegistry(for: modelContext)
         let activeProvider = registry.allProviders.first(where: { $0.id == selectedProviderID }) ?? registry.builtIn
@@ -262,7 +263,8 @@ extension ClaudeService {
             session: session,
             activeProvider: activeProvider,
             registry: registry,
-            modelContext: modelContext
+            modelContext: modelContext,
+            trigger: trigger
         )
     }
 

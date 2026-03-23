@@ -12,25 +12,22 @@ actor CopilotSessionBridge {
         var lastSelectedAgentName: String?
     }
 
-    private var bindingsBySessionID: [String: [ConversationExecutionProviderID: Binding]] = [:]
-
     func binding(for sessionID: String, providerID: ConversationExecutionProviderID) -> Binding? {
-        bindingsBySessionID[sessionID]?[providerID]
+        _ = sessionID
+        _ = providerID
+        return nil
     }
 
     func upsert(_ binding: Binding) {
-        var bindings = bindingsBySessionID[binding.sessionID] ?? [:]
-        bindings[binding.providerID] = binding
-        bindingsBySessionID[binding.sessionID] = bindings
+        _ = binding
     }
 
     func removeBinding(for sessionID: String, providerID: ConversationExecutionProviderID) {
-        guard var bindings = bindingsBySessionID[sessionID] else { return }
-        bindings.removeValue(forKey: providerID)
-        bindingsBySessionID[sessionID] = bindings.isEmpty ? nil : bindings
+        _ = sessionID
+        _ = providerID
     }
 
     func removeBindings(for sessionID: String) {
-        bindingsBySessionID.removeValue(forKey: sessionID)
+        _ = sessionID
     }
 }

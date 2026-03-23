@@ -16,7 +16,7 @@ enum OpenCodeCLIExecutionProviderError: LocalizedError {
 }
 
 @MainActor
-protocol OpenCodeCLIRuntimeClient: ACPExternalProviderRuntimeClient {}
+protocol OpenCodeCLIRuntimeClient: ACPExternalProviderRuntimeClient, ACPExternalProviderRuntimeTransportClient {}
 
 extension ACPExternalAgentRuntimeClient: OpenCodeCLIRuntimeClient {}
 
@@ -36,7 +36,6 @@ final class OpenCodeCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCL
 
     init(
         runtimeFactory: OpenCodeCLIRuntimeFactory = OpenCodeCLIRuntimeFactory(),
-        sessionBridge: CopilotSessionBridge = CopilotSessionBridge(),
         availabilityService: OpenCodeCLIAvailabilityService = OpenCodeCLIAvailabilityService(),
         terminalRuntimeFactory: @escaping (String, String?) -> TerminalTaskRuntime,
         sessionRuntimeResetter: @escaping @MainActor (String) -> Void = { _ in },
@@ -49,7 +48,6 @@ final class OpenCodeCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCL
         self.runtimeClientFactory = runtimeClientFactory
         super.init(
             providerID: .openCodeCLI,
-            sessionBridge: sessionBridge,
             terminalRuntimeFactory: terminalRuntimeFactory,
             sessionRuntimeResetter: sessionRuntimeResetter,
             permissionCenter: permissionCenter,
@@ -89,7 +87,7 @@ final class OpenCodeCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCL
         authorizationPolicy: ToolAuthorizationPolicy,
         permissionResolver: @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
         updateSink: @escaping @Sendable (CopilotACPUpdate) async -> Void
-    ) async throws -> any ACPExternalProviderRuntimeClient {
+    ) async throws -> any ACPExternalProviderRuntimeTransportClient {
         let launchConfiguration = runtimeFactory.makeLaunchConfiguration(
             executablePath: configuration.executablePath,
             workingDirectory: workingDirectory

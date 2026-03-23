@@ -7,12 +7,27 @@ import SwiftUI
 
 extension ChatView {
 
-    var currentMessageListProjectionTrigger: ChatMessageListProjectionTrigger {
+    var currentMessageListWorkspaceRoot: String {
         let globalWorkingDirectory = AppSettings.getOrCreate(in: modelContext).workingDirectory
-        let effectiveWorkspaceRoot = workspaceState.effectiveWorkingDirectory(globalDefault: globalWorkingDirectory)
-        return ChatMessageListProjectionTrigger(
+        return workspaceState.effectiveWorkingDirectory(globalDefault: globalWorkingDirectory)
+    }
+
+    var currentMessageListProjectionTrigger: ChatMessageListProjectionTrigger {
+        ChatMessageListProjectionTrigger(
             messages: allMessages,
-            workspaceRoot: effectiveWorkspaceRoot
+            workspaceRoot: currentMessageListWorkspaceRoot
+        )
+    }
+
+    func refreshMessageListSnapshotForCurrentState(
+        showsLoadingPlaceholder: Bool = false
+    ) async {
+        let projectedMessages = allMessages
+        let workspaceRoot = currentMessageListWorkspaceRoot
+        await refreshMessageListSnapshot(
+            messages: projectedMessages,
+            workspaceRoot: workspaceRoot,
+            showsLoadingPlaceholder: showsLoadingPlaceholder
         )
     }
 
@@ -99,8 +114,13 @@ extension ChatView {
     }
 
     var messageListView: some View {
-        let projectionTrigger = currentMessageListProjectionTrigger
-        let messagesByID = Dictionary(uniqueKeysWithValues: allMessages.map { ($0.id, $0) })
+        let projectedMessages = allMessages
+        let workspaceRoot = currentMessageListWorkspaceRoot
+        let projectionTrigger = ChatMessageListProjectionTrigger(
+            messages: projectedMessages,
+            workspaceRoot: workspaceRoot
+        )
+        let messagesByID = Dictionary(uniqueKeysWithValues: projectedMessages.map { ($0.id, $0) })
 
         return ScrollViewReader { proxy in
             List {
@@ -147,7 +167,7 @@ extension ChatView {
             .listStyle(.plain)
             .accessibilityIdentifier("chat.messageList")
             .task(id: projectionTrigger) {
-                await refreshMessageListSnapshot(for: projectionTrigger)
+                await refreshMessageListSnapshotForCurrentState()
             }
             .onChange(of: allMessages.last?.id) { _, _ in
                 guard let last = allMessages.last else { return }
@@ -180,7 +200,8 @@ extension ChatView {
     }
 
     func refreshMessageListSnapshot(
-        for projectionTrigger: ChatMessageListProjectionTrigger,
+        messages: [Message],
+        workspaceRoot: String,
         showsLoadingPlaceholder: Bool = false
     ) async {
         if showsLoadingPlaceholder {
@@ -193,18 +214,20 @@ extension ChatView {
             }
         }
 
-        guard messageListProjectionTrigger != projectionTrigger else {
-            return
-        }
-
         await Task.yield()
         guard !Task.isCancelled else { return }
 
-        messageListSnapshot = ChatMessageListSnapshotBuilder.build(
-            messages: allMessages,
-            workspaceRoot: projectionTrigger.workspaceRoot,
-            previous: messageListSnapshot.cache
+        let refreshResult = ChatMessageListProjectionRefreshCoordinator.refresh(
+            previousTrigger: messageListProjectionTrigger,
+            previousSnapshot: messageListSnapshot,
+            messages: messages,
+            workspaceRoot: workspaceRoot
         )
-        messageListProjectionTrigger = projectionTrigger
+        guard refreshResult.didRefresh else {
+            return
+        }
+
+        messageListSnapshot = refreshResult.snapshot
+        messageListProjectionTrigger = refreshResult.trigger
     }
 }

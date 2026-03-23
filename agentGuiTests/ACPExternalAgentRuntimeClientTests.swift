@@ -4,6 +4,52 @@ import Testing
 
 @MainActor
 struct ACPExternalAgentRuntimeClientTests {
+    @Test func loadSessionIfPossibleReturnsNilWhenRestoreFails() async throws {
+        let workingDirectory = makeTemporaryDirectory()
+        let client = try ACPExternalAgentRuntimeClient(
+            launchConfiguration: ACPExternalAgentLaunchConfiguration(
+                command: "/usr/bin/ruby",
+                arguments: ["-rjson", "-e", failingLoadSessionRubyAgentScript.replacingOccurrences(of: "remote-new-after-fallback", with: "remote-should-not-create")],
+                environmentOverrides: [:],
+                currentDirectoryURL: workingDirectory
+            ),
+            terminalRuntime: TerminalTaskRuntime.makeForTests(),
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
+            eventSink: { _ in }
+        )
+
+        let handshake = try await client.loadSessionIfPossible(
+            workingDirectory: workingDirectory.path,
+            remoteSessionID: "remote-existing"
+        )
+
+        #expect(handshake == nil)
+
+        await client.close()
+    }
+
+    @Test func createSessionReturnsFreshHandshake() async throws {
+        let workingDirectory = makeTemporaryDirectory()
+        let client = try ACPExternalAgentRuntimeClient(
+            launchConfiguration: ACPExternalAgentLaunchConfiguration(
+                command: "/usr/bin/ruby",
+                arguments: ["-rjson", "-e", noLoadSessionRubyAgentScript],
+                environmentOverrides: [:],
+                currentDirectoryURL: workingDirectory
+            ),
+            terminalRuntime: TerminalTaskRuntime.makeForTests(),
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
+            eventSink: { _ in }
+        )
+
+        let handshake = try await client.createSession(workingDirectory: workingDirectory.path)
+
+        #expect(handshake.remoteSessionID == "remote-new")
+        #expect(handshake.capabilities.loadSession == false)
+
+        await client.close()
+    }
+
     @Test func ensureSessionFallsBackToNewSessionWhenLoadIsNotAdvertised() async throws {
         let workingDirectory = makeTemporaryDirectory()
         let client = try ACPExternalAgentRuntimeClient(
