@@ -165,6 +165,139 @@ struct GitPanelViewModelTests {
 
         #expect(viewModel.branchActionError == "fatal: invalid reference: missing-branch")
     }
+
+    @Test func stageRefreshesSnapshotAfterMutation() async throws {
+        let service = FakeGitService()
+        let workspaceState = WorkspaceState()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/repo")
+        let initialSnapshot = GitRepositorySnapshot.fixture()
+        let stagedSnapshot = GitRepositorySnapshot.fixture(
+            stagedChanges: [initialSnapshot.unstagedChanges[0]],
+            unstagedChanges: []
+        )
+        service.snapshot = initialSnapshot
+
+        let viewModel = GitPanelViewModel(gitService: service)
+        await viewModel.refresh(for: workingDirectory, workspaceState: workspaceState)
+
+        service.snapshot = stagedSnapshot
+        await viewModel.stage(change: initialSnapshot.unstagedChanges[0], workspaceState: workspaceState)
+
+        #expect(service.stagedChanges == [initialSnapshot.unstagedChanges[0].relativePath])
+        #expect(viewModel.snapshot?.stagedChanges.contains(where: { $0.relativePath == initialSnapshot.unstagedChanges[0].relativePath }) == true)
+        #expect(service.refreshInputs.count == 2)
+    }
+
+    @Test func unstageRefreshesSnapshotAfterMutation() async throws {
+        let service = FakeGitService()
+        let workspaceState = WorkspaceState()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/repo")
+        let initialSnapshot = GitRepositorySnapshot.fixture()
+        let unstagedSnapshot = GitRepositorySnapshot.fixture(
+            stagedChanges: [],
+            unstagedChanges: [initialSnapshot.stagedChanges[0]]
+        )
+        service.snapshot = initialSnapshot
+
+        let viewModel = GitPanelViewModel(gitService: service)
+        await viewModel.refresh(for: workingDirectory, workspaceState: workspaceState)
+
+        service.snapshot = unstagedSnapshot
+        await viewModel.unstage(change: initialSnapshot.stagedChanges[0], workspaceState: workspaceState)
+
+        #expect(service.unstagedChanges == [initialSnapshot.stagedChanges[0].relativePath])
+        #expect(viewModel.snapshot?.unstagedChanges.contains(where: { $0.relativePath == initialSnapshot.stagedChanges[0].relativePath }) == true)
+    }
+
+    @Test func discardRefreshesSnapshotAfterMutation() async throws {
+        let service = FakeGitService()
+        let workspaceState = WorkspaceState()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/repo")
+        let initialSnapshot = GitRepositorySnapshot.fixture()
+        let cleanSnapshot = GitRepositorySnapshot.fixture(stagedChanges: [], unstagedChanges: [], untrackedChanges: [])
+        service.snapshot = initialSnapshot
+
+        let viewModel = GitPanelViewModel(gitService: service)
+        await viewModel.refresh(for: workingDirectory, workspaceState: workspaceState)
+
+        service.snapshot = cleanSnapshot
+        await viewModel.discard(change: initialSnapshot.unstagedChanges[0], workspaceState: workspaceState)
+
+        #expect(service.discardedChanges == [initialSnapshot.unstagedChanges[0].relativePath])
+        #expect(viewModel.snapshot?.unstagedChanges.isEmpty == true)
+    }
+
+    @Test func commitRefreshesSnapshotAndClearsBranchActionError() async throws {
+        let service = FakeGitService()
+        let workspaceState = WorkspaceState()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/repo")
+        service.snapshot = .fixture()
+
+        let viewModel = GitPanelViewModel(gitService: service)
+        await viewModel.refresh(for: workingDirectory, workspaceState: workspaceState)
+
+        service.snapshot = .fixture(stagedChanges: [], unstagedChanges: [], untrackedChanges: [])
+        await viewModel.commit(draft: GitCommitDraft(summary: "feat: sidebar", description: ""), workspaceState: workspaceState)
+
+        #expect(service.committedDrafts.map(\.summary) == ["feat: sidebar"])
+        #expect(viewModel.branchActionError == nil)
+        #expect(viewModel.snapshot?.stagedChanges.isEmpty == true)
+    }
+
+    @Test func createBranchRefreshesSnapshotAndBranchList() async throws {
+        let service = FakeGitService()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/repo")
+        service.snapshot = .fixture(branchName: "main")
+        service.branches = [.init(name: "main", isCurrent: true)]
+
+        let viewModel = GitPanelViewModel(gitService: service)
+        await viewModel.refresh(for: workingDirectory)
+
+        service.snapshot = .fixture(branchName: "feature/git-sidebar")
+        service.branches = [
+            .init(name: "main", isCurrent: false),
+            .init(name: "feature/git-sidebar", isCurrent: true)
+        ]
+        await viewModel.createBranch(named: "feature/git-sidebar", switchAfterCreate: true)
+
+        #expect(service.createdBranches.count == 1)
+        #expect(service.createdBranches.first?.name == "feature/git-sidebar")
+        #expect(viewModel.snapshot?.branchName == "feature/git-sidebar")
+    }
+
+    @Test func fetchPullAndPushDelegateToService() async throws {
+        let service = FakeGitService()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/repo")
+        service.snapshot = .fixture(branchName: "main")
+        service.branches = [.init(name: "main", isCurrent: true)]
+
+        let viewModel = GitPanelViewModel(gitService: service)
+        await viewModel.refresh(for: workingDirectory)
+        await viewModel.fetch()
+        await viewModel.pull()
+        await viewModel.push()
+
+        #expect(service.fetchedRepositoryRoots.count == 1)
+        #expect(service.pulledRepositoryRoots.count == 1)
+        #expect(service.pushedRepositoryRoots.count == 1)
+    }
+
+    @Test func stashActionsDelegateToService() async throws {
+        let service = FakeGitService()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/repo")
+        service.snapshot = .fixture(branchName: "main")
+        service.branches = [.init(name: "main", isCurrent: true)]
+
+        let viewModel = GitPanelViewModel(gitService: service)
+        await viewModel.refresh(for: workingDirectory)
+        await viewModel.saveStash(message: "wip sidebar")
+        await viewModel.applyStash(id: "stash@{0}", pop: true)
+
+        #expect(service.savedStashMessages == ["wip sidebar"])
+        #expect(service.appliedStashes.count == 1)
+        #expect(service.appliedStashes.first?.id == "stash@{0}")
+        #expect(service.appliedStashes.first?.pop == true)
+    }
 }
 
 private final class FakeGitService: GitServicing {
@@ -176,6 +309,17 @@ private final class FakeGitService: GitServicing {
     var diffRequests: [(path: String, staged: Bool, root: URL)] = []
     var switchedBranches: [String] = []
     var switchBranchError: GitServiceError?
+    var stagedChanges: [String] = []
+    var unstagedChanges: [String] = []
+    var discardedChanges: [String] = []
+    var committedDrafts: [GitCommitDraft] = []
+    var fetchedRepositoryRoots: [URL] = []
+    var pulledRepositoryRoots: [URL] = []
+    var pushedRepositoryRoots: [URL] = []
+    var createdBranches: [(name: String, switchAfterCreate: Bool)] = []
+    var stashes: [GitStashEntry] = []
+    var savedStashMessages: [String?] = []
+    var appliedStashes: [(id: String, pop: Bool)] = []
 
     func repositorySnapshot(for workingDirectory: URL) async throws -> GitRepositorySnapshot {
         refreshInputs.append(workingDirectory)
@@ -195,6 +339,50 @@ private final class FakeGitService: GitServicing {
     func diff(for change: GitFileChange, staged: Bool, repositoryRoot: URL) async throws -> String {
         diffRequests.append((change.relativePath, staged, repositoryRoot))
         return diffText
+    }
+
+    func stage(change: GitFileChange, repositoryRoot: URL) async throws {
+        stagedChanges.append(change.relativePath)
+    }
+
+    func unstage(change: GitFileChange, repositoryRoot: URL) async throws {
+        unstagedChanges.append(change.relativePath)
+    }
+
+    func discard(change: GitFileChange, repositoryRoot: URL) async throws {
+        discardedChanges.append(change.relativePath)
+    }
+
+    func commit(draft: GitCommitDraft, repositoryRoot: URL) async throws {
+        committedDrafts.append(draft)
+    }
+
+    func fetch(repositoryRoot: URL) async throws {
+        fetchedRepositoryRoots.append(repositoryRoot)
+    }
+
+    func pull(repositoryRoot: URL) async throws {
+        pulledRepositoryRoots.append(repositoryRoot)
+    }
+
+    func push(repositoryRoot: URL) async throws {
+        pushedRepositoryRoots.append(repositoryRoot)
+    }
+
+    func createBranch(named: String, switchAfterCreate: Bool, repositoryRoot: URL) async throws {
+        createdBranches.append((named, switchAfterCreate))
+    }
+
+    func listStashes(repositoryRoot: URL) async throws -> [GitStashEntry] {
+        stashes
+    }
+
+    func saveStash(message: String?, repositoryRoot: URL) async throws {
+        savedStashMessages.append(message)
+    }
+
+    func applyStash(id: String, pop: Bool, repositoryRoot: URL) async throws {
+        appliedStashes.append((id, pop))
     }
 }
 

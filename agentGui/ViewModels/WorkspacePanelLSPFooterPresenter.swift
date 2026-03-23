@@ -16,8 +16,8 @@ struct WorkspacePanelLSPFooterPresenter {
         )
     }
 
-    func tone(for stateText: String) -> LSPStatusPresentationTone {
-        LSPStatusPresentationTone.tone(for: stateText)
+    func tone(for stateText: String) -> WorkbenchLSPStatusTone {
+        WorkbenchLSPStatusTone.tone(for: stateText)
     }
 
     func managementViewModel(onPersistSettings: @escaping (String, () -> Void) -> Bool) -> LSPManagementViewModel {

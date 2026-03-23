@@ -5,6 +5,7 @@ struct GitPanelView: View {
 
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
     @Environment(WorkspaceState.self) private var workspaceState
+    @State private var sidebarViewModel: GitSidebarViewModel?
 
     init(showsBackground: Bool = true) {
         self.showsBackground = showsBackground
@@ -14,9 +15,12 @@ struct GitPanelView: View {
         VStack(alignment: .leading, spacing: 8) {
             header
 
-            if let snapshot = gitPanelViewModel.snapshot {
-                summary(snapshot)
-                branchSwitcher
+            if let sidebarViewModel, let snapshot = gitPanelViewModel.snapshot {
+                GitSidebarOverviewSection(snapshot: snapshot, operationState: gitPanelViewModel.operationState)
+                GitSidebarChangesSection(sidebarViewModel: sidebarViewModel, workspaceState: workspaceState)
+                GitSidebarCommitSection(sidebarViewModel: sidebarViewModel, workspaceState: workspaceState)
+                GitSidebarBranchSection(sidebarViewModel: sidebarViewModel, workspaceState: workspaceState)
+                GitSidebarUtilitiesSection(sidebarViewModel: sidebarViewModel, workspaceState: workspaceState)
             } else if gitPanelViewModel.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -34,6 +38,11 @@ struct GitPanelView: View {
             }
         }
         .accessibilityIdentifier("git.panel")
+        .task {
+            if sidebarViewModel == nil {
+                sidebarViewModel = GitSidebarViewModel(panelViewModel: gitPanelViewModel)
+            }
+        }
         .alert(
             "Git 操作失败",
             isPresented: Binding(
@@ -73,69 +82,6 @@ struct GitPanelView: View {
         }
     }
 
-    private func summary(_ snapshot: GitRepositorySnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(snapshot.repositoryName)
-                        .font(.subheadline.weight(.semibold))
-                        .accessibilityIdentifier("git.summary.repository")
-                    Text(snapshot.branchName)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("git.summary.branch")
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 10) {
-                statPill("Staged", count: snapshot.stagedChanges.count)
-                statPill("Modified", count: snapshot.unstagedChanges.count)
-                statPill("Untracked", count: snapshot.untrackedChanges.count)
-            }
-            .accessibilityIdentifier("git.panel.summary")
-
-            if snapshot.hasRemoteTrackingBranch {
-                Text("Ahead \(snapshot.aheadCount) · Behind \(snapshot.behindCount)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if snapshot.stagedChanges.isEmpty && snapshot.unstagedChanges.isEmpty && snapshot.untrackedChanges.isEmpty {
-                Text("工作区干净")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var branchSwitcher: some View {
-        HStack(spacing: 8) {
-            Menu {
-                if gitPanelViewModel.availableBranches.isEmpty {
-                    Text("暂无可切换分支")
-                } else {
-                    ForEach(gitPanelViewModel.availableBranches) { branch in
-                        Button(branch.name) {
-                            Task { await gitPanelViewModel.switchBranch(to: branch.name) }
-                        }
-                        .disabled(branch.isCurrent || gitPanelViewModel.isSwitchingBranch)
-                    }
-                }
-            } label: {
-                Label(gitPanelViewModel.isSwitchingBranch ? "切换中..." : "切换分支", systemImage: "arrow.triangle.branch")
-                    .font(.caption)
-            }
-            .accessibilityIdentifier("git.branch.menu")
-            .disabled(gitPanelViewModel.availableBranches.isEmpty)
-
-            Spacer(minLength: 0)
-        }
-    }
-
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("当前目录不是 Git 仓库")
@@ -144,18 +90,6 @@ struct GitPanelView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private func statPill(_ title: String, count: Int) -> some View {
-        HStack(spacing: 4) {
-            Text(title)
-            Text("\(count)")
-                .monospacedDigit()
-        }
-        .font(.caption)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(Color.primary.opacity(0.06), in: Capsule())
     }
 
     private var activeErrorMessage: String? {
