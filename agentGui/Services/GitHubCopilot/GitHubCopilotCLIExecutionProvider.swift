@@ -79,7 +79,7 @@ final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<
     }
 
     override func resolveConfiguration(for session: Session, settings: AppSettings) -> ACPCLIConfiguration {
-        settings.githubCopilotCLIConfiguration
+        SessionExecutionPreferencesResolver.gitHubCopilotCLIConfiguration(for: session, settings: settings)
     }
 
     override func useACPStdIO(configuration: ACPCLIConfiguration) -> Bool {

@@ -106,30 +106,39 @@ struct SessionListView: View {
     }
 
     private var emptyStateView: some View {
-        ContentUnavailableView {
-            Label("暂无对话", systemImage: "bubble.left.and.bubble.right")
-        } description: {
-            Text("点击右上角的 + 开始新对话")
-        } actions: {
-            Button {
-                createNewSession()
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 36, height: 36)
-            }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive().tint(Color.accentColor.opacity(0.3)), in: Circle())
-            .accessibilityIdentifier("sessionList.createButton")
+        WorkbenchSidebarEmptyStateView(
+            systemImage: "bubble.left.and.bubble.right",
+            title: "暂无对话",
+            message: "点击右上角的 + 开始新对话"
+        ) {
+            Button("新建对话", action: createNewSession)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("sessionList.createButton")
         }
         .accessibilityIdentifier("sessionList.emptyState")
     }
 
     private var searchEmptyStateView: some View {
-        ContentUnavailableView {
-            Label("未找到匹配会话", systemImage: "magnifyingglass")
-        } description: {
-            Text("尝试修改搜索词，或新建一个本地会话。")
+        WorkbenchSidebarEmptyStateView(
+            systemImage: "magnifyingglass",
+            title: "未找到匹配会话",
+            message: viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "尝试修改搜索词，或新建一个本地会话。"
+                : "“\(viewModel.searchText)” 没有结果"
+        ) {
+            HStack(spacing: 8) {
+                Button("清空搜索") {
+                    viewModel.searchText = ""
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button("新建对话", action: createNewSession)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("sessionList.createButton")
+            }
         }
         .accessibilityIdentifier("sessionList.searchEmptyState")
     }

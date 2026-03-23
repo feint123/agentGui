@@ -244,37 +244,19 @@ struct WorkspacePanelView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "folder")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(.tertiary)
-            VStack(spacing: 4) {
-                Text("无工作目录")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.secondary)
-                Text("从\"文件\"菜单打开或切换工作区")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        WorkbenchSidebarEmptyStateView(
+            systemImage: "folder",
+            title: "无工作目录",
+            message: "从\"文件\"菜单打开或切换工作区"
+        )
     }
 
     private var searchEmptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "folder" : "magnifyingglass")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(.tertiary)
-            VStack(spacing: 4) {
-                Text(treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "当前目录为空" : "未找到匹配项")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.secondary)
-                Text(treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "使用上方\"新建\"菜单创建文件或文件夹" : "尝试更换关键字或清空搜索")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        WorkbenchSidebarEmptyStateView(
+            systemImage: treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "folder" : "magnifyingglass",
+            title: treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "当前目录为空" : "未找到匹配项",
+            message: treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "使用上方\"新建\"菜单创建文件或文件夹" : "尝试更换关键字或清空搜索"
+        )
         .accessibilityIdentifier("workspace.searchEmptyState")
     }
 

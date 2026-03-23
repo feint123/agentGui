@@ -43,16 +43,17 @@ struct WorkbenchConversationPane: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("无对话", systemImage: "bubble.left.and.bubble.right")
-        } description: {
-            Text("点击左侧会话页或工具栏的 + 开始新对话")
-        } actions: {
-            Button("新建对话") {
-                createNewSession()
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("chat.newSessionButton")
+        VStack {
+            Spacer(minLength: 0)
+
+            WorkbenchConversationEmptyStateCard(
+                action: createNewSession,
+                buttonAccessibilityIdentifier: "chat.newSessionButton"
+            )
+            .frame(maxWidth: 380)
+            .padding(.horizontal, 24)
+
+            Spacer(minLength: 0)
         }
     }
 

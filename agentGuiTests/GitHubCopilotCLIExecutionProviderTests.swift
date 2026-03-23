@@ -714,6 +714,62 @@ struct GitHubCopilotCLIExecutionProviderTests {
         #expect(binding?.lastSelectedModel == nil)
     }
 
+    @Test func sendUsesSessionScopedCopilotModelOverride() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "gpt-5",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Session Override")
+        session.executionPreferences = SessionExecutionPreferences(
+            builtInModelID: nil,
+            gitHubCopilotCLI: GitHubCopilotCLISessionPreferences(modelID: "gpt-5-mini", approvalMode: nil)
+        )
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let runtimeClient = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-model", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "hello copilot",
+                session: session,
+                modelID: "claude-sonnet-4-6",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        let binding = try ACPExternalSessionBindingStore(modelContext: modelContext).binding(
+            for: session.sessionId,
+            providerID: .githubCopilotCLI
+        )
+
+        #expect(runtimeClient.setModelRequests.count == 1)
+        #expect(runtimeClient.setModelRequests.first?.0 == "gpt-5-mini")
+        #expect(binding?.lastSelectedModel == "gpt-5-mini")
+    }
+
     @Test func sendMapsDefaultApprovalModeToDefaultApprovals() async throws {
         let approvalMode = try await capturedApprovalMode(for: "default")
         #expect(approvalMode == .defaultApprovals)
