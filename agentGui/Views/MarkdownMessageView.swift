@@ -330,56 +330,273 @@ private struct MarkdownInlineTextBlock: View {
 
 // MARK: - Table View
 
+@MainActor
+struct MarkdownTableCellContent {
+    let sourceText: String
+    let renderedContent: BlockInlineMarkdownRenderedContent
+
+    init(_ sourceText: String) {
+        self.sourceText = sourceText
+        self.renderedContent = BlockInlineMarkdownRendering.renderedContent(for: sourceText)
+    }
+}
+
+@MainActor
+struct MarkdownTableLayout {
+    let alignments: [HorizontalAlignment]
+    let headerCells: [MarkdownTableCellContent]
+    let rowCells: [[MarkdownTableCellContent]]
+    let columnWidths: [CGFloat]
+    let totalWidth: CGFloat
+
+    private static let cellHorizontalPadding: CGFloat = 24
+    private static let minColumnWidth: CGFloat = 120
+    private static let maxColumnWidth: CGFloat = 340
+    private static let headerFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+    private static let bodyFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+
+    init(
+        headers: [String],
+        rows: [[String]],
+        alignments: [HorizontalAlignment],
+        availableWidth: CGFloat
+    ) {
+        let columnCount = max(headers.count, rows.map(\.count).max() ?? 0)
+        let normalizedHeaders = MarkdownTableLayout.pad(headers, to: columnCount)
+        let normalizedRows = rows.map { MarkdownTableLayout.pad($0, to: columnCount) }
+
+        self.alignments = alignments
+        self.headerCells = normalizedHeaders.map(MarkdownTableCellContent.init)
+        self.rowCells = normalizedRows.map { $0.map(MarkdownTableCellContent.init) }
+
+        let measuredWidths = MarkdownTableLayout.measureColumnWidths(
+            headerCells: headerCells,
+            rowCells: rowCells
+        )
+        self.columnWidths = MarkdownTableLayout.distribute(
+            measuredWidths,
+            toFill: availableWidth
+        )
+        self.totalWidth = max(availableWidth, columnWidths.reduce(0, +))
+    }
+
+    func alignment(for column: Int) -> HorizontalAlignment {
+        column < alignments.count ? alignments[column] : .leading
+    }
+
+    private static func pad(_ row: [String], to count: Int) -> [String] {
+        guard row.count < count else { return row }
+        return row + Array(repeating: "", count: count - row.count)
+    }
+
+    private static func measureColumnWidths(
+        headerCells: [MarkdownTableCellContent],
+        rowCells: [[MarkdownTableCellContent]]
+    ) -> [CGFloat] {
+        guard !headerCells.isEmpty else { return [] }
+
+        return headerCells.indices.map { column in
+            let headerWidth = measuredWidth(for: headerCells[column], font: headerFont)
+            let bodyWidth = rowCells.map { row in
+                measuredWidth(for: row[column], font: bodyFont)
+            }.max() ?? minColumnWidth
+            return max(headerWidth, bodyWidth)
+        }
+    }
+
+    private static func measuredWidth(for content: MarkdownTableCellContent, font: NSFont) -> CGFloat {
+        let plainText = content.renderedContent.displayPlainText.isEmpty ? " " : content.renderedContent.displayPlainText
+        let measured = ceil((plainText as NSString).size(withAttributes: [.font: font]).width)
+        return min(max(measured + cellHorizontalPadding, minColumnWidth), maxColumnWidth)
+    }
+
+    private static func distribute(_ widths: [CGFloat], toFill availableWidth: CGFloat) -> [CGFloat] {
+        guard !widths.isEmpty else { return [] }
+
+        let measuredTotal = widths.reduce(0, +)
+        guard availableWidth > measuredTotal else { return widths }
+
+        let extraWidth = availableWidth - measuredTotal
+        let columnBonus = extraWidth / CGFloat(widths.count)
+        return widths.map { $0 + columnBonus }
+    }
+}
+
+private struct MarkdownTableCellView: View {
+    let content: MarkdownTableCellContent
+    let width: CGFloat
+    let alignment: HorizontalAlignment
+    let isHeader: Bool
+    let showsTrailingDivider: Bool
+
+    var body: some View {
+        Group {
+            if isHeader {
+                InlineMarkdownText(
+                    renderedContent: content.renderedContent,
+                    font: .callout
+                )
+                .fontWeight(.semibold)
+            } else {
+                InlineMarkdownText(
+                    renderedContent: content.renderedContent,
+                    font: .callout
+                )
+            }
+        }
+        .textSelection(.enabled)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: alignment.cellFrameAlignment)
+        .padding(.horizontal, 12)
+        .padding(.vertical, isHeader ? 10 : 8)
+        .frame(width: width, alignment: alignment.cellFrameAlignment)
+        .overlay(alignment: .trailing) {
+            if showsTrailingDivider {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(width: 1)
+                    .padding(.vertical, 6)
+            }
+        }
+}
+
+}
+
+private struct MarkdownTableWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 private struct MarkdownTableView: View {
     let headers: [String]
     let alignments: [HorizontalAlignment]
     let rows: [[String]]
 
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
-                // Header row
-                GridRow {
-                    ForEach(Array(headers.enumerated()), id: \.offset) { idx, header in
-                        Text(header)
-                            .font(.callout)
-                            .bold()
-                            .frame(maxWidth: .infinity, alignment: .init(horizontal: alignment(idx), vertical: .center))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(.ultraThinMaterial)
-                    }
-                }
-                Divider()
+    @SwiftUI.State private var availableWidth: CGFloat = 0
 
-                // Data rows
-                ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
-                    GridRow {
-                        ForEach(0..<headers.count, id: \.self) { colIdx in
-                            let cell = colIdx < row.count ? row[colIdx] : ""
-                            Text(cell)
-                                .font(.callout)
-                                .frame(maxWidth: .infinity, alignment: .init(horizontal: alignment(colIdx), vertical: .center))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(rowIdx.isMultiple(of: 2)
-                                    ? Color.primary.opacity(0.03)
-                                    : Color.clear)
-                        }
-                    }
-                    if rowIdx < rows.count - 1 {
-                        Divider().opacity(0.4)
-                    }
+    var body: some View {
+        let layout = MarkdownTableLayout(
+            headers: headers,
+            rows: rows,
+            alignments: alignments,
+            availableWidth: max(availableWidth, 0)
+        )
+
+        ScrollView(.horizontal) {
+            VStack(spacing: 0) {
+                tableRow(
+                    cells: layout.headerCells,
+                    widths: layout.columnWidths,
+                    isHeader: true,
+                    rowIndex: 0,
+                    layout: layout
+                )
+
+                ForEach(Array(layout.rowCells.enumerated()), id: \.offset) { rowIndex, row in
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.08))
+                        .frame(height: 1)
+
+                    tableRow(
+                        cells: row,
+                        widths: layout.columnWidths,
+                        isHeader: false,
+                        rowIndex: rowIndex,
+                        layout: layout
+                    )
                 }
             }
+            .frame(width: layout.totalWidth, alignment: .leading)
         }
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 1))
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.regularMaterial)
+                .overlay {
+                    LinearGradient(
+                        colors: [
+                            Color.accentColor.opacity(0.12),
+                            Color.clear,
+                            Color.primary.opacity(0.03)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .clipShape(.rect(cornerRadius: 12))
+                }
+        )
+        .clipShape(.rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(key: MarkdownTableWidthPreferenceKey.self, value: proxy.size.width)
+            }
+        }
+        .onPreferenceChange(MarkdownTableWidthPreferenceKey.self) { newWidth in
+            let roundedWidth = max(0, floor(newWidth))
+            guard abs(roundedWidth - availableWidth) > 1 else { return }
+            availableWidth = roundedWidth
+        }
     }
 
-    private func alignment(_ idx: Int) -> HorizontalAlignment {
-        idx < alignments.count ? alignments[idx] : .leading
+    @ViewBuilder
+    private func tableRow(
+        cells: [MarkdownTableCellContent],
+        widths: [CGFloat],
+        isHeader: Bool,
+        rowIndex: Int,
+        layout: MarkdownTableLayout
+    ) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(cells.enumerated()), id: \.offset) { column, cell in
+                MarkdownTableCellView(
+                    content: cell,
+                    width: widths[column],
+                    alignment: layout.alignment(for: column),
+                    isHeader: isHeader,
+                    showsTrailingDivider: column < cells.count - 1
+                )
+            }
+        }
+        .background(isHeader ? headerBackground : rowBackground(for: rowIndex))
+    }
+
+    private var headerBackground: AnyShapeStyle {
+        AnyShapeStyle(LinearGradient(
+            colors: [
+                Color.accentColor.opacity(0.14),
+                Color.accentColor.opacity(0.05)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        ))
+    }
+
+    private func rowBackground(for rowIndex: Int) -> AnyShapeStyle {
+        rowIndex.isMultiple(of: 2)
+        ? AnyShapeStyle(Color.primary.opacity(0.025))
+        : AnyShapeStyle(Color.clear)
+    }
+}
+
+private extension HorizontalAlignment {
+    var cellFrameAlignment: Alignment {
+        switch self {
+        case .center:
+            return .center
+        case .trailing:
+            return .trailing
+        default:
+            return .leading
+        }
     }
 }
 

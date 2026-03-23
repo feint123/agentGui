@@ -1,4 +1,6 @@
 import Foundation
+import CoreGraphics
+import SwiftUI
 import Testing
 @testable import agentGui
 
@@ -68,5 +70,44 @@ struct MarkdownMessageViewRenderingTests {
         )
 
         #expect(edited.blocks == parser.fullParse("> replacement\n> second\n"))
+    }
+
+    @Test func tableLayoutUsesInlineMarkdownRenderingForCells() async throws {
+        let layout = MarkdownTableLayout(
+            headers: ["**Name**", "Status"],
+            rows: [["[Copilot](https://github.com)", "`ready`"]],
+            alignments: [.leading, .center],
+            availableWidth: 420
+        )
+
+        #expect(layout.headerCells[0].renderedContent.displayPlainText == "Name")
+        #expect(layout.rowCells[0][0].renderedContent.displayPlainText == "Copilot")
+        #expect(layout.rowCells[0][1].renderedContent.displayPlainText == "ready")
+        #expect(layout.rowCells[0][0].renderedContent.attributedString != nil)
+    }
+
+    @Test func tableLayoutFillsAvailableWidthForCompactContent() async throws {
+        let layout = MarkdownTableLayout(
+            headers: ["A", "B"],
+            rows: [["1", "2"]],
+            alignments: [.leading, .trailing],
+            availableWidth: 520
+        )
+
+        #expect(layout.columnWidths.count == 2)
+        #expect(layout.totalWidth == 520)
+        #expect(layout.columnWidths.reduce(0, +) == 520)
+    }
+
+    @Test func tableLayoutAllowsWideContentToOverflowAvailableWidth() async throws {
+        let layout = MarkdownTableLayout(
+            headers: ["Column"],
+            rows: [[String(repeating: "WideContent", count: 12)]],
+            alignments: [.leading],
+            availableWidth: 280
+        )
+
+        #expect(layout.columnWidths.count == 1)
+        #expect(layout.totalWidth > 280)
     }
 }
