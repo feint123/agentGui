@@ -419,6 +419,22 @@ extension ClaudeService {
                     )
                 },
                 permissionCenter: acpPermissionCenter
+            ),
+            claudeAdapter: ClaudeAdapterCLIExecutionProvider(
+                terminalRuntimeFactory: { [unowned self] sessionID, workingDirectory in
+                    self.getExternalACPTerminalTaskRuntime(
+                        for: sessionID,
+                        providerID: .claudeAdapterCLI,
+                        workingDirectory: workingDirectory
+                    )
+                },
+                sessionRuntimeResetter: { [unowned self] sessionID in
+                    self.resetExternalACPTerminalTaskRuntime(
+                        for: sessionID,
+                        providerID: .claudeAdapterCLI
+                    )
+                },
+                permissionCenter: acpPermissionCenter
             )
         )
         executionProviderRegistry = registry

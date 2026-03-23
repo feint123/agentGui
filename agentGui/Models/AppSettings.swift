@@ -57,6 +57,9 @@ final class AppSettings {
     /// OpenCode CLI 配置 JSON
     var openCodeCLIConfigurationJSON: String = "{}"
 
+    /// Claude adapter CLI 配置 JSON
+    var claudeAdapterCLIConfigurationJSON: String = "{}"
+
     /// 启用 Web Search 工具（Bing 搜索）
     var enableWebSearchTool: Bool
 
@@ -146,6 +149,10 @@ final class AppSettings {
             data: JSONEncoder().encode(ACPCLIConfiguration.openCodeDefault),
             encoding: .utf8
         )) ?? "{}"
+        self.claudeAdapterCLIConfigurationJSON = (try? String(
+            data: JSONEncoder().encode(ACPCLIConfiguration.claudeAdapterDefault),
+            encoding: .utf8
+        )) ?? "{}"
         self.enableWebSearchTool = false
         self.enableWebFetchTool = false
         self.enableLSPTools = false
@@ -196,6 +203,19 @@ extension AppSettings {
         }
         set {
             openCodeCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
+        }
+    }
+
+    var claudeAdapterCLIConfiguration: ACPCLIConfiguration {
+        get {
+            guard let data = claudeAdapterCLIConfigurationJSON.data(using: .utf8),
+                  let configuration = try? JSONDecoder().decode(ACPCLIConfiguration.self, from: data) else {
+                return .claudeAdapterDefault
+            }
+            return configuration
+        }
+        set {
+            claudeAdapterCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
         }
     }
 

@@ -9,7 +9,8 @@ struct ConversationExecutionProviderRegistryTests {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: ProviderSpy(id: .builtInAgent),
             copilot: ProviderSpy(id: .githubCopilotCLI),
-            openCode: ProviderSpy(id: .openCodeCLI)
+            openCode: ProviderSpy(id: .openCodeCLI),
+            claudeAdapter: ProviderSpy(id: .claudeAdapterCLI)
         )
         let session = Session.fixture()
         let settings = AppSettings.testFixture(apiKey: "test")
@@ -23,7 +24,8 @@ struct ConversationExecutionProviderRegistryTests {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: ProviderSpy(id: .builtInAgent),
             copilot: ProviderSpy(id: .githubCopilotCLI),
-            openCode: ProviderSpy(id: .openCodeCLI)
+            openCode: ProviderSpy(id: .openCodeCLI),
+            claudeAdapter: ProviderSpy(id: .claudeAdapterCLI)
         )
         let session = Session.fixture()
         let settings = AppSettings.testFixture(apiKey: "test")
@@ -37,7 +39,8 @@ struct ConversationExecutionProviderRegistryTests {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: ProviderSpy(id: .builtInAgent),
             copilot: ProviderSpy(id: .githubCopilotCLI, runtimeScope: .externalACP),
-            openCode: ProviderSpy(id: .openCodeCLI, runtimeScope: .externalACP)
+            openCode: ProviderSpy(id: .openCodeCLI, runtimeScope: .externalACP),
+            claudeAdapter: ProviderSpy(id: .claudeAdapterCLI, runtimeScope: .externalACP)
         )
 
         let driver = registry.compatibilityDriver(for: .githubCopilotCLI)
@@ -62,7 +65,8 @@ struct ConversationExecutionProviderRegistryTests {
         claudeService.executionProviderRegistry = ConversationExecutionProviderRegistry(
             builtIn: builtIn,
             copilot: copilot,
-            openCode: ProviderSpy(id: .openCodeCLI)
+            openCode: ProviderSpy(id: .openCodeCLI),
+            claudeAdapter: ProviderSpy(id: .claudeAdapterCLI)
         )
 
         try await claudeService.sendMessage(
@@ -94,7 +98,8 @@ struct ConversationExecutionProviderRegistryTests {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: builtIn,
             copilot: copilot,
-            openCode: ProviderSpy(id: .openCodeCLI)
+            openCode: ProviderSpy(id: .openCodeCLI),
+            claudeAdapter: ProviderSpy(id: .claudeAdapterCLI)
         )
         let orchestrator = ConversationExecutionOrchestrator(
             modelContext: modelContext,
@@ -139,11 +144,13 @@ struct ConversationExecutionProviderRegistryTests {
         let builtIn = ProviderSpy(id: .builtInAgent)
         let copilot = ProviderSpy(id: .githubCopilotCLI, runtimeScope: .externalACP, conflictHarness: harness)
         let openCode = ProviderSpy(id: .openCodeCLI, runtimeScope: .externalACP, conflictHarness: harness)
+        let claudeAdapter = ProviderSpy(id: .claudeAdapterCLI, runtimeScope: .externalACP, conflictHarness: harness)
         let claudeService = ClaudeService()
         claudeService.executionProviderRegistry = ConversationExecutionProviderRegistry(
             builtIn: builtIn,
             copilot: copilot,
-            openCode: openCode
+            openCode: openCode,
+            claudeAdapter: claudeAdapter
         )
 
         session.defaultExecutionProviderID = ConversationExecutionProviderID.githubCopilotCLI.rawValue
@@ -186,11 +193,13 @@ struct ConversationExecutionProviderRegistryTests {
         let builtIn = ProviderSpy(id: .builtInAgent)
         let copilot = ProviderSpy(id: .githubCopilotCLI, runtimeScope: .externalACP, conflictHarness: harness)
         let openCode = ProviderSpy(id: .openCodeCLI, runtimeScope: .externalACP, conflictHarness: harness)
+        let claudeAdapter = ProviderSpy(id: .claudeAdapterCLI, runtimeScope: .externalACP, conflictHarness: harness)
         let claudeService = ClaudeService()
         claudeService.executionProviderRegistry = ConversationExecutionProviderRegistry(
             builtIn: builtIn,
             copilot: copilot,
-            openCode: openCode
+            openCode: openCode,
+            claudeAdapter: claudeAdapter
         )
 
         try await claudeService.sendMessage(
@@ -213,6 +222,25 @@ struct ConversationExecutionProviderRegistryTests {
 
         #expect(openCode.deactivatedSessionIDs == [sessionA.sessionId])
         #expect(copilot.sentTexts == ["copilot second"])
+    }
+
+    @Test func registryResolvesClaudeAdapterAsExternalACPProvider() throws {
+        let registry = ConversationExecutionProviderRegistry(
+            builtIn: ProviderSpy(id: .builtInAgent),
+            copilot: ProviderSpy(id: .githubCopilotCLI, runtimeScope: .externalACP),
+            openCode: ProviderSpy(id: .openCodeCLI, runtimeScope: .externalACP),
+            claudeAdapter: ProviderSpy(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+        )
+        let settings = AppSettings.testFixture(apiKey: "test")
+        settings.defaultExecutionProviderID = ConversationExecutionProviderID.claudeAdapterCLI.rawValue
+        let session = Session.fixture()
+        session.defaultExecutionProviderID = ""
+
+        let provider = registry.provider(for: session, settings: settings)
+        let scopedProviders = registry.providers(in: .externalACP).map(\.id)
+
+        #expect(provider.id == .claudeAdapterCLI)
+        #expect(scopedProviders.contains(.claudeAdapterCLI))
     }
 
     private func makeModelContext() throws -> ModelContext {

@@ -88,4 +88,29 @@ struct SessionExecutionPreferencesTests {
         #expect(resolved.defaultApprovalMode == "never")
         #expect(resolved.executablePath == "opencode")
     }
+
+    @Test func claudeAdapterConfigurationMergesSessionOverridesOverGlobalDefaults() {
+        let session = Session.fixture()
+        let settings = AppSettings.testFixture()
+        settings.claudeAdapterCLIConfiguration = ACPCLIConfiguration(
+            executablePath: "claude-agent-acp",
+            defaultModel: "claude-sonnet-4-6",
+            defaultApprovalMode: "default"
+        )
+        session.executionPreferences = SessionExecutionPreferences(
+            builtInModelID: nil,
+            gitHubCopilotCLI: .init(),
+            openCodeCLI: .init(),
+            claudeAdapterCLI: ClaudeAdapterCLISessionPreferences(
+                modelID: "claude-opus-4-6",
+                approvalMode: "never"
+            )
+        )
+
+        let resolved = SessionExecutionPreferencesResolver.claudeAdapterCLIConfiguration(for: session, settings: settings)
+
+        #expect(resolved.defaultModel == "claude-opus-4-6")
+        #expect(resolved.defaultApprovalMode == "never")
+        #expect(resolved.executablePath == "claude-agent-acp")
+    }
 }

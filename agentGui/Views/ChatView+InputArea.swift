@@ -98,7 +98,8 @@ extension ChatView {
                         title: "",
                         options: ConversationExecutionProviderID.optionItems(
                             copilotAvailabilityStatus: copilotComposerAvailabilityStatus,
-                            openCodeAvailabilityStatus: openCodeComposerAvailabilityStatus
+                            openCodeAvailabilityStatus: openCodeComposerAvailabilityStatus,
+                            claudeAdapterAvailabilityStatus: claudeAdapterComposerAvailabilityStatus
                         ),
                         selection: executionProviderSelectionRawValueBinding,
                         accessibilityIdentifier: "chat.executionProviderPicker"
@@ -124,6 +125,16 @@ extension ChatView {
                     } else if resolvedExecutionProviderID == .openCodeCLI,
                               openCodeComposerAvailabilityStatus.kind != .available {
                         Text(openCodeComposerAvailabilityStatus.summaryText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else if resolvedExecutionProviderID == .claudeAdapterCLI,
+                              executionProviderAvailabilityModel.isRefreshingClaudeAdapterStatus {
+                        composerStatusSkeleton(width: 126)
+                    } else if resolvedExecutionProviderID == .claudeAdapterCLI,
+                              claudeAdapterComposerAvailabilityStatus.kind != .available {
+                        Text(claudeAdapterComposerAvailabilityStatus.summaryText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -200,8 +211,18 @@ extension ChatView {
         slashStateDebouncer.cancel()
     }
     .task(id: copilotComposerAvailabilityRefreshToken) {
-        await refreshCopilotComposerAvailabilityStatus()
-        await refreshOpenCodeComposerAvailabilityStatus()
+        for providerID in ChatComposerAvailabilityRefreshPolicy.startupRefreshProviderIDs {
+            switch providerID {
+            case .githubCopilotCLI:
+                await refreshCopilotComposerAvailabilityStatus()
+            case .openCodeCLI:
+                await refreshOpenCodeComposerAvailabilityStatus()
+            case .claudeAdapterCLI:
+                await refreshClaudeAdapterComposerAvailabilityStatus()
+            case .builtInAgent:
+                break
+            }
+        }
     }
 }
 
@@ -306,6 +327,22 @@ extension ChatView {
                 },
                 selection: openCodeComposerApprovalModeSelectionBinding,
                 accessibilityIdentifier: "chat.openCodeApprovalModePicker"
+            )
+        case .claudeAdapterCLI:
+            ExecutionOptionPicker(
+                title: "",
+                options: AppSettings.availableModelOptions(inheritingTitle: "跟随设置默认"),
+                selection: claudeAdapterComposerModelSelectionBinding,
+                accessibilityIdentifier: "chat.claudeAdapterModelPicker"
+            )
+
+            ExecutionOptionPicker(
+                title: "",
+                options: GitHubCopilotCLIApprovalModeOption.allCases.map {
+                    ExecutionOptionItem(id: $0.rawValue, title: $0.title)
+                },
+                selection: claudeAdapterComposerApprovalModeSelectionBinding,
+                accessibilityIdentifier: "chat.claudeAdapterApprovalModePicker"
             )
         }
     }

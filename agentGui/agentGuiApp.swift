@@ -522,6 +522,16 @@ struct agentGuiApp: App {
                                 )
                             },
                             permissionCenter: claudeService.acpPermissionCenter
+                        ),
+                        claudeAdapter: ClaudeAdapterCLIExecutionProvider(
+                            terminalRuntimeFactory: { [unowned claudeService] sessionID, workingDirectory in
+                                claudeService.getExternalACPTerminalTaskRuntime(
+                                    for: sessionID,
+                                    providerID: .claudeAdapterCLI,
+                                    workingDirectory: workingDirectory
+                                )
+                            },
+                            permissionCenter: claudeService.acpPermissionCenter
                         )
                     ),
                     runtimeCoordinator: claudeService.executionRuntimeCoordinator,

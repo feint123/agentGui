@@ -39,6 +39,10 @@ extension ChatView {
         SessionExecutionPreferencesResolver.openCodeCLIConfiguration(for: session, settings: settings)
     }
 
+    private func resolvedClaudeAdapterConfiguration(settings: AppSettings) -> ClaudeAdapterCLIConfiguration {
+        SessionExecutionPreferencesResolver.claudeAdapterCLIConfiguration(for: session, settings: settings)
+    }
+
     var builtInComposerModelSelectionBinding: Binding<String> {
         Binding(
             get: {
@@ -134,6 +138,38 @@ extension ChatView {
         )
     }
 
+    var claudeAdapterComposerModelSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                return resolvedClaudeAdapterConfiguration(settings: settings).defaultModel
+            },
+            set: { newValue in
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                let fallback = settings.claudeAdapterCLIConfiguration.defaultModel
+                updateSessionExecutionPreferences { preferences in
+                    preferences.claudeAdapterCLI.modelID = normalizedOptionalModelID(newValue, comparedTo: fallback)
+                }
+            }
+        )
+    }
+
+    var claudeAdapterComposerApprovalModeSelectionBinding: Binding<String> {
+        Binding(
+            get: {
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                return GitHubCopilotCLIApprovalModeOption.resolved(from: resolvedClaudeAdapterConfiguration(settings: settings).defaultApprovalMode).rawValue
+            },
+            set: { newValue in
+                let settings = AppSettings.getOrCreate(in: modelContext)
+                let fallback = settings.claudeAdapterCLIConfiguration.defaultApprovalMode
+                updateSessionExecutionPreferences { preferences in
+                    preferences.claudeAdapterCLI.approvalMode = normalizedCopilotApprovalOverride(newValue, comparedTo: fallback)
+                }
+            }
+        )
+    }
+
     // MARK: - Send Message
 
     func sendMessage() async {
@@ -153,6 +189,8 @@ extension ChatView {
             await refreshCopilotComposerAvailabilityStatus()
         } else if resolvedExecutionProviderID == .openCodeCLI {
             await refreshOpenCodeComposerAvailabilityStatus()
+        } else if resolvedExecutionProviderID == .claudeAdapterCLI {
+            await refreshClaudeAdapterComposerAvailabilityStatus()
         }
         let preflightError = sendReadinessError(settings: settings) ?? sendReadinessFallbackMessage(settings: settings)
         if !preflightError.isEmpty {
@@ -283,9 +321,13 @@ extension ChatView {
         executionProviderAvailabilityModel.openCodeStatus
     }
 
+    var claudeAdapterComposerAvailabilityStatus: ClaudeAdapterCLIAvailabilityStatus {
+        executionProviderAvailabilityModel.claudeAdapterStatus
+    }
+
     var copilotComposerAvailabilityRefreshToken: String {
         let settings = AppSettings.getOrCreate(in: modelContext)
-        return "\(session.defaultExecutionProviderID)|\(settings.githubCopilotCLIConfigurationJSON)|\(settings.openCodeCLIConfigurationJSON)"
+        return "\(session.defaultExecutionProviderID)|\(settings.githubCopilotCLIConfigurationJSON)|\(settings.openCodeCLIConfigurationJSON)|\(settings.claudeAdapterCLIConfigurationJSON)"
     }
 
     func refreshCopilotComposerAvailabilityStatus() async {
@@ -300,6 +342,14 @@ extension ChatView {
         await executionProviderAvailabilityModel.refreshStatus(
             for: .openCodeCLI,
             executablePath: settings.openCodeCLIConfiguration.executablePath
+        )
+    }
+
+    func refreshClaudeAdapterComposerAvailabilityStatus() async {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        await executionProviderAvailabilityModel.refreshStatus(
+            for: .claudeAdapterCLI,
+            executablePath: settings.claudeAdapterCLIConfiguration.executablePath
         )
     }
 
@@ -322,6 +372,12 @@ extension ChatView {
                 return "正在检查 OpenCode…"
             }
             let status = openCodeComposerAvailabilityStatus
+            return status.kind == .available ? "" : status.summaryText
+        case .claudeAdapterCLI:
+            if executionProviderAvailabilityModel.isRefreshingClaudeAdapterStatus {
+                return "正在检查 Claude Code…"
+            }
+            let status = claudeAdapterComposerAvailabilityStatus
             return status.kind == .available ? "" : status.summaryText
         }
     }

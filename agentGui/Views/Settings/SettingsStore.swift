@@ -11,10 +11,12 @@ final class SettingsStore {
     @ObservationIgnored private let persistenceCoordinator: PersistenceCoordinator?
     @ObservationIgnored private let gitHubCopilotCLIAvailabilityService: GitHubCopilotCLIAvailabilityService
     @ObservationIgnored private let openCodeCLIAvailabilityService: OpenCodeCLIAvailabilityService
+    @ObservationIgnored private let claudeAdapterCLIAvailabilityService: ClaudeAdapterCLIAvailabilityService
 
     var settings: AppSettings
     var gitHubCopilotCLIAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus
     var openCodeCLIAvailabilityStatus: OpenCodeCLIAvailabilityStatus
+    var claudeAdapterCLIAvailabilityStatus: ClaudeAdapterCLIAvailabilityStatus
     var selectedItem: SettingsNavigationItem {
         didSet {
             Self.lastSelectedItem = selectedItem
@@ -25,18 +27,21 @@ final class SettingsStore {
         modelContext: ModelContext,
         persistenceCoordinator: PersistenceCoordinator?,
         gitHubCopilotCLIAvailabilityService: GitHubCopilotCLIAvailabilityService = GitHubCopilotCLIAvailabilityService(),
-        openCodeCLIAvailabilityService: OpenCodeCLIAvailabilityService = OpenCodeCLIAvailabilityService()
+        openCodeCLIAvailabilityService: OpenCodeCLIAvailabilityService = OpenCodeCLIAvailabilityService(),
+        claudeAdapterCLIAvailabilityService: ClaudeAdapterCLIAvailabilityService = ClaudeAdapterCLIAvailabilityService()
     ) {
         self.modelContext = modelContext
         self.persistenceCoordinator = persistenceCoordinator
         self.gitHubCopilotCLIAvailabilityService = gitHubCopilotCLIAvailabilityService
         self.openCodeCLIAvailabilityService = openCodeCLIAvailabilityService
+        self.claudeAdapterCLIAvailabilityService = claudeAdapterCLIAvailabilityService
         self.settings = AppSettings.getOrCreate(
             in: modelContext,
             persistenceCoordinator: persistenceCoordinator
         )
         self.gitHubCopilotCLIAvailabilityStatus = .unknown
         self.openCodeCLIAvailabilityStatus = .unknown
+        self.claudeAdapterCLIAvailabilityStatus = .unknown
         self.selectedItem = Self.lastSelectedItem
     }
 
@@ -108,6 +113,25 @@ final class SettingsStore {
         )
     }
 
+    func persistedClaudeAdapterCLIConfigurationBinding<Value>(
+        get: @escaping @Sendable (ClaudeAdapterCLIConfiguration) -> Value,
+        userMessage: String,
+        set: @escaping @Sendable (inout ClaudeAdapterCLIConfiguration, Value) -> Void
+    ) -> Binding<Value> {
+        Binding(
+            get: {
+                get(self.settings.claudeAdapterCLIConfiguration)
+            },
+            set: { newValue in
+                _ = self.persistSettingsMutation(userMessage) {
+                    var configuration = self.settings.claudeAdapterCLIConfiguration
+                    set(&configuration, newValue)
+                    self.settings.claudeAdapterCLIConfiguration = configuration
+                }
+            }
+        )
+    }
+
     func refreshGitHubCopilotCLIAvailabilityStatus() async {
         do {
             gitHubCopilotCLIAvailabilityStatus = try await gitHubCopilotCLIAvailabilityService.checkStatus(
@@ -131,6 +155,20 @@ final class SettingsStore {
                 kind: .failed(error.localizedDescription),
                 version: nil,
                 displayName: "OpenCode"
+            )
+        }
+    }
+
+    func refreshClaudeAdapterCLIAvailabilityStatus() async {
+        do {
+            claudeAdapterCLIAvailabilityStatus = try await claudeAdapterCLIAvailabilityService.checkStatus(
+                configuration: settings.claudeAdapterCLIConfiguration
+            )
+        } catch {
+            claudeAdapterCLIAvailabilityStatus = ClaudeAdapterCLIAvailabilityStatus(
+                kind: .failed(error.localizedDescription),
+                version: nil,
+                displayName: "Claude Code"
             )
         }
     }

@@ -41,4 +41,19 @@ extension ACPExternalAgentDescriptor {
             supportsCustomAgentName: false
         )
     )
+
+    static let claudeAdapter = ACPExternalAgentDescriptor(
+        providerID: .claudeAdapterCLI,
+        displayName: "Claude Code",
+        defaultExecutablePath: ACPCLIConfiguration.claudeAdapterDefault.executablePath,
+        defaultArguments: [],
+        supportsSessionModelOverrideByDefault: false,
+        supportsCustomAgentName: false,
+        defaultEnvironment: [:],
+        executionBehavior: ACPExternalProviderExecutionBehavior(
+            requiresCapabilityNegotiationForModelOverride: true,
+            supportsEnvironmentOverrides: false,
+            supportsCustomAgentName: false
+        )
+    )
 }

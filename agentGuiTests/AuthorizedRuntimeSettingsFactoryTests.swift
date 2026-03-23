@@ -46,5 +46,7 @@ struct AuthorizedRuntimeSettingsFactoryTests {
         #expect(runtime.enabledSkillNames.isEmpty)
         #expect(runtime.defaultExecutionProviderID == ConversationExecutionProviderID.githubCopilotCLI.rawValue)
         #expect(runtime.githubCopilotCLIConfiguration == base.githubCopilotCLIConfiguration)
+        #expect(runtime.openCodeCLIConfiguration == base.openCodeCLIConfiguration)
+        #expect(runtime.claudeAdapterCLIConfiguration == base.claudeAdapterCLIConfiguration)
     }
 }

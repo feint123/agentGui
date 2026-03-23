@@ -158,9 +158,10 @@ struct ConversationExecutionProviderRegistry {
     let builtIn: any ConversationExecutionProvider
     let copilot: any ConversationExecutionProvider
     let openCode: any ConversationExecutionProvider
+    let claudeAdapter: any ConversationExecutionProvider
 
     var allProviders: [any ConversationExecutionProvider] {
-        [builtIn, copilot, openCode]
+        [builtIn, copilot, openCode, claudeAdapter]
     }
 
     func providers(in runtimeScope: ConversationExecutionRuntimeScope) -> [any ConversationExecutionProvider] {
@@ -175,6 +176,8 @@ struct ConversationExecutionProviderRegistry {
             return copilot
         case .openCodeCLI:
             return openCode
+        case .claudeAdapterCLI:
+            return claudeAdapter
         }
     }
 
@@ -190,6 +193,8 @@ struct ConversationExecutionProviderRegistry {
             return copilot
         case .openCodeCLI:
             return openCode
+        case .claudeAdapterCLI:
+            return claudeAdapter
         }
     }
 

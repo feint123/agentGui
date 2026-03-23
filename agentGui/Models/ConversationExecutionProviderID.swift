@@ -4,6 +4,7 @@ enum ConversationExecutionProviderID: String, Codable, CaseIterable, Sendable {
     case builtInAgent = "built_in_agent"
     case githubCopilotCLI = "github_copilot_cli"
     case openCodeCLI = "opencode_cli"
+    case claudeAdapterCLI = "claude_adapter_cli"
 
     var displayName: String {
         switch self {
@@ -13,12 +14,15 @@ enum ConversationExecutionProviderID: String, Codable, CaseIterable, Sendable {
             return "GitHub Copilot CLI"
         case .openCodeCLI:
             return "OpenCode"
+        case .claudeAdapterCLI:
+            return "Claude Code"
         }
     }
 
     static func optionItems(
         copilotAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus = .unknown,
-        openCodeAvailabilityStatus: OpenCodeCLIAvailabilityStatus = .unknown
+        openCodeAvailabilityStatus: OpenCodeCLIAvailabilityStatus = .unknown,
+        claudeAdapterAvailabilityStatus: ClaudeAdapterCLIAvailabilityStatus = .unknown
     ) -> [ExecutionOptionItem] {
         allCases.map { provider in
             let isEnabled: Bool
@@ -26,9 +30,11 @@ enum ConversationExecutionProviderID: String, Codable, CaseIterable, Sendable {
             case .builtInAgent:
                 isEnabled = true
             case .githubCopilotCLI:
-                isEnabled = copilotAvailabilityStatus.kind == .available
+                isEnabled = isSelectableExternalStatus(copilotAvailabilityStatus.kind)
             case .openCodeCLI:
-                isEnabled = openCodeAvailabilityStatus.kind == .available
+                isEnabled = isSelectableExternalStatus(openCodeAvailabilityStatus.kind)
+            case .claudeAdapterCLI:
+                isEnabled = isSelectableExternalStatus(claudeAdapterAvailabilityStatus.kind)
             }
 
             return ExecutionOptionItem(
@@ -36,6 +42,15 @@ enum ConversationExecutionProviderID: String, Codable, CaseIterable, Sendable {
                 title: provider.displayName,
                 isEnabled: isEnabled
             )
+        }
+    }
+
+    private static func isSelectableExternalStatus(_ kind: ACPCLIAvailabilityStatus.Kind) -> Bool {
+        switch kind {
+        case .available, .notAuthenticated:
+            return true
+        case .notInstalled, .failed, .unknown:
+            return false
         }
     }
 }

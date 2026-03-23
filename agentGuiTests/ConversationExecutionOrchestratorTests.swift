@@ -263,7 +263,8 @@ struct ConversationExecutionOrchestratorTests {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: ProviderSpy(id: .builtInAgent),
             copilot: ProviderSpy(id: .githubCopilotCLI),
-            openCode: ProviderSpy(id: .openCodeCLI)
+            openCode: ProviderSpy(id: .openCodeCLI),
+            claudeAdapter: ProviderSpy(id: .claudeAdapterCLI)
         )
         let orchestrator = ConversationExecutionOrchestrator(
             modelContext: persistenceHarness.modelContext,
@@ -311,7 +312,8 @@ struct ConversationExecutionOrchestratorTests {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: ProviderSpy(id: .builtInAgent),
             copilot: ProviderSpy(id: .githubCopilotCLI),
-            openCode: ProviderSpy(id: .openCodeCLI)
+            openCode: ProviderSpy(id: .openCodeCLI),
+            claudeAdapter: ProviderSpy(id: .claudeAdapterCLI)
         )
         let orchestrator = ConversationExecutionOrchestrator(
             modelContext: persistenceHarness.modelContext,
@@ -362,7 +364,8 @@ private struct ExecutionOrchestratorHarness {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: ProviderSpy(id: .builtInAgent),
             copilot: ProviderSpy(id: .githubCopilotCLI),
-            openCode: ProviderSpy(id: .openCodeCLI)
+            openCode: ProviderSpy(id: .openCodeCLI),
+            claudeAdapter: ProviderSpy(id: .claudeAdapterCLI)
         )
         let orchestrator = ConversationExecutionOrchestrator(
             modelContext: persistenceHarness.modelContext,
@@ -480,7 +483,8 @@ private struct ClaudeServiceExecutionHarness {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: ProviderSpy(id: .builtInAgent),
             copilot: ProviderSpy(id: .githubCopilotCLI),
-            openCode: ProviderSpy(id: .openCodeCLI)
+            openCode: ProviderSpy(id: .openCodeCLI),
+            claudeAdapter: ProviderSpy(id: .claudeAdapterCLI)
         )
         let orchestrator = ConversationExecutionOrchestrator(
             modelContext: persistenceHarness.modelContext,
@@ -521,7 +525,7 @@ private final class ProviderSpy: ConversationExecutionProvider {
         self.runtimeScope = switch id {
         case .builtInAgent:
             .builtIn
-        case .githubCopilotCLI, .openCodeCLI:
+        case .githubCopilotCLI, .openCodeCLI, .claudeAdapterCLI:
             .externalACP
         }
     }

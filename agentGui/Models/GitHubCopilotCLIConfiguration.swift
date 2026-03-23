@@ -98,6 +98,12 @@ extension ACPCLIConfiguration {
         defaultModel: "",
         defaultApprovalMode: "default"
     )
+
+    static let claudeAdapterDefault = ACPCLIConfiguration(
+        executablePath: "claude-agent-acp",
+        defaultModel: "",
+        defaultApprovalMode: "default"
+    )
 }
 
 extension ACPCLIConfiguration {

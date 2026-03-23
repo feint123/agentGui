@@ -14,6 +14,7 @@ struct ChatExecutionProviderAvailabilityModelTests {
 
         #expect(model.copilotStatus == .unknown)
         #expect(model.openCodeStatus == .unknown)
+        #expect(model.claudeAdapterStatus == .unknown)
         #expect(model.copilotStatus == .unknown)
         #expect(probes.isEmpty)
 
@@ -21,6 +22,7 @@ struct ChatExecutionProviderAvailabilityModelTests {
 
         #expect(model.openCodeStatus.kind == .available)
         #expect(model.copilotStatus == .unknown)
+        #expect(model.claudeAdapterStatus == .unknown)
         #expect(probes == [.openCodeCLI])
 
         _ = model.openCodeStatus
@@ -44,6 +46,7 @@ struct ChatExecutionProviderAvailabilityModelTests {
 
         #expect(model.isRefreshingCopilotStatus)
         #expect(model.isRefreshingOpenCodeStatus == false)
+        #expect(model.isRefreshingClaudeAdapterStatus == false)
 
         await gate.release()
         await refreshTask.value
@@ -51,6 +54,21 @@ struct ChatExecutionProviderAvailabilityModelTests {
         #expect(model.isRefreshingCopilotStatus == false)
         #expect(model.copilotStatus.kind == .available)
         #expect(model.copilotStatus.version == ConversationExecutionProviderID.githubCopilotCLI.rawValue)
+    }
+
+    @Test func refreshesClaudeAdapterStatusIndependently() async {
+        let model = ChatExecutionProviderAvailabilityModel(
+            probe: { providerID, _ in
+                ACPCLIAvailabilityStatus(kind: .available, version: providerID.rawValue)
+            }
+        )
+
+        await model.refreshStatus(for: .claudeAdapterCLI, executablePath: "claude-agent-acp")
+
+        #expect(model.claudeAdapterStatus.kind == .available)
+        #expect(model.claudeAdapterStatus.version == ConversationExecutionProviderID.claudeAdapterCLI.rawValue)
+        #expect(model.copilotStatus == .unknown)
+        #expect(model.openCodeStatus == .unknown)
     }
 }
 

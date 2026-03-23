@@ -25,13 +25,57 @@ struct WorkspaceChangeCaptureServiceTests {
         #expect(modified.changeKind == .modify)
         #expect(modified.baseContentSnapshot == "original")
         #expect(modified.stagedContentSnapshot == "edited")
+        #expect(modified.lineAdditions == 1)
+        #expect(modified.lineDeletions == 1)
+        #expect(modified.unifiedDiff.contains("@@"))
         #expect(modified.unifiedDiff.contains("+edited"))
+        #expect(modified.unifiedDiff.contains("-original"))
 
         let added = try #require(artifacts.first(where: { $0.relativePath == "new.txt" }))
         #expect(added.changeKind == .add)
         #expect(added.baseContentSnapshot == nil)
         #expect(added.stagedContentSnapshot == "new")
+        #expect(added.lineAdditions == 1)
+        #expect(added.lineDeletions == 0)
         #expect(added.unifiedDiff.contains("+new"))
+
+        let deletedDiff = try #require(deleted.unifiedDiff.contains("@@ -1,1 +0,0 @@"))
+        _ = deletedDiff
+    }
+
+    @Test func collectArtifactsBuildsMultipleHunksForSeparatedEdits() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let original = (1...16).map { "line-\($0)" }.joined(separator: "\n")
+        try original.write(to: root.appending(path: "file.txt"), atomically: true, encoding: .utf8)
+
+        let service = WorkspaceChangeCaptureService(fileManager: .default)
+        let snapshot = try service.captureSnapshot(root: root)
+
+        let updated = [
+            "line-1",
+            "line-2-edited",
+            "line-3",
+            "line-4",
+            "line-5",
+            "line-6",
+            "line-7",
+            "line-8",
+            "line-9",
+            "line-10",
+            "line-11",
+            "line-12",
+            "line-13",
+            "line-14-edited",
+            "line-15",
+            "line-16"
+        ].joined(separator: "\n")
+        try updated.write(to: root.appending(path: "file.txt"), atomically: true, encoding: .utf8)
+
+        let artifact = try #require(service.collectArtifacts(from: snapshot).first)
+        #expect(artifact.lineAdditions == 2)
+        #expect(artifact.lineDeletions == 2)
+        #expect(artifact.unifiedDiff.components(separatedBy: "@@").count > 4)
     }
 
     @Test func captureSnapshotSkipsBinaryFilesAndStillTracksTextChanges() throws {

@@ -181,7 +181,7 @@ final class DirectIntentBackend {
             baseWorkspaceRoot: workspaceRootURL.path
         )
 
-        let artifact = ChangeReviewArtifactBuilder.build(
+        let artifact = try ChangeReviewArtifactBuilder.build(
             relativePath: relativePath,
             absolutePath: fileURL.path,
             changeKind: draft.changeKind,

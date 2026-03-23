@@ -33,7 +33,10 @@ struct ExternalChangeReviewIntegrationTests {
         #expect(proposal.jobID == jobHandle.jobID)
         #expect(change.relativePath == "README.md")
         #expect(change.absolutePath == harness.realWorkspaceFile("README.md").path)
+        #expect(change.unifiedDiff.contains("@@"))
         #expect(change.unifiedDiff.contains("+isolated"))
+        #expect(change.lineAdditions == 1)
+        #expect(change.lineDeletions == 1)
         #expect(change.baseContentSnapshot == "original")
         #expect(change.stagedContentSnapshot == "isolated")
         #expect(change.baseContentHash != change.stagedContentHash)
@@ -139,7 +142,8 @@ private struct ExternalChangeReviewHarness {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: NoopExecutionProvider(id: .builtInAgent),
             copilot: provider,
-            openCode: NoopExecutionProvider(id: .openCodeCLI)
+            openCode: NoopExecutionProvider(id: .openCodeCLI),
+            claudeAdapter: NoopExecutionProvider(id: .claudeAdapterCLI)
         )
         let orchestrator = ConversationExecutionOrchestrator(
             modelContext: modelContext,

@@ -5,17 +5,20 @@ struct SessionExecutionPreferences: Codable, Equatable, Sendable {
     var builtInApprovalMode: String?
     var gitHubCopilotCLI: GitHubCopilotCLISessionPreferences
     var openCodeCLI: OpenCodeCLISessionPreferences
+    var claudeAdapterCLI: ClaudeAdapterCLISessionPreferences
 
     init(
         builtInModelID: String? = nil,
         builtInApprovalMode: String? = nil,
         gitHubCopilotCLI: GitHubCopilotCLISessionPreferences = .init(),
-        openCodeCLI: OpenCodeCLISessionPreferences = .init()
+        openCodeCLI: OpenCodeCLISessionPreferences = .init(),
+        claudeAdapterCLI: ClaudeAdapterCLISessionPreferences = .init()
     ) {
         self.builtInModelID = builtInModelID?.trimmedNonEmpty
         self.builtInApprovalMode = builtInApprovalMode?.trimmedNonEmpty
         self.gitHubCopilotCLI = gitHubCopilotCLI
         self.openCodeCLI = openCodeCLI
+        self.claudeAdapterCLI = claudeAdapterCLI
     }
 }
 
@@ -45,6 +48,8 @@ struct OpenCodeCLISessionPreferences: Codable, Equatable, Sendable {
     }
 }
 
+typealias ClaudeAdapterCLISessionPreferences = OpenCodeCLISessionPreferences
+
 enum SessionExecutionPreferencesResolver {
     static func builtInModelID(for session: Session, settings: AppSettings) -> String {
         session.executionPreferences.builtInModelID?.trimmedNonEmpty ?? settings.selectedModel
@@ -63,6 +68,10 @@ enum SessionExecutionPreferencesResolver {
 
     static func openCodeCLIConfiguration(for session: Session, settings: AppSettings) -> ACPCLIConfiguration {
         settings.openCodeCLIConfiguration.applying(session.executionPreferences.openCodeCLI)
+    }
+
+    static func claudeAdapterCLIConfiguration(for session: Session, settings: AppSettings) -> ACPCLIConfiguration {
+        settings.claudeAdapterCLIConfiguration.applying(session.executionPreferences.claudeAdapterCLI)
     }
 }
 

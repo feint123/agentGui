@@ -8,8 +8,10 @@ final class ChatExecutionProviderAvailabilityModel {
 
     var copilotStatus: ACPCLIAvailabilityStatus = .unknown
     var openCodeStatus: ACPCLIAvailabilityStatus = .unknown
+    var claudeAdapterStatus: ACPCLIAvailabilityStatus = .unknown
     var isRefreshingCopilotStatus = false
     var isRefreshingOpenCodeStatus = false
+    var isRefreshingClaudeAdapterStatus = false
 
     init(
         probe: @escaping @Sendable (ConversationExecutionProviderID, String) async -> ACPCLIAvailabilityStatus = ChatExecutionProviderAvailabilityModel.defaultProbe
@@ -31,6 +33,10 @@ final class ChatExecutionProviderAvailabilityModel {
             if openCodeStatus != status {
                 openCodeStatus = status
             }
+        case .claudeAdapterCLI:
+            if claudeAdapterStatus != status {
+                claudeAdapterStatus = status
+            }
         case .builtInAgent:
             break
         }
@@ -38,6 +44,10 @@ final class ChatExecutionProviderAvailabilityModel {
 
     func refreshCopilotStatus(configuration: ACPCLIConfiguration) async {
         await refreshStatus(for: .githubCopilotCLI, executablePath: configuration.executablePath)
+    }
+
+    func refreshClaudeAdapterStatus(configuration: ACPCLIConfiguration) async {
+        await refreshStatus(for: .claudeAdapterCLI, executablePath: configuration.executablePath)
     }
 
     private func setRefreshing(_ isRefreshing: Bool, for providerID: ConversationExecutionProviderID) {
@@ -49,6 +59,10 @@ final class ChatExecutionProviderAvailabilityModel {
         case .openCodeCLI:
             if isRefreshingOpenCodeStatus != isRefreshing {
                 isRefreshingOpenCodeStatus = isRefreshing
+            }
+        case .claudeAdapterCLI:
+            if isRefreshingClaudeAdapterStatus != isRefreshing {
+                isRefreshingClaudeAdapterStatus = isRefreshing
             }
         case .builtInAgent:
             break
@@ -70,6 +84,11 @@ final class ChatExecutionProviderAvailabilityModel {
                 return try await ACPCLIAvailabilityService().checkStatus(
                     executablePath: executablePath,
                     displayName: "OpenCode"
+                )
+            case .claudeAdapterCLI:
+                return try await ACPCLIAvailabilityService().checkStatus(
+                    executablePath: executablePath,
+                    displayName: "Claude Code"
                 )
             case .builtInAgent:
                 return ACPCLIAvailabilityStatus(kind: .available, version: nil, displayName: "内置 Agent")
