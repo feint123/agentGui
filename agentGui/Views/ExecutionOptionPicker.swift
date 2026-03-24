@@ -18,3 +18,7 @@ struct ExecutionOptionPicker: View {
         .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
+
+#Preview {
+    ExecutionOptionPicker(title: "Select Option", options: [ExecutionOptionItem(id: "1", title: "Option 1", isEnabled: true), ExecutionOptionItem(id: "2", title: "Option 2", isEnabled: true)], selection: .constant("1"), accessibilityIdentifier: "executionOptionPicker")
+}

@@ -67,6 +67,7 @@ struct ArtifactChipPresentation: Equatable, Identifiable {
     let id: String
     let displayName: String
     let path: String
+    let kind: ArtifactResourceKind
 }
 
 struct ArtifactSummaryLine: Equatable, Identifiable {
@@ -398,11 +399,54 @@ extension AgentExecutionProjection {
             guard seen.insert(path).inserted else {
                 return nil
             }
+
+            let kind = classifyArtifactResourceKind(for: path)
+            let displayName = artifactDisplayName(for: toolCall, path: path, kind: kind)
+
             return ArtifactChipPresentation(
                 id: toolCall.id.uuidString,
-                displayName: toolCall.fileName ?? URL(fileURLWithPath: path).lastPathComponent,
-                path: path
+                displayName: displayName,
+                path: path,
+                kind: kind
             )
+        }
+    }
+
+    nonisolated private static func classifyArtifactResourceKind(for rawPath: String) -> ArtifactResourceKind {
+        if (rawPath.hasPrefix("http://") || rawPath.hasPrefix("https://")),
+           let url = URL(string: rawPath) {
+            return .webURL(url)
+        }
+
+        let fileURL = URL(fileURLWithPath: rawPath).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory) {
+            return isDirectory.boolValue ? .localFolder(fileURL) : .localFile(fileURL)
+        }
+
+        if rawPath.hasSuffix("/") {
+            return .localFolder(fileURL)
+        }
+
+        return .localFile(fileURL)
+    }
+
+    nonisolated private static func artifactDisplayName(
+        for toolCall: ToolCall,
+        path: String,
+        kind: ArtifactResourceKind
+    ) -> String {
+        if let fileName = toolCall.fileName, !fileName.isEmpty {
+            return fileName
+        }
+
+        switch kind {
+        case .webURL(let url):
+            return url.lastPathComponent.isEmpty ? url.host() ?? path : url.lastPathComponent
+        case .localFile(let url), .localFolder(let url):
+            return url.lastPathComponent.isEmpty ? path : url.lastPathComponent
+        case .unknown:
+            return path
         }
     }
 

@@ -8,11 +8,20 @@ struct WorkbenchGitPanelView: View {
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                GitPanelView(showsBackground: false)
+        VStack(spacing: 0) {
+            WorkbenchSidebarPanelHeader {
+                GitPanelHeaderBar(
+                    isLoading: gitPanelViewModel.isLoading,
+                    canRefresh: gitPanelViewModel.currentWorkingDirectory != nil,
+                    onRefresh: refreshFromCurrentDirectory
+                )
             }
-            .padding(12)
+
+            WorkbenchSidebarPanelScrollView {
+                VStack(alignment: .leading, spacing: WorkbenchSidebarPanelStyle.sectionSpacing) {
+                    GitPanelView(showsBackground: false, showsHeader: false)
+                }
+            }
         }
         .task(id: refreshKey) {
             await refreshSnapshot()
@@ -29,5 +38,12 @@ struct WorkbenchGitPanelView: View {
         let workingDirectory = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
         guard !workingDirectory.isEmpty else { return }
         await gitPanelViewModel.refresh(for: URL(fileURLWithPath: workingDirectory), workspaceState: workspaceState)
+    }
+
+    private func refreshFromCurrentDirectory() {
+        guard let workingDirectory = gitPanelViewModel.currentWorkingDirectory else { return }
+        Task {
+            await gitPanelViewModel.refresh(for: workingDirectory, workspaceState: workspaceState)
+        }
     }
 }

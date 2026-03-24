@@ -98,9 +98,9 @@ struct WorkspacePanelView: View {
             searchControl
             workspaceActionBar
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 12)
+        .padding(.horizontal, WorkbenchSidebarPanelStyle.layoutPadding)
+        .padding(.top, WorkbenchSidebarPanelStyle.layoutPadding)
+        .padding(.bottom, WorkbenchSidebarPanelStyle.compactSpacing)
         .accessibilityIdentifier("workspace.selector")
     }
 
@@ -173,9 +173,16 @@ struct WorkspacePanelView: View {
                     .accessibilityIdentifier("workspace.searchState")
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 2)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(minHeight: WorkbenchSidebarPanelStyle.controlHeight)
+        .glassEffect(
+            .regular,
+            in: RoundedRectangle(
+                cornerRadius: WorkbenchSidebarPanelStyle.controlCornerRadius,
+                style: .continuous
+            )
+        )
         .accessibilityIdentifier("workspace.actionBar")
     }
 
@@ -202,9 +209,7 @@ struct WorkspacePanelView: View {
                 .accessibilityIdentifier("workspace.searchClearButton")
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .workbenchSidebarHeaderFieldStyle()
         .onExitCommand {
             treeViewModel.treeSearchText = ""
         }
@@ -238,6 +243,8 @@ struct WorkspacePanelView: View {
                 },
                 actions: workspaceTreeActions
             )
+            .padding(.horizontal, WorkbenchSidebarPanelStyle.layoutPadding)
+            .padding(.bottom, WorkbenchSidebarPanelStyle.layoutPadding)
         }
     }
 

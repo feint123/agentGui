@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workbench Sidebar Unification Review</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page-bg-1: #eef3f8;
+      --page-bg-2: #dfe7ef;
+      --page-ink: #17212b;
+      --muted-ink: #5f6b78;
+      --tertiary-ink: #8a95a1;
+      --line-soft: rgba(255, 255, 255, 0.72);
+      --line-strong: rgba(17, 24, 39, 0.10);
+      --glass-fill: rgba(255, 255, 255, 0.58);
+      --glass-strong: rgba(255, 255, 255, 0.78);
+      --glass-tint: rgba(255, 255, 255, 0.34);
+      --accent: #2f6fed;
+      --accent-soft: rgba(47, 111, 237, 0.18);
+      --green-soft: rgba(17, 138, 95, 0.16);
+      --orange-soft: rgba(214, 124, 14, 0.16);
+      --red-soft: rgba(190, 63, 63, 0.16);
+      --shadow-xl: 0 28px 70px rgba(44, 60, 80, 0.16);
+      --shadow-lg: 0 16px 34px rgba(44, 60, 80, 0.11);
+      --shadow-md: 0 8px 20px rgba(44, 60, 80, 0.08);
+      --sidebar-width: 336px;
+      --panel-gap: 10px;
+      --control-height: 30px;
+      --radius-control: 12px;
+      --radius-card: 16px;
+      --radius-shell: 28px;
+      --radius-pill: 999px;
+      --font-ui: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+      --font-body: "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: var(--font-body);
+      color: var(--page-ink);
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.92), transparent 34%),
+        radial-gradient(circle at top right, rgba(47, 111, 237, 0.09), transparent 22%),
+        linear-gradient(160deg, var(--page-bg-1), var(--page-bg-2));
+    }
+
+    body {
+      padding: 26px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(320px, var(--sidebar-width)) minmax(420px, 1fr);
+      gap: 24px;
+      align-items: start;
+    }
+
+    .frame {
+      min-height: 920px;
+      border-radius: 34px;
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.42));
+      box-shadow: var(--shadow-xl);
+      overflow: hidden;
+      position: relative;
+      backdrop-filter: blur(26px) saturate(1.15);
+    }
+
+    .frame::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.26), transparent 18%),
+        radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.40), transparent 30%);
+      pointer-events: none;
+    }
+
+    .window-chrome {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 16px 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .window-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+    }
+
+    .window-dot.red { background: #ff5f57; }
+    .window-dot.yellow { background: #febc2e; }
+    .window-dot.green { background: #28c840; }
+
+    .sidebar-shell {
+      position: relative;
+      z-index: 1;
+      padding: 12px 10px 10px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 8px;
+      min-height: calc(920px - 25px);
+    }
+
+    .nav-rail {
+      padding: 4px;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--line-soft);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.48));
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(18px) saturate(1.12);
+    }
+
+    .nav-btn {
+      border: 0;
+      height: 34px;
+      border-radius: var(--radius-pill);
+      background: transparent;
+      color: var(--muted-ink);
+      font: 600 13px/1 var(--font-ui);
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: transform 140ms ease, background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+    }
+
+    .nav-btn:hover {
+      background: rgba(17, 24, 39, 0.05);
+      color: var(--page-ink);
+      transform: scale(1.02);
+    }
+
+    .nav-btn.active {
+      color: var(--page-ink);
+      background: linear-gradient(180deg, rgba(47, 111, 237, 0.20), rgba(47, 111, 237, 0.13));
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.58);
+    }
+
+    .panel-stage {
+      position: relative;
+      min-height: 100%;
+    }
+
+    .panel {
+      display: none;
+      height: 100%;
+      min-height: 800px;
+      flex-direction: column;
+      animation: fade-slide 180ms ease;
+    }
+
+    .panel.active {
+      display: flex;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+    }
+
+    .search-bar,
+    .title-bar,
+    .action-pill,
+    .chip,
+    .segmented-chip,
+    .card,
+    .list-surface,
+    .stat-row,
+    .soft-block {
+      border: 1px solid var(--line-soft);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.70), rgba(255, 255, 255, 0.50));
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(18px) saturate(1.12);
+    }
+
+    .search-bar,
+    .title-bar {
+      min-height: var(--control-height);
+      border-radius: var(--radius-control);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      flex: 1;
+      color: var(--muted-ink);
+      font-size: 13px;
+    }
+
+    .search-bar strong,
+    .title-bar strong {
+      color: var(--page-ink);
+      font-weight: 600;
+    }
+
+    .action-circle,
+    .action-pill,
+    .segmented-chip,
+    .button-quiet,
+    .button-prominent,
+    .button-danger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      cursor: pointer;
+      font: 600 12px/1 var(--font-ui);
+      transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    }
+
+    .action-circle {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      color: var(--accent);
+      background: linear-gradient(180deg, rgba(47, 111, 237, 0.22), rgba(47, 111, 237, 0.14));
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.68), var(--shadow-md);
+    }
+
+    .action-pill,
+    .segmented-chip,
+    .button-quiet,
+    .button-prominent,
+    .button-danger {
+      height: 28px;
+      padding: 0 11px;
+      border-radius: 10px;
+    }
+
+    .action-pill,
+    .button-quiet {
+      color: var(--page-ink);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.62));
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.74), var(--shadow-md);
+    }
+
+    .button-prominent {
+      color: #ffffff;
+      background: linear-gradient(180deg, #4780ee, #2f6fed);
+      box-shadow: 0 10px 22px rgba(47, 111, 237, 0.26);
+    }
+
+    .button-danger {
+      color: #8a2828;
+      background: linear-gradient(180deg, rgba(255, 233, 233, 0.92), rgba(255, 241, 241, 0.78));
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.76), var(--shadow-md);
+    }
+
+    .action-circle:hover,
+    .action-pill:hover,
+    .segmented-chip:hover,
+    .button-quiet:hover,
+    .button-prominent:hover,
+    .button-danger:hover,
+    .row:hover,
+    .card:hover {
+      transform: translateY(-1px);
+    }
+
+    .panel-scroll {
+      flex: 1;
+      padding: 0 10px 10px;
+      overflow: hidden;
+      display: flex;
+    }
+
+    .panel-stack {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .list-surface {
+      flex: 1;
+      min-height: 0;
+      border-radius: 20px;
+      padding: 8px;
+      overflow: hidden;
+    }
+
+    .section-label {
+      padding: 10px 10px 6px;
+      color: var(--tertiary-ink);
+      font: 700 11px/1.2 var(--font-ui);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .row-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-radius: 14px;
+      padding: 10px;
+      transition: background 140ms ease, transform 140ms ease;
+    }
+
+    .row.selected {
+      background: linear-gradient(180deg, rgba(47, 111, 237, 0.17), rgba(47, 111, 237, 0.10));
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.58);
+    }
+
+    .row:hover {
+      background: rgba(17, 24, 39, 0.04);
+    }
+
+    .row-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      background: rgba(17, 24, 39, 0.06);
+      color: var(--muted-ink);
+      flex: none;
+    }
+
+    .row.selected .row-icon {
+      background: rgba(47, 111, 237, 0.20);
+      color: var(--accent);
+    }
+
+    .row-copy {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .row-title {
+      font: 600 13px/1.3 var(--font-ui);
+      color: var(--page-ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row-subtitle {
+      margin-top: 2px;
+      font-size: 11px;
+      color: var(--muted-ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .meta {
+      font-size: 11px;
+      color: var(--tertiary-ink);
+      flex: none;
+    }
+
+    .badge,
+    .chip,
+    .segmented-chip {
+      border-radius: 999px;
+      padding: 0 10px;
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font: 600 11px/1 var(--font-ui);
+      color: var(--muted-ink);
+    }
+
+    .badge.accent { background: var(--accent-soft); color: var(--accent); }
+    .badge.green { background: var(--green-soft); color: #0e7a55; }
+    .badge.orange { background: var(--orange-soft); color: #ba6a0f; }
+    .badge.red { background: var(--red-soft); color: #9d3535; }
+
+    .card {
+      border-radius: var(--radius-card);
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .card-title {
+      font: 700 13px/1.2 var(--font-ui);
+      color: var(--page-ink);
+    }
+
+    .card-copy,
+    .caption {
+      font-size: 12px;
+      color: var(--muted-ink);
+      line-height: 1.45;
+    }
+
+    .kv-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .kv-row,
+    .stat-row,
+    .soft-block {
+      border-radius: 12px;
+      padding: 10px;
+    }
+
+    .kv-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      background: rgba(17, 24, 39, 0.035);
+    }
+
+    .kv-row span:first-child {
+      font-size: 11px;
+      color: var(--tertiary-ink);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .kv-row span:last-child {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--page-ink);
+      text-align: right;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .stat-row {
+      text-align: center;
+      background: rgba(17, 24, 39, 0.03);
+    }
+
+    .stat-value {
+      font: 700 18px/1 var(--font-ui);
+      color: var(--page-ink);
+    }
+
+    .stat-label {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--tertiary-ink);
+    }
+
+    .note-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .soft-block {
+      background: rgba(17, 24, 39, 0.03);
+    }
+
+    .empty-state {
+      flex: 1;
+      display: grid;
+      place-items: center;
+      color: var(--tertiary-ink);
+      text-align: center;
+      padding: 26px;
+    }
+
+    .empty-glyph {
+      width: 52px;
+      height: 52px;
+      border-radius: 18px;
+      margin: 0 auto 14px;
+      display: grid;
+      place-items: center;
+      font: 700 18px/1 var(--font-ui);
+      color: var(--accent);
+      background: rgba(47, 111, 237, 0.12);
+    }
+
+    .inspector {
+      padding: 28px 30px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .eyebrow {
+      font: 700 11px/1 var(--font-ui);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .hero h1 {
+      margin: 6px 0 10px;
+      font: 700 32px/1.1 var(--font-ui);
+      letter-spacing: -0.03em;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 54ch;
+      font-size: 15px;
+      line-height: 1.65;
+      color: var(--muted-ink);
+    }
+
+    .review-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(240px, 1fr));
+      gap: 14px;
+    }
+
+    .review-card {
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.52));
+      box-shadow: var(--shadow-lg);
+      padding: 18px;
+    }
+
+    .review-card h2,
+    .review-card h3 {
+      margin: 0 0 10px;
+      font: 700 16px/1.25 var(--font-ui);
+    }
+
+    .review-card p,
+    .review-card li {
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--muted-ink);
+    }
+
+    .review-card ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .token-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .token-table th,
+    .token-table td {
+      padding: 10px 0;
+      text-align: left;
+      border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+    }
+
+    .token-table th {
+      color: var(--tertiary-ink);
+      font-weight: 600;
+    }
+
+    .callout {
+      border-radius: 18px;
+      padding: 16px 18px;
+      background: linear-gradient(180deg, rgba(47, 111, 237, 0.14), rgba(255, 255, 255, 0.50));
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .panel-caption {
+      font-size: 12px;
+      color: var(--tertiary-ink);
+    }
+
+    .legend-inline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    @keyframes fade-slide {
+      from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.985);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @media (max-width: 1100px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .frame {
+        min-height: 760px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <section class="frame" aria-label="Sidebar Prototype">
+      <div class="window-chrome">
+        <span class="window-dot red"></span>
+        <span class="window-dot yellow"></span>
+        <span class="window-dot green"></span>
+      </div>
+
+      <div class="sidebar-shell">
+        <div class="nav-rail" role="tablist" aria-label="Workbench Panels">
+          <button class="nav-btn active" data-target="sessions" role="tab" aria-selected="true">会话</button>
+          <button class="nav-btn" data-target="workspace" role="tab" aria-selected="false">文件</button>
+          <button class="nav-btn" data-target="git" role="tab" aria-selected="false">Git</button>
+          <button class="nav-btn" data-target="lsp" role="tab" aria-selected="false">LSP</button>
+          <button class="nav-btn" data-target="skills" role="tab" aria-selected="false">技能</button>
+          <button class="nav-btn" data-target="diagnostics" role="tab" aria-selected="false">诊断</button>
+        </div>
+
+        <div class="panel-stage">
+          <section class="panel active" id="panel-sessions" role="tabpanel">
+            <div class="panel-header">
+              <div class="search-bar"><span>⌕</span><strong>搜索会话</strong><span class="panel-caption">支持标题与目录过滤</span></div>
+              <button class="action-circle" aria-label="新建对话">＋</button>
+            </div>
+            <div class="panel-scroll">
+              <div class="panel-stack">
+                <div class="list-surface">
+                  <div class="section-label">最近使用</div>
+                  <div class="row-list">
+                    <div class="row selected">
+                      <div class="row-icon">会</div>
+                      <div class="row-copy">
+                        <div class="row-title">Claude ACP 集成迭代</div>
+                        <div class="row-subtitle">本地会话 · /agentGui · 5 分钟前更新</div>
+                      </div>
+                      <span class="badge accent">当前</span>
+                    </div>
+                    <div class="row">
+                      <div class="row-icon">会</div>
+                      <div class="row-copy">
+                        <div class="row-title">WorkBench 侧栏统一设计</div>
+                        <div class="row-subtitle">本地会话 · /agentGui · 19 分钟前更新</div>
+                      </div>
+                      <div class="meta">2h</div>
+                    </div>
+                    <div class="row">
+                      <div class="row-icon">云</div>
+                      <div class="row-copy">
+                        <div class="row-title">LSP 状态页重构验证</div>
+                        <div class="row-subtitle">远程会话 · diagnostics · 昨天</div>
+                      </div>
+                      <div class="meta">1d</div>
+                    </div>
+                  </div>
+
+                  <div class="section-label">更早</div>
+                  <div class="row-list">
+                    <div class="row">
+                      <div class="row-icon">会</div>
+                      <div class="row-copy">
+                        <div class="row-title">Markdown 表格宽度实验</div>
+                        <div class="row-subtitle">本地会话 · workspace · 3 天前</div>
+                      </div>
+                      <div class="meta">3d</div>
+                    </div>
+                    <div class="row">
+                      <div class="row-icon">会</div>
+                      <div class="row-copy">
+                        <div class="row-title">质量抽样基线</div>
+                        <div class="row-subtitle">本地会话 · quality · 上周</div>
+                      </div>
+                      <div class="meta">7d</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" id="panel-workspace" role="tabpanel">
+            <div class="panel-header">
+              <div class="search-bar"><span>⌕</span><strong>过滤文件和文件夹</strong><span class="panel-caption">沿用 Session 顶部控件密度</span></div>
+            </div>
+            <div class="panel-scroll">
+              <div class="panel-stack">
+                <div class="title-bar">
+                  <strong>agentGui</strong>
+                  <span class="panel-caption">当前目录</span>
+                  <span style="flex:1"></span>
+                  <button class="action-pill">新建</button>
+                  <button class="action-pill">更多</button>
+                </div>
+
+                <div class="list-surface">
+                  <div class="section-label">项目结构</div>
+                  <div class="row-list">
+                    <div class="row selected">
+                      <div class="row-icon">📁</div>
+                      <div class="row-copy">
+                        <div class="row-title">Views</div>
+                        <div class="row-subtitle">28 项 · 已展开 · 含 Workbench 模块</div>
+                      </div>
+                      <span class="badge orange">12 变更</span>
+                    </div>
+                    <div class="row">
+                      <div class="row-icon">📄</div>
+                      <div class="row-copy">
+                        <div class="row-title">WorkbenchSidebarView.swift</div>
+                        <div class="row-subtitle">当前选中 · Swift 源文件</div>
+                      </div>
+                      <span class="badge accent">编辑中</span>
+                    </div>
+                    <div class="row">
+                      <div class="row-icon">📄</div>
+                      <div class="row-copy">
+                        <div class="row-title">SessionListView.swift</div>
+                        <div class="row-subtitle">基准参考样式</div>
+                      </div>
+                      <div class="meta">参考</div>
+                    </div>
+                    <div class="row">
+                      <div class="row-icon">📁</div>
+                      <div class="row-copy">
+                        <div class="row-title">Services</div>
+                        <div class="row-subtitle">18 项 · Claude 与 ACP 服务</div>
+                      </div>
+                      <span class="badge green">就绪</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" id="panel-git" role="tabpanel">
+            <div class="panel-header">
+              <div class="title-bar"><strong>Git</strong><span class="panel-caption">从裸 VStack 改为统一 header 栅格</span></div>
+              <button class="action-circle" aria-label="刷新 Git">↻</button>
+            </div>
+            <div class="panel-scroll">
+              <div class="panel-stack">
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">仓库概览</div>
+                    <span class="badge green">干净工作区</span>
+                  </div>
+                  <div class="stats-grid">
+                    <div class="stat-row"><div class="stat-value">3</div><div class="stat-label">本地分支</div></div>
+                    <div class="stat-row"><div class="stat-value">12</div><div class="stat-label">已提交</div></div>
+                    <div class="stat-row"><div class="stat-value">0</div><div class="stat-label">冲突</div></div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">变更</div>
+                    <span class="badge orange">4 文件</span>
+                  </div>
+                  <div class="row-list">
+                    <div class="row">
+                      <div class="row-icon">M</div>
+                      <div class="row-copy">
+                        <div class="row-title">WorkbenchSidebarView.swift</div>
+                        <div class="row-subtitle">统一 panel 壳层与节距</div>
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="row-icon">A</div>
+                      <div class="row-copy">
+                        <div class="row-title">workbench-sidebar-unification-review.html</div>
+                        <div class="row-subtitle">高保真审稿原型</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">提交与分支</div>
+                  </div>
+                  <div class="legend-inline">
+                    <button class="button-prominent">提交</button>
+                    <button class="button-quiet">切换分支</button>
+                    <button class="button-quiet">拉取</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" id="panel-lsp" role="tabpanel">
+            <div class="panel-header">
+              <div class="title-bar"><strong>LSP</strong><span class="panel-caption">保留信息密度，但统一 header、卡片圆角与内边距</span></div>
+            </div>
+            <div class="panel-scroll">
+              <div class="panel-stack">
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">状态</div>
+                    <span class="badge green">已连接</span>
+                  </div>
+                  <div class="kv-list">
+                    <div class="kv-row"><span>服务</span><span>sourcekit-lsp</span></div>
+                    <div class="kv-row"><span>当前文件</span><span>WorkbenchSidebarView.swift</span></div>
+                    <div class="kv-row"><span>工作目录</span><span>agentGui</span></div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">诊断</div>
+                    <div class="legend-inline">
+                      <span class="badge red">2 错误</span>
+                      <span class="badge orange">5 警告</span>
+                    </div>
+                  </div>
+                  <div class="note-stack">
+                    <div class="soft-block">
+                      <div class="row-title">Views/Workbench/WorkbenchSidebarView.swift</div>
+                      <div class="row-subtitle">属性未使用，建议移除重复状态。</div>
+                    </div>
+                    <div class="soft-block">
+                      <div class="row-title">Views/WorkspacePanelView.swift</div>
+                      <div class="row-subtitle">搜索控制区与 action bar 节距不一致。</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">服务管理</div>
+                    <button class="button-quiet">打开设置</button>
+                  </div>
+                  <div class="row-list">
+                    <div class="row">
+                      <div class="row-copy">
+                        <div class="row-title">Swift / SourceKit-LSP</div>
+                        <div class="row-subtitle">已安装 · 运行中 · 最近一次刷新 14:28</div>
+                      </div>
+                      <span class="badge green">运行中</span>
+                    </div>
+                    <div class="row">
+                      <div class="row-copy">
+                        <div class="row-title">TypeScript / tsserver</div>
+                        <div class="row-subtitle">已安装 · 当前空闲</div>
+                      </div>
+                      <span class="badge accent">查看详情</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" id="panel-skills" role="tabpanel">
+            <div class="panel-header">
+              <div class="title-bar"><strong>技能</strong><span class="panel-caption">从 Form 语义迁移到 sidebar 专用卡片列表</span></div>
+              <button class="action-pill">刷新</button>
+            </div>
+            <div class="panel-scroll">
+              <div class="panel-stack">
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">已安装技能</div>
+                    <span class="badge accent">12 个</span>
+                  </div>
+                  <div class="row-list">
+                    <div class="row selected">
+                      <div class="row-copy">
+                        <div class="row-title">swiftui-expert-skill</div>
+                        <div class="row-subtitle">SwiftUI 状态管理、视图拆分与现代 API</div>
+                      </div>
+                      <div class="segmented-chip">已启用</div>
+                    </div>
+                    <div class="row">
+                      <div class="row-copy">
+                        <div class="row-title">brainstorming</div>
+                        <div class="row-subtitle">创意类任务先做设计澄清与分段确认</div>
+                      </div>
+                      <div class="segmented-chip">已启用</div>
+                    </div>
+                    <div class="row">
+                      <div class="row-copy">
+                        <div class="row-title">requesting-code-review</div>
+                        <div class="row-subtitle">完工前主动发起一次代码审查</div>
+                      </div>
+                      <div class="segmented-chip">关闭</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-copy">这里不再用系统 Form 的大段留白和默认 grouped 外观，改为与其他 panel 一致的标题栏、信息卡片和行内开关密度。</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" id="panel-diagnostics" role="tabpanel">
+            <div class="panel-header">
+              <div class="title-bar"><strong>诊断中心</strong><span class="panel-caption">从 NavigationStack + List 转为统一 panel 容器</span></div>
+              <button class="action-pill">刷新</button>
+            </div>
+            <div class="panel-scroll">
+              <div class="panel-stack">
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">完整性问题</div>
+                    <span class="badge orange">2 项</span>
+                  </div>
+                  <div class="note-stack">
+                    <div class="soft-block">
+                      <div class="row-title">会话索引缺失</div>
+                      <div class="row-subtitle">有 1 个本地会话缺少最近访问时间，建议重建索引。</div>
+                    </div>
+                    <div class="soft-block">
+                      <div class="row-title">恢复快照过期</div>
+                      <div class="row-subtitle">检测到 3 个超过 7 天未查看的恢复项。</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">恢复项</div>
+                    <span class="badge red">待处理</span>
+                  </div>
+                  <div class="row-list">
+                    <div class="row">
+                      <div class="row-copy">
+                        <div class="row-title">Claude Runtime Recovery</div>
+                        <div class="row-subtitle">上次中断于 13:14，建议先查看详情再清理。</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="legend-inline">
+                    <button class="button-quiet">查看</button>
+                    <button class="button-quiet">中断</button>
+                    <button class="button-danger">清理</button>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">备份</div>
+                  </div>
+                  <div class="legend-inline">
+                    <button class="button-prominent">导出全量备份</button>
+                  </div>
+                  <div class="card-copy">最近一次导出成功，文件已保存到 Downloads/agentGui-backup-2026-03-24.zip</div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <aside class="inspector">
+      <div class="hero">
+        <div class="eyebrow">Review Draft</div>
+        <h1>Workbench Sidebar 风格统一审稿稿</h1>
+        <p>基准完全取自 SessionListView：顶部 10pt 外边距、30pt 控件高度、12pt 控件圆角、轻玻璃材质、统一卡片半径与一致的列表密度。其余 panel 不改业务逻辑，只把容器层、header、section surface、按钮层级和空态视觉归一到同一套语言。</p>
+      </div>
+
+      <div class="callout">
+        <div class="card-title">本稿重点</div>
+        <p class="card-copy">不是重做交互，而是把“像不同产品拼起来”的 panel 收束成同一套 sidebar shell。你可以直接点左侧顶部 tab 查看每个 panel 的迁移后效果。</p>
+      </div>
+
+      <div class="review-grid">
+        <div class="review-card">
+          <h2>统一规则</h2>
+          <ul>
+            <li>所有 panel 共用同一层外壳：顶部导航下方直接进入 panel header，再进入内容区。</li>
+            <li>header 只允许两种构型：搜索栏 + 辅助动作，或标题栏 + 辅助动作。</li>
+            <li>列表与卡片统一使用 16-20pt 圆角，不再混用裸 List、Form、ScrollView 默认背景。</li>
+            <li>按钮层级固定为突出主操作、普通次操作、危险操作三档。</li>
+            <li>空态保持 WorkbenchSidebarEmptyStateView 的语义，但放进同一 panel 节距系统。</li>
+          </ul>
+        </div>
+
+        <div class="review-card">
+          <h2>各 panel 迁移策略</h2>
+          <ul>
+            <li>Workspace: 保留树视图逻辑，只收敛搜索区和 action bar 为单一 header 语言。</li>
+            <li>Git: 把现在偏“内嵌组件”的灰底盒子改成与 LSP 一致的分段卡片。</li>
+            <li>LSP: 保留信息密度，但卡片边距、标题层级、chips 规格全对齐。</li>
+            <li>Skills: 去掉 Form 默认 grouped 味道，切回 sidebar 专用卡片列表。</li>
+            <li>Diagnostics: 去掉导航页感，改成和其他 panel 一样的 section stack。</li>
+          </ul>
+        </div>
+
+        <div class="review-card">
+          <h3>Token 摘要</h3>
+          <table class="token-table">
+            <tr><th>项</th><th>值</th></tr>
+            <tr><td>外层 padding</td><td>10</td></tr>
+            <tr><td>控件高度</td><td>30</td></tr>
+            <tr><td>控件圆角</td><td>12</td></tr>
+            <tr><td>卡片圆角</td><td>16</td></tr>
+            <tr><td>内容节距</td><td>10</td></tr>
+            <tr><td>选中态</td><td>accent 低饱和填充 + 细描边</td></tr>
+          </table>
+        </div>
+
+        <div class="review-card">
+          <h3>我建议你重点确认</h3>
+          <ul>
+            <li>顶部 header 是否都采用同一密度，而不是每个 panel 自己定义高度。</li>
+            <li>Git 和 Diagnostics 是否接受从“系统 List/Form”转向“自定义卡片列表”。</li>
+            <li>Skills 是否要完全向 Session 风格靠拢，而不是保留设置页语义。</li>
+            <li>LSP 是否维持当前信息量，还是趁这次一并压缩文案密度。</li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const buttons = document.querySelectorAll('.nav-btn');
+    const panels = document.querySelectorAll('.panel');
+
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const target = button.dataset.target;
+
+        buttons.forEach((item) => {
+          const isActive = item === button;
+          item.classList.toggle('active', isActive);
+          item.setAttribute('aria-selected', String(isActive));
+        });
+
+        panels.forEach((panel) => {
+          panel.classList.toggle('active', panel.id === `panel-${target}`);
+        });
+      });
+    });
+  </script>
+</body>
+</html>

@@ -27,19 +27,37 @@ struct WorkbenchLSPPanelView: View {
             persistSettingsMutation(userMessage: userMessage, mutation: mutation)
         })
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Label("LSP", systemImage: "server.rack")
-                    .font(.headline)
-                    .padding(.horizontal, 2)
+        VStack(spacing: 0) {
+            WorkbenchSidebarPanelHeader {
+                WorkbenchSidebarToolbarHeader {
+                    HStack(spacing: 8) {
+                        Label("LSP", systemImage: "server.rack")
+                            .font(.subheadline.weight(.semibold))
+                        if !workingDirectory.isEmpty {
+                            Text(URL(fileURLWithPath: workingDirectory).lastPathComponent)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                } trailing: {
+                    Button {
+                        Task { await bootstrapLSP() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(workingDirectory.isEmpty)
+                    .accessibilityIdentifier("lsp.panel.refresh")
+                }
+            }
 
+            WorkbenchSidebarPanelScrollView {
                 overviewSection(status: status, presenter: presenter)
                 diagnosticsSection(status: status)
                 servicesSection(viewModel: managementViewModel)
             }
-            .padding(12)
         }
-        .scrollIndicators(.hidden)
         .task(id: refreshKey) {
             await bootstrapLSP()
         }
@@ -83,129 +101,119 @@ struct WorkbenchLSPPanelView: View {
         status: WorkspacePanelLSPStatusPresentation,
         presenter: WorkspacePanelLSPFooterPresenter
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                sectionHeader(title: "状态", systemImage: "dot.radiowaves.left.and.right")
-                Spacer(minLength: 8)
-                statusBadge(text: status.stateText, tone: presenter.tone(for: status.stateText))
-            }
+        WorkbenchSidebarSectionCard(title: "状态", systemImage: "dot.radiowaves.left.and.right") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(status.serverID ?? "未绑定")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 0)
+                    countChip(title: "错误", count: status.errorCount, color: .red)
+                    countChip(title: "警告", count: status.warningCount, color: .orange)
+                }
 
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(status.serverID ?? "未绑定")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
-                countChip(title: "错误", count: status.errorCount, color: .red)
-                countChip(title: "警告", count: status.warningCount, color: .orange)
-            }
+                keyValueRow(title: "当前文件", value: status.selectedFileName ?? "未选择")
+                keyValueRow(
+                    title: "工作目录",
+                    value: workingDirectory.isEmpty ? "未设置" : URL(fileURLWithPath: workingDirectory).lastPathComponent
+                )
 
-            keyValueRow(title: "当前文件", value: status.selectedFileName ?? "未选择")
-            keyValueRow(
-                title: "工作目录",
-                value: workingDirectory.isEmpty ? "未设置" : URL(fileURLWithPath: workingDirectory).lastPathComponent
-            )
-
-            if let summary = status.projectSummary {
-                keyValueRow(title: "受影响文件", value: "\(summary.filesWithDiagnostics) 个")
+                if let summary = status.projectSummary {
+                    keyValueRow(title: "受影响文件", value: "\(summary.filesWithDiagnostics) 个")
+                }
             }
+        } accessory: {
+            statusBadge(text: status.stateText, tone: presenter.tone(for: status.stateText))
         }
-        .padding(14)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     @ViewBuilder
     private func diagnosticsSection(status: WorkspacePanelLSPStatusPresentation) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(title: "诊断", systemImage: "exclamationmark.bubble")
+        WorkbenchSidebarSectionCard(title: "诊断", systemImage: "exclamationmark.bubble") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let summary = status.projectSummary {
+                    HStack(spacing: 8) {
+                        countChip(title: "错误", count: summary.errorCount, color: .red)
+                        countChip(title: "警告", count: summary.warningCount, color: .orange)
 
-            if let summary = status.projectSummary {
-                HStack(spacing: 8) {
-                    countChip(title: "错误", count: summary.errorCount, color: .red)
-                    countChip(title: "警告", count: summary.warningCount, color: .orange)
+                        if summary.informationCount > 0 {
+                            countChip(title: "信息", count: summary.informationCount, color: .blue)
+                        }
 
-                    if summary.informationCount > 0 {
-                        countChip(title: "信息", count: summary.informationCount, color: .blue)
-                    }
-
-                    if summary.hintCount > 0 {
-                        countChip(title: "提示", count: summary.hintCount, color: .secondary)
-                    }
-                }
-
-                keyValueRow(title: "受影响文件", value: "\(summary.filesWithDiagnostics) 个")
-                keyValueRow(title: "最近更新", value: summary.updatedAt.formatted(date: .omitted, time: .shortened))
-
-                if summary.recentDiagnostics.isEmpty {
-                    emptyStateRow(text: "当前项目没有诊断信息")
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(summary.recentDiagnostics.prefix(6).enumerated()), id: \.offset) { index, item in
-                            if index > 0 {
-                                Divider()
-                            }
-                            diagnosticRow(item)
+                        if summary.hintCount > 0 {
+                            countChip(title: "提示", count: summary.hintCount, color: .secondary)
                         }
                     }
-                    .padding(.top, 2)
-                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    keyValueRow(title: "受影响文件", value: "\(summary.filesWithDiagnostics) 个")
+                    keyValueRow(title: "最近更新", value: summary.updatedAt.formatted(date: .omitted, time: .shortened))
+
+                    if summary.recentDiagnostics.isEmpty {
+                        emptyStateRow(text: "当前项目没有诊断信息")
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(summary.recentDiagnostics.prefix(6).enumerated()), id: \.offset) { index, item in
+                                if index > 0 {
+                                    Divider()
+                                }
+                                diagnosticRow(item)
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
+                } else {
+                    emptyStateRow(text: "当前项目没有诊断信息")
                 }
-            } else {
-                emptyStateRow(text: "当前项目没有诊断信息")
             }
         }
-        .padding(14)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func servicesSection(viewModel: LSPManagementViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                sectionHeader(title: "服务管理", systemImage: "slider.horizontal.3")
-                Spacer(minLength: 8)
-                Button("打开设置") {
-                    openWindow(id: SettingsWindowScene.id)
-                }
-                .buttonStyle(.glass)
-                .controlSize(.small)
-            }
+        WorkbenchSidebarSectionCard(title: "服务管理", systemImage: "slider.horizontal.3") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("在当前面板里查看安装状态、运行状态和最近错误；高级配置仍在设置中完成。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-            Text("在当前面板里查看安装状态、运行状态和最近错误；高级配置仍在设置中完成。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if viewModel.services.isEmpty {
-                emptyStateRow(text: "当前没有可管理的 LSP 服务")
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(viewModel.services.enumerated()), id: \.element.id) { index, service in
-                        if index > 0 {
-                            Divider()
-                        }
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            serviceRow(service, viewModel: viewModel)
-
-                            if expandedServiceIDs.contains(service.id) {
-                                serviceDetail(service)
+                if viewModel.services.isEmpty {
+                    emptyStateRow(text: "当前没有可管理的 LSP 服务")
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(viewModel.services.enumerated()), id: \.element.id) { index, service in
+                            if index > 0 {
+                                Divider()
                             }
 
-                            if let actionError = actionErrors[service.id], !actionError.isEmpty {
-                                Text(actionError)
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
+                            VStack(alignment: .leading, spacing: 10) {
+                                serviceRow(service, viewModel: viewModel)
+
+                                if expandedServiceIDs.contains(service.id) {
+                                    serviceDetail(service)
+                                }
+
+                                if let actionError = actionErrors[service.id], !actionError.isEmpty {
+                                    Text(actionError)
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
                             }
+                            .padding(.vertical, 10)
                         }
-                        .padding(.vertical, 10)
                     }
                 }
-                .padding(.horizontal, 10)
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
+        } accessory: {
+            Button {
+                openWindow(id: SettingsWindowScene.id)
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help("打开设置")
         }
-        .padding(14)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func diagnosticRow(_ item: LSPProjectDiagnosticsSummary.DiagnosticItem) -> some View {
@@ -242,7 +250,6 @@ struct WorkbenchLSPPanelView: View {
                     .truncationMode(.tail)
             }
         }
-        .padding(.horizontal, 10)
         .padding(.vertical, 8)
     }
 

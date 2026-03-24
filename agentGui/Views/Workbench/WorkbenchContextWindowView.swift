@@ -31,7 +31,6 @@ struct WorkbenchContextWindowView: View {
             }
         }
         .frame(minWidth: 760, minHeight: 520)
-        .background(background)
         .navigationTitle(selectedTabTitle)
         .navigationSubtitle(selectedTabSubtitle)
         .toolbar {
@@ -245,17 +244,6 @@ struct WorkbenchContextWindowView: View {
 
     private var selectedTab: WorkbenchContextTab? {
         contextWindowState.selectedTab
-    }
-
-    private var background: some View {
-        LinearGradient(
-            colors: [
-                Color(NSColor.windowBackgroundColor),
-                Color.accentColor.opacity(0.05)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
     }
 
     private var emptyState: some View {

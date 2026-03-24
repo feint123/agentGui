@@ -7,6 +7,35 @@
 
 import Foundation
 
+enum ArtifactResourceKind: Equatable {
+    case localFile(URL)
+    case localFolder(URL)
+    case webURL(URL)
+    case unknown(String)
+
+    var systemImage: String {
+        switch self {
+        case .localFile:
+            return "doc.fill"
+        case .localFolder:
+            return "folder.fill"
+        case .webURL:
+            return "link"
+        case .unknown:
+            return "questionmark.square"
+        }
+    }
+
+    var openableURL: URL? {
+        switch self {
+        case .localFile(let url), .localFolder(let url), .webURL(let url):
+            return url
+        case .unknown:
+            return nil
+        }
+    }
+}
+
 // MARK: - Message Direction
 /// 消息方向枚举
 enum MessageDirection: String, Codable {

@@ -1,7 +1,54 @@
+import AppKit
 import SwiftUI
+
+enum ArtifactOpenAction: Equatable {
+    case openInEditor(URL)
+    case openExternally(URL)
+    case none
+}
+
+enum ArtifactOpenDispatcher {
+    static let appEditableExtensions: Set<String> = [
+        "md", "markdown",
+        "txt", "text",
+        "swift", "py", "js", "ts", "jsx", "tsx",
+        "json", "yaml", "yml", "toml", "xml",
+        "sh", "bash", "zsh",
+        "css", "html", "htm"
+    ]
+
+    static func resolve(for kind: ArtifactResourceKind) -> ArtifactOpenAction {
+        switch kind {
+        case .localFile(let url):
+            let normalizedURL = url.standardizedFileURL
+            let pathExtension = normalizedURL.pathExtension.lowercased()
+            if appEditableExtensions.contains(pathExtension) || pathExtension.isEmpty {
+                return .openInEditor(normalizedURL)
+            }
+            return .openExternally(normalizedURL)
+        case .localFolder(let url):
+            return .openExternally(url.standardizedFileURL)
+        case .webURL(let url):
+            return .openExternally(url)
+        case .unknown:
+            return .none
+        }
+    }
+}
+
+enum ArtifactShelfSummaryVisibility {
+    static func visibleItems(
+        _ items: [ArtifactSummaryLine],
+        isExpanded: Bool,
+        limit: Int = 3
+    ) -> [ArtifactSummaryLine] {
+        isExpanded ? items : Array(items.prefix(limit))
+    }
+}
 
 struct ArtifactShelfView: View {
     let presentation: ArtifactShelfPresentation
+    @Environment(WorkspaceState.self) private var workspaceState
 
     var body: some View {
         if presentation.hasContent {
@@ -27,7 +74,7 @@ struct ArtifactShelfView: View {
                     tint: .secondary
                 )
 
-                artifactSummarySection(
+                CollapsibleSummarySection(
                     title: "命令摘要",
                     iconName: "terminal",
                     items: presentation.commandSummaries,
@@ -116,19 +163,135 @@ struct ArtifactShelfView: View {
     }
 
     private func artifactChip(_ item: ArtifactChipPresentation, tint: Color) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: "doc")
-                .font(.caption2)
-            Text(item.displayName)
-                .font(.caption)
-                .fontWeight(.medium)
-                .lineLimit(1)
+        ArtifactChipButton(item: item, tint: tint) {
+            open(item.kind)
         }
-        .foregroundStyle(tint)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(tint.opacity(0.12), in: Capsule())
+    }
+
+    @MainActor
+    private func open(_ kind: ArtifactResourceKind) {
+        switch ArtifactOpenDispatcher.resolve(for: kind) {
+        case .openInEditor(let url):
+            workspaceState.selectedFile = url
+        case .openExternally(let url):
+            NSWorkspace.shared.open(url)
+        case .none:
+            break
+        }
+    }
+}
+
+private struct CollapsibleSummarySection: View {
+    let title: String
+    let iconName: String
+    let items: [ArtifactSummaryLine]
+    let tint: Color
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: iconName)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(tint)
+                        Text(title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    if items.count > 3 {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isExpanded.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(isExpanded ? "收起" : "展开全部 \(items.count) 条")
+                                    .font(.caption2)
+                                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                    .font(.caption2.weight(.semibold))
+                            }
+                            .foregroundStyle(tint)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(ArtifactShelfSummaryVisibility.visibleItems(items, isExpanded: isExpanded)) { item in
+                        Text(item.text)
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                            .lineLimit(3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ArtifactChipButton: View {
+    let item: ArtifactChipPresentation
+    let tint: Color
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    private var isOpenable: Bool {
+        item.kind.openableURL != nil
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: item.kind.systemImage)
+                    .font(.caption2)
+                Text(item.displayName)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isOpenable ? tint : tint.opacity(0.5))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.12), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isOpenable)
         .help(item.path)
+        .onHover(perform: handleHover)
+        .onDisappear(perform: clearHoverIfNeeded)
+    }
+
+    private func handleHover(_ hovering: Bool) {
+        guard isOpenable, hovering != isHovering else {
+            return
+        }
+
+        isHovering = hovering
+        if hovering {
+            NSCursor.pointingHand.push()
+        } else {
+            NSCursor.pop()
+        }
+    }
+
+    private func clearHoverIfNeeded() {
+        guard isHovering else {
+            return
+        }
+
+        isHovering = false
+        NSCursor.pop()
     }
 }
 
