@@ -10,6 +10,7 @@ struct ExecutionProjectionStoreTests {
         let projection = store.projection(for: "session-1")
 
         #expect(projection.sessionID == "session-1")
+        #expect(projection.currentPhase == nil)
         #expect(projection.queuedJobIDs.isEmpty)
         #expect(projection.queuedCount == 0)
         #expect(projection.isRunning == false)
@@ -29,7 +30,8 @@ struct ExecutionProjectionStoreTests {
                 isRunning: false,
                 canEditComposer: true,
                 canSubmitNewJob: true,
-                activeProviderID: .githubCopilotCLI
+                activeProviderID: .githubCopilotCLI,
+                currentPhase: nil
             )
         )
 
@@ -37,5 +39,6 @@ struct ExecutionProjectionStoreTests {
 
         #expect(projection.queuedJobIDs == [jobID])
         #expect(projection.activeProviderID == .githubCopilotCLI)
+        #expect(projection.currentPhase == nil)
     }
 }

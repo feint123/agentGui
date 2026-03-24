@@ -23,6 +23,7 @@ struct ConversationExecutionOrchestratorTests {
         let projection = harness.projectionStore.projection(for: harness.session.sessionId)
         #expect(projection.runningJobID == handle.jobID)
         #expect(projection.isRunning == true)
+        #expect(projection.currentPhase == .executing)
         #expect(projection.queuedCount == 0)
         #expect(harness.driver.executedJobIDs == [handle.jobID])
         #expect(harness.driver.executionContexts.map(\.workingDirectoryOverride) == [nil])
@@ -44,6 +45,7 @@ struct ConversationExecutionOrchestratorTests {
         let projection = harness.projectionStore.projection(for: harness.session.sessionId)
         #expect(projection.runningJobID == jobID)
         #expect(projection.isRunning == true)
+        #expect(projection.currentPhase == .executing)
     }
 
     @Test func claudeServiceRegenerateRoutesThroughOrchestratorAndReplacesTrailingMessages() async throws {
@@ -240,6 +242,7 @@ struct ConversationExecutionOrchestratorTests {
         #expect(jobs[handle.jobID]?.state == .cancelled)
         #expect(projection.runningJobID == nil)
         #expect(projection.isRunning == false)
+        #expect(projection.currentPhase == nil)
     }
 
     @Test func restorePendingJobsDispatchesPersistedQueuedJob() async throws {

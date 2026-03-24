@@ -75,7 +75,8 @@ final class ConversationExecutionOrchestrator {
                 isRunning: currentProjection.isRunning,
                 canEditComposer: true,
                 canSubmitNewJob: true,
-                activeProviderID: command.providerID
+                activeProviderID: command.providerID,
+                currentPhase: currentProjection.currentPhase
             )
         )
 
@@ -126,7 +127,8 @@ final class ConversationExecutionOrchestrator {
                     isRunning: false,
                     canEditComposer: true,
                     canSubmitNewJob: true,
-                    activeProviderID: activeProviderIDsBySessionID[sessionID]
+                    activeProviderID: activeProviderIDsBySessionID[sessionID],
+                    currentPhase: nil
                 )
             )
         }
@@ -410,7 +412,8 @@ final class ConversationExecutionOrchestrator {
                 isRunning: false,
                 canEditComposer: true,
                 canSubmitNewJob: true,
-                activeProviderID: activeProviderID
+                activeProviderID: activeProviderID,
+                currentPhase: nil
             )
         )
 
@@ -433,7 +436,8 @@ final class ConversationExecutionOrchestrator {
                 isRunning: true,
                 canEditComposer: true,
                 canSubmitNewJob: true,
-                activeProviderID: providerID
+                activeProviderID: providerID,
+                currentPhase: .executing
             )
         )
     }

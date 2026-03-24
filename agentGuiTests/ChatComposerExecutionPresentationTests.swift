@@ -12,7 +12,8 @@ struct ChatComposerExecutionPresentationTests {
             isRunning: true,
             canEditComposer: true,
             canSubmitNewJob: true,
-            activeProviderID: .builtInAgent
+            activeProviderID: .builtInAgent,
+            currentPhase: .executing
         )
 
         let presentation = ChatComposerExecutionPresentation.resolve(
@@ -39,7 +40,8 @@ struct ChatComposerExecutionPresentationTests {
             isRunning: true,
             canEditComposer: true,
             canSubmitNewJob: true,
-            activeProviderID: .builtInAgent
+            activeProviderID: .builtInAgent,
+            currentPhase: .executing
         )
 
         let presentation = ChatComposerExecutionPresentation.resolve(

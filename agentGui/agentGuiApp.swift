@@ -222,6 +222,7 @@ struct agentGuiApp: App {
         .commands {
             WorkspaceMenuCommands()
             SettingsMenuCommands()
+            StudioMenuCommands()
         }
 
         Window("上下文", id: WorkbenchContextWindowScene.id) {
@@ -245,6 +246,14 @@ struct agentGuiApp: App {
                 .environment(PersistenceCoordinator.shared)
         }
         .modelContainer(sharedModelContainer)
+
+        Window("Agent 工作室", id: AgentStudioWindowScene.id) {
+            AgentStudioWindowView()
+                .environment(claudeService)
+                .environment(PersistenceCoordinator.shared)
+        }
+        .modelContainer(sharedModelContainer)
+        .defaultSize(width: 960, height: 540)
 
         Window("开始使用 agentGui", id: OnboardingWindowScene.id) {
             OnboardingWindowView()
@@ -487,7 +496,8 @@ struct agentGuiApp: App {
                     isRunning: true,
                     canEditComposer: true,
                     canSubmitNewJob: true,
-                    activeProviderID: .builtInAgent
+                    activeProviderID: .builtInAgent,
+                    currentPhase: .executing
                 )
             )
 

@@ -21,6 +21,7 @@ struct SessionExecutionProjection: Equatable, Sendable {
     let canEditComposer: Bool
     let canSubmitNewJob: Bool
     let activeProviderID: ConversationExecutionProviderID?
+    let currentPhase: AgentLoopPhase?
 
     static func empty(sessionID: String) -> SessionExecutionProjection {
         SessionExecutionProjection(
@@ -31,7 +32,8 @@ struct SessionExecutionProjection: Equatable, Sendable {
             isRunning: false,
             canEditComposer: true,
             canSubmitNewJob: true,
-            activeProviderID: nil
+            activeProviderID: nil,
+            currentPhase: nil
         )
     }
 }

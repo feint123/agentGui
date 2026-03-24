@@ -101,3 +101,5 @@ Thumbs.db
 *.sqlite-shm
 *.sqlite-wal
 
+agentGui/Resources/*/*.png
+

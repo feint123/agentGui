@@ -310,6 +310,16 @@ extension ToolCall {
         permissionTargetToolCallId ?? toolCallId
     }
 
+    var agentStudioToolName: String {
+        if let definitionID = toolDefinitionID?.trimmingCharacters(in: .whitespacesAndNewlines), !definitionID.isEmpty {
+            return definitionID
+        }
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            return title
+        }
+        return kind.rawValue
+    }
+
     var changeProposalState: ChangeProposalState? {
         guard let changeProposalStateRaw else { return nil }
         return ChangeProposalState(rawValue: changeProposalStateRaw)

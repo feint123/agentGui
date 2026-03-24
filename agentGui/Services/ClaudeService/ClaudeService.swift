@@ -194,4 +194,26 @@ final class ClaudeService {
             self?.lspPresentationRevision &+= 1
         }
     }
+
+    func agentStudioCurrentToolNames(in modelContext: ModelContext) -> [String: String] {
+        guard let toolCalls = try? modelContext.fetch(FetchDescriptor<ToolCall>()) else {
+            return [:]
+        }
+        return agentStudioCurrentToolNames(toolCalls: toolCalls)
+    }
+
+    func agentStudioCurrentToolNames(toolCalls: [ToolCall]) -> [String: String] {
+        let activeToolCalls = toolCalls
+            .filter { $0.status == .inProgress && !$0.isPermissionRequest }
+            .sorted { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
+
+        var result: [String: String] = [:]
+        for toolCall in activeToolCalls {
+            guard let sessionID = toolCall.terminalSessionID, !sessionID.isEmpty else {
+                continue
+            }
+            result[sessionID] = toolCall.agentStudioToolName
+        }
+        return result
+    }
 }
