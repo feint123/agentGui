@@ -13,15 +13,12 @@ struct WorkbenchConversationPane: View {
                 ChatView(session: session, showsNavigationChrome: false)
                     .id(session.sessionId)
                     .accessibilityIdentifier("panel.chat")
-                    .transition(chatTransition)
             } else {
                 emptyState
                     .id("chat-empty-state")
                     .accessibilityIdentifier("panel.chat.empty")
-                    .transition(chatTransition)
             }
         }
-        .animation(.snappy(duration: 0.24, extraBounce: 0.02), value: workspaceState.selectedSession?.sessionId)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button(action: openContextWindow) {

@@ -1,4 +1,5 @@
 import Observation
+import SwiftData
 
 @Observable
 @MainActor
@@ -20,5 +21,20 @@ final class WorkbenchSceneServices {
         self.gitPanelViewModel = GitPanelViewModel()
         self.changeReviewProjectionStore = ChangeReviewProjectionStore()
         self.contextWindowState = contextWindowState
+    }
+
+    func makeCommandContext(
+        focusedScene: AppFocusedSceneKind,
+        openWindowByID: ((String) -> Void)? = nil,
+        modelContext: ModelContext? = nil
+    ) -> AppCommandContext {
+        AppCommandContext(
+            workspaceState: workspaceState,
+            workbenchState: workbenchState,
+            contextWindowState: contextWindowState,
+            modelContext: modelContext,
+            focusedScene: focusedScene,
+            openWindowByID: openWindowByID
+        )
     }
 }

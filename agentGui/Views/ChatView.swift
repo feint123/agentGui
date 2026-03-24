@@ -76,6 +76,10 @@ struct ChatView: View {
         self.session = session
         self.showsNavigationChrome = showsNavigationChrome
         let sessionId = session.sessionId
+        _allMessages = Query(
+            filter: #Predicate<Message> { $0.session?.sessionId == sessionId },
+            sort: \.sequence
+        )
     }
 
     // MARK: - Body

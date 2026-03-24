@@ -38,6 +38,7 @@ struct WorkbenchShellView: View {
         }
         .navigationTitle(titlePresentation.title)
         .navigationSubtitle(titlePresentation.subtitle)
+        .focusedSceneValue(\.appCommandContext, commandContext)
         .onAppear(perform: configureOnAppear)
         .onChange(of: sessions, initial: false, synchronizeSessionSelection)
         .onChange(of: contextWindowState.openRequestToken) { _, _ in
@@ -78,5 +79,18 @@ struct WorkbenchShellView: View {
         if workspaceState.selectedSession == nil {
             workspaceState.selectedSession = newSessions.first
         }
+    }
+
+    private var commandContext: AppCommandContext {
+        AppCommandContext(
+            workspaceState: workspaceState,
+            workbenchState: workbenchState,
+            contextWindowState: contextWindowState,
+            modelContext: modelContext,
+            focusedScene: .workbench,
+            openWindowByID: { windowID in
+                openWindow(id: windowID)
+            }
+        )
     }
 }

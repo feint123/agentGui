@@ -106,4 +106,16 @@ struct WorkbenchContextWindowStateTests {
         state.selectPreviousTab()
         #expect(state.selectedTab?.id == thirdTabID)
     }
+
+    @Test func contextTabRequirementBecomesEnabledWhenTabsExist() {
+        let state = WorkbenchContextWindowState()
+        state.open(.file(URL(fileURLWithPath: "/tmp/repo/FileA.swift")))
+
+        let context = AppCommandContext.preview(
+            contextWindowState: state,
+            focusedScene: .contextWindow
+        )
+
+        #expect(AppCommandRequirement.contextWindowTabs.evaluate(in: context).isEnabled)
+    }
 }

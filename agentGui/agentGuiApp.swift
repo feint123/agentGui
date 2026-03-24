@@ -9,36 +9,6 @@ import SwiftUI
 import SwiftData
 import SwiftAnthropic
 
-struct SettingsMenuCommands: Commands {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some Commands {
-        CommandGroup(replacing: .appSettings) {
-            Button("设置...") {
-                openWindow(id: SettingsWindowScene.id)
-            }
-            .keyboardShortcut(",", modifiers: .command)
-        }
-
-        CommandGroup(after: .appSettings) {
-            Button("开始使用...") {
-                openWindow(id: OnboardingWindowScene.id)
-            }
-        }
-    }
-}
-
-struct WorkspaceMenuCommands: Commands {
-    var body: some Commands {
-        CommandGroup(after: .newItem) {
-            Button("打开/切换工作区...") {
-                WorkspaceDirectorySelectionCoordinator.requestFromSystemMenu()
-            }
-            .keyboardShortcut("o", modifiers: .command)
-        }
-    }
-}
-
 enum PersistenceSchema {
     static let currentVersion = 1
 
@@ -118,6 +88,7 @@ struct agentGuiApp: App {
     @State private var channelRegistry = IMChannelRegistry()
     @State private var channelRuntimeBootstrap: ChannelRuntimeBootstrap?
     @State private var workbenchSceneServices = WorkbenchSceneServices()
+    @State private var commandPaletteViewModel = CommandPaletteViewModel()
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
@@ -220,10 +191,19 @@ struct agentGuiApp: App {
         }
         .modelContainer(sharedModelContainer)
         .commands {
-            WorkspaceMenuCommands()
-            SettingsMenuCommands()
-            StudioMenuCommands()
+            AppMenuCommands()
+            WorkspaceCommands()
+            RecentCommands()
+            NavigationCommands()
+            WindowCommands()
         }
+
+        Window("命令面板", id: CommandPaletteWindowScene.id) {
+            CommandPaletteView()
+                .environment(commandPaletteViewModel)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 720, height: 520)
 
         Window("上下文", id: WorkbenchContextWindowScene.id) {
             WorkbenchContextWindowView()

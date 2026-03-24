@@ -103,6 +103,23 @@ struct WorkspaceStateTests {
         #expect(contextWindowState.tabs.first?.selection == .file(fileURL.standardizedFileURL))
     }
 
+    @Test func sceneServicesBuildCommandContextFromCurrentWorkbenchState() {
+        let services = WorkbenchSceneServices()
+        let session = Session.fixture(sessionId: "session-a", title: "A")
+        services.workspaceState.selectedSession = session
+        services.workbenchState.selectedItem = .workspace
+
+        let context = services.makeCommandContext(
+            focusedScene: .workbench,
+            openWindowByID: nil,
+            modelContext: nil
+        )
+
+        #expect(context.workspaceState?.selectedSession?.sessionId == session.sessionId)
+        #expect(context.workbenchState?.selectedItem == .workspace)
+        #expect(context.focusedScene == .workbench)
+    }
+
     @Test func selectingProposalUpdatesContextWindowProposalPath() {
         let workspaceState = WorkspaceState()
         let contextWindowState = WorkbenchContextWindowState()

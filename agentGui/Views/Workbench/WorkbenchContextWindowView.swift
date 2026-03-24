@@ -8,6 +8,8 @@ struct WorkbenchContextWindowView: View {
     @Environment(WorkbenchContextWindowState.self) private var contextWindowState
     @Environment(ChangeReviewProjectionStore.self) private var changeReviewProjectionStore
     @Environment(WorkspaceState.self) private var workspaceState
+    @Environment(WorkbenchState.self) private var workbenchState
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
@@ -33,6 +35,7 @@ struct WorkbenchContextWindowView: View {
         .frame(minWidth: 760, minHeight: 520)
         .navigationTitle(selectedTabTitle)
         .navigationSubtitle(selectedTabSubtitle)
+        .focusedSceneValue(\.appCommandContext, commandContext)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Menu {
@@ -244,6 +247,19 @@ struct WorkbenchContextWindowView: View {
 
     private var selectedTab: WorkbenchContextTab? {
         contextWindowState.selectedTab
+    }
+
+    private var commandContext: AppCommandContext {
+        AppCommandContext(
+            workspaceState: workspaceState,
+            workbenchState: workbenchState,
+            contextWindowState: contextWindowState,
+            modelContext: modelContext,
+            focusedScene: .contextWindow,
+            openWindowByID: { windowID in
+                openWindow(id: windowID)
+            }
+        )
     }
 
     private var emptyState: some View {

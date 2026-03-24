@@ -34,8 +34,10 @@ enum WorkspaceDirectorySelectionCoordinator {
         workspaceState: WorkspaceState?,
         modelContext: ModelContext,
         persistenceCoordinator: PersistenceCoordinator,
-        userMessage: String
+        userMessage: String,
+        recentWorkspaceStore: RecentWorkspaceStore? = nil
     ) -> Bool {
+        let recentWorkspaceStore = recentWorkspaceStore ?? .shared
         let normalizedPath = url.standardizedFileURL.path
 
         if let session = workspaceState?.selectedSession {
@@ -51,6 +53,7 @@ enum WorkspaceDirectorySelectionCoordinator {
                 domain: .settings,
                 userMessage: userMessage
             )
+            recentWorkspaceStore.record(url)
             return true
         } catch {
             return false

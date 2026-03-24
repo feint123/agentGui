@@ -83,13 +83,17 @@ final class SessionCatalogViewModel {
     }
 
     func setSessions(_ sessions: [Session]) {
-        allSessions = sessions.sorted { lhs, rhs in
+        allSessions = Self.sortSessions(sessions)
+        rebuildVisibleSections()
+    }
+
+    static func sortSessions(_ sessions: [Session]) -> [Session] {
+        sessions.sorted { lhs, rhs in
             if lhs.updatedAt == rhs.updatedAt {
                 return lhs.createdAt > rhs.createdAt
             }
             return lhs.updatedAt > rhs.updatedAt
         }
-        rebuildVisibleSections()
     }
 
     func rename(session: Session, to newTitle: String) throws {
