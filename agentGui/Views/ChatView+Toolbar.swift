@@ -13,10 +13,6 @@ extension ChatView {
     @ToolbarContentBuilder
     var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            sessionPickerView
-        }
-
-        ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button("复制为本地会话") { cloneCurrentSessionAsLocal() }
                     .disabled(sessionInteractionPolicy.canCloneAsLocal == false)
@@ -62,27 +58,6 @@ extension ChatView {
         }
     }
 
-    // MARK: - Session Picker
-
-    @ViewBuilder
-    private var sessionPickerView: some View {
-        HStack(spacing: 4) {
-            Picker("", selection: Binding(
-                get: { workspaceState.selectedSession },
-                set: { workspaceState.selectedSession = $0 }
-            )) {
-                ForEach(allSessions) { session in
-                    Text(session.title.isEmpty ? "新对话" : session.title)
-                        .frame(maxWidth: 150)
-                        .tag(Optional(session))
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(maxWidth: 200)
-            .accessibilityIdentifier("chat.sessionPicker")
-        }
-    }
 
     // MARK: - Actions
 
