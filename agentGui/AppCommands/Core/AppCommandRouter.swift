@@ -61,12 +61,6 @@ final class AppCommandRouter {
         case .openContextWindow:
             context.workspaceState?.openContextWindow()
             return .performed
-        case .selectNextContextTab:
-            context.contextWindowState?.selectNextTab()
-            return .performed
-        case .selectPreviousContextTab:
-            context.contextWindowState?.selectPreviousTab()
-            return .performed
         }
     }
 

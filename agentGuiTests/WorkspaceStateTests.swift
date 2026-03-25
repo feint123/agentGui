@@ -90,17 +90,20 @@ struct WorkspaceStateTests {
         #expect(workspaceState.detailSelection == .changeProposal(proposalID: proposalID, filePath: "README.md"))
     }
 
-    @Test func showFileDetailOpensContextWindowTab() {
+    @Test func showFileDetailRoutesThroughContextWindowRouter() {
         let workspaceState = WorkspaceState()
-        let contextWindowState = WorkbenchContextWindowState()
         let fileURL = URL(fileURLWithPath: "/tmp/repo/file.swift")
+        let recorder = WorkspaceContextRouteRecorder()
+        let router = WorkbenchContextWindowRouter(
+            diffSnapshotStore: .inMemory,
+            openWindowWithValue: recorder.openWindow
+        )
 
-        workspaceState.contextWindowState = contextWindowState
+        workspaceState.contextWindowRouter = router
         workspaceState.showFileDetail(fileURL)
 
         #expect(workspaceState.detailSelection == .file(fileURL.standardizedFileURL))
-        #expect(contextWindowState.tabs.count == 1)
-        #expect(contextWindowState.tabs.first?.selection == .file(fileURL.standardizedFileURL))
+        #expect(recorder.values == [.file(path: fileURL.standardizedFileURL.path)])
     }
 
     @Test func sceneServicesBuildCommandContextFromCurrentWorkbenchState() {
@@ -120,18 +123,38 @@ struct WorkspaceStateTests {
         #expect(context.focusedScene == .workbench)
     }
 
-    @Test func selectingProposalUpdatesContextWindowProposalPath() {
+    @Test func selectingProposalRoutesUpdatedFilePathThroughContextWindowRouter() {
         let workspaceState = WorkspaceState()
-        let contextWindowState = WorkbenchContextWindowState()
         let proposalID = UUID()
+        let recorder = WorkspaceContextRouteRecorder()
+        let router = WorkbenchContextWindowRouter(
+            diffSnapshotStore: .inMemory,
+            openWindowWithValue: recorder.openWindow
+        )
 
-        workspaceState.contextWindowState = contextWindowState
+        workspaceState.contextWindowRouter = router
         workspaceState.selectChangeProposal(proposalID, filePath: "A.swift")
         workspaceState.selectedChangeProposalFilePath = "B.swift"
 
         #expect(workspaceState.detailSelection == .changeProposal(proposalID: proposalID, filePath: "B.swift"))
-        #expect(contextWindowState.tabs.count == 1)
-        #expect(contextWindowState.tabs.first?.selection == .changeProposal(proposalID: proposalID, filePath: "B.swift"))
+        #expect(recorder.values.last == .changeProposal(proposalID: proposalID, filePath: "B.swift"))
+    }
+
+    @Test func openContextWindowRoutesCurrentDetailSelection() {
+        let workspaceState = WorkspaceState()
+        let recorder = WorkspaceContextRouteRecorder()
+        let router = WorkbenchContextWindowRouter(
+            diffSnapshotStore: .inMemory,
+            openWindowWithValue: recorder.openWindow
+        )
+
+        workspaceState.contextWindowRouter = router
+        workspaceState.showFileDetail(URL(fileURLWithPath: "/tmp/repo/file.swift"))
+        recorder.values.removeAll()
+
+        workspaceState.openContextWindow()
+
+        #expect(recorder.values == [.file(path: "/tmp/repo/file.swift")])
     }
 
     @Test func clearingTypedDetailSelectionClearsCompatibilityValues() {
@@ -151,5 +174,16 @@ struct WorkspaceStateTests {
         #expect(workspaceState.selectedGitDiffTitle == nil)
         #expect(workspaceState.selectedGitDiffText == nil)
         #expect(workspaceState.selectedChangeProposalID == nil)
+    }
+}
+
+@MainActor
+private final class WorkspaceContextRouteRecorder {
+    var windowIDs: [String] = []
+    var values: [WorkbenchContextSceneValue] = []
+
+    func openWindow(_ id: String, _ value: WorkbenchContextSceneValue) {
+        windowIDs.append(id)
+        values.append(value)
     }
 }

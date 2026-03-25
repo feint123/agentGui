@@ -4,7 +4,6 @@ import SwiftData
 struct WorkbenchConversationPane: View {
     @Environment(WorkspaceState.self) private var workspaceState
     @Environment(WorkbenchState.self) private var workbenchState
-    @Environment(WorkbenchContextWindowState.self) private var contextWindowState
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
@@ -25,18 +24,18 @@ struct WorkbenchConversationPane: View {
                     Image(systemName: contextWindowSystemImage)
                 }
                 .help(contextWindowHelpText)
-                .disabled(!contextWindowState.hasTabs && workspaceState.detailSelection == .none)
+                .disabled(workspaceState.detailSelection == .none)
                 .accessibilityIdentifier("workbench.openContextWindow")
             }
         }
     }
 
     private var contextWindowSystemImage: String {
-        contextWindowState.hasTabs ? "rectangle.stack" : "macwindow.on.rectangle"
+        "macwindow.on.rectangle"
     }
 
     private var contextWindowHelpText: String {
-        contextWindowState.hasTabs ? "显示上下文窗口" : "打开当前上下文"
+        workspaceState.detailSelection == .none ? "当前没有可打开的上下文" : "打开当前上下文"
     }
 
     private var emptyState: some View {

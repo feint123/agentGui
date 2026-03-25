@@ -8,7 +8,6 @@ struct WorkbenchShellView: View {
     @Environment(WorkbenchState.self) private var workbenchState
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
     @Environment(ChangeReviewProjectionStore.self) private var changeReviewProjectionStore
-    @Environment(WorkbenchContextWindowState.self) private var contextWindowState
     @Environment(\.openWindow) private var openWindow
 
     @Environment(\.modelContext) private var modelContext
@@ -54,9 +53,6 @@ struct WorkbenchShellView: View {
         .focusedSceneValue(\.appCommandContext, commandContext)
         .onAppear(perform: configureOnAppear)
         .onChange(of: sessions, initial: false, synchronizeSessionSelection)
-        .onChange(of: contextWindowState.openRequestToken) { _, _ in
-            openWindow(id: WorkbenchContextWindowScene.id)
-        }
         .animation(.snappy(duration: 0.18, extraBounce: 0), value: commandPaletteViewModel.isPresented)
     }
 
@@ -79,6 +75,11 @@ struct WorkbenchShellView: View {
 
     private func configureOnAppear() {
         claudeService.changeReviewProjectionStore = changeReviewProjectionStore
+        workspaceState.contextWindowRouter = WorkbenchContextWindowRouter(
+            openWindowWithValue: { windowID, value in
+                openWindow(id: windowID, value: value)
+            }
+        )
         Task { @MainActor in
             try? await ChangeReviewBootstrapper.restorePendingProposals(
                 modelContext: modelContext,
@@ -117,7 +118,6 @@ struct WorkbenchShellView: View {
             sceneID: sceneID,
             workspaceState: workspaceState,
             workbenchState: workbenchState,
-            contextWindowState: contextWindowState,
             modelContext: modelContext,
             focusedScene: .workbench,
             openWindowByID: { windowID in

@@ -8,19 +8,14 @@ final class WorkbenchSceneServices {
     let workbenchState: WorkbenchState
     let gitPanelViewModel: GitPanelViewModel
     let changeReviewProjectionStore: ChangeReviewProjectionStore
-    let contextWindowState: WorkbenchContextWindowState
 
     init() {
-        let contextWindowState = WorkbenchContextWindowState()
         let workspaceState = WorkspaceState()
-
-        workspaceState.contextWindowState = contextWindowState
 
         self.workspaceState = workspaceState
         self.workbenchState = WorkbenchState(selectedItem: TestLaunchOptions.current.initialWorkbenchItem)
         self.gitPanelViewModel = GitPanelViewModel()
         self.changeReviewProjectionStore = ChangeReviewProjectionStore()
-        self.contextWindowState = contextWindowState
     }
 
     func makeCommandContext(
@@ -31,7 +26,6 @@ final class WorkbenchSceneServices {
         AppCommandContext(
             workspaceState: workspaceState,
             workbenchState: workbenchState,
-            contextWindowState: contextWindowState,
             modelContext: modelContext,
             focusedScene: focusedScene,
             openWindowByID: openWindowByID

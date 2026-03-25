@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import SwiftAnthropic
+import AppKit
 
 enum PersistenceSchema {
     static let currentVersion = 1
@@ -76,6 +77,7 @@ struct agentGuiApp: App {
 
     init() {
         ConfigDirectoryManager.shared.setup()
+        NSWindow.allowsAutomaticWindowTabbing = true
     }
 
     private let launchOptions = TestLaunchOptions.current
@@ -124,7 +126,6 @@ struct agentGuiApp: App {
                 .environment(workbenchSceneServices.workbenchState)
                 .environment(workbenchSceneServices.gitPanelViewModel)
                 .environment(workbenchSceneServices.changeReviewProjectionStore)
-                .environment(workbenchSceneServices.contextWindowState)
                 .onAppear {
                     let context = sharedModelContainer.mainContext
                     seedUITestDataIfNeeded(in: context)
@@ -197,14 +198,13 @@ struct agentGuiApp: App {
             WindowCommands()
         }
 
-        Window("上下文", id: WorkbenchContextWindowScene.id) {
-            WorkbenchContextWindowView()
+        WindowGroup("上下文", id: WorkbenchContextWindowScene.id, for: WorkbenchContextSceneValue.self) { selection in
+            WorkbenchContextWindowView(selection: selection)
                 .environment(claudeService)
                 .environment(workbenchSceneServices.workspaceState)
                 .environment(workbenchSceneServices.workbenchState)
                 .environment(workbenchSceneServices.gitPanelViewModel)
                 .environment(workbenchSceneServices.changeReviewProjectionStore)
-                .environment(workbenchSceneServices.contextWindowState)
                 .environment(PersistenceCoordinator.shared)
         }
         .modelContainer(sharedModelContainer)

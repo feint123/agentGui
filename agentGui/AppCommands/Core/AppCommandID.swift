@@ -15,8 +15,6 @@ enum AppCommandID: String, CaseIterable, Identifiable {
     case showNextSession
     case showPreviousSession
     case openContextWindow
-    case selectNextContextTab
-    case selectPreviousContextTab
 
     var id: String {
         rawValue

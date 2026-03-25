@@ -68,7 +68,7 @@ enum WorkspaceDirectorySelectionCoordinator {
 final class WorkspaceState {
 
     @ObservationIgnored
-    var contextWindowState: WorkbenchContextWindowState?
+    var contextWindowRouter: WorkbenchContextWindowRouter?
 
     @ObservationIgnored
     private var isSynchronizingDetailSelection = false
@@ -182,10 +182,7 @@ final class WorkspaceState {
     var selectedChangeProposalID: UUID? {
         didSet {
             if let selectedChangeProposalID {
-                contextWindowState?.updateChangeProposalFilePath(
-                    proposalID: selectedChangeProposalID,
-                    filePath: selectedChangeProposalFilePath
-                )
+                contextWindowRouter?.open(selection: detailSelection)
 
                 guard !isSynchronizingDetailSelection else { return }
 
@@ -200,9 +197,11 @@ final class WorkspaceState {
     var selectedChangeProposalFilePath: String? {
         didSet {
             if let selectedChangeProposalID {
-                contextWindowState?.updateChangeProposalFilePath(
-                    proposalID: selectedChangeProposalID,
-                    filePath: selectedChangeProposalFilePath
+                contextWindowRouter?.open(
+                    selection: .changeProposal(
+                        proposalID: selectedChangeProposalID,
+                        filePath: selectedChangeProposalFilePath
+                    )
                 )
             }
         }
@@ -249,7 +248,7 @@ final class WorkspaceState {
         selectedFile = fileURL.standardizedFileURL
         clearGitDiffSelection()
         clearChangeProposalSelection()
-        contextWindowState?.open(.file(fileURL.standardizedFileURL))
+        contextWindowRouter?.open(selection: .file(fileURL.standardizedFileURL))
     }
 
     func showGitDiffDetail(path: URL?, title: String, diffText: String) {
@@ -258,7 +257,7 @@ final class WorkspaceState {
         selectedGitDiffTitle = title
         selectedGitDiffText = diffText
         clearChangeProposalSelection()
-        contextWindowState?.open(.gitDiff(title: title, diffText: diffText))
+        contextWindowRouter?.open(selection: .gitDiff(title: title, diffText: diffText))
     }
 
     func selectChangeProposal(_ proposalID: UUID, filePath: String? = nil) {
@@ -266,7 +265,7 @@ final class WorkspaceState {
         clearGitDiffSelection()
         selectedChangeProposalFilePath = filePath
         selectedChangeProposalID = proposalID
-        contextWindowState?.open(.changeProposal(proposalID: proposalID, filePath: filePath))
+        contextWindowRouter?.open(selection: .changeProposal(proposalID: proposalID, filePath: filePath))
     }
 
     func clearChangeProposalSelection() {
@@ -276,9 +275,7 @@ final class WorkspaceState {
 
     func openContextWindow() {
         if detailSelection != .none {
-            contextWindowState?.open(detailSelection)
-        } else if contextWindowState?.hasTabs == true {
-            contextWindowState?.requestPresentation()
+            contextWindowRouter?.open(selection: detailSelection)
         }
     }
 

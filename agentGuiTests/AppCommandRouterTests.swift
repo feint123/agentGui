@@ -87,6 +87,28 @@ struct AppCommandRouterTests {
         #expect(result == .performed)
         #expect(workspaceState.selectedSession?.sessionId == "older")
     }
+
+    @Test func openContextWindowCommandDelegatesToWorkspaceStateSelection() async {
+        let recorder = WorkspaceContextRouteRecorder()
+        let workspaceState = WorkspaceState()
+        workspaceState.contextWindowRouter = WorkbenchContextWindowRouter(
+            diffSnapshotStore: .inMemory,
+            openWindowWithValue: recorder.openWindow
+        )
+        workspaceState.showFileDetail(URL(fileURLWithPath: "/tmp/repo/File.swift"))
+        recorder.values.removeAll()
+
+        let context = AppCommandContext.preview(
+            workspaceState: workspaceState,
+            workbenchState: WorkbenchState(),
+            focusedScene: .workbench
+        )
+
+        let result = await AppCommandRouter().perform(.openContextWindow, in: context)
+
+        #expect(result == .performed)
+        #expect(recorder.values == [.file(path: "/tmp/repo/File.swift")])
+    }
 }
 
 @MainActor
@@ -100,5 +122,14 @@ private final class CommandRouteRecorder {
 
     func requestWorkspaceSelection() {
         workspaceSelectionRequests += 1
+    }
+}
+
+@MainActor
+private final class WorkspaceContextRouteRecorder {
+    var values: [WorkbenchContextSceneValue] = []
+
+    func openWindow(_: String, _ value: WorkbenchContextSceneValue) {
+        values.append(value)
     }
 }

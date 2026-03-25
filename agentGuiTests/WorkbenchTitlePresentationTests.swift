@@ -61,4 +61,46 @@ struct WorkbenchTitlePresentationTests {
         #expect(presentation.subtitle.isEmpty)
         #expect(presentation.representedURL == nil)
     }
+
+    @Test func fileContextPresentationUsesFileNameAndPath() {
+        let presentation = WorkbenchTitlePresentation.make(
+            contextSelection: .file(URL(fileURLWithPath: "/tmp/repo/File.swift")),
+            changeReviewProjectionStore: ChangeReviewProjectionStore()
+        )
+
+        #expect(presentation.title == "File.swift")
+        #expect(presentation.subtitle == "/tmp/repo/File.swift")
+        #expect(presentation.representedURL?.path == "/tmp/repo/File.swift")
+    }
+
+    @Test func changeProposalContextPresentationUsesSnapshotSummary() {
+        let proposalID = UUID()
+        let store = ChangeReviewProjectionStore()
+        store.set(
+            ChangeProposalReviewSnapshot(
+                proposal: ChangeProposalSnapshot(
+                    id: proposalID,
+                    sessionID: "session-1",
+                    jobID: nil,
+                    messageID: nil,
+                    providerID: .claudeAdapterCLI,
+                    state: .collecting,
+                    baseWorkspaceRoot: "/tmp/repo",
+                    summary: "Improve tabbing",
+                    createdAt: Date(),
+                    updatedAt: Date()
+                ),
+                fileChanges: []
+            )
+        )
+
+        let presentation = WorkbenchTitlePresentation.make(
+            contextSelection: .changeProposal(proposalID: proposalID, filePath: nil),
+            changeReviewProjectionStore: store
+        )
+
+        #expect(presentation.title == "Improve tabbing")
+        #expect(presentation.subtitle == "Improve tabbing")
+        #expect(presentation.representedURL == nil)
+    }
 }

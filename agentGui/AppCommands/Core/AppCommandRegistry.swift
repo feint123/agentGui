@@ -139,24 +139,6 @@ struct AppCommandRegistry {
             shortcut: nil,
             keywords: ["上下文", "标签页", "窗口"],
             requirement: .workbench
-        ),
-        AppCommandDescriptor(
-            id: .selectNextContextTab,
-            title: "下一个上下文标签页",
-            category: .window,
-            menuPlacement: .go,
-            shortcut: nil,
-            keywords: ["上下文", "标签页", "下一个"],
-            requirement: .contextWindowTabs
-        ),
-        AppCommandDescriptor(
-            id: .selectPreviousContextTab,
-            title: "上一个上下文标签页",
-            category: .window,
-            menuPlacement: .go,
-            shortcut: nil,
-            keywords: ["上下文", "标签页", "上一个"],
-            requirement: .contextWindowTabs
         )
     ]
 }

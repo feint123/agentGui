@@ -23,4 +23,12 @@ struct AppCommandRegistryTests {
         #expect(descriptor.shortcut?.key == "2")
         #expect(descriptor.shortcut?.modifiers == [.command])
     }
+
+    @Test func registryRemovesCustomContextTabCommands() {
+        let ids = Set(AppCommandRegistry().descriptors.map(\.id.rawValue))
+
+        #expect(ids.contains(AppCommandID.openContextWindow.rawValue))
+        #expect(ids.contains("selectNextContextTab") == false)
+        #expect(ids.contains("selectPreviousContextTab") == false)
+    }
 }

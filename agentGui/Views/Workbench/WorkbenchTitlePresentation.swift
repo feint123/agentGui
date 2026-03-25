@@ -38,6 +38,42 @@ struct WorkbenchTitlePresentation: Equatable {
             representedURL: directoryURL
         )
     }
+
+    static func make(
+        contextSelection: WorkbenchDetailSelection,
+        changeReviewProjectionStore: ChangeReviewProjectionStore
+    ) -> WorkbenchTitlePresentation {
+        switch contextSelection {
+        case .none:
+            return WorkbenchTitlePresentation(
+                title: "上下文",
+                subtitle: "在这里查看文件、Diff 和变更提案。",
+                representedURL: nil
+            )
+        case .file(let fileURL):
+            return WorkbenchTitlePresentation(
+                title: fileURL.lastPathComponent,
+                subtitle: fileURL.path,
+                representedURL: fileURL
+            )
+        case .gitDiff(let title, _):
+            return WorkbenchTitlePresentation(
+                title: URL(fileURLWithPath: title).lastPathComponent,
+                subtitle: title,
+                representedURL: nil
+            )
+        case .changeProposal(let proposalID, let filePath):
+            let snapshot = changeReviewProjectionStore.snapshot(for: proposalID)
+            let resolvedTitle = filePath ?? snapshot?.proposal.summary ?? "变更提案"
+            let resolvedSubtitle = snapshot?.proposal.summary ?? proposalID.uuidString
+
+            return WorkbenchTitlePresentation(
+                title: URL(fileURLWithPath: resolvedTitle).lastPathComponent,
+                subtitle: resolvedSubtitle,
+                representedURL: nil
+            )
+        }
+    }
 }
 
 struct WorkbenchWindowConfigurator: NSViewRepresentable {

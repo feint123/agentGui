@@ -15,7 +15,6 @@ struct AppCommandContext {
     var sceneID: UUID?
     var workspaceState: WorkspaceState?
     var workbenchState: WorkbenchState?
-    var contextWindowState: WorkbenchContextWindowState?
     var modelContext: ModelContext?
     var focusedScene: AppFocusedSceneKind
     var openWindowByID: ((String) -> Void)?
@@ -24,7 +23,6 @@ struct AppCommandContext {
         sceneID: nil,
         workspaceState: nil,
         workbenchState: nil,
-        contextWindowState: nil,
         modelContext: nil,
         focusedScene: .none,
         openWindowByID: nil
@@ -34,7 +32,6 @@ struct AppCommandContext {
         sceneID: UUID? = nil,
         workspaceState: WorkspaceState? = nil,
         workbenchState: WorkbenchState? = nil,
-        contextWindowState: WorkbenchContextWindowState? = nil,
         modelContext: ModelContext? = nil,
         focusedScene: AppFocusedSceneKind = .workbench,
         openWindowByID: ((String) -> Void)? = nil
@@ -43,7 +40,6 @@ struct AppCommandContext {
             sceneID: sceneID,
             workspaceState: workspaceState,
             workbenchState: workbenchState,
-            contextWindowState: contextWindowState,
             modelContext: modelContext,
             focusedScene: focusedScene,
             openWindowByID: openWindowByID

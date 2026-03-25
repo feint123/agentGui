@@ -11,11 +11,6 @@ struct WindowCommands: Commands {
 
         CommandMenu("上下文") {
             commandButton(.openContextWindow)
-
-            Divider()
-
-            commandButton(.selectPreviousContextTab)
-            commandButton(.selectNextContextTab)
         }
     }
 

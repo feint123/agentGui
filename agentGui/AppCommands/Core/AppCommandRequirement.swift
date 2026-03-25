@@ -5,7 +5,6 @@ enum AppCommandRequirement: Equatable {
     case openWindow
     case workbench
     case workbenchWithSelectedSession
-    case contextWindowTabs
 
     @MainActor
     func evaluate(in context: AppCommandContext) -> AppCommandAvailability {
@@ -29,12 +28,6 @@ enum AppCommandRequirement: Equatable {
             }
             guard workspaceState.selectedSession != nil else {
                 return .disabled("当前没有选中的会话。")
-            }
-            return .enabled
-        case .contextWindowTabs:
-            guard let contextWindowState = context.contextWindowState,
-                  contextWindowState.hasTabs else {
-                return .disabled("当前没有可切换的上下文标签页。")
             }
             return .enabled
         }
