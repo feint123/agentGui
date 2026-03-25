@@ -65,6 +65,7 @@ private struct ACPConfigurationCapsuleMenu: View {
         }
         .menuStyle(.button)
         .buttonStyle(.borderless)
+        .menuIndicator(.hidden)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .controlSize(.small)

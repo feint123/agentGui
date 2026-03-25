@@ -125,7 +125,6 @@ struct WorkbenchConversationEmptyStateCard<PrimaryAction: View>: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(Color.white.opacity(0.08), lineWidth: 0.8)
         }
-        .shadow(color: .black.opacity(0.10), radius: 18, y: 10)
     }
 }
 

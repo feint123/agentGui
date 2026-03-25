@@ -1074,18 +1074,25 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
 
         let activationID = await runtimeActor.activationID
         let sessionState = sessionStateStore.state(for: session.sessionId)
+        let previousActivationID = sessionState.activationID
         sessionState.activationID = activationID
         sessionState.remoteSessionID = prepared.handshake.remoteSessionID
+
+        let existingConfiguration = sessionState.sessionConfiguration(
+            for: id,
+            remoteSessionID: prepared.handshake.remoteSessionID
+        )
 
         debugLog(
             "ensureRemoteSessionPrepared actor ensured session localSession=\(session.sessionId) activationID=\(activationID.rawValue.uuidString) remoteSession=\(prepared.handshake.remoteSessionID)"
         )
 
         try applyFeatureEvents(
-            featureExtractor.bootstrapEvents(
-                configurationSnapshot: prepared.handshake.configurationSnapshot,
-                providerID: id,
-                remoteSessionID: prepared.handshake.remoteSessionID
+            bootstrapFeatureEvents(
+                handshake: prepared.handshake,
+                previousActivationID: previousActivationID,
+                currentActivationID: activationID,
+                hasExistingConfiguration: existingConfiguration != nil
             ) + featureAdapter.bootstrapEvents(
                 providerID: id,
                 remoteSessionID: prepared.handshake.remoteSessionID
@@ -1101,6 +1108,24 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             remoteBinding: remoteBinding,
             runtimeClient: prepared.runtimeClient,
             handshake: prepared.handshake
+        )
+    }
+
+    private func bootstrapFeatureEvents(
+        handshake: ACPExternalAgentSessionHandshake,
+        previousActivationID: RuntimeActivationID?,
+        currentActivationID: RuntimeActivationID,
+        hasExistingConfiguration: Bool
+    ) -> [ACPExternalSessionFeatureEvent] {
+        let isSameHotActivation = previousActivationID == currentActivationID
+        guard hasExistingConfiguration == false || isSameHotActivation == false else {
+            return []
+        }
+
+        return featureExtractor.bootstrapEvents(
+            configurationSnapshot: handshake.configurationSnapshot,
+            providerID: id,
+            remoteSessionID: handshake.remoteSessionID
         )
     }
 
