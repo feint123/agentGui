@@ -5,10 +5,7 @@ struct ACPExternalAgentDescriptor: Equatable, Sendable {
     let displayName: String
     let defaultExecutablePath: String
     let defaultArguments: [String]
-    let supportsSessionModelOverrideByDefault: Bool
-    let supportsCustomAgentName: Bool
     let defaultEnvironment: [String: String]
-    let executionBehavior: ACPExternalProviderExecutionBehavior
 }
 
 extension ACPExternalAgentDescriptor {
@@ -17,14 +14,7 @@ extension ACPExternalAgentDescriptor {
         displayName: "GitHub Copilot",
         defaultExecutablePath: ACPCLIConfiguration.githubCopilotDefault.executablePath,
         defaultArguments: ["--acp", "--stdio"],
-        supportsSessionModelOverrideByDefault: true,
-        supportsCustomAgentName: false,
-        defaultEnvironment: [:],
-        executionBehavior: ACPExternalProviderExecutionBehavior(
-            requiresCapabilityNegotiationForModelOverride: false,
-            supportsEnvironmentOverrides: false,
-            supportsCustomAgentName: false
-        )
+        defaultEnvironment: [:]
     )
 
     static let openCode = ACPExternalAgentDescriptor(
@@ -32,14 +22,7 @@ extension ACPExternalAgentDescriptor {
         displayName: "OpenCode",
         defaultExecutablePath: ACPCLIConfiguration.openCodeDefault.executablePath,
         defaultArguments: ["acp"],
-        supportsSessionModelOverrideByDefault: false,
-        supportsCustomAgentName: false,
-        defaultEnvironment: [:],
-        executionBehavior: ACPExternalProviderExecutionBehavior(
-            requiresCapabilityNegotiationForModelOverride: true,
-            supportsEnvironmentOverrides: false,
-            supportsCustomAgentName: false
-        )
+        defaultEnvironment: [:]
     )
 
     static let claudeAdapter = ACPExternalAgentDescriptor(
@@ -47,13 +30,6 @@ extension ACPExternalAgentDescriptor {
         displayName: "Claude Code",
         defaultExecutablePath: ACPCLIConfiguration.claudeAdapterDefault.executablePath,
         defaultArguments: [],
-        supportsSessionModelOverrideByDefault: false,
-        supportsCustomAgentName: false,
-        defaultEnvironment: [:],
-        executionBehavior: ACPExternalProviderExecutionBehavior(
-            requiresCapabilityNegotiationForModelOverride: true,
-            supportsEnvironmentOverrides: false,
-            supportsCustomAgentName: false
-        )
+        defaultEnvironment: [:]
     )
 }

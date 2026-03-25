@@ -27,6 +27,7 @@ struct CommandPaletteViewModelTests {
         workspaceState.selectedSession = session
 
         let viewModel = CommandPaletteViewModel(
+            sceneID: UUID(),
             quickOpenProvider: QuickOpenProvider(
                 recentWorkspaceStore: recentWorkspaceStore,
                 recentSessionProvider: RecentSessionProvider(),
@@ -70,7 +71,7 @@ struct CommandPaletteViewModelTests {
         let workspaceState = WorkspaceState()
         workspaceState.selectedSession = session
 
-        let viewModel = CommandPaletteViewModel()
+        let viewModel = CommandPaletteViewModel(sceneID: UUID())
         viewModel.present(using: AppCommandContext.preview(
             workspaceState: workspaceState,
             workbenchState: WorkbenchState(),
@@ -108,6 +109,7 @@ struct CommandPaletteViewModelTests {
         workspaceState.selectedSession = session
 
         let viewModel = CommandPaletteViewModel(
+            sceneID: UUID(),
             quickOpenProvider: QuickOpenProvider(
                 recentWorkspaceStore: recentWorkspaceStore,
                 recentSessionProvider: RecentSessionProvider(),
@@ -123,12 +125,23 @@ struct CommandPaletteViewModelTests {
             openWindowByID: { _ in }
         ))
 
-        let groups = viewModel.sections.map(\.group)
+        let groups: [CommandPaletteItemGroup] = viewModel.sections.map(\.group)
 
-        #expect(groups.starts(with: [.recentSessions, .recentWorkspaces]))
-        #expect(groups.contains(.commands))
+        #expect(groups.starts(with: [CommandPaletteItemGroup.recentSessions, CommandPaletteItemGroup.recentWorkspaces]))
+        #expect(groups.contains(CommandPaletteItemGroup.commands))
 
         try? FileManager.default.removeItem(at: rootURL)
         defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    @Test func dismissNotificationMarksPaletteHidden() {
+        let viewModel = CommandPaletteViewModel(sceneID: UUID())
+
+        viewModel.present(using: AppCommandContext.empty)
+        #expect(viewModel.isPresented)
+
+        CommandPaletteWindowScene.requestDismissal()
+
+        #expect(viewModel.isPresented == false)
     }
 }

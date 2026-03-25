@@ -81,8 +81,8 @@ final class ACPPermissionCenter: @unchecked Sendable {
             source: source,
             remoteSessionID: request.sessionID,
             toolCallID: request.toolCall.toolCallID,
-            toolKind: ToolKind.classify(rawName: request.toolCall.kind),
-            title: Self.nonEmpty(request.toolCall.title) ?? ToolKind.classify(rawName: request.toolCall.kind).displayName,
+            toolKind: ToolKind.classify(rawName: request.toolCall.kind?.rawValue),
+            title: Self.nonEmpty(request.toolCall.title) ?? ToolKind.classify(rawName: request.toolCall.kind?.rawValue).displayName,
             reason: Self.reason(from: request),
             options: ACPPermissionOptionPresentation.normalizedPendingOptions(from: request.options),
             requestedAt: Date()
@@ -258,17 +258,22 @@ final class ACPPermissionCenter: @unchecked Sendable {
             if let direct = string(from: content), !direct.isEmpty {
                 return direct
             }
-            if let object = content.objectValue {
-                if let reason = object["reason"]?.stringValue, !reason.isEmpty {
-                    return reason
-                }
-                if let text = object["text"]?.stringValue, !text.isEmpty {
-                    return text
-                }
-            }
         }
 
         return Self.nonEmpty(request.options.first?.name)
+    }
+
+    private static func string(from value: ACPPromptContentBlock) -> String? {
+        switch value {
+        case .text(let text):
+            return text.text
+        case .resourceLink(let link):
+            return link.description ?? link.title ?? link.name
+        case .embeddedResource(let resource):
+            return string(from: resource.resource)
+        case .image, .audio, .other:
+            return nil
+        }
     }
 
     private static func string(from value: ACPJSONValue) -> String? {

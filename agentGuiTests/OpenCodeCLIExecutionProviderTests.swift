@@ -9,10 +9,6 @@ struct OpenCodeCLIExecutionProviderTests {
     let descriptor = ACPExternalAgentDescriptor.openCode
 
     #expect(descriptor.defaultArguments == ["acp"])
-    #expect(descriptor.supportsSessionModelOverrideByDefault == false)
-    #expect(descriptor.supportsCustomAgentName == false)
-    #expect(descriptor.executionBehavior.requiresCapabilityNegotiationForModelOverride)
-    #expect(descriptor.executionBehavior.supportsEnvironmentOverrides == false)
   }
 
     @Test func sendPersistsSessionBindingAndAppliesModelOverrideWhenCapabilityAllows() async throws {
@@ -72,8 +68,11 @@ struct OpenCodeCLIExecutionProviderTests {
         #expect(binding?.remoteSessionID == "remote-open")
         #expect(binding?.lastSelectedModel == "gpt-5-mini")
         #expect(binding?.negotiatedCapabilities?.supportsSessionModelOverride == true)
-        #expect(logText.contains("session/set_model"))
-        #expect(logText.contains("model=gpt-5-mini"))
+        #expect(logText.contains("session/set_config_option"))
+        #expect(logText.contains("config=model"))
+        #expect(logText.contains("value=gpt-5-mini"))
+        #expect(logText.contains("config=approvalMode"))
+        #expect(logText.contains("value=never"))
         #expect(logText.contains("prompt=hello opencode"))
     }
 
@@ -125,9 +124,9 @@ struct OpenCodeCLIExecutionProviderTests {
         let logText = try String(contentsOf: logFile, encoding: .utf8)
 
         #expect(binding?.remoteSessionID == "remote-open")
-        #expect(binding?.lastSelectedModel == nil)
+        #expect(binding?.lastSelectedModel == "")
         #expect(binding?.negotiatedCapabilities?.supportsSessionModelOverride == false)
-        #expect(!logText.contains("session/set_model"))
+        #expect(!logText.contains("config=model"))
         #expect(logText.contains("prompt=hello opencode"))
     }
 
@@ -557,12 +556,12 @@ struct OpenCodeCLIExecutionProviderTests {
       sessionID: "remote-open-permission",
       toolCall: ACPToolCallUpdatePayload(
         meta: nil,
-        content: .object(["reason": .string("需要执行 shell 命令")]),
-        kind: "run_in_terminal",
+        content: .text(ACPTextContentBlock(meta: nil, annotations: nil, text: "需要执行 shell 命令")),
+        kind: .execute,
         locations: nil,
         rawInput: nil,
         rawOutput: nil,
-        status: "pending",
+        status: .pending,
         title: "run tests",
         toolCallID: "tool-run"
       )
@@ -578,18 +577,18 @@ struct OpenCodeCLIExecutionProviderTests {
       ),
       stopReason: .endTurn,
       permissionRequest: permissionRequest,
-      authorizationPolicy: ToolAuthorizationPolicy(preset: .observeOnly, approvalMode: .defaultApprovals),
+      authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited, approvalMode: .defaultApprovals),
       updates: [
         .session(
           .toolCall(
             ACPToolCall(
               meta: nil,
               content: nil,
-              kind: "run_in_terminal",
+              kind: .execute,
               locations: nil,
               rawInput: nil,
               rawOutput: nil,
-              status: "in_progress",
+              status: .inProgress,
               title: "run tests",
               toolCallID: "tool-run"
             )
@@ -600,11 +599,11 @@ struct OpenCodeCLIExecutionProviderTests {
             ACPToolCallUpdatePayload(
               meta: nil,
               content: nil,
-              kind: "run_in_terminal",
+              kind: .execute,
               locations: nil,
               rawInput: nil,
               rawOutput: .string("swift test"),
-              status: "success",
+              status: .completed,
               title: "run tests",
               toolCallID: "tool-run"
             )
@@ -812,7 +811,7 @@ struct OpenCodeCLIExecutionProviderTests {
       session: session,
       isActiveProvider: true,
       modelContext: modelContext,
-      trigger: .slashCommandWarmup
+      trigger: .selection
     )
 
     let commands = provider.remoteCommands(localSessionID: session.sessionId)
@@ -822,7 +821,7 @@ struct OpenCodeCLIExecutionProviderTests {
     #expect(commands.first?.inputHint == "scope")
   }
 
-  @Test func prepareForActivationSelectionDoesNotWarmRemoteACPState() async throws {
+  @Test func prepareForActivationSelectionWarmsRemoteACPState() async throws {
     let modelContext = try makeModelContext()
     let settings = AppSettings.testFixture(apiKey: "")
     settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
@@ -882,8 +881,77 @@ struct OpenCodeCLIExecutionProviderTests {
       trigger: .selection
     )
 
-    #expect(runtimeClient.ensureSessionRemoteSessionIDs.isEmpty)
-    #expect(provider.remoteCommands(localSessionID: session.sessionId).isEmpty)
+    let commands = provider.remoteCommands(localSessionID: session.sessionId)
+
+    #expect(runtimeClient.ensureSessionRemoteSessionIDs == [nil])
+    #expect(commands.map(\.name) == ["review"])
+    #expect(commands.first?.inputHint == "scope")
+  }
+
+  @Test func prepareForActivationSessionBootstrapWarmsRemoteACPState() async throws {
+    let modelContext = try makeModelContext()
+    let settings = AppSettings.testFixture(apiKey: "")
+    settings.openCodeCLIConfiguration = OpenCodeCLIConfiguration(
+      executablePath: "/usr/bin/env",
+      defaultModel: "",
+      defaultApprovalMode: "default",
+      environment: [:],
+      useACPStdIO: true
+    )
+    let session = Session.fixture(title: "OpenCode Session Bootstrap")
+    modelContext.insert(settings)
+    modelContext.insert(session)
+    try modelContext.save()
+
+    let runtimeClient = RuntimeClientStub(
+      handshake: ACPExternalAgentSessionHandshake(
+        remoteSessionID: "remote-bootstrap",
+        capabilities: ACPExternalAgentCapabilitySnapshot(
+          loadSession: true,
+          supportsSessionModelOverride: false,
+          agentVersion: "0.1.0"
+        )
+      ),
+      stopReason: .endTurn,
+      ensureSessionUpdates: [
+        .session(
+          .availableCommandsUpdate(
+            ACPAvailableCommandsUpdatePayload(
+              availableCommands: [
+                ACPAvailableCommand(
+                  description: "Run review",
+                  input: ACPAvailableCommandInput(hint: "scope"),
+                  name: "review"
+                )
+              ]
+            )
+          )
+        )
+      ],
+      updates: []
+    )
+
+    let provider = OpenCodeCLIExecutionProvider(
+      availabilityService: availabilityService(),
+      terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+      permissionCenter: ACPPermissionCenter(),
+      runtimeClientFactory: { _, _, _, _, updateSink in
+        runtimeClient.updateSink = updateSink
+        return runtimeClient
+      }
+    )
+
+    await provider.prepareForActivation(
+      session: session,
+      isActiveProvider: true,
+      modelContext: modelContext,
+      trigger: .sessionBootstrap
+    )
+
+    let commands = provider.remoteCommands(localSessionID: session.sessionId)
+
+    #expect(runtimeClient.ensureSessionRemoteSessionIDs == [nil])
+    #expect(commands.map(\.name) == ["review"])
   }
 
   @Test func sendRestoresFeatureStateFromSessionLoadUpdates() async throws {
@@ -1039,7 +1107,6 @@ loop do
   case method
   when "initialize"
     capabilities = { "loadSession" => true }
-    capabilities["sessionCapabilities"] = {} if supports_model_override
     response = {
       "jsonrpc" => "2.0",
       "id" => request.fetch("id"),
@@ -1055,17 +1122,44 @@ loop do
     STDOUT.write(JSON.generate(response) + "\n")
     STDOUT.flush
   when "session/new"
+    config_options = [
+      {
+        "id" => "approvalMode",
+        "type" => "select",
+        "currentValue" => "default",
+        "options" => [
+          { "name" => "Default approvals", "value" => "default" },
+          { "name" => "Bypass approvals", "value" => "never" }
+        ]
+      }
+    ]
+    if supports_model_override
+      config_options.unshift(
+        {
+          "id" => "model",
+          "type" => "select",
+          "category" => "model",
+          "currentValue" => "gpt-5",
+          "options" => [
+            { "name" => "GPT-5", "value" => "gpt-5" },
+            { "name" => "GPT-5 Mini", "value" => "gpt-5-mini" }
+          ]
+        }
+      )
+    end
     response = {
       "jsonrpc" => "2.0",
       "id" => request.fetch("id"),
       "result" => {
-        "sessionId" => "remote-open"
+        "sessionId" => "remote-open",
+        "configOptions" => config_options
       }
     }
     STDOUT.write(JSON.generate(response) + "\n")
     STDOUT.flush
-  when "session/set_model"
-    append_log(log_path, "model=#{request.dig("params", "modelId")}")
+  when "session/set_config_option"
+    append_log(log_path, "config=#{request.dig("params", "configId")}")
+    append_log(log_path, "value=#{request.dig("params", "value")}")
     response = {
       "jsonrpc" => "2.0",
       "id" => request.fetch("id"),
@@ -1188,8 +1282,16 @@ end
       return handshake
     }
 
-    func setModel(_ modelID: String, sessionID: String) async throws {
-      setModelRequests.append((modelID, sessionID))
+    func setSessionMode(_ modeID: String, sessionID: String) async throws {
+      _ = modeID
+      _ = sessionID
+    }
+
+    func setSessionConfigOption(_ configID: String, value: String, sessionID: String) async throws -> [ACPSessionConfigOption] {
+      if configID == "model" {
+        setModelRequests.append((value, sessionID))
+      }
+      return []
     }
 
     func prompt(text: String, sessionID: String) async throws -> ACPStopReason {
@@ -1272,9 +1374,16 @@ end
       return handshake
     }
 
-    func setModel(_ modelID: String, sessionID: String) async throws {
-      _ = modelID
+    func setSessionMode(_ modeID: String, sessionID: String) async throws {
+      _ = modeID
       _ = sessionID
+    }
+
+    func setSessionConfigOption(_ configID: String, value: String, sessionID: String) async throws -> [ACPSessionConfigOption] {
+      _ = configID
+      _ = value
+      _ = sessionID
+      return []
     }
 
     func prompt(text: String, sessionID: String) async throws -> ACPStopReason {

@@ -66,7 +66,7 @@ actor ACPSessionRuntimeActor {
     func prepareRuntimeSession(workingDirectory: String) async throws -> PreparedRuntimeSession {
         do {
             return try await prepareRuntimeSessionOnce(workingDirectory: workingDirectory)
-        } catch ACPExternalAgentRuntimeError.initializeTimedOut {
+        } catch let error as ACPExternalAgentRuntimeError where shouldRebuildRuntime(after: error) {
             _ = await replaceRuntime()
             return try await prepareRuntimeSessionOnce(workingDirectory: workingDirectory)
         }
@@ -160,5 +160,14 @@ actor ACPSessionRuntimeActor {
         }
         runtimeWorkingDirectory = nil
         return rebuildActivation()
+    }
+
+    private func shouldRebuildRuntime(after error: ACPExternalAgentRuntimeError) -> Bool {
+        switch error {
+        case .initializeTimedOut, .runtimeNotRunning:
+            return true
+        case .sessionAlreadyAttached:
+            return false
+        }
     }
 }

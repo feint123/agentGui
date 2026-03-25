@@ -224,6 +224,40 @@ struct ConversationExecutionProviderRegistryTests {
         #expect(copilot.sentTexts == ["copilot second"])
     }
 
+    @Test func runtimeCoordinatorDeactivatesInactiveExternalACPProvidersBeforeActiveWarmup() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        let session = Session.fixture(title: "Prepare Activation Ordering")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let harness = ExternalACPConflictHarness()
+        let builtIn = ProviderSpy(id: .builtInAgent)
+        let copilot = ProviderSpy(id: .githubCopilotCLI, runtimeScope: .externalACP, conflictHarness: harness)
+        let openCode = ProviderSpy(id: .openCodeCLI, runtimeScope: .externalACP, conflictHarness: harness)
+        let claudeAdapter = ProviderSpy(id: .claudeAdapterCLI, runtimeScope: .externalACP, conflictHarness: harness)
+        let registry = ConversationExecutionProviderRegistry(
+            builtIn: builtIn,
+            copilot: copilot,
+            openCode: openCode,
+            claudeAdapter: claudeAdapter
+        )
+
+        try openCode.primeActiveSession(session.sessionId)
+
+        await ConversationExecutionRuntimeCoordinator().prepareForActivation(
+            session: session,
+            activeProvider: copilot,
+            registry: registry,
+            modelContext: modelContext,
+            trigger: .selection
+        )
+
+        #expect(openCode.deactivatedSessionIDs == [session.sessionId])
+        #expect(copilot.prepareActivationConflict == nil)
+    }
+
     @Test func registryResolvesClaudeAdapterAsExternalACPProvider() throws {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: ProviderSpy(id: .builtInAgent),
@@ -279,6 +313,7 @@ private final class ProviderSpy: ConversationExecutionProvider {
     private(set) var sentTexts: [String] = []
     private(set) var resetSessionIDs: [String] = []
     private(set) var deactivatedSessionIDs: [String] = []
+    private(set) var prepareActivationConflict: ExternalACPConflictError?
     private var activeSessionIDs: Set<String> = []
 
     init(
@@ -338,6 +373,17 @@ private final class ProviderSpy: ConversationExecutionProvider {
         _ = trigger
         guard runtimeScope == .externalACP else { return }
 
+        if isActiveProvider,
+           let conflictHarness {
+            do {
+                try conflictHarness.activate(providerID: id, sessionID: session.sessionId)
+                activeSessionIDs.insert(session.sessionId)
+            } catch let error as ExternalACPConflictError {
+                prepareActivationConflict = error
+            } catch {
+            }
+        }
+
         let sessionIDsToDeactivate: [String]
         if isActiveProvider {
             sessionIDsToDeactivate = activeSessionIDs.filter { $0 != session.sessionId }
@@ -350,6 +396,11 @@ private final class ProviderSpy: ConversationExecutionProvider {
             deactivatedSessionIDs.append(sessionID)
             conflictHarness?.deactivate(providerID: id, sessionID: sessionID)
         }
+    }
+
+    func primeActiveSession(_ sessionID: String) throws {
+        activeSessionIDs.insert(sessionID)
+        try conflictHarness?.activate(providerID: id, sessionID: sessionID)
     }
 }
 

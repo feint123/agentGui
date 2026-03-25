@@ -25,26 +25,85 @@ struct SessionExecutionPreferences: Codable, Equatable, Sendable {
 struct GitHubCopilotCLISessionPreferences: Codable, Equatable, Sendable {
     var modelID: String?
     var approvalMode: String?
+    var modeID: String?
 
     init(
         modelID: String? = nil,
-        approvalMode: String? = nil
+        approvalMode: String? = nil,
+        modeID: String? = nil
     ) {
         self.modelID = modelID?.trimmedNonEmpty
         self.approvalMode = approvalMode?.trimmedNonEmpty
+        self.modeID = modeID?.trimmedNonEmpty
     }
 }
 
 struct OpenCodeCLISessionPreferences: Codable, Equatable, Sendable {
     var modelID: String?
     var approvalMode: String?
+    var modeID: String?
 
     init(
         modelID: String? = nil,
-        approvalMode: String? = nil
+        approvalMode: String? = nil,
+        modeID: String? = nil
     ) {
         self.modelID = modelID?.trimmedNonEmpty
         self.approvalMode = approvalMode?.trimmedNonEmpty
+        self.modeID = modeID?.trimmedNonEmpty
+    }
+}
+
+extension SessionExecutionPreferences {
+    mutating func applyACPModeSelection(providerID: ConversationExecutionProviderID, modeID: String) {
+        let normalizedModeID = modeID.trimmedNonEmpty
+
+        switch providerID {
+        case .githubCopilotCLI:
+            gitHubCopilotCLI.modeID = normalizedModeID
+        case .openCodeCLI:
+            openCodeCLI.modeID = normalizedModeID
+        case .claudeAdapterCLI:
+            claudeAdapterCLI.modeID = normalizedModeID
+        case .builtInAgent:
+            break
+        }
+    }
+
+    mutating func applyACPConfigSelection(
+        providerID: ConversationExecutionProviderID,
+        configID: String,
+        value: String,
+        modelConfigID: String?,
+        approvalsConfigID: String?
+    ) {
+        let normalizedConfigID = configID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedModelConfigID = modelConfigID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedApprovalsConfigID = approvalsConfigID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedValue = value.trimmedNonEmpty
+
+        switch providerID {
+        case .githubCopilotCLI:
+            if normalizedConfigID == normalizedModelConfigID {
+                gitHubCopilotCLI.modelID = normalizedValue
+            } else if normalizedConfigID == normalizedApprovalsConfigID {
+                gitHubCopilotCLI.approvalMode = normalizedValue
+            }
+        case .openCodeCLI:
+            if normalizedConfigID == normalizedModelConfigID {
+                openCodeCLI.modelID = normalizedValue
+            } else if normalizedConfigID == normalizedApprovalsConfigID {
+                openCodeCLI.approvalMode = normalizedValue
+            }
+        case .claudeAdapterCLI:
+            if normalizedConfigID == normalizedModelConfigID {
+                claudeAdapterCLI.modelID = normalizedValue
+            } else if normalizedConfigID == normalizedApprovalsConfigID {
+                claudeAdapterCLI.approvalMode = normalizedValue
+            }
+        case .builtInAgent:
+            break
+        }
     }
 }
 

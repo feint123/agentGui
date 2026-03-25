@@ -89,9 +89,10 @@ struct SessionListView: View {
                 .padding(.vertical, 7)
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                Button {
-                    createNewSession()
-                } label: {
+                NewSessionExecutionProviderMenu(
+                    accessibilityIdentifier: "sessionList.createButton",
+                    onSelect: createNewSession(providerID:)
+                ) {
                     Image(systemName: "plus")
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 30, height: 30)
@@ -99,7 +100,6 @@ struct SessionListView: View {
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive().tint(Color.accentColor.opacity(0.3)), in: Circle())
                 .help("新对话")
-                .accessibilityIdentifier("sessionList.createButton")
             }
         }
         .padding(10)
@@ -111,10 +111,14 @@ struct SessionListView: View {
             title: "暂无对话",
             message: "点击右上角的 + 开始新对话"
         ) {
-            Button("新建对话", action: createNewSession)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityIdentifier("sessionList.createButton")
+            NewSessionExecutionProviderMenu(
+                accessibilityIdentifier: "sessionList.createButton",
+                onSelect: createNewSession(providerID:)
+            ) {
+                Text("新建对话")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
         .accessibilityIdentifier("sessionList.emptyState")
     }
@@ -134,10 +138,14 @@ struct SessionListView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
-                Button("新建对话", action: createNewSession)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("sessionList.createButton")
+                NewSessionExecutionProviderMenu(
+                    accessibilityIdentifier: "sessionList.createButton",
+                    onSelect: createNewSession(providerID:)
+                ) {
+                    Text("新建对话")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
         }
         .accessibilityIdentifier("sessionList.searchEmptyState")
@@ -201,9 +209,9 @@ struct SessionListView: View {
 
     // MARK: - Actions
 
-    private func createNewSession() {
+    private func createNewSession(providerID: ConversationExecutionProviderID) {
         let newSession = Session()
-        newSession.defaultExecutionProviderID = AppSettings.getOrCreate(in: modelContext).defaultExecutionProviderID
+        newSession.defaultExecutionProviderID = providerID.rawValue
         modelContext.insert(newSession)
         do {
             try modelContext.save()

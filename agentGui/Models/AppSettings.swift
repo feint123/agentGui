@@ -186,7 +186,7 @@ extension AppSettings {
                   let configuration = try? JSONDecoder().decode(ACPCLIConfiguration.self, from: data) else {
                 return .githubCopilotDefault
             }
-            return configuration
+            return configuration.sanitizedForGlobalSettings
         }
         set {
             githubCopilotCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
@@ -199,7 +199,7 @@ extension AppSettings {
                   let configuration = try? JSONDecoder().decode(ACPCLIConfiguration.self, from: data) else {
                 return .openCodeDefault
             }
-            return configuration
+            return configuration.sanitizedForGlobalSettings
         }
         set {
             openCodeCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
@@ -212,7 +212,7 @@ extension AppSettings {
                   let configuration = try? JSONDecoder().decode(ACPCLIConfiguration.self, from: data) else {
                 return .claudeAdapterDefault
             }
-            return configuration
+            return configuration.sanitizedForGlobalSettings
         }
         set {
             claudeAdapterCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"

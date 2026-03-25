@@ -110,6 +110,31 @@ struct ACPClientHandlerTests {
             Issue.record("Expected agent thought chunk update")
         }
     }
+
+    @Test func sessionUpdateNotificationDecodesCurrentModeUpdate() async throws {
+        let handler = MockACPClientHandler()
+        let router = ACPMessageRouter.clientRouter(handler: handler)
+        let notification = ACPSessionNotification(
+            meta: nil,
+            sessionID: "session-13",
+            update: .currentModeUpdate(ACPCurrentModeUpdatePayload(meta: nil, currentModeID: "code"))
+        )
+
+        let params = try ACPJSONValue.fromEncodable(notification)
+        let result = try await router.handle(
+            method: ACPMethodCatalog.Client.sessionUpdate,
+            params: params,
+            isNotification: true
+        )
+
+        #expect(result == nil)
+        switch handler.sessionUpdate?.update {
+        case .currentModeUpdate(let payload):
+            #expect(payload.currentModeID == "code")
+        default:
+            Issue.record("Expected current mode update")
+        }
+    }
 }
 
 @MainActor

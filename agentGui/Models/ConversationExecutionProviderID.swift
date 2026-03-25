@@ -58,6 +58,12 @@ enum ConversationExecutionProviderID: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    static func newSessionOptionItems() -> [ExecutionOptionItem] {
+        allCases.map { provider in
+            ExecutionOptionItem(id: provider.rawValue, title: provider.displayName)
+        }
+    }
+
     private static func isSelectableExternalStatus(_ kind: ACPCLIAvailabilityStatus.Kind) -> Bool {
         switch kind {
         case .available, .notAuthenticated:

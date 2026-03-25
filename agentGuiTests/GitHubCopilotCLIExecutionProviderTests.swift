@@ -9,10 +9,6 @@ struct GitHubCopilotCLIExecutionProviderTests {
         let descriptor = ACPExternalAgentDescriptor.githubCopilot
 
         #expect(descriptor.defaultArguments == ["--acp", "--stdio"])
-        #expect(descriptor.supportsSessionModelOverrideByDefault)
-        #expect(descriptor.supportsCustomAgentName == false)
-        #expect(descriptor.executionBehavior.requiresCapabilityNegotiationForModelOverride == false)
-        #expect(descriptor.executionBehavior.supportsEnvironmentOverrides == false)
     }
 
     @Test func buildRuntimeClientUsesSharedExternalACPRuntimeClientByDefault() async throws {
@@ -54,7 +50,6 @@ struct GitHubCopilotCLIExecutionProviderTests {
             ),
             terminalRuntime: TerminalTaskRuntime.makeForTests(),
             authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
-            supportsSessionModelOverrideFallback: true,
             eventSink: { _ in }
         )
 
@@ -82,7 +77,6 @@ struct GitHubCopilotCLIExecutionProviderTests {
             ),
             terminalRuntime: TerminalTaskRuntime.makeForTests(),
             authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
-            supportsSessionModelOverrideFallback: true,
             eventSink: { _ in }
         )
 
@@ -107,7 +101,6 @@ struct GitHubCopilotCLIExecutionProviderTests {
             ),
             terminalRuntime: TerminalTaskRuntime.makeForTests(),
             authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
-            supportsSessionModelOverrideFallback: true,
             eventSink: { _ in }
         )
 
@@ -168,7 +161,6 @@ struct GitHubCopilotCLIExecutionProviderTests {
                     ),
                     terminalRuntime: TerminalTaskRuntime.makeForTests(),
                     authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
-                    supportsSessionModelOverrideFallback: true,
                     eventSink: updateSink
                 )
             }
@@ -351,7 +343,69 @@ struct GitHubCopilotCLIExecutionProviderTests {
         )
 
         #expect(stalledRuntime.closeCallCount == 1)
-        #expect(stalledRuntime.ensureSessionRemoteSessionIDs == [nil])
+        #expect(recoveredRuntime.ensureSessionRemoteSessionIDs == [nil])
+        let binding = try ACPExternalSessionBindingStore(modelContext: modelContext).binding(
+            for: session.sessionId,
+            providerID: .githubCopilotCLI
+        )
+        #expect(binding?.remoteSessionID == "remote-recovered")
+    }
+
+    @Test func providerRebuildsRuntimeWhenCachedRuntimeIsNotRunning() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Retry Missing Runtime")
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let staleRuntime = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-stale", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: [],
+            ensureSessionError: ACPExternalAgentRuntimeError.runtimeNotRunning
+        )
+        let recoveredRuntime = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-recovered", cliVersion: "1.2.3"),
+            stopReason: .endTurn,
+            updates: []
+        )
+        var runtimeQueue = [staleRuntime, recoveredRuntime]
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            availabilityService: GitHubCopilotCLIAvailabilityService(
+                fileManager: .default,
+                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+            ),
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                let runtimeClient = try #require(runtimeQueue.isEmpty == false ? runtimeQueue.removeFirst() : nil)
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "retry missing runtime",
+                session: session,
+                modelID: "",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        #expect(staleRuntime.closeCallCount == 1)
         #expect(recoveredRuntime.ensureSessionRemoteSessionIDs == [nil])
         let binding = try ACPExternalSessionBindingStore(modelContext: modelContext).binding(
             for: session.sessionId,
@@ -571,7 +625,11 @@ struct GitHubCopilotCLIExecutionProviderTests {
         try modelContext.save()
 
         let runtimeClient = RuntimeClientStub(
-            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-123", cliVersion: "1.2.3"),
+            handshake: GitHubCopilotCLISessionHandshake(
+                remoteSessionID: "remote-123",
+                cliVersion: "1.2.3",
+                configurationSnapshot: configuredSessionSnapshot()
+            ),
             stopReason: .endTurn,
             updates: [
                 .session(
@@ -658,9 +716,9 @@ struct GitHubCopilotCLIExecutionProviderTests {
         #expect(runtimeClient.promptRequests.count == 1)
         #expect(runtimeClient.promptRequests.first?.0 == "hello copilot")
         #expect(runtimeClient.promptRequests.first?.1 == "remote-123")
-        #expect(runtimeClient.setModelRequests.count == 1)
-        #expect(runtimeClient.setModelRequests.first?.0 == "gpt-5")
-        #expect(runtimeClient.setModelRequests.first?.1 == "remote-123")
+        #expect(runtimeClient.setSessionConfigOptionRequests.contains { request in
+            request.configID == "model" && request.value == "gpt-5" && request.sessionID == "remote-123"
+        })
     }
 
     @Test func sendSkipsModelSelectionWhenCopilotDefaultModelIsEmpty() async throws {
@@ -679,7 +737,11 @@ struct GitHubCopilotCLIExecutionProviderTests {
         try modelContext.save()
 
         let runtimeClient = RuntimeClientStub(
-            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-model", cliVersion: "1.2.3"),
+            handshake: GitHubCopilotCLISessionHandshake(
+                remoteSessionID: "remote-model",
+                cliVersion: "1.2.3",
+                configurationSnapshot: configuredSessionSnapshot(includeModel: false)
+            ),
             stopReason: .endTurn,
             updates: []
         )
@@ -709,9 +771,10 @@ struct GitHubCopilotCLIExecutionProviderTests {
             for: session.sessionId,
             providerID: .githubCopilotCLI
         )
+        let trimmedSelectedModel = (binding?.lastSelectedModel ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
-        #expect(runtimeClient.setModelRequests.isEmpty)
-        #expect(binding?.lastSelectedModel == nil)
+        #expect(runtimeClient.setSessionConfigOptionRequests.contains { $0.configID == "model" } == false)
+        #expect(trimmedSelectedModel == "")
     }
 
     @Test func sendUsesSessionScopedCopilotModelOverride() async throws {
@@ -734,7 +797,11 @@ struct GitHubCopilotCLIExecutionProviderTests {
         try modelContext.save()
 
         let runtimeClient = RuntimeClientStub(
-            handshake: GitHubCopilotCLISessionHandshake(remoteSessionID: "remote-model", cliVersion: "1.2.3"),
+            handshake: GitHubCopilotCLISessionHandshake(
+                remoteSessionID: "remote-model",
+                cliVersion: "1.2.3",
+                configurationSnapshot: configuredSessionSnapshot()
+            ),
             stopReason: .endTurn,
             updates: []
         )
@@ -765,24 +832,90 @@ struct GitHubCopilotCLIExecutionProviderTests {
             providerID: .githubCopilotCLI
         )
 
-        #expect(runtimeClient.setModelRequests.count == 1)
-        #expect(runtimeClient.setModelRequests.first?.0 == "gpt-5-mini")
+        #expect(runtimeClient.setSessionConfigOptionRequests.contains { request in
+            request.configID == "model" && request.value == "gpt-5-mini"
+        })
         #expect(binding?.lastSelectedModel == "gpt-5-mini")
     }
 
-    @Test func sendMapsDefaultApprovalModeToDefaultApprovals() async throws {
+    @Test func sendKeepsLatestSessionScopedModeAndModelSelectionsInConfigurationSnapshot() async throws {
+        let modelContext = try makeModelContext()
+        let settings = AppSettings.testFixture(apiKey: "")
+        settings.githubCopilotCLIConfiguration = GitHubCopilotCLIConfiguration(
+            executablePath: "/usr/bin/env",
+            defaultModel: "gpt-5",
+            customAgentName: "",
+            defaultApprovalMode: "default",
+            useACPStdIO: true
+        )
+        let session = Session.fixture(title: "Copilot Sticky ACP Selection")
+        session.executionPreferences = SessionExecutionPreferences(
+            builtInModelID: nil,
+            gitHubCopilotCLI: GitHubCopilotCLISessionPreferences(modelID: "gpt-5-mini", approvalMode: nil, modeID: "edit")
+        )
+        modelContext.insert(settings)
+        modelContext.insert(session)
+        try modelContext.save()
+
+        let runtimeClient = RuntimeClientStub(
+            handshake: GitHubCopilotCLISessionHandshake(
+                remoteSessionID: "remote-sticky-config",
+                cliVersion: "1.2.3",
+                configurationSnapshot: configuredSessionSnapshot(currentModel: "gpt-5", currentModeID: "plan")
+            ),
+            stopReason: .endTurn,
+            updates: [],
+            sessionConfigOptionResults: [
+                "model": configuredSessionSnapshot(currentModel: "gpt-5-mini", currentModeID: "plan").configOptions
+            ]
+        )
+
+        let provider = GitHubCopilotCLIExecutionProvider(
+            terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
+            permissionCenter: ACPPermissionCenter(),
+            runtimeClientFactory: { _, _, _, _, updateSink in
+                runtimeClient.updateSink = updateSink
+                return runtimeClient
+            }
+        )
+
+        try await provider.send(
+            ConversationExecutionRequest(
+                text: "hello sticky config",
+                session: session,
+                modelID: "claude-sonnet-4-6",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: [],
+                modelContext: modelContext
+            )
+        )
+
+        let snapshot = try #require(provider.remoteSessionConfiguration(localSessionID: session.sessionId))
+
+        #expect(runtimeClient.setSessionModeRequests.contains { request in
+            request.modeID == "edit" && request.sessionID == "remote-sticky-config"
+        })
+        #expect(runtimeClient.setSessionConfigOptionRequests.contains { request in
+            request.configID == "model" && request.value == "gpt-5-mini" && request.sessionID == "remote-sticky-config"
+        })
+        #expect(snapshot.modes?.currentModeID == "edit")
+        #expect(snapshot.modelConfigOption?.currentValue == "gpt-5-mini")
+    }
+
+    @Test func sendMapsDefaultGlobalApprovalModeToDefaultApprovals() async throws {
         let approvalMode = try await capturedApprovalMode(for: "default")
         #expect(approvalMode == .defaultApprovals)
     }
 
-    @Test func sendMapsOnRequestApprovalModeToDefaultApprovals() async throws {
+    @Test func sendIgnoresLegacyOnRequestGlobalApprovalModeValue() async throws {
         let approvalMode = try await capturedApprovalMode(for: "on-request")
         #expect(approvalMode == .defaultApprovals)
     }
 
-    @Test func sendMapsNeverApprovalModeToBypassApprovals() async throws {
+    @Test func sendIgnoresLegacyNeverGlobalApprovalModeValue() async throws {
         let approvalMode = try await capturedApprovalMode(for: "never")
-        #expect(approvalMode == .bypassApprovals)
+        #expect(approvalMode == .defaultApprovals)
     }
 
     @Test func sendFinalizesOutstandingReadToolCallsWhenTurnEnds() async throws {
@@ -1604,11 +1737,14 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
     let updates: [CopilotACPUpdate]
     let ensureSessionError: (any Error)?
     let promptError: (any Error)?
+    let sessionConfigOptionResults: [String: [ACPSessionConfigOption]]
 
     var updateSink: (@Sendable (CopilotACPUpdate) async -> Void)?
     private(set) var ensureSessionRemoteSessionIDs: [String?] = []
     private(set) var promptRequests: [(String, String)] = []
     private(set) var setModelRequests: [(String, String)] = []
+    private(set) var setSessionModeRequests: [(modeID: String, sessionID: String)] = []
+    private(set) var setSessionConfigOptionRequests: [(configID: String, value: String, sessionID: String)] = []
     private(set) var cancelledSessionIDs: [String] = []
     private(set) var closeCallCount = 0
     private(set) var initializeCallCount = 0
@@ -1619,7 +1755,8 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
         ensureSessionUpdates: [CopilotACPUpdate] = [],
         updates: [CopilotACPUpdate],
         ensureSessionError: (any Error)? = nil,
-        promptError: (any Error)? = nil
+        promptError: (any Error)? = nil,
+        sessionConfigOptionResults: [String: [ACPSessionConfigOption]] = [:]
     ) {
         self.handshake = handshake
         self.stopReason = stopReason
@@ -1627,6 +1764,7 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
         self.updates = updates
         self.ensureSessionError = ensureSessionError
         self.promptError = promptError
+        self.sessionConfigOptionResults = sessionConfigOptionResults
     }
 
     func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> GitHubCopilotCLISessionHandshake {
@@ -1673,8 +1811,16 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
         return handshake
     }
 
-    func setModel(_ modelID: String, sessionID: String) async throws {
-        setModelRequests.append((modelID, sessionID))
+    func setSessionMode(_ modeID: String, sessionID: String) async throws {
+        setSessionModeRequests.append((modeID: modeID, sessionID: sessionID))
+    }
+
+    func setSessionConfigOption(_ configID: String, value: String, sessionID: String) async throws -> [ACPSessionConfigOption] {
+        setSessionConfigOptionRequests.append((configID: configID, value: value, sessionID: sessionID))
+        if configID == "model" {
+            setModelRequests.append((value, sessionID))
+        }
+        return sessionConfigOptionResults[configID] ?? []
     }
 
     func prompt(text: String, sessionID: String) async throws -> ACPStopReason {
@@ -1699,6 +1845,56 @@ private final class RuntimeClientStub: GitHubCopilotCLIRuntimeClient {
 
 private enum RuntimeClientStubError: Error {
     case promptFailed
+}
+
+private func configuredSessionSnapshot(
+    includeModel: Bool = true,
+    currentModel: String = "gpt-5",
+    currentModeID: String? = nil
+) -> ACPExternalAgentSessionConfigurationSnapshot {
+    var configOptions: [ACPSessionConfigOption] = [
+        ACPSessionConfigOption(
+            meta: nil,
+            id: "approvalMode",
+            category: nil,
+            currentValue: "default",
+            options: .ungrouped([
+                ACPSessionConfigSelectOption(meta: nil, description: nil, name: "Default approvals", value: "default"),
+                ACPSessionConfigSelectOption(meta: nil, description: nil, name: "Bypass approvals", value: "never")
+            ]),
+            type: "select"
+        )
+    ]
+
+    if includeModel {
+        configOptions.insert(
+            ACPSessionConfigOption(
+                meta: nil,
+                id: "model",
+                category: .model,
+                currentValue: currentModel,
+                options: .ungrouped([
+                    ACPSessionConfigSelectOption(meta: nil, description: nil, name: "GPT-5", value: "gpt-5"),
+                    ACPSessionConfigSelectOption(meta: nil, description: nil, name: "GPT-5 Mini", value: "gpt-5-mini")
+                ]),
+                type: "select"
+            ),
+            at: 0
+        )
+    }
+
+    let modes = currentModeID.map {
+        ACPSessionModeState(
+            meta: nil,
+            availableModes: [
+                ACPSessionMode(meta: nil, description: nil, id: "plan", name: "Plan"),
+                ACPSessionMode(meta: nil, description: nil, id: "edit", name: "Edit")
+            ],
+            currentModeID: $0
+        )
+    }
+
+    return ACPExternalAgentSessionConfigurationSnapshot(configOptions: configOptions, modes: modes)
 }
 
 @MainActor
@@ -1747,9 +1943,16 @@ private final class PermissionRuntimeClientStub: GitHubCopilotCLIRuntimeClient {
         return handshake
     }
 
-    func setModel(_ modelID: String, sessionID: String) async throws {
-        _ = modelID
+    func setSessionMode(_ modeID: String, sessionID: String) async throws {
+        _ = modeID
         _ = sessionID
+    }
+
+    func setSessionConfigOption(_ configID: String, value: String, sessionID: String) async throws -> [ACPSessionConfigOption] {
+        _ = configID
+        _ = value
+        _ = sessionID
+        return []
     }
 
     func prompt(text: String, sessionID: String) async throws -> ACPStopReason {

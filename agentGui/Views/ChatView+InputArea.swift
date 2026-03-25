@@ -94,17 +94,16 @@ extension ChatView {
                 }
 
                 HStack(spacing: 8) {
-                    ExecutionOptionPicker(
-                        title: "",
-                        options: ConversationExecutionProviderID.optionItems(
-                            copilotAvailabilityStatus: copilotComposerAvailabilityStatus,
-                            openCodeAvailabilityStatus: openCodeComposerAvailabilityStatus,
-                            claudeAdapterAvailabilityStatus: claudeAdapterComposerAvailabilityStatus
-                        ),
-                        selection: executionProviderSelectionRawValueBinding,
-                        accessibilityIdentifier: "chat.executionProviderPicker"
-                    )
-                    .disabled(sessionInteractionPolicy.canSend == false)
+                    Text(resolvedExecutionProviderID.displayName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                        .accessibilityIdentifier("chat.executionProviderBadge")
 
                     composerExecutionPreferencesControls
                         .disabled(sessionInteractionPolicy.canSend == false)
@@ -294,56 +293,29 @@ extension ChatView {
                 accessibilityIdentifier: "chat.builtInApprovalModePicker"
             )
         case .githubCopilotCLI:
-            ExecutionOptionPicker(
-                title: "",
-                options: ACPCLIConfiguration.copilotModelOptions(
-                    inheritingTitle: "跟随设置默认",
-                    including: copilotComposerModelSelectionBinding.wrappedValue
-                ),
-                selection: copilotComposerModelSelectionBinding,
-                accessibilityIdentifier: "chat.copilotModelPicker"
-            )
-
-            ExecutionOptionPicker(
-                title: "",
-                options: GitHubCopilotCLIApprovalModeOption.allCases.map {
-                    ExecutionOptionItem(id: $0.rawValue, title: $0.title)
-                },
-                selection: copilotComposerApprovalModeSelectionBinding,
-                accessibilityIdentifier: "chat.copilotApprovalModePicker"
-            )
+            if let presentation = currentACPSessionConfigurationPresentation {
+                ACPSessionConfigurationControls(
+                    presentation: presentation,
+                    onSelectMode: updateACPMode,
+                    onSelectConfigOption: updateACPConfigOption(configID:value:)
+                )
+            }
         case .openCodeCLI:
-            ExecutionOptionPicker(
-                title: "",
-                options: AppSettings.availableModelOptions(inheritingTitle: "跟随设置默认"),
-                selection: openCodeComposerModelSelectionBinding,
-                accessibilityIdentifier: "chat.openCodeModelPicker"
-            )
-
-            ExecutionOptionPicker(
-                title: "",
-                options: GitHubCopilotCLIApprovalModeOption.allCases.map {
-                    ExecutionOptionItem(id: $0.rawValue, title: $0.title)
-                },
-                selection: openCodeComposerApprovalModeSelectionBinding,
-                accessibilityIdentifier: "chat.openCodeApprovalModePicker"
-            )
+            if let presentation = currentACPSessionConfigurationPresentation {
+                ACPSessionConfigurationControls(
+                    presentation: presentation,
+                    onSelectMode: updateACPMode,
+                    onSelectConfigOption: updateACPConfigOption(configID:value:)
+                )
+            }
         case .claudeAdapterCLI:
-            ExecutionOptionPicker(
-                title: "",
-                options: AppSettings.availableModelOptions(inheritingTitle: "跟随设置默认"),
-                selection: claudeAdapterComposerModelSelectionBinding,
-                accessibilityIdentifier: "chat.claudeAdapterModelPicker"
-            )
-
-            ExecutionOptionPicker(
-                title: "",
-                options: GitHubCopilotCLIApprovalModeOption.allCases.map {
-                    ExecutionOptionItem(id: $0.rawValue, title: $0.title)
-                },
-                selection: claudeAdapterComposerApprovalModeSelectionBinding,
-                accessibilityIdentifier: "chat.claudeAdapterApprovalModePicker"
-            )
+            if let presentation = currentACPSessionConfigurationPresentation {
+                ACPSessionConfigurationControls(
+                    presentation: presentation,
+                    onSelectMode: updateACPMode,
+                    onSelectConfigOption: updateACPConfigOption(configID:value:)
+                )
+            }
         }
     }
 
@@ -971,7 +943,6 @@ var fileChipsRow: some View {
                 debugSlashLog(
                     "slash query unchanged text=\(text.debugDescription) candidates=\(slashCandidates.count)"
                 )
-                ensureACPCommandsReadyForSlashQuery(text: text)
                 clearMentionStateIfNeeded()
                 return
             }
@@ -1002,7 +973,6 @@ var fileChipsRow: some View {
         debugSlashLog(
             "slash query active text=\(text.debugDescription) candidates=\(slashCandidates.count)"
         )
-        ensureACPCommandsReadyForSlashQuery(text: text)
         clearMentionStateIfNeeded()
     }
 
@@ -1059,42 +1029,6 @@ var fileChipsRow: some View {
             return nil
         }
         return ACPChatSlashCommandProvider(commands: commands)
-    }
-
-    private func ensureACPCommandsReadyForSlashQuery(text: String) {
-        let hasRemoteACPCommands = !currentACPCommands().isEmpty
-        guard ChatComposerACPWarmupPolicy.shouldWarmup(
-            slashQuery: slashQuery,
-            resolvedExecutionProviderID: resolvedExecutionProviderID,
-            hasRemoteACPCommands: hasRemoteACPCommands,
-            isWarmupInFlight: isACPCommandWarmupInFlight
-        ) else {
-            if slashQuery != nil {
-                debugSlashLog(
-                    "ensureACPCommandsReadyForSlashQuery skipped candidates=\(slashCandidates.count) hasRemoteACPCommands=\(hasRemoteACPCommands) warmupInFlight=\(isACPCommandWarmupInFlight) provider=\(resolvedExecutionProviderID.rawValue)"
-                )
-            }
-            return
-        }
-
-        isACPCommandWarmupInFlight = true
-        let providerID = resolvedExecutionProviderID
-        debugSlashLog("ensureACPCommandsReadyForSlashQuery triggering warmup text=\(text.debugDescription)")
-
-        Task {
-            await claudeService.handleExecutionProviderSelectionChange(
-                session: session,
-                selectedProviderID: providerID,
-                modelContext: modelContext,
-                trigger: .slashCommandWarmup
-            )
-
-            await MainActor.run {
-                isACPCommandWarmupInFlight = false
-                debugSlashLog("ensureACPCommandsReadyForSlashQuery warmup finished; re-syncing slash state")
-                syncSlashState(with: text)
-            }
-        }
     }
 
     func handleComposerSelectionMove(delta: Int) -> Bool {

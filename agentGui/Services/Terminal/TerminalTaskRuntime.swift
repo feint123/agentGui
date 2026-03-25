@@ -101,6 +101,44 @@ actor TerminalTaskRuntime {
         return snapshot
     }
 
+    func startDetached(
+        command: String,
+        args: [String],
+        environment: [String: String],
+        taskId: String,
+        workingDirectory: String? = nil
+    ) async throws -> TerminalTaskSnapshot {
+        print("[bash-runtime] startDetached structured session=\(sessionId) task_id=\(taskId) command=\(command) args=\(args.joined(separator: " ")) workingDirectory=\(workingDirectory ?? "nil")")
+        try await ensureTaskAvailable(taskId: taskId)
+        let controller = try PtyProcessController(
+            executable: command,
+            arguments: args,
+            workingDirectory: workingDirectory,
+            environment: environment
+        )
+        controllers[taskId] = controller
+
+        let transcriptPath = try await prepareTask(
+            taskId: taskId,
+            command: ([command] + args).joined(separator: " "),
+            executionMode: .detached
+        )
+        try controller.start()
+
+        var snapshot = try await requireSnapshot(taskId: taskId)
+        snapshot.status = .running
+        snapshot.pid = controller.processIdentifier
+        await registry.upsert(snapshot)
+
+        detachedTasks[taskId] = Task {
+            let result = try await controller.waitForExit()
+            return try await self.finalizeTask(taskId: taskId, transcriptPath: transcriptPath, result: result)
+        }
+
+        print("[bash-runtime] startDetached structured running session=\(sessionId) task_id=\(taskId) pid=\(snapshot.pid ?? 0)")
+        return snapshot
+    }
+
     func status(taskId: String) async throws -> TerminalTaskSnapshot {
         print("[bash-runtime] status lookup session=\(sessionId) task_id=\(taskId)")
         return try await requireSnapshot(taskId: taskId)

@@ -33,13 +33,13 @@ extension ChatView {
         }
 
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                createNewSession()
-            } label: {
+            NewSessionExecutionProviderMenu(
+                accessibilityIdentifier: "chat.newSessionButton",
+                onSelect: createNewSession(providerID:)
+            ) {
                 Image(systemName: "plus")
             }
             .help("新建对话")
-            .accessibilityIdentifier("chat.newSessionButton")
         }
 
         ToolbarItem(placement: .primaryAction) {
@@ -82,9 +82,9 @@ extension ChatView {
         }
     }
 
-    func createNewSession() {
+    func createNewSession(providerID: ConversationExecutionProviderID) {
         let newSession = Session()
-        newSession.defaultExecutionProviderID = AppSettings.getOrCreate(in: modelContext).defaultExecutionProviderID
+        newSession.defaultExecutionProviderID = providerID.rawValue
         modelContext.insert(newSession)
         try? modelContext.save()
         workspaceState.selectedSession = newSession

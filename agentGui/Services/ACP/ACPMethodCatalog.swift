@@ -7,15 +7,12 @@ enum ACPMethodCatalog {
         static let authenticate = "authenticate"
         static let initialize = "initialize"
         static let sessionCancel = "session/cancel"
-        static let sessionFork = "session/fork"
         static let sessionList = "session/list"
         static let sessionLoad = "session/load"
         static let sessionNew = "session/new"
         static let sessionPrompt = "session/prompt"
-        static let sessionResume = "session/resume"
         static let sessionSetConfigOption = "session/set_config_option"
         static let sessionSetMode = "session/set_mode"
-        static let sessionSetModel = "session/set_model"
     }
 
     enum Client {

@@ -12,6 +12,7 @@ enum AppFocusedSceneKind: Equatable {
 
 @MainActor
 struct AppCommandContext {
+    var sceneID: UUID?
     var workspaceState: WorkspaceState?
     var workbenchState: WorkbenchState?
     var contextWindowState: WorkbenchContextWindowState?
@@ -20,6 +21,7 @@ struct AppCommandContext {
     var openWindowByID: ((String) -> Void)?
 
     static let empty = AppCommandContext(
+        sceneID: nil,
         workspaceState: nil,
         workbenchState: nil,
         contextWindowState: nil,
@@ -29,6 +31,7 @@ struct AppCommandContext {
     )
 
     static func preview(
+        sceneID: UUID? = nil,
         workspaceState: WorkspaceState? = nil,
         workbenchState: WorkbenchState? = nil,
         contextWindowState: WorkbenchContextWindowState? = nil,
@@ -37,6 +40,7 @@ struct AppCommandContext {
         openWindowByID: ((String) -> Void)? = nil
     ) -> AppCommandContext {
         AppCommandContext(
+            sceneID: sceneID,
             workspaceState: workspaceState,
             workbenchState: workbenchState,
             contextWindowState: contextWindowState,

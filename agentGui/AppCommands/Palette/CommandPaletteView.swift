@@ -2,7 +2,6 @@ import SwiftUI
 
 struct CommandPaletteView: View {
     @Environment(CommandPaletteViewModel.self) private var viewModel
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
@@ -11,11 +10,14 @@ struct CommandPaletteView: View {
             Divider()
                 .overlay(.quaternary)
 
-            if viewModel.results.isEmpty {
-                emptyState
-            } else {
-                resultList
+            Group {
+                if viewModel.results.isEmpty {
+                    emptyState
+                } else {
+                    resultList
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
                 .overlay(.quaternary)
@@ -23,8 +25,12 @@ struct CommandPaletteView: View {
             footer
         }
         .frame(minWidth: 720, minHeight: 520)
-        .background(background)
-        .navigationTitle("命令面板")
+        .background(panelBackground)
+        .clipShape(.rect(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+        }
         .onMoveCommand { direction in
             switch direction {
             case .down:
@@ -38,36 +44,15 @@ struct CommandPaletteView: View {
         .onExitCommand {
             if viewModel.query.isEmpty {
                 viewModel.markDismissed()
-                dismiss()
             } else {
                 viewModel.query = ""
-            }
-        }
-        .onChange(of: viewModel.isPresented) { _, isPresented in
-            if !isPresented {
-                dismiss()
             }
         }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center) {
-                Label("命令面板", systemImage: "command.circle")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-
-                Spacer()
-
-                Text(viewModel.resultCountDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.regularMaterial, in: Capsule())
-            }
-
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
                 Image(systemName: "magnifyingglass")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -75,9 +60,7 @@ struct CommandPaletteView: View {
                 TextField("输入命令、会话、工作区或文件", text: queryBinding)
                     .textFieldStyle(.plain)
                     .font(.title3)
-                    .onSubmit {
-                        executeSelectedItem()
-                    }
+                    .onSubmit(executeSelectedItem)
 
                 if !viewModel.query.isEmpty {
                     Button {
@@ -88,17 +71,34 @@ struct CommandPaletteView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                Text(viewModel.resultCountDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(.quaternary)
+            .background(searchFieldBackground)
+
+            if let selectedItem = viewModel.selectedItem {
+                HStack(spacing: 8) {
+                    Text(selectedItem.group.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+
+                    if let subtitle = selectedItem.subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
             }
         }
         .padding(.horizontal, 18)
-        .padding(.top, 18)
+        .padding(.top, 14)
         .padding(.bottom, 14)
     }
 
@@ -108,23 +108,24 @@ struct CommandPaletteView: View {
             systemImage: "magnifyingglass",
             description: Text("尝试缩短关键字，或先打开工作区后再搜索文件。")
         )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var resultList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18, pinnedViews: [.sectionHeaders]) {
+                LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(viewModel.sections) { section in
-                        Section {
-                            VStack(spacing: 6) {
-                                ForEach(section.items) { item in
-                                    button(for: item)
-                                        .id(item.id)
-                                }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(section.group.title)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .textCase(.uppercase)
+                                .padding(.horizontal, 4)
+
+                            ForEach(section.items) { item in
+                                resultRow(for: item)
+                                    .id(item.id)
                             }
-                        } header: {
-                            sectionHeader(section.group.title)
                         }
                     }
                 }
@@ -171,7 +172,7 @@ struct CommandPaletteView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
+        .background(.bar)
     }
 
     private var queryBinding: Binding<String> {
@@ -181,15 +182,39 @@ struct CommandPaletteView: View {
         )
     }
 
-    private func button(for item: CommandPaletteItem) -> some View {
+    @ViewBuilder
+    private var searchFieldBackground: some View {
+        if #available(macOS 26, *) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.clear)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.quaternary)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var panelBackground: some View {
+        if #available(macOS 26, *) {
+            Rectangle()
+                .fill(.thinMaterial)
+        } else {
+            Rectangle()
+                .fill(.regularMaterial)
+        }
+    }
+
+    private func resultRow(for item: CommandPaletteItem) -> some View {
         let isSelected = item.id == viewModel.selectedItem?.id
 
         return Button {
             Task { @MainActor in
                 _ = await viewModel.execute(item)
-                if !viewModel.isPresented {
-                    dismiss()
-                }
             }
         } label: {
             HStack(alignment: .top, spacing: 12) {
@@ -245,15 +270,14 @@ struct CommandPaletteView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(backgroundShape(isSelected: isSelected))
+            .background(rowBackground(isSelected: isSelected))
         }
         .buttonStyle(.plain)
         .disabled(!item.isEnabled)
         .accessibilityIdentifier(item.id)
     }
 
-    @ViewBuilder
-    private func backgroundShape(isSelected: Bool) -> some View {
+    private func rowBackground(isSelected: Bool) -> some View {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
             .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
             .overlay {
@@ -268,20 +292,6 @@ struct CommandPaletteView: View {
         }
 
         return AnyShapeStyle(isEnabled ? Color.secondary.opacity(0.10) : Color.secondary.opacity(0.06))
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        HStack {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-
-            Spacer()
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 8)
-        .background(.thinMaterial)
     }
 
     private func keyboardHint(_ key: String, title: String) -> some View {
@@ -299,28 +309,9 @@ struct CommandPaletteView: View {
         }
     }
 
-    private var background: some View {
-        LinearGradient(
-            colors: [
-                Color(nsColor: .windowBackgroundColor),
-                Color(nsColor: .underPageBackgroundColor)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .overlay {
-            Rectangle()
-                .fill(.regularMaterial)
-                .opacity(0.62)
-        }
-    }
-
     private func executeSelectedItem() {
         Task { @MainActor in
             _ = await viewModel.executeSelected()
-            if !viewModel.isPresented {
-                dismiss()
-            }
         }
     }
 }

@@ -65,39 +65,12 @@ actor ACPClientRuntime {
         )
     }
 
-    func forkSession(_ request: ACPForkSessionRequest) async throws -> ACPForkSessionResponse {
-        await connect()
-        return try await performRequest(
-            method: ACPMethodCatalog.Agent.sessionFork,
-            params: request,
-            responseType: ACPForkSessionResponse.self
-        )
-    }
-
-    func resumeSession(_ request: ACPResumeSessionRequest) async throws -> ACPResumeSessionResponse {
-        await connect()
-        return try await performRequest(
-            method: ACPMethodCatalog.Agent.sessionResume,
-            params: request,
-            responseType: ACPResumeSessionResponse.self
-        )
-    }
-
     func setSessionMode(_ request: ACPSetSessionModeRequest) async throws -> ACPSetSessionModeResponse {
         await connect()
         return try await performRequest(
             method: ACPMethodCatalog.Agent.sessionSetMode,
             params: request,
             responseType: ACPSetSessionModeResponse.self
-        )
-    }
-
-    func setSessionModel(_ request: ACPSetSessionModelRequest) async throws -> ACPSetSessionModelResponse {
-        await connect()
-        return try await performRequest(
-            method: ACPMethodCatalog.Agent.sessionSetModel,
-            params: request,
-            responseType: ACPSetSessionModelResponse.self
         )
     }
 

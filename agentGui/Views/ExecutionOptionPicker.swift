@@ -13,8 +13,6 @@ struct ExecutionOptionPicker: View {
                     .disabled(!option.isEnabled)
             }
         }
-        .pickerStyle(.menu)
-        .controlSize(.small)
         .accessibilityIdentifier(accessibilityIdentifier)
     }
 }

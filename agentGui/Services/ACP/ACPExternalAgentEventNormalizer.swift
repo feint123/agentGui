@@ -73,6 +73,12 @@ struct ACPExternalAgentEventNormalizer {
             return []
         case .plan:
             return []
+        case .currentModeUpdate:
+            return []
+        case .configOptionUpdate:
+            return []
+        case .sessionInfoUpdate:
+            return []
         case .userMessageChunk:
             return []
         case .other:
@@ -86,17 +92,17 @@ struct ACPExternalAgentEventNormalizer {
             return value.text
         case .resourceLink(let value):
             return value.description ?? value.title ?? value.name
-        case .embeddedResource, .other:
+        case .embeddedResource, .image, .audio, .other:
             return nil
         }
     }
 
-    private func toolKind(from rawValue: String?) -> ToolKind {
-        ToolKind.classify(rawName: rawValue)
+    private func toolKind(from rawValue: ACPToolKind?) -> ToolKind {
+        ToolKind.classify(rawName: rawValue?.rawValue)
     }
 
-    private func toolStatus(from rawValue: String?) -> ToolStatus? {
-        ToolStatus.normalizedACPStatus(from: rawValue)
+    private func toolStatus(from rawValue: ACPToolCallStatus?) -> ToolStatus? {
+        ToolStatus.normalizedACPStatus(from: rawValue?.rawValue)
     }
 
     func permissionReason(in request: ACPRequestPermissionRequest) -> String? {
@@ -107,6 +113,21 @@ struct ACPExternalAgentEventNormalizer {
         }
 
         return request.options.first?.name
+    }
+
+    private func filePath(from value: [ACPToolCallLocation]?) -> String? {
+        guard let value else { return nil }
+
+        for location in value {
+            if let path = location.path, !path.isEmpty {
+                return path
+            }
+            if let uri = location.uri, uri.hasPrefix("file://") {
+                return URL(string: uri)?.path
+            }
+        }
+
+        return nil
     }
 
     private func filePath(from value: ACPJSONValue?) -> String? {
@@ -132,6 +153,38 @@ struct ACPExternalAgentEventNormalizer {
         }
 
         return nil
+    }
+
+    private func string(from value: ACPPromptContentBlock?) -> String? {
+        guard let value else { return nil }
+
+        switch value {
+        case .text(let text):
+            return text.text
+        case .resourceLink(let link):
+            return link.description ?? link.title ?? link.name
+        case .embeddedResource(let resource):
+            let reason = string(from: resource.resource)
+            return reason ?? resourceLink(from: resource.resource)
+        case .image, .audio, .other:
+            return nil
+        }
+    }
+
+    private func resourceLink(from value: ACPJSONValue) -> String? {
+        if let object = value.objectValue {
+            if let uri = object["uri"]?.stringValue, !uri.isEmpty {
+                return uri
+            }
+            if let mimeType = object["mimeType"]?.stringValue, !mimeType.isEmpty {
+                return mimeType
+            }
+            if let name = object["name"]?.stringValue, !name.isEmpty {
+                return name
+            }
+        }
+
+        return value.stringValue
     }
 
     private func string(from value: ACPJSONValue?) -> String? {

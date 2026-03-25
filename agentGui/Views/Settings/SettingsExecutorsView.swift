@@ -48,33 +48,6 @@ struct SettingsExecutorsView: View {
                     set: { $0.executablePath = $1 }
                 ))
                 .accessibilityIdentifier("settings.executors.copilotPathField")
-
-                ExecutionOptionPicker(
-                    title: "默认模型",
-                    options: ACPCLIConfiguration.copilotModelOptions(
-                        inheritingTitle: "跟随 GitHub Copilot CLI 默认",
-                        including: store.settings.githubCopilotCLIConfiguration.defaultModel
-                    ),
-                    selection: store.persistedGitHubCopilotCLIConfigurationBinding(
-                        get: { $0.defaultModel },
-                        userMessage: "Copilot CLI 默认模型未成功保存",
-                        set: { $0.defaultModel = $1 }
-                    ),
-                    accessibilityIdentifier: "settings.executors.copilotModelField"
-                )
-
-                ExecutionOptionPicker(
-                    title: "默认审批模式",
-                    options: GitHubCopilotCLIApprovalModeOption.allCases.map {
-                        ExecutionOptionItem(id: $0.rawValue, title: $0.title)
-                    },
-                    selection: store.persistedGitHubCopilotCLIConfigurationBinding(
-                        get: { $0.normalizedApprovalMode.rawValue },
-                        userMessage: "Copilot CLI 审批模式未成功保存",
-                        set: { $0.defaultApprovalMode = GitHubCopilotCLIApprovalModeOption.resolved(from: $1).rawValue }
-                    ),
-                    accessibilityIdentifier: "settings.executors.copilotApprovalModePicker"
-                )
                 HStack {
                     Text(store.gitHubCopilotCLIAvailabilityStatus.summaryText)
                         .foregroundStyle(statusColor(for: store.gitHubCopilotCLIAvailabilityStatus))
@@ -90,7 +63,7 @@ struct SettingsExecutorsView: View {
             } header: {
                 Text("GitHub Copilot CLI")
             } footer: {
-                Text("配置项已统一为可执行文件、默认模型和默认审批模式。")
+                Text("配置项已统一为可执行文件；模型与审批项在会话内通过 ACP 动态获取。")
             }
 
             Section {
@@ -100,30 +73,6 @@ struct SettingsExecutorsView: View {
                     set: { $0.executablePath = $1 }
                 ))
                 .accessibilityIdentifier("settings.executors.openCodePathField")
-
-                ExecutionOptionPicker(
-                    title: "默认模型",
-                    options: AppSettings.availableModelOptions(inheritingTitle: "跟随 OpenCode 默认"),
-                    selection: store.persistedOpenCodeCLIConfigurationBinding(
-                        get: { $0.defaultModel },
-                        userMessage: "OpenCode CLI 默认模型未成功保存",
-                        set: { $0.defaultModel = $1 }
-                    ),
-                    accessibilityIdentifier: "settings.executors.openCodeModelField"
-                )
-
-                ExecutionOptionPicker(
-                    title: "默认审批模式",
-                    options: GitHubCopilotCLIApprovalModeOption.allCases.map {
-                        ExecutionOptionItem(id: $0.rawValue, title: $0.title)
-                    },
-                    selection: store.persistedOpenCodeCLIConfigurationBinding(
-                        get: { GitHubCopilotCLIApprovalModeOption.resolved(from: $0.defaultApprovalMode).rawValue },
-                        userMessage: "OpenCode CLI 审批模式未成功保存",
-                        set: { $0.defaultApprovalMode = GitHubCopilotCLIApprovalModeOption.resolved(from: $1).rawValue }
-                    ),
-                    accessibilityIdentifier: "settings.executors.openCodeApprovalModePicker"
-                )
                 HStack {
                     Text(store.openCodeCLIAvailabilityStatus.summaryText)
                         .foregroundStyle(statusColor(for: store.openCodeCLIAvailabilityStatus))
@@ -139,7 +88,7 @@ struct SettingsExecutorsView: View {
             } header: {
                 Text("OpenCode CLI")
             } footer: {
-                Text("配置项已统一为可执行文件、默认模型和默认审批模式。")
+                Text("配置项已统一为可执行文件；模型与审批项在会话内通过 ACP 动态获取。")
             }
 
             Section {
@@ -149,30 +98,6 @@ struct SettingsExecutorsView: View {
                     set: { $0.executablePath = $1 }
                 ))
                 .accessibilityIdentifier("settings.executors.claudeAdapterPathField")
-
-                ExecutionOptionPicker(
-                    title: "默认模型",
-                    options: AppSettings.availableModelOptions(inheritingTitle: "跟随 Claude Code 默认"),
-                    selection: store.persistedClaudeAdapterCLIConfigurationBinding(
-                        get: { $0.defaultModel },
-                        userMessage: "Claude adapter CLI 默认模型未成功保存",
-                        set: { $0.defaultModel = $1 }
-                    ),
-                    accessibilityIdentifier: "settings.executors.claudeAdapterModelField"
-                )
-
-                ExecutionOptionPicker(
-                    title: "默认审批模式",
-                    options: GitHubCopilotCLIApprovalModeOption.allCases.map {
-                        ExecutionOptionItem(id: $0.rawValue, title: $0.title)
-                    },
-                    selection: store.persistedClaudeAdapterCLIConfigurationBinding(
-                        get: { GitHubCopilotCLIApprovalModeOption.resolved(from: $0.defaultApprovalMode).rawValue },
-                        userMessage: "Claude adapter CLI 审批模式未成功保存",
-                        set: { $0.defaultApprovalMode = GitHubCopilotCLIApprovalModeOption.resolved(from: $1).rawValue }
-                    ),
-                    accessibilityIdentifier: "settings.executors.claudeAdapterApprovalModePicker"
-                )
                 HStack {
                     Text(store.claudeAdapterCLIAvailabilityStatus.summaryText)
                         .foregroundStyle(statusColor(for: store.claudeAdapterCLIAvailabilityStatus))

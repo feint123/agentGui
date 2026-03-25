@@ -31,18 +31,6 @@ extension ChatView {
         SessionExecutionPreferencesResolver.builtInModelID(for: session, settings: settings)
     }
 
-    private func resolvedCopilotConfiguration(settings: AppSettings) -> GitHubCopilotCLIConfiguration {
-        SessionExecutionPreferencesResolver.gitHubCopilotCLIConfiguration(for: session, settings: settings)
-    }
-
-    private func resolvedOpenCodeConfiguration(settings: AppSettings) -> OpenCodeCLIConfiguration {
-        SessionExecutionPreferencesResolver.openCodeCLIConfiguration(for: session, settings: settings)
-    }
-
-    private func resolvedClaudeAdapterConfiguration(settings: AppSettings) -> ClaudeAdapterCLIConfiguration {
-        SessionExecutionPreferencesResolver.claudeAdapterCLIConfiguration(for: session, settings: settings)
-    }
-
     var builtInComposerModelSelectionBinding: Binding<String> {
         Binding(
             get: {
@@ -69,102 +57,6 @@ extension ChatView {
                 let fallback = settings.builtInDefaultApprovalMode
                 updateSessionExecutionPreferences { preferences in
                     preferences.builtInApprovalMode = normalizedCopilotApprovalOverride(newValue, comparedTo: fallback)
-                }
-            }
-        )
-    }
-
-    var copilotComposerModelSelectionBinding: Binding<String> {
-        Binding(
-            get: {
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                return resolvedCopilotConfiguration(settings: settings).defaultModel
-            },
-            set: { newValue in
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                let fallback = settings.githubCopilotCLIConfiguration.defaultModel
-                updateSessionExecutionPreferences { preferences in
-                    preferences.gitHubCopilotCLI.modelID = normalizedOptionalModelID(newValue, comparedTo: fallback)
-                }
-            }
-        )
-    }
-
-    var copilotComposerApprovalModeSelectionBinding: Binding<String> {
-        Binding(
-            get: {
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                return resolvedCopilotConfiguration(settings: settings).normalizedApprovalMode.rawValue
-            },
-            set: { newValue in
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                let fallback = settings.githubCopilotCLIConfiguration.defaultApprovalMode
-                updateSessionExecutionPreferences { preferences in
-                    preferences.gitHubCopilotCLI.approvalMode = normalizedCopilotApprovalOverride(newValue, comparedTo: fallback)
-                }
-            }
-        )
-    }
-
-    var openCodeComposerModelSelectionBinding: Binding<String> {
-        Binding(
-            get: {
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                return resolvedOpenCodeConfiguration(settings: settings).defaultModel
-            },
-            set: { newValue in
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                let fallback = settings.openCodeCLIConfiguration.defaultModel
-                updateSessionExecutionPreferences { preferences in
-                    preferences.openCodeCLI.modelID = normalizedOptionalModelID(newValue, comparedTo: fallback)
-                }
-            }
-        )
-    }
-
-    var openCodeComposerApprovalModeSelectionBinding: Binding<String> {
-        Binding(
-            get: {
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                return GitHubCopilotCLIApprovalModeOption.resolved(from: resolvedOpenCodeConfiguration(settings: settings).defaultApprovalMode).rawValue
-            },
-            set: { newValue in
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                let fallback = settings.openCodeCLIConfiguration.defaultApprovalMode
-                updateSessionExecutionPreferences { preferences in
-                    preferences.openCodeCLI.approvalMode = normalizedCopilotApprovalOverride(newValue, comparedTo: fallback)
-                }
-            }
-        )
-    }
-
-    var claudeAdapterComposerModelSelectionBinding: Binding<String> {
-        Binding(
-            get: {
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                return resolvedClaudeAdapterConfiguration(settings: settings).defaultModel
-            },
-            set: { newValue in
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                let fallback = settings.claudeAdapterCLIConfiguration.defaultModel
-                updateSessionExecutionPreferences { preferences in
-                    preferences.claudeAdapterCLI.modelID = normalizedOptionalModelID(newValue, comparedTo: fallback)
-                }
-            }
-        )
-    }
-
-    var claudeAdapterComposerApprovalModeSelectionBinding: Binding<String> {
-        Binding(
-            get: {
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                return GitHubCopilotCLIApprovalModeOption.resolved(from: resolvedClaudeAdapterConfiguration(settings: settings).defaultApprovalMode).rawValue
-            },
-            set: { newValue in
-                let settings = AppSettings.getOrCreate(in: modelContext)
-                let fallback = settings.claudeAdapterCLIConfiguration.defaultApprovalMode
-                updateSessionExecutionPreferences { preferences in
-                    preferences.claudeAdapterCLI.approvalMode = normalizedCopilotApprovalOverride(newValue, comparedTo: fallback)
                 }
             }
         )
@@ -281,36 +173,91 @@ extension ChatView {
         )
     }
 
-    var executionProviderSelectionBinding: Binding<ConversationExecutionProviderID> {
-        Binding(
-            get: { resolvedExecutionProviderID },
-            set: { newValue in
-                let previousValue = resolvedExecutionProviderID
-                session.defaultExecutionProviderID = newValue.rawValue
-                try? modelContext.save()
-                if previousValue != newValue {
-                    Task {
-                        await claudeService.handleExecutionProviderSelectionChange(
-                            session: session,
-                            selectedProviderID: newValue,
-                            modelContext: modelContext
-                        )
-                    }
-                }
-            }
+    var currentACPConfigurationController: (any ACPRemoteSessionConfigurationControlling)? {
+        guard resolvedExecutionProviderID != .builtInAgent,
+              let registry = claudeService.executionProviderRegistry,
+              let provider = registry.provider(for: resolvedExecutionProviderID) as? any ACPRemoteSessionConfigurationControlling else {
+            return nil
+        }
+
+        return provider
+    }
+
+    var currentACPSessionConfigurationPresentation: ACPSessionConfigurationPresentation? {
+        _ = acpConfigurationRefreshToken
+
+        guard let snapshot = currentACPConfigurationController?.remoteSessionConfiguration(localSessionID: session.sessionId) else {
+            return nil
+        }
+
+        return ACPSessionConfigurationPresentationBuilder.make(
+            providerID: resolvedExecutionProviderID,
+            snapshot: snapshot
         )
     }
 
-    var executionProviderSelectionRawValueBinding: Binding<String> {
-        Binding(
-            get: { resolvedExecutionProviderID.rawValue },
-            set: { newValue in
-                guard let providerID = ConversationExecutionProviderID(rawValue: newValue) else {
-                    return
+    private func persistACPModeSelection(_ modeID: String) {
+        let providerID = resolvedExecutionProviderID
+        updateSessionExecutionPreferences { preferences in
+            preferences.applyACPModeSelection(providerID: providerID, modeID: modeID)
+        }
+    }
+
+    private func persistACPConfigSelection(
+        configID: String,
+        value: String,
+        presentation: ACPSessionConfigurationPresentation?
+    ) {
+        let providerID = resolvedExecutionProviderID
+        updateSessionExecutionPreferences { preferences in
+            preferences.applyACPConfigSelection(
+                providerID: providerID,
+                configID: configID,
+                value: value,
+                modelConfigID: presentation?.modelConfig?.id,
+                approvalsConfigID: presentation?.approvalsConfig?.id
+            )
+        }
+    }
+
+    func updateACPMode(_ modeID: String) {
+        guard let controller = currentACPConfigurationController else { return }
+        Task {
+            do {
+                try await controller.updateSessionMode(session: session, modelContext: modelContext, modeID: modeID)
+                await MainActor.run {
+                    persistACPModeSelection(modeID)
+                    acpConfigurationRefreshToken &+= 1
                 }
-                executionProviderSelectionBinding.wrappedValue = providerID
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                }
             }
-        )
+        }
+    }
+
+    func updateACPConfigOption(configID: String, value: String) {
+        guard let controller = currentACPConfigurationController else { return }
+        let presentation = currentACPSessionConfigurationPresentation
+        Task {
+            do {
+                try await controller.updateSessionConfigOption(
+                    session: session,
+                    modelContext: modelContext,
+                    configID: configID,
+                    value: value
+                )
+                await MainActor.run {
+                    persistACPConfigSelection(configID: configID, value: value, presentation: presentation)
+                    acpConfigurationRefreshToken &+= 1
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 
     var copilotComposerAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus {

@@ -19,8 +19,12 @@ final class PtyProcessController {
     private static let defaultRows: UInt16 = 24
     private static let defaultColumns: UInt16 = 80
 
-    private let command: String
-    private let shell: String
+    private enum LaunchConfiguration {
+        case shell(command: String, shell: String)
+        case executable(command: String, args: [String])
+    }
+
+    private let launchConfiguration: LaunchConfiguration
     private let workingDirectory: String?
     private let environment: [String: String]
     private let process = Process()
@@ -41,8 +45,34 @@ final class PtyProcessController {
         workingDirectory: String?,
         environment: [String: String]
     ) throws {
-        self.command = command
-        self.shell = shell
+        self.launchConfiguration = .shell(command: command, shell: shell)
+        self.workingDirectory = workingDirectory
+        self.environment = environment
+
+        var master: Int32 = -1
+        var slave: Int32 = -1
+        var windowSize = winsize(
+            ws_row: Self.defaultRows,
+            ws_col: Self.defaultColumns,
+            ws_xpixel: 0,
+            ws_ypixel: 0
+        )
+        if openpty(&master, &slave, nil, nil, &windowSize) != 0 {
+            throw PtyProcessControllerError.openPtyFailed(errno)
+        }
+
+        self.masterFD = master
+        self.slaveFD = slave
+        self.masterFileHandle = FileHandle(fileDescriptor: master, closeOnDealloc: false)
+    }
+
+    init(
+        executable: String,
+        arguments: [String],
+        workingDirectory: String?,
+        environment: [String: String]
+    ) throws {
+        self.launchConfiguration = .executable(command: executable, args: arguments)
         self.workingDirectory = workingDirectory
         self.environment = environment
 
@@ -81,8 +111,14 @@ final class PtyProcessController {
         }
 
         let slaveHandle = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: false)
-        process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-lc", command]
+        switch launchConfiguration {
+        case .shell(let command, let shell):
+            process.executableURL = URL(fileURLWithPath: shell)
+            process.arguments = ["-lc", command]
+        case .executable(let command, let args):
+            process.executableURL = URL(fileURLWithPath: command)
+            process.arguments = args
+        }
         process.environment = ShellEnvironmentResolver.resolvedEnvironment(baseEnvironment: environment)
         process.standardInput = slaveHandle
         process.standardOutput = slaveHandle

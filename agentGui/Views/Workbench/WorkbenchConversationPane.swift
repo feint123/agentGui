@@ -44,9 +44,15 @@ struct WorkbenchConversationPane: View {
             Spacer(minLength: 0)
 
             WorkbenchConversationEmptyStateCard(
-                action: createNewSession,
                 buttonAccessibilityIdentifier: "chat.newSessionButton"
-            )
+            ) {
+                NewSessionExecutionProviderMenu(onSelect: createNewSession(providerID:)) {
+                    Label("新建对话", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
             .frame(maxWidth: 380)
             .padding(.horizontal, 24)
 
@@ -58,9 +64,9 @@ struct WorkbenchConversationPane: View {
         workspaceState.openContextWindow()
     }
 
-    private func createNewSession() {
+    private func createNewSession(providerID: ConversationExecutionProviderID) {
         let newSession = Session()
-        newSession.defaultExecutionProviderID = AppSettings.getOrCreate(in: modelContext).defaultExecutionProviderID
+        newSession.defaultExecutionProviderID = providerID.rawValue
         modelContext.insert(newSession)
         try? modelContext.save()
         withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {

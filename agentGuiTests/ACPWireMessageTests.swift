@@ -4,6 +4,21 @@ import Testing
 
 struct ACPWireMessageTests {
 
+    @Test func providerExtensionRequestUsesUnderscorePrefixedMethod() throws {
+        let message = ACPWireMessage.request(
+            ACPRequestMessage(
+                id: .int(9),
+                method: ACPProviderExtensionMethod("_opencode/session/set_model").method,
+                params: .object(["sessionId": .string("remote-1")])
+            )
+        )
+
+        let encoded = try message.encodedLine()
+        let text = try #require(String(data: encoded, encoding: .utf8))
+
+        #expect(text.contains("\"method\":\"_opencode\\/session\\/set_model\""))
+    }
+
     @Test func requestMessageEncodesAsNewlineDelimitedJSON() throws {
         let message = ACPWireMessage.request(
             ACPRequestMessage(

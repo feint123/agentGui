@@ -261,9 +261,16 @@ private final class EditingGitHubRuntimeStub: GitHubCopilotCLIRuntimeClient {
         try await ensureSession(workingDirectory: workingDirectory, remoteSessionID: nil)
     }
 
-    func setModel(_ modelID: String, sessionID: String) async throws {
-        _ = modelID
+    func setSessionMode(_ modeID: String, sessionID: String) async throws {
+        _ = modeID
         _ = sessionID
+    }
+
+    func setSessionConfigOption(_ configID: String, value: String, sessionID: String) async throws -> [ACPSessionConfigOption] {
+        _ = configID
+        _ = value
+        _ = sessionID
+        return []
     }
 
     func prompt(text: String, sessionID: String) async throws -> ACPStopReason {

@@ -21,7 +21,7 @@ struct AppCommandRegistry {
             menuPlacement: .appSettings,
             shortcut: AppCommandShortcut(key: "P", modifiers: [.command, .shift]),
             keywords: ["命令", "面板", "palette", "搜索"],
-            requirement: .openWindow
+            requirement: .workbench
         ),
         AppCommandDescriptor(
             id: .showSettings,

@@ -21,14 +21,22 @@ enum GitHubCopilotCLIExecutionProviderError: LocalizedError {
 typealias GitHubCopilotCLISessionHandshake = ACPExternalAgentSessionHandshake
 
 extension ACPExternalAgentSessionHandshake {
-    init(remoteSessionID: String, cliVersion: String?) {
+    init(
+        remoteSessionID: String,
+        cliVersion: String?,
+        configurationSnapshot: ACPExternalAgentSessionConfigurationSnapshot = ACPExternalAgentSessionConfigurationSnapshot(
+            configOptions: [],
+            modes: nil
+        )
+    ) {
         self.init(
             remoteSessionID: remoteSessionID,
             capabilities: ACPExternalAgentCapabilitySnapshot(
                 loadSession: true,
                 supportsSessionModelOverride: true,
                 agentVersion: cliVersion
-            )
+            ),
+            configurationSnapshot: configurationSnapshot
         )
     }
 
@@ -124,11 +132,45 @@ final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<
         )
     }
 
-    override func selectedModelOverride(
+    override func initialSessionConfigSelections(
         for configuration: ACPCLIConfiguration,
         handshake: ACPExternalAgentSessionHandshake
+    ) -> [ACPExternalSessionConfigSelection] {
+        var selections: [ACPExternalSessionConfigSelection] = []
+
+        if let modelValue = configuration.defaultModel.nonEmptyValue,
+           let modelConfigID = handshake.configurationSnapshot.modelConfigOption?.id?.nonEmptyValue {
+            selections.append(
+                ACPExternalSessionConfigSelection(
+                    configID: modelConfigID,
+                    value: modelValue,
+                    category: .model
+                )
+            )
+        }
+
+        if let approvalConfigID = handshake.configurationSnapshot.approvalConfigOption?.id?.nonEmptyValue {
+            selections.append(
+                ACPExternalSessionConfigSelection(
+                    configID: approvalConfigID,
+                    value: GitHubCopilotCLIApprovalModeOption.resolved(from: configuration.defaultApprovalMode).rawValue,
+                    category: handshake.configurationSnapshot.approvalConfigOption?.category
+                )
+            )
+        }
+
+        return selections
+    }
+
+    override func initialSessionModeID(
+        for session: Session,
+        handshake: ACPExternalAgentSessionHandshake
     ) -> String? {
-        configuration.defaultModel.nonEmptyValue
+        guard handshake.configurationSnapshot.modes != nil else {
+            return nil
+        }
+
+        return session.executionPreferences.gitHubCopilotCLI.modeID?.nonEmptyValue
     }
 
     override func persistBinding(
@@ -160,7 +202,6 @@ final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<
             launchConfiguration: launchConfiguration,
             terminalRuntime: terminalRuntime,
             authorizationPolicy: authorizationPolicy,
-            supportsSessionModelOverrideFallback: true,
             permissionResolver: permissionResolver,
             eventSink: eventSink
         )

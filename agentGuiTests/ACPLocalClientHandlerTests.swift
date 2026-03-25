@@ -196,6 +196,43 @@ struct ACPLocalClientHandlerTests {
         #expect(outputResponse.truncated)
     }
 
+    @Test func terminalCreatePassesArgumentsWithoutShellExpansion() async throws {
+        let runtime = TerminalTaskRuntime.makeForTests()
+        let handler = ACPLocalClientHandler(
+            authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),
+            terminalRuntimeProvider: { _ in runtime }
+        )
+
+        let createResponse = try #require(
+            try await handler.handleCreateTerminal(
+                ACPCreateTerminalRequest(
+                    meta: nil,
+                    args: ["-c", "import os,sys; print(os.environ['ACP_LITERAL']); print(sys.argv[1])", "$(echo hacked)"],
+                    command: "/usr/bin/python3",
+                    cwd: nil,
+                    env: [ACPEnvVariable(meta: nil, name: "ACP_LITERAL", value: "a value with spaces")],
+                    outputByteLimit: nil,
+                    sessionID: "session-structured-terminal"
+                )
+            )
+        )
+
+        _ = try #require(
+            try await handler.handleWaitForTerminalExit(
+                ACPWaitForTerminalExitRequest(meta: nil, sessionID: "session-structured-terminal", terminalID: createResponse.terminalID)
+            )
+        )
+
+        let outputResponse = try #require(
+            try await handler.handleTerminalOutput(
+                ACPTerminalOutputRequest(meta: nil, sessionID: "session-structured-terminal", terminalID: createResponse.terminalID)
+            )
+        )
+
+        #expect(outputResponse.output.contains("a value with spaces"))
+        #expect(outputResponse.output.contains("$(echo hacked)"))
+    }
+
     private func makeTemporaryDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

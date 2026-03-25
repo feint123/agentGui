@@ -48,12 +48,15 @@ struct WorkbenchSidebarEmptyStateView<Actions: View>: View {
     }
 }
 
-struct WorkbenchConversationEmptyStateCard: View {
-    let action: () -> Void
+struct WorkbenchConversationEmptyStateCard<PrimaryAction: View>: View {
+    let primaryAction: PrimaryAction
     let buttonAccessibilityIdentifier: String?
 
-    init(action: @escaping () -> Void, buttonAccessibilityIdentifier: String? = nil) {
-        self.action = action
+    init(
+        buttonAccessibilityIdentifier: String? = nil,
+        @ViewBuilder primaryAction: () -> PrimaryAction
+    ) {
+        self.primaryAction = primaryAction()
         self.buttonAccessibilityIdentifier = buttonAccessibilityIdentifier
     }
 
@@ -92,13 +95,8 @@ struct WorkbenchConversationEmptyStateCard: View {
                 WorkbenchConversationEmptyStateTag(systemImage: "magnifyingglass", text: "快速搜索")
             }
 
-            Button(action: action) {
-                Label("新建对话", systemImage: "plus")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .applyAccessibilityIdentifier(buttonAccessibilityIdentifier)
+            primaryAction
+                .applyAccessibilityIdentifier(buttonAccessibilityIdentifier)
 
             HStack(spacing: 6) {
                 Image(systemName: "sparkles")
@@ -145,7 +143,7 @@ private struct WorkbenchConversationEmptyStateTag: View {
     }
 }
 
-private extension View {
+extension View {
     @ViewBuilder
     func applyAccessibilityIdentifier(_ identifier: String?) -> some View {
         if let identifier {

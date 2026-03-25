@@ -56,6 +56,19 @@ final class ACPExternalProviderSessionStateStore {
             featureStoreCache?.plan(for: localSessionID)
         }
 
+        func sessionConfiguration(
+            for providerID: ConversationExecutionProviderID
+        ) -> ACPExternalAgentSessionConfigurationSnapshot? {
+            featureStoreCache?.sessionConfiguration(for: localSessionID, providerID: providerID)
+        }
+
+        func sessionConfiguration(
+            for providerID: ConversationExecutionProviderID,
+            remoteSessionID: String
+        ) -> ACPExternalAgentSessionConfigurationSnapshot? {
+            featureStoreCache?.sessionConfiguration(for: providerID, remoteSessionID: remoteSessionID)
+        }
+
         func clearPendingUpdateTask() {
             pendingUpdateTask = nil
             pendingUpdateTaskToken = nil

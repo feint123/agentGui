@@ -96,11 +96,11 @@ private final class ACPExternalExecutionProviderBaseProbe: ACPExternalExecutionP
         ProbeRuntimeClient()
     }
 
-    override func selectedModelOverride(
+    override func initialSessionConfigSelections(
         for configuration: ACPCLIConfiguration,
         handshake: ACPExternalAgentSessionHandshake
-    ) -> String? {
-        nil
+    ) -> [ACPExternalSessionConfigSelection] {
+        []
     }
 }
 
@@ -121,7 +121,11 @@ private final class ProbeRuntimeClient: ACPExternalProviderRuntimeTransportClien
         )
     }
 
-    func setModel(_ modelID: String, sessionID: String) async throws {}
+    func setSessionMode(_ modeID: String, sessionID: String) async throws {}
+
+    func setSessionConfigOption(_ configID: String, value: String, sessionID: String) async throws -> [ACPSessionConfigOption] {
+        []
+    }
 
     func prompt(text: String, sessionID: String) async throws -> ACPStopReason {
         .endTurn

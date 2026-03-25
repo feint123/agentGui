@@ -47,6 +47,7 @@ struct ChatView: View {
     @State var isMessageListPinnedToBottom = true
     @State var isProgrammaticMessageListScrollInFlight = false
     @State var isExecutionRuntimeBootstrapInFlight = false
+    @State var acpConfigurationRefreshToken = 0
 
     // MARK: - Context Chips
     @State var showFileContext = true
@@ -63,7 +64,6 @@ struct ChatView: View {
     @State var slashCandidates: [ChatSlashCommandItem] = []
     @State var highlightedSlashItemID: String? = nil
     @State var slashStateDebouncer = ChatComposerSlashDebouncer()
-    @State var isACPCommandWarmupInFlight = false
     @State var activeInputDirectives: [ChatInputDirective] = []
     @State var didApplyUITestInitialComposerText = false
     @State var showingRMSPanel = false
@@ -227,7 +227,12 @@ extension ChatView {
             session: session,
             selectedProviderID: resolvedExecutionProviderID,
             modelContext: modelContext
+            ,
+            trigger: .sessionBootstrap
         )
+
+        acpConfigurationRefreshToken &+= 1
+        syncSlashState(with: inputText)
     }
 
     @ViewBuilder

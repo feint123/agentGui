@@ -3,6 +3,7 @@ import SwiftData
 
 struct WorkbenchShellView: View {
     @Environment(ClaudeService.self) private var claudeService
+    @Environment(CommandPaletteViewModel.self) private var commandPaletteViewModel
     @Environment(WorkspaceState.self) private var workspaceState
     @Environment(WorkbenchState.self) private var workbenchState
     @Environment(GitPanelViewModel.self) private var gitPanelViewModel
@@ -16,7 +17,11 @@ struct WorkbenchShellView: View {
     @Query(sort: \Session.updatedAt, order: .reverse)
     private var sessions: [Session]
 
-    init() {}
+    private let sceneID: UUID
+
+    init(sceneID: UUID = UUID()) {
+        self.sceneID = sceneID
+    }
 
     var body: some View {
         let settings = AppSettings.getOrCreate(in: modelContext)
@@ -26,15 +31,23 @@ struct WorkbenchShellView: View {
             globalWorkingDirectory: settings.workingDirectory
         )
 
-        NavigationSplitView {
-            WorkbenchSidebarView()
-                .navigationSplitViewColumnWidth(
-                    min: 220,
-                    ideal: 280,
-                    max: 360
-                )
-        } detail: {
-            WorkbenchConversationPane()
+        ZStack {
+            NavigationSplitView {
+                WorkbenchSidebarView()
+                    .navigationSplitViewColumnWidth(
+                        min: 220,
+                        ideal: 280,
+                        max: 360
+                    )
+            } detail: {
+                WorkbenchConversationPane()
+            }
+
+            if commandPaletteViewModel.isPresented {
+                commandPaletteOverlay
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+                    .zIndex(1)
+            }
         }
         .navigationTitle(titlePresentation.title)
         .navigationSubtitle(titlePresentation.subtitle)
@@ -43,6 +56,24 @@ struct WorkbenchShellView: View {
         .onChange(of: sessions, initial: false, synchronizeSessionSelection)
         .onChange(of: contextWindowState.openRequestToken) { _, _ in
             openWindow(id: WorkbenchContextWindowScene.id)
+        }
+        .animation(.snappy(duration: 0.18, extraBounce: 0), value: commandPaletteViewModel.isPresented)
+    }
+
+    private var commandPaletteOverlay: some View {
+        ZStack(alignment: .top) {
+            Rectangle()
+                .fill(.black.opacity(0.14))
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    commandPaletteViewModel.markDismissed()
+                }
+
+            CommandPaletteView()
+                .frame(width: 720, height: 520)
+                .padding(.top, 56)
+                .shadow(color: .black.opacity(0.18), radius: 24, y: 12)
         }
     }
 
@@ -83,6 +114,7 @@ struct WorkbenchShellView: View {
 
     private var commandContext: AppCommandContext {
         AppCommandContext(
+            sceneID: sceneID,
             workspaceState: workspaceState,
             workbenchState: workbenchState,
             contextWindowState: contextWindowState,

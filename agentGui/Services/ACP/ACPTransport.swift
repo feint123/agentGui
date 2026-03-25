@@ -61,11 +61,18 @@ final class ACPTransport {
         self.continuation = capturedContinuation!
         self.receiveTask = Task { [reader, continuation, decoder] in
             do {
-                for try await line in reader.bytes.lines {
-                    guard !line.isEmpty else { continue }
-                    let message = try ACPWireMessage.decode(lineData: Data(line.utf8), decoder: decoder)
-                    continuation.yield(message)
+                var buffer = Data()
+
+                for try await byte in reader.bytes {
+                    buffer.append(byte)
+                    if byte == 0x0A {
+                        try Self.yieldBufferedMessages(from: &buffer, atEOF: false, decoder: decoder, continuation: continuation)
+                    }
                 }
+
+                try Self.yieldBufferedMessages(from: &buffer, atEOF: true, decoder: decoder, continuation: continuation)
+                continuation.finish()
+            } catch is CancellationError {
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
@@ -88,5 +95,39 @@ final class ACPTransport {
         continuation.finish()
         await writer.close()
         try? reader.close()
+    }
+
+    private static func yieldBufferedMessages(
+        from buffer: inout Data,
+        atEOF: Bool,
+        decoder: JSONDecoder,
+        continuation: AsyncThrowingStream<ACPWireMessage, Error>.Continuation
+    ) throws {
+        while let newlineIndex = buffer.firstIndex(of: 0x0A) {
+            let frame = Data(buffer[..<newlineIndex])
+            buffer.removeSubrange(...newlineIndex)
+
+            let normalized = normalizeFrame(frame)
+            guard !normalized.isEmpty else { continue }
+
+            let message = try ACPWireMessage.decode(lineData: normalized, decoder: decoder)
+            continuation.yield(message)
+        }
+
+        guard atEOF else { return }
+
+        let trailing = normalizeFrame(buffer)
+        buffer.removeAll(keepingCapacity: false)
+        guard !trailing.isEmpty else { return }
+
+        let message = try ACPWireMessage.decode(lineData: trailing, decoder: decoder)
+        continuation.yield(message)
+    }
+
+    private static func normalizeFrame(_ frame: Data) -> Data {
+        if frame.last == 0x0D {
+            return frame.dropLast()
+        }
+        return frame
     }
 }

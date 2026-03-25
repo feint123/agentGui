@@ -3,6 +3,7 @@ import Foundation
 enum ACPExternalAgentRuntimeError: LocalizedError, Equatable {
     case sessionAlreadyAttached(current: String, requested: String)
     case initializeTimedOut
+    case runtimeNotRunning
 
     var errorDescription: String? {
         switch self {
@@ -10,6 +11,8 @@ enum ACPExternalAgentRuntimeError: LocalizedError, Equatable {
             return "当前外部 ACP 运行时已绑定会话 \(current)，不能在同一运行时内切换到 \(requested)。"
         case .initializeTimedOut:
             return "外部 ACP 运行时在初始化阶段超时，未能返回 initialize 响应。"
+        case .runtimeNotRunning:
+            return "外部 ACP 运行时已经退出，当前缓存的会话运行时不可复用。"
         }
     }
 }
@@ -43,9 +46,28 @@ struct ACPExternalAgentCapabilitySnapshot: Codable, Equatable, Sendable {
     let agentVersion: String?
 }
 
+struct ACPExternalAgentSessionConfigurationSnapshot: Codable, Equatable, Sendable {
+    let configOptions: [ACPSessionConfigOption]
+    let modes: ACPSessionModeState?
+}
+
 struct ACPExternalAgentSessionHandshake: Codable, Equatable, Sendable {
     let remoteSessionID: String
     let capabilities: ACPExternalAgentCapabilitySnapshot
+    let configurationSnapshot: ACPExternalAgentSessionConfigurationSnapshot
+
+    init(
+        remoteSessionID: String,
+        capabilities: ACPExternalAgentCapabilitySnapshot,
+        configurationSnapshot: ACPExternalAgentSessionConfigurationSnapshot = ACPExternalAgentSessionConfigurationSnapshot(
+            configOptions: [],
+            modes: nil
+        )
+    ) {
+        self.remoteSessionID = remoteSessionID
+        self.capabilities = capabilities
+        self.configurationSnapshot = configurationSnapshot
+    }
 }
 
 private actor ACPExternalAgentClientHandler: ACPClientHandler {
@@ -112,7 +134,6 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
     nonisolated private static let defaultInitializeTimeoutNanoseconds: UInt64 = 15_000_000_000
 
     private let managedRuntime: ACPManagedClientRuntime
-    private let supportsSessionModelOverrideFallback: Bool
     private let initializeTimeoutNanoseconds: UInt64
     private let loadSessionTimeoutNanoseconds: UInt64
     private let debugID: String
@@ -124,7 +145,6 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
         launchConfiguration: ACPExternalAgentLaunchConfiguration,
         terminalRuntime: TerminalTaskRuntime,
         authorizationPolicy: ToolAuthorizationPolicy,
-        supportsSessionModelOverrideFallback: Bool = false,
         initializeTimeoutNanoseconds: UInt64 = ACPExternalAgentRuntimeClient.defaultInitializeTimeoutNanoseconds,
         loadSessionTimeoutNanoseconds: UInt64 = 5_000_000_000,
         debugLogger: (@Sendable (String) -> Void)? = nil,
@@ -134,7 +154,6 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
         let debugID = Self.makeDebugID()
         self.debugID = debugID
         self.debugLogger = debugLogger
-        self.supportsSessionModelOverrideFallback = supportsSessionModelOverrideFallback
         self.initializeTimeoutNanoseconds = initializeTimeoutNanoseconds
         self.loadSessionTimeoutNanoseconds = loadSessionTimeoutNanoseconds
         let allowedRoot = launchConfiguration.currentDirectoryURL.standardizedFileURL
@@ -253,19 +272,51 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
         let response = try await managedRuntime.runtime.newSession(
             ACPNewSessionRequest(cwd: workingDirectory)
         )
-        let handshake = ACPExternalAgentSessionHandshake(remoteSessionID: response.sessionID, capabilities: capabilities)
+        let handshake = ACPExternalAgentSessionHandshake(
+            remoteSessionID: response.sessionID,
+            capabilities: capabilities,
+            configurationSnapshot: Self.makeConfigurationSnapshot(
+                configOptions: response.configOptions,
+                modes: response.modes
+            )
+        )
         attachedSessionHandshake = handshake
         debugLog("createSession complete remote=\(handshake.remoteSessionID)")
         return handshake
     }
 
-    func setModel(_ modelID: String, sessionID: String) async throws {
-        guard !modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        debugLog("setModel start session=\(sessionID) model=\(modelID)")
-        _ = try await managedRuntime.runtime.setSessionModel(
-            ACPSetSessionModelRequest(modelID: modelID, sessionID: sessionID)
+    func setSessionMode(_ modeID: String, sessionID: String) async throws {
+        guard !modeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        debugLog("setSessionMode start session=\(sessionID) mode=\(modeID)")
+        _ = try await managedRuntime.runtime.setSessionMode(
+            ACPSetSessionModeRequest(meta: nil, modeID: modeID, sessionID: sessionID)
         )
-        debugLog("setModel complete session=\(sessionID) model=\(modelID)")
+        if let currentHandshake = self.attachedSessionHandshake,
+           currentHandshake.remoteSessionID == sessionID {
+            self.attachedSessionHandshake = Self.updatingMode(modeID, in: currentHandshake)
+        }
+        debugLog("setSessionMode complete session=\(sessionID) mode=\(modeID)")
+    }
+
+    func setSessionConfigOption(_ configID: String, value: String, sessionID: String) async throws -> [ACPSessionConfigOption] {
+        guard !configID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        debugLog("setSessionConfigOption start session=\(sessionID) configID=\(configID) value=\(value)")
+        let response = try await managedRuntime.runtime.setSessionConfigOption(
+            ACPSetSessionConfigOptionRequest(meta: nil, configID: configID, sessionID: sessionID, value: value)
+        )
+        if let currentHandshake = self.attachedSessionHandshake,
+           currentHandshake.remoteSessionID == sessionID {
+            self.attachedSessionHandshake = ACPExternalAgentSessionHandshake(
+                remoteSessionID: currentHandshake.remoteSessionID,
+                capabilities: currentHandshake.capabilities,
+                configurationSnapshot: ACPExternalAgentSessionConfigurationSnapshot(
+                    configOptions: response.configOptions,
+                    modes: currentHandshake.configurationSnapshot.modes
+                )
+            )
+        }
+        debugLog("setSessionConfigOption complete session=\(sessionID) configID=\(configID) count=\(response.configOptions.count)")
+        return response.configOptions
     }
 
     func prompt(text: String, sessionID: String) async throws -> ACPStopReason {
@@ -304,28 +355,35 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
     ) async -> ACPExternalAgentSessionHandshake? {
         do {
             debugLog("restore start remote=\(remoteSessionID) cwd=\(workingDirectory)")
-            try await loadSessionWithTimeout(
+            let response = try await loadSessionWithTimeout(
                 ACPLoadSessionRequest(cwd: workingDirectory, sessionID: remoteSessionID)
             )
             debugLog("restore complete remote=\(remoteSessionID)")
-            return ACPExternalAgentSessionHandshake(remoteSessionID: remoteSessionID, capabilities: capabilities)
+            return ACPExternalAgentSessionHandshake(
+                remoteSessionID: remoteSessionID,
+                capabilities: capabilities,
+                configurationSnapshot: Self.makeConfigurationSnapshot(
+                    configOptions: response.configOptions,
+                    modes: response.modes
+                )
+            )
         } catch {
             debugLog("restore failed remote=\(remoteSessionID) error=\(Self.describe(error))")
             return nil
         }
     }
 
-    private func loadSessionWithTimeout(_ request: ACPLoadSessionRequest) async throws {
+    private func loadSessionWithTimeout(_ request: ACPLoadSessionRequest) async throws -> ACPLoadSessionResponse {
         debugLog(
             "loadSession start remote=\(request.sessionID) cwd=\(request.cwd) timeoutNs=\(loadSessionTimeoutNanoseconds)"
         )
         let loadTask = Task { @MainActor [managedRuntime] in
-            _ = try await managedRuntime.runtime.loadSession(request)
+            try await managedRuntime.runtime.loadSession(request)
         }
 
         defer { loadTask.cancel() }
 
-        try await withThrowingTaskGroup(of: Void.self) { group in
+        let response = try await withThrowingTaskGroup(of: ACPLoadSessionResponse.self) { group in
             group.addTask {
                 try await loadTask.value
             }
@@ -334,13 +392,22 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
                 throw ACPExternalSessionRestoreError.timedOut
             }
 
-            _ = try await group.next()
+            guard let response = try await group.next() else {
+                throw ACPRequestError.internalError(data: .object(["reason": .string("Missing loadSession response")]))
+            }
             group.cancelAll()
+            return response
         }
         debugLog("loadSession complete remote=\(request.sessionID)")
+        return response
     }
 
     func initializeIfNeeded() async throws -> ACPExternalAgentCapabilitySnapshot {
+        guard managedRuntime.isRunning else {
+            debugLog("initialize skipped because runtime is not running")
+            throw ACPExternalAgentRuntimeError.runtimeNotRunning
+        }
+
         if let capabilitySnapshot {
             debugLog("initialize reuse cached capabilities")
             return capabilitySnapshot
@@ -368,7 +435,7 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
 
         let capabilities = ACPExternalAgentCapabilitySnapshot(
             loadSession: response.agentCapabilities?.loadSession ?? false,
-            supportsSessionModelOverride: response.agentCapabilities?.sessionCapabilities != nil || supportsSessionModelOverrideFallback,
+            supportsSessionModelOverride: false,
             agentVersion: response.agentInfo?.version
         )
         capabilitySnapshot = capabilities
@@ -450,6 +517,40 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
         }
 
         return error.localizedDescription
+    }
+}
+
+private extension ACPExternalAgentRuntimeClient {
+    static func makeConfigurationSnapshot(
+        configOptions: [ACPSessionConfigOption]?,
+        modes: ACPSessionModeState?
+    ) -> ACPExternalAgentSessionConfigurationSnapshot {
+        ACPExternalAgentSessionConfigurationSnapshot(
+            configOptions: configOptions ?? [],
+            modes: modes
+        )
+    }
+
+    static func updatingMode(
+        _ modeID: String,
+        in handshake: ACPExternalAgentSessionHandshake
+    ) -> ACPExternalAgentSessionHandshake {
+        guard let modes = handshake.configurationSnapshot.modes else {
+            return handshake
+        }
+
+        return ACPExternalAgentSessionHandshake(
+            remoteSessionID: handshake.remoteSessionID,
+            capabilities: handshake.capabilities,
+            configurationSnapshot: ACPExternalAgentSessionConfigurationSnapshot(
+                configOptions: handshake.configurationSnapshot.configOptions,
+                modes: ACPSessionModeState(
+                    meta: modes.meta,
+                    availableModes: modes.availableModes,
+                    currentModeID: modeID
+                )
+            )
+        )
     }
 }
 

@@ -154,6 +154,58 @@ struct ACPSessionRuntimeActorTests {
         #expect(await actor.runtimeRebuildCount == 1)
     }
 
+    @Test func actorRebuildsRuntimeWhenCachedActivationIsNotRunning() async throws {
+        let key = SessionRuntimeKey(providerID: .githubCopilotCLI, localSessionID: "session-not-running")
+        let staleRuntime = RuntimeTransportStub(
+            capabilities: ACPExternalAgentCapabilitySnapshot(
+                loadSession: true,
+                supportsSessionModelOverride: true,
+                agentVersion: "1.0.0"
+            ),
+            restoredHandshake: nil,
+            createdHandshake: ACPExternalAgentSessionHandshake(
+                remoteSessionID: "remote-stale",
+                capabilities: ACPExternalAgentCapabilitySnapshot(
+                    loadSession: true,
+                    supportsSessionModelOverride: true,
+                    agentVersion: "1.0.0"
+                )
+            ),
+            initializeError: ACPExternalAgentRuntimeError.runtimeNotRunning
+        )
+        let recoveredRuntime = RuntimeTransportStub(
+            capabilities: ACPExternalAgentCapabilitySnapshot(
+                loadSession: true,
+                supportsSessionModelOverride: true,
+                agentVersion: "1.0.0"
+            ),
+            restoredHandshake: nil,
+            createdHandshake: ACPExternalAgentSessionHandshake(
+                remoteSessionID: "remote-recovered",
+                capabilities: ACPExternalAgentCapabilitySnapshot(
+                    loadSession: true,
+                    supportsSessionModelOverride: true,
+                    agentVersion: "1.0.0"
+                )
+            )
+        )
+        let factory = RuntimeFactoryQueue(runtimes: [staleRuntime, recoveredRuntime])
+        let recorder = BindingRecorder(initialRemoteSessionID: nil)
+        let actor = ACPSessionRuntimeActor(
+            key: key,
+            runtimeFactory: { _, _ in try await factory.next() },
+            bindingLoader: { _ in await recorder.load() },
+            bindingPersister: { _, handshake in await recorder.persist(handshake: handshake) }
+        )
+
+        let prepared = try await actor.prepareRuntimeSession(workingDirectory: "/tmp/not-running")
+
+        #expect(prepared.handshake.remoteSessionID == "remote-recovered")
+        #expect(staleRuntime.closeCallCount == 1)
+        #expect(recoveredRuntime.createRequests == ["/tmp/not-running"])
+        #expect(await actor.runtimeRebuildCount == 1)
+    }
+
     @Test func actorRebuildsRuntimeWhenWorkingDirectoryChanges() async throws {
         let key = SessionRuntimeKey(providerID: .githubCopilotCLI, localSessionID: "session-working-directory")
         let firstRuntime = RuntimeTransportStub(
@@ -402,9 +454,16 @@ private final class RuntimeTransportStub: ACPExternalProviderRuntimeTransportCli
         return createdHandshake
     }
 
-    func setModel(_ modelID: String, sessionID: String) async throws {
-        _ = modelID
+    func setSessionMode(_ modeID: String, sessionID: String) async throws {
+        _ = modeID
         _ = sessionID
+    }
+
+    func setSessionConfigOption(_ configID: String, value: String, sessionID: String) async throws -> [ACPSessionConfigOption] {
+        _ = configID
+        _ = value
+        _ = sessionID
+        return []
     }
 
     func prompt(text: String, sessionID: String) async throws -> ACPStopReason {

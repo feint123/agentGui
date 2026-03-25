@@ -73,6 +73,10 @@ struct ACPPermissionPolicyEvaluator {
         }
     }
 
+    nonisolated static func allowsToolCall(_ toolKind: ACPToolKind?, policy: ToolAuthorizationPolicy) -> Bool {
+        allowsToolCall(toolKind?.rawValue, policy: policy)
+    }
+
     nonisolated static func bestAllowOption(
         from options: [ACPPermissionOption],
         policy: ToolAuthorizationPolicy,
@@ -96,6 +100,20 @@ struct ACPPermissionPolicyEvaluator {
         return nil
     }
 
+    nonisolated static func bestAllowOption(
+        from options: [ACPPermissionOption],
+        policy: ToolAuthorizationPolicy,
+        toolKind: ACPToolKind?,
+        preferPersistentGrant: Bool = false
+    ) -> ACPPermissionOption? {
+        bestAllowOption(
+            from: options,
+            policy: policy,
+            toolKind: toolKind?.rawValue,
+            preferPersistentGrant: preferPersistentGrant
+        )
+    }
+
     nonisolated static func approvalScope(
         for toolKind: String?,
         command rawCommand: String? = nil
@@ -116,6 +134,13 @@ struct ACPPermissionPolicyEvaluator {
         default:
             return nil
         }
+    }
+
+    nonisolated static func approvalScope(
+        for toolKind: ACPToolKind?,
+        command rawCommand: String? = nil
+    ) -> ToolApprovalScope? {
+        approvalScope(for: toolKind?.rawValue, command: rawCommand)
     }
 
     private nonisolated static func normalizedToolToken(_ value: String?) -> String? {

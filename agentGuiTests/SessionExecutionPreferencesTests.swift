@@ -113,4 +113,32 @@ struct SessionExecutionPreferencesTests {
         #expect(resolved.defaultApprovalMode == "never")
         #expect(resolved.executablePath == "claude-agent-acp")
     }
+
+    @Test func externalProviderConfigurationsIgnorePersistedGlobalApprovalModeWithoutSessionOverride() {
+        let session = Session.fixture()
+        let settings = AppSettings.testFixture()
+        settings.githubCopilotCLIConfiguration = ACPCLIConfiguration(
+            executablePath: "copilot",
+            defaultModel: "gpt-5",
+            defaultApprovalMode: "never"
+        )
+        settings.openCodeCLIConfiguration = ACPCLIConfiguration(
+            executablePath: "opencode",
+            defaultModel: "openai/gpt-5",
+            defaultApprovalMode: "never"
+        )
+        settings.claudeAdapterCLIConfiguration = ACPCLIConfiguration(
+            executablePath: "claude-agent-acp",
+            defaultModel: "claude-sonnet-4-6",
+            defaultApprovalMode: "never"
+        )
+
+        let copilot = SessionExecutionPreferencesResolver.gitHubCopilotCLIConfiguration(for: session, settings: settings)
+        let openCode = SessionExecutionPreferencesResolver.openCodeCLIConfiguration(for: session, settings: settings)
+        let claudeAdapter = SessionExecutionPreferencesResolver.claudeAdapterCLIConfiguration(for: session, settings: settings)
+
+        #expect(copilot.defaultApprovalMode == "default")
+        #expect(openCode.defaultApprovalMode == "default")
+        #expect(claudeAdapter.defaultApprovalMode == "default")
+    }
 }

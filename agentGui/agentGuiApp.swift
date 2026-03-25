@@ -88,7 +88,6 @@ struct agentGuiApp: App {
     @State private var channelRegistry = IMChannelRegistry()
     @State private var channelRuntimeBootstrap: ChannelRuntimeBootstrap?
     @State private var workbenchSceneServices = WorkbenchSceneServices()
-    @State private var commandPaletteViewModel = CommandPaletteViewModel()
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
@@ -197,13 +196,6 @@ struct agentGuiApp: App {
             NavigationCommands()
             WindowCommands()
         }
-
-        Window("命令面板", id: CommandPaletteWindowScene.id) {
-            CommandPaletteView()
-                .environment(commandPaletteViewModel)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 720, height: 520)
 
         Window("上下文", id: WorkbenchContextWindowScene.id) {
             WorkbenchContextWindowView()

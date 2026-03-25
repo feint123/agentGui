@@ -87,22 +87,24 @@ struct ACPCLIConfiguration: Codable, Equatable, Sendable {
 }
 
 extension ACPCLIConfiguration {
+    static let externalProviderDefaultApprovalMode = GitHubCopilotCLIApprovalModeOption.defaultApprovals.rawValue
+
     static let githubCopilotDefault = ACPCLIConfiguration(
         executablePath: "copilot",
         defaultModel: "",
-        defaultApprovalMode: "default"
+        defaultApprovalMode: externalProviderDefaultApprovalMode
     )
 
     static let openCodeDefault = ACPCLIConfiguration(
         executablePath: "opencode",
         defaultModel: "",
-        defaultApprovalMode: "default"
+        defaultApprovalMode: externalProviderDefaultApprovalMode
     )
 
     static let claudeAdapterDefault = ACPCLIConfiguration(
         executablePath: "claude-agent-acp",
         defaultModel: "",
-        defaultApprovalMode: "default"
+        defaultApprovalMode: externalProviderDefaultApprovalMode
     )
 }
 
@@ -155,6 +157,12 @@ extension ACPCLIConfiguration {
 
     var normalizedApprovalMode: GitHubCopilotCLIApprovalModeOption {
         GitHubCopilotCLIApprovalModeOption.resolved(from: defaultApprovalMode)
+    }
+
+    var sanitizedForGlobalSettings: ACPCLIConfiguration {
+        var configuration = self
+        configuration.defaultApprovalMode = Self.externalProviderDefaultApprovalMode
+        return configuration
     }
 
     func applying(_ sessionPreferences: GitHubCopilotCLISessionPreferences) -> ACPCLIConfiguration {

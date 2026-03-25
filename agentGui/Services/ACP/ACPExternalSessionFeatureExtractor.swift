@@ -37,12 +37,46 @@ struct ACPCommandSnapshotDraft: Equatable, Sendable {
     var commands: [ACPCommandDescriptor]
 }
 
+struct ACPExternalSessionConfigurationDraft: Equatable, Sendable {
+    var providerID: ConversationExecutionProviderID
+    var remoteSessionID: String
+    var configOptions: [ACPSessionConfigOption]?
+    var modes: ACPSessionModeState?
+}
+
 enum ACPExternalSessionFeatureEvent: Equatable, Sendable {
     case replaceCommands(ACPCommandSnapshotDraft)
     case replacePlan(ACPPlanSnapshotDraft)
+    case replaceSessionConfiguration(ACPExternalSessionConfigurationDraft)
+    case updateCurrentMode(
+        providerID: ConversationExecutionProviderID,
+        remoteSessionID: String,
+        currentModeID: String
+    )
 }
 
 struct ACPExternalSessionFeatureExtractor {
+    func bootstrapEvents(
+        configurationSnapshot: ACPExternalAgentSessionConfigurationSnapshot,
+        providerID: ConversationExecutionProviderID,
+        remoteSessionID: String
+    ) -> [ACPExternalSessionFeatureEvent] {
+        guard !configurationSnapshot.configOptions.isEmpty || configurationSnapshot.modes != nil else {
+            return []
+        }
+
+        return [
+            .replaceSessionConfiguration(
+                ACPExternalSessionConfigurationDraft(
+                    providerID: providerID,
+                    remoteSessionID: remoteSessionID,
+                    configOptions: configurationSnapshot.configOptions,
+                    modes: configurationSnapshot.modes
+                )
+            )
+        ]
+    }
+
     func extract(
         update: ACPExternalAgentUpdate,
         providerID: ConversationExecutionProviderID,
@@ -96,7 +130,26 @@ struct ACPExternalSessionFeatureExtractor {
                     )
                 )
             ]
-        case .agentMessageChunk, .agentThoughtChunk, .toolCall, .toolCallUpdate, .userMessageChunk, .other:
+        case .currentModeUpdate(let payload):
+            return [
+                .updateCurrentMode(
+                    providerID: providerID,
+                    remoteSessionID: remoteSessionID,
+                    currentModeID: payload.currentModeID
+                )
+            ]
+        case .configOptionUpdate(let payload):
+            return [
+                .replaceSessionConfiguration(
+                    ACPExternalSessionConfigurationDraft(
+                        providerID: providerID,
+                        remoteSessionID: remoteSessionID,
+                        configOptions: payload.configOptions,
+                        modes: nil
+                    )
+                )
+            ]
+        case .agentMessageChunk, .agentThoughtChunk, .toolCall, .toolCallUpdate, .sessionInfoUpdate, .userMessageChunk, .other:
             return []
         }
     }

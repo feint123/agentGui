@@ -14,13 +14,22 @@ struct ConversationExecutionRuntimeCoordinator {
             return
         }
 
-        for provider in registry.providers(in: runtimeScope) {
+        let scopedProviders = registry.providers(in: runtimeScope)
+
+        for provider in scopedProviders where provider.id != activeProvider.id {
             await provider.prepareForActivation(
                 session: session,
-                isActiveProvider: provider.id == activeProvider.id,
+                isActiveProvider: false,
                 modelContext: modelContext,
                 trigger: trigger
             )
         }
+
+        await activeProvider.prepareForActivation(
+            session: session,
+            isActiveProvider: true,
+            modelContext: modelContext,
+            trigger: trigger
+        )
     }
 }

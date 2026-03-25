@@ -8,7 +8,7 @@ enum ConversationExecutionRuntimeScope: String, Equatable, Sendable {
 
 enum ConversationExecutionActivationTrigger: Equatable, Sendable {
     case selection
-    case slashCommandWarmup
+    case sessionBootstrap
 }
 
 struct ConversationExecutionRequest {

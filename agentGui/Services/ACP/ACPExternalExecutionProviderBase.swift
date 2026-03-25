@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 @MainActor
-class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProvider {
+class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProvider, ACPRemoteSessionConfigurationControlling {
     let id: ConversationExecutionProviderID
     let runtimeScope: ConversationExecutionRuntimeScope? = .externalACP
 
@@ -82,9 +82,63 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             let handshake = activation.handshake
             let runtimeClient = activation.runtimeClient
 
-            let modelOverride = selectedModelOverride(for: configuration, handshake: handshake)
-            if let modelOverride {
-                try await runtimeClient.setModel(modelOverride, sessionID: handshake.remoteSessionID)
+            if let preferredModeID = initialSessionModeID(for: request.session, handshake: handshake),
+               preferredModeID != handshake.configurationSnapshot.modes?.currentModeID {
+                try await runtimeClient.setSessionMode(preferredModeID, sessionID: handshake.remoteSessionID)
+                try applyFeatureEvents(
+                    [
+                        .updateCurrentMode(
+                            providerID: id,
+                            remoteSessionID: handshake.remoteSessionID,
+                            currentModeID: preferredModeID
+                        )
+                    ],
+                    localSessionID: request.session.sessionId,
+                    modelContext: request.modelContext
+                )
+            }
+
+            let initialConfigSelections = initialSessionConfigSelections(for: configuration, handshake: handshake)
+            var selectedModel: String?
+            var latestConfigOptions: [ACPSessionConfigOption]?
+            for selection in initialConfigSelections {
+                let updatedConfigOptions = try await runtimeClient.setSessionConfigOption(
+                    selection.configID,
+                    value: selection.value,
+                    sessionID: handshake.remoteSessionID
+                )
+                if updatedConfigOptions.isEmpty == false {
+                    latestConfigOptions = updatedConfigOptions
+                }
+                if case .some(ACPSessionConfigOptionCategory.model) = selection.category {
+                    selectedModel = updatedConfigOptions.first(where: {
+                        $0.id?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) == selection.configID
+                    })?.currentValue ?? selection.value
+                }
+            }
+
+            let projectedConfigOptions = resolvedProjectedConfigOptions(
+                explicitOptions: latestConfigOptions,
+                localSessionID: request.session.sessionId,
+                remoteSessionID: handshake.remoteSessionID,
+                handshakeConfigOptions: handshake.configurationSnapshot.configOptions,
+                selections: initialConfigSelections
+            )
+            if let projectedConfigOptions, projectedConfigOptions.isEmpty == false {
+                try applyFeatureEvents(
+                    [
+                        .replaceSessionConfiguration(
+                            ACPExternalSessionConfigurationDraft(
+                                providerID: id,
+                                remoteSessionID: handshake.remoteSessionID,
+                                configOptions: projectedConfigOptions,
+                                modes: nil
+                            )
+                        )
+                    ],
+                    localSessionID: request.session.sessionId,
+                    modelContext: request.modelContext
+                )
             }
 
             await persistBinding(
@@ -92,7 +146,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 remoteSessionID: handshake.remoteSessionID,
                 configuration: configuration,
                 handshake: handshake,
-                selectedModel: modelOverride,
+                selectedModel: selectedModel,
                 modelContext: request.modelContext
             )
 
@@ -242,7 +296,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             return
         }
 
-        guard trigger == .slashCommandWarmup else {
+        guard trigger == .selection || trigger == .sessionBootstrap else {
             debugLog(
                 "prepareForActivation finished without remote warmup localSession=\(session.sessionId)"
             )
@@ -323,11 +377,20 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         fatalError("Subclasses must override buildRuntimeClient")
     }
 
-    func selectedModelOverride(
+    func initialSessionConfigSelections(
         for configuration: Configuration,
         handshake: ACPExternalAgentSessionHandshake
+    ) -> [ACPExternalSessionConfigSelection] {
+        fatalError("Subclasses must override initialSessionConfigSelections")
+    }
+
+    func initialSessionModeID(
+        for session: Session,
+        handshake: ACPExternalAgentSessionHandshake
     ) -> String? {
-        fatalError("Subclasses must override selectedModelOverride")
+        _ = session
+        _ = handshake
+        return nil
     }
 
     func persistBinding(
@@ -479,7 +542,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             return
         }
 
-        let kind = ToolKind.classify(rawName: request.toolCall.kind)
+        let kind = ToolKind.classify(rawName: request.toolCall.kind?.rawValue)
         let toolCall = ensurePermissionToolCall(
             toolCallID: request.toolCall.toolCallID,
             kind: kind,
@@ -491,7 +554,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
 
         switch response.outcome {
         case .cancelled:
-            toolCall.status = .cancelled
+            toolCall.status = ToolStatus.cancelled
             toolCall.toolResultSummary = "权限请求已取消"
             toolCall.endTime = toolCall.endTime ?? Date()
         case .selected(let outcome):
@@ -500,11 +563,11 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             }
             switch option.kind {
             case .rejectOnce, .rejectAlways:
-                toolCall.status = .cancelled
+                toolCall.status = ToolStatus.cancelled
                 toolCall.toolResultSummary = "权限被拒绝"
                 toolCall.endTime = toolCall.endTime ?? Date()
             case .allowOnce, .allowAlways:
-                toolCall.status = .success
+                toolCall.status = ToolStatus.success
                 toolCall.toolResultSummary = "权限已批准"
                 toolCall.endTime = toolCall.endTime ?? Date()
             }
@@ -1019,7 +1082,11 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         )
 
         try applyFeatureEvents(
-            featureAdapter.bootstrapEvents(
+            featureExtractor.bootstrapEvents(
+                configurationSnapshot: prepared.handshake.configurationSnapshot,
+                providerID: id,
+                remoteSessionID: prepared.handshake.remoteSessionID
+            ) + featureAdapter.bootstrapEvents(
                 providerID: id,
                 remoteSessionID: prepared.handshake.remoteSessionID
             ),
@@ -1108,6 +1175,97 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         sessionStateStore.existingState(for: localSessionID)?.plan()
     }
 
+    func remoteSessionConfiguration(localSessionID: String) -> ACPExternalAgentSessionConfigurationSnapshot? {
+        sessionStateStore.existingState(for: localSessionID)?.sessionConfiguration(for: id)
+    }
+
+    func updateSessionMode(session: Session, modelContext: ModelContext, modeID: String) async throws {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let configuration = resolveConfiguration(for: session, settings: settings)
+        let authorizationPolicy = authorizationPolicyFactory.makePolicy(
+            from: settings,
+            approvalMode: approvalMode(for: configuration)
+        )
+
+        guard useACPStdIO(configuration: configuration) else {
+            throw unsupportedConfigurationError()
+        }
+
+        let availabilityStatus = quickAvailabilityStatus(configuration: configuration)
+        guard availabilityStatus.kind == .available else {
+            throw unavailableError(summary: availabilityStatus.summaryText)
+        }
+
+        let activation = try await ensureRemoteSessionPrepared(
+            session: session,
+            configuration: configuration,
+            settings: settings,
+            modelContext: modelContext,
+            authorizationPolicy: authorizationPolicy,
+            workingDirectoryOverride: nil
+        )
+
+        try await activation.runtimeClient.setSessionMode(modeID, sessionID: activation.handshake.remoteSessionID)
+        try applyFeatureEvents(
+            [
+                .updateCurrentMode(
+                    providerID: id,
+                    remoteSessionID: activation.handshake.remoteSessionID,
+                    currentModeID: modeID
+                )
+            ],
+            localSessionID: session.sessionId,
+            modelContext: modelContext
+        )
+    }
+
+    func updateSessionConfigOption(session: Session, modelContext: ModelContext, configID: String, value: String) async throws {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let configuration = resolveConfiguration(for: session, settings: settings)
+        let authorizationPolicy = authorizationPolicyFactory.makePolicy(
+            from: settings,
+            approvalMode: approvalMode(for: configuration)
+        )
+
+        guard useACPStdIO(configuration: configuration) else {
+            throw unsupportedConfigurationError()
+        }
+
+        let availabilityStatus = quickAvailabilityStatus(configuration: configuration)
+        guard availabilityStatus.kind == .available else {
+            throw unavailableError(summary: availabilityStatus.summaryText)
+        }
+
+        let activation = try await ensureRemoteSessionPrepared(
+            session: session,
+            configuration: configuration,
+            settings: settings,
+            modelContext: modelContext,
+            authorizationPolicy: authorizationPolicy,
+            workingDirectoryOverride: nil
+        )
+
+        let configOptions = try await activation.runtimeClient.setSessionConfigOption(
+            configID,
+            value: value,
+            sessionID: activation.handshake.remoteSessionID
+        )
+        try applyFeatureEvents(
+            [
+                .replaceSessionConfiguration(
+                    ACPExternalSessionConfigurationDraft(
+                        providerID: id,
+                        remoteSessionID: activation.handshake.remoteSessionID,
+                        configOptions: configOptions,
+                        modes: nil
+                    )
+                )
+            ],
+            localSessionID: session.sessionId,
+            modelContext: modelContext
+        )
+    }
+
     private func applyFeatureEvents(
         _ events: [ACPExternalSessionFeatureEvent],
         localSessionID: String,
@@ -1120,6 +1278,46 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
 
     private func featureStore(for localSessionID: String, modelContext: ModelContext) -> ACPExternalSessionFeatureStore {
         sessionStateStore.state(for: localSessionID).featureStore(modelContext: modelContext)
+    }
+
+    private func resolvedProjectedConfigOptions(
+        explicitOptions: [ACPSessionConfigOption]?,
+        localSessionID: String,
+        remoteSessionID: String,
+        handshakeConfigOptions: [ACPSessionConfigOption],
+        selections: [ACPExternalSessionConfigSelection]
+    ) -> [ACPSessionConfigOption]? {
+        if let explicitOptions, explicitOptions.isEmpty == false {
+            return explicitOptions
+        }
+
+        guard selections.isEmpty == false else {
+            return nil
+        }
+
+        let existingOptions = sessionStateStore.existingState(for: localSessionID)?.sessionConfiguration(
+            for: id,
+            remoteSessionID: remoteSessionID
+        )?.configOptions
+        let baseOptions: [ACPSessionConfigOption]
+        if let existingOptions, existingOptions.isEmpty == false {
+            baseOptions = existingOptions
+        } else {
+            baseOptions = handshakeConfigOptions
+        }
+        guard baseOptions.isEmpty == false else {
+            return nil
+        }
+
+        return baseOptions.map { option in
+            var updatedOption = option
+            if let selection = selections.first(where: {
+                $0.configID == option.id?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            }) {
+                updatedOption.currentValue = selection.value
+            }
+            return updatedOption
+        }
     }
 
     private func remoteSessionID(for update: CopilotACPUpdate, localSessionID: String) -> String? {
@@ -1162,6 +1360,12 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 return "plan"
             case .availableCommandsUpdate:
                 return "availableCommandsUpdate"
+            case .currentModeUpdate:
+                return "currentModeUpdate"
+            case .configOptionUpdate:
+                return "configOptionUpdate"
+            case .sessionInfoUpdate:
+                return "sessionInfoUpdate"
             case .other(let kind, _):
                 return "other[\(kind)]"
             }
@@ -1181,6 +1385,12 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 return "plan"
             case .availableCommandsUpdate:
                 return "availableCommandsUpdate"
+            case .currentModeUpdate:
+                return "currentModeUpdate"
+            case .configOptionUpdate:
+                return "configOptionUpdate"
+            case .sessionInfoUpdate:
+                return "sessionInfoUpdate"
             case .other(let kind, _):
                 return "other[\(kind)]"
             }
@@ -1197,6 +1407,10 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 return "replaceCommands[count=\(snapshot.commands.count) names=\(names)]"
             case .replacePlan(let snapshot):
                 return "replacePlan[entries=\(snapshot.entries.count)]"
+            case .replaceSessionConfiguration(let snapshot):
+                return "replaceSessionConfiguration[configOptions=\(snapshot.configOptions?.count ?? 0) hasModes=\(snapshot.modes != nil)]"
+            case .updateCurrentMode(_, _, let currentModeID):
+                return "updateCurrentMode[currentMode=\(currentModeID)]"
             }
         }.joined(separator: ";")
     }

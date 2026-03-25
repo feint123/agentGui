@@ -16,12 +16,15 @@ final class CommandPaletteViewModel {
 
     private let quickOpenProvider: QuickOpenProvider
     private let router: AppCommandRouter
+    private let sceneID: UUID
     private var currentContext: AppCommandContext = .empty
 
     init(
+        sceneID: UUID,
         quickOpenProvider: QuickOpenProvider? = nil,
         router: AppCommandRouter? = nil
     ) {
+        self.sceneID = sceneID
         self.quickOpenProvider = quickOpenProvider ?? QuickOpenProvider()
         self.router = router ?? AppCommandRouter()
         NotificationCenter.default.addObserver(
@@ -30,8 +33,18 @@ final class CommandPaletteViewModel {
             queue: .main
         ) { [weak self] notification in
             guard let request = notification.object as? CommandPalettePresentationRequest else { return }
-            Task { @MainActor in
+            MainActor.assumeIsolated {
+                guard request.context.sceneID == self?.sceneID else { return }
                 self?.present(using: request.context)
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: CommandPaletteWindowScene.dismissNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.markDismissed()
             }
         }
     }
@@ -66,8 +79,8 @@ final class CommandPaletteViewModel {
 
     func moveSelection(downward: Bool) {
         guard !results.isEmpty else { return }
-                guard let currentSelectedItemID = selectedItemID,
-                            let currentIndex = results.firstIndex(where: { $0.id == currentSelectedItemID }) else {
+        guard let currentSelectedItemID = selectedItemID,
+              let currentIndex = results.firstIndex(where: { $0.id == currentSelectedItemID }) else {
             self.selectedItemID = results.first?.id
             return
         }

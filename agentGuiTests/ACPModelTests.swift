@@ -4,6 +4,187 @@ import Testing
 
 struct ACPModelTests {
 
+        @Test func agentCapabilitiesDecodeTypedCapabilityObjects() throws {
+                let raw = Data("""
+                {
+                    "loadSession": true,
+                    "mcpCapabilities": {
+                        "http": true,
+                        "sse": false
+                    },
+                    "sessionCapabilities": {
+                        "list": {
+                            "pageSize": 20
+                        }
+                    }
+                }
+                """.utf8)
+
+                let capabilities = try JSONDecoder().decode(ACPAgentCapabilities.self, from: raw)
+
+                #expect(capabilities.loadSession == true)
+                #expect(capabilities.mcpCapabilities?.http == true)
+                #expect(capabilities.mcpCapabilities?.sse == false)
+                #expect(capabilities.sessionCapabilities?.list?.pageSize == 20)
+        }
+
+        @Test func newSessionResponseIgnoresNonStandardModelField() throws {
+                let raw = Data("""
+                {
+                    "sessionId": "session-typed",
+                    "configOptions": [
+                        {
+                            "type": "select",
+                            "category": "model",
+                            "currentValue": "gpt-5",
+                            "options": [
+                                {
+                                    "name": "GPT-5",
+                                    "value": "gpt-5"
+                                }
+                            ]
+                        }
+                    ],
+                    "modes": {
+                        "availableModes": [
+                            {
+                                "id": "ask",
+                                "name": "Ask"
+                            }
+                        ],
+                        "currentModeId": "ask"
+                    },
+                    "models": {
+                        "currentModelId": "gpt-5"
+                    }
+                }
+                """.utf8)
+
+                let response = try JSONDecoder().decode(ACPNewSessionResponse.self, from: raw)
+
+                #expect(response.sessionID == "session-typed")
+                #expect(response.configOptions?.count == 1)
+                #expect(response.configOptions?.first?.category == .model)
+                #expect(response.configOptions?.first?.currentValue == "gpt-5")
+                #expect(response.modes?.currentModeID == "ask")
+                #expect(response.modes?.availableModes.first?.id == "ask")
+        }
+
+        @Test func loadSessionResponseDecodesTypedConfigOptionsAndModeState() throws {
+                let raw = Data("""
+                {
+                    "configOptions": [
+                        {
+                            "type": "select",
+                            "currentValue": "balanced",
+                            "options": [
+                                {
+                                    "group": "reasoning",
+                                    "name": "Reasoning",
+                                    "options": [
+                                        {
+                                            "name": "Balanced",
+                                            "value": "balanced",
+                                            "description": "Default reasoning level"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ],
+                    "modes": {
+                        "availableModes": [
+                            {
+                                "id": "plan",
+                                "name": "Plan",
+                                "description": "Planning mode"
+                            },
+                            {
+                                "id": "code",
+                                "name": "Code"
+                            }
+                        ],
+                        "currentModeId": "plan"
+                    }
+                }
+                """.utf8)
+
+                let response = try JSONDecoder().decode(ACPLoadSessionResponse.self, from: raw)
+
+                #expect(response.configOptions?.count == 1)
+                switch response.configOptions?.first?.options {
+                case .grouped(let groups):
+                        #expect(groups.count == 1)
+                        #expect(groups.first?.group == "reasoning")
+                        #expect(groups.first?.options.first?.value == "balanced")
+                default:
+                        Issue.record("Expected grouped config options")
+                }
+                #expect(response.modes?.currentModeID == "plan")
+                #expect(response.modes?.availableModes.count == 2)
+        }
+
+        @Test func promptContentBlockDecodesExtendedContentTypes() throws {
+                let imageRaw = ACPJSONValue.object([
+                        "type": .string("image"),
+                        "mimeType": .string("image/png"),
+                        "data": .string("abcd")
+                ])
+                let audioRaw = ACPJSONValue.object([
+                        "type": .string("audio"),
+                        "mimeType": .string("audio/wav"),
+                        "data": .string("efgh")
+                ])
+
+                let image = try imageRaw.decode(ACPPromptContentBlock.self)
+                let audio = try audioRaw.decode(ACPPromptContentBlock.self)
+
+                switch image {
+                case .image(let block):
+                        #expect(block.mimeType == "image/png")
+                        #expect(block.data == "abcd")
+                default:
+                        Issue.record("Expected image content block")
+                }
+
+                switch audio {
+                case .audio(let block):
+                        #expect(block.mimeType == "audio/wav")
+                        #expect(block.data == "efgh")
+                default:
+                        Issue.record("Expected audio content block")
+                }
+        }
+
+        @Test func toolCallUpdateDecodesTypedKindAndStatus() throws {
+                let raw = Data("""
+                {
+                    "toolCallId": "tool-typed",
+                    "title": "Run command",
+                    "kind": "execute",
+                    "status": "in_progress",
+                    "content": {
+                        "type": "text",
+                        "text": "running"
+                    },
+                    "locations": [
+                        {
+                            "path": "/tmp/project/main.swift",
+                            "line": 3
+                        }
+                    ]
+                }
+                """.utf8)
+
+                let payload = try JSONDecoder().decode(ACPToolCallUpdatePayload.self, from: raw)
+
+                #expect(payload.toolCallID == "tool-typed")
+                #expect(payload.kind == .execute)
+                #expect(payload.status == .inProgress)
+                #expect(payload.locations?.first?.path == "/tmp/project/main.swift")
+                #expect(payload.locations?.first?.line == 3)
+        }
+
     @Test func initializeRequestEncodesCamelCaseProtocolFields() throws {
         let request = ACPInitializeRequest(
             meta: ["trace": .string("abc")],
@@ -146,6 +327,77 @@ struct ACPModelTests {
                 #expect(entry["status"] == .string("in_progress"))
         }
 
+            @Test func sessionUpdateDecodesCurrentModeConfigOptionAndSessionInfoUpdates() throws {
+                let currentModeRaw = Data("""
+                {
+                    "sessionId": "session-mode",
+                    "update": {
+                    "sessionUpdate": "current_mode_update",
+                    "currentModeId": "plan"
+                    }
+                }
+                """.utf8)
+                let configOptionRaw = Data("""
+                {
+                    "sessionId": "session-config",
+                    "update": {
+                    "sessionUpdate": "config_option_update",
+                    "configOptions": [
+                        {
+                        "type": "select",
+                        "category": "model",
+                        "currentValue": "gpt-5",
+                        "options": [
+                            {
+                                "name": "GPT-5",
+                                "value": "gpt-5"
+                            }
+                        ]
+                        }
+                    ]
+                    }
+                }
+                """.utf8)
+                let sessionInfoRaw = Data("""
+                {
+                    "sessionId": "session-info",
+                    "update": {
+                    "sessionUpdate": "session_info_update",
+                    "title": "Refactor Session",
+                    "updatedAt": "2026-03-25T12:00:00Z"
+                    }
+                }
+                """.utf8)
+
+                let currentMode = try JSONDecoder().decode(ACPSessionNotification.self, from: currentModeRaw)
+                let configOption = try JSONDecoder().decode(ACPSessionNotification.self, from: configOptionRaw)
+                let sessionInfo = try JSONDecoder().decode(ACPSessionNotification.self, from: sessionInfoRaw)
+
+                switch currentMode.update {
+                case .currentModeUpdate(let payload):
+                    #expect(payload.currentModeID == "plan")
+                default:
+                    Issue.record("Expected current mode update")
+                }
+
+                switch configOption.update {
+                case .configOptionUpdate(let payload):
+                    #expect(payload.configOptions.count == 1)
+                    #expect(payload.configOptions.first?.type == "select")
+                    #expect(payload.configOptions.first?.currentValue == "gpt-5")
+                default:
+                    Issue.record("Expected config option update")
+                }
+
+                switch sessionInfo.update {
+                case .sessionInfoUpdate(let payload):
+                    #expect(payload.title == "Refactor Session")
+                    #expect(payload.updatedAt == "2026-03-25T12:00:00Z")
+                default:
+                    Issue.record("Expected session info update")
+                }
+            }
+
     @Test func promptRequestRoundTripsTextAndResourceLinkBlocks() throws {
         let request = ACPPromptRequest(
             meta: nil,
@@ -177,6 +429,13 @@ struct ACPModelTests {
             #expect(block.text == "ping")
         default:
             Issue.record("Expected first prompt block to be text")
+        }
+
+        switch decoded.prompt[1] {
+        case .resourceLink(let block):
+            #expect(block.uri == "file:///tmp/README.md")
+        default:
+            Issue.record("Expected second prompt block to be resource link")
         }
     }
 
@@ -234,6 +493,41 @@ struct ACPModelTests {
         #expect(payload["outputByteLimit"] == .number(4096))
         #expect(payload["sessionId"] == .string("session-4"))
         #expect(payload["env"] == .array([.object(["name": .string("FOO"), "value": .string("bar")])]))
+    }
+
+    @Test func setSessionConfigOptionResponseRoundTripsTypedOptions() throws {
+        let response = ACPSetSessionConfigOptionResponse(
+            meta: nil,
+            configOptions: [
+                ACPSessionConfigOption(
+                    meta: nil,
+                    category: .model,
+                    currentValue: "gpt-5",
+                    options: .ungrouped([
+                        ACPSessionConfigSelectOption(
+                            meta: nil,
+                            description: "Primary model",
+                            name: "GPT-5",
+                            value: "gpt-5"
+                        )
+                    ]),
+                    type: "select"
+                )
+            ]
+        )
+
+        let encoded = try ACPJSONValue.fromEncodable(response)
+        let decoded = try encoded.decode(ACPSetSessionConfigOptionResponse.self)
+
+        #expect(decoded.configOptions.count == 1)
+        #expect(decoded.configOptions.first?.category == .model)
+        switch decoded.configOptions.first?.options {
+        case .ungrouped(let options):
+            #expect(options.first?.value == "gpt-5")
+            #expect(options.first?.description == "Primary model")
+        default:
+            Issue.record("Expected ungrouped config options")
+        }
     }
 
         @Test func listSessionsResponseDecodesSessionInfoAndCursor() throws {

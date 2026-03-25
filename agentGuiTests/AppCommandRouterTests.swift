@@ -27,6 +27,25 @@ struct AppCommandRouterTests {
         #expect(recorder.openedWindowIDs == [SettingsWindowScene.id])
     }
 
+    @Test func commandPaletteRoutesWithoutOpeningDedicatedWindow() async throws {
+        let recorder = CommandRouteRecorder()
+        let router = AppCommandRouter(
+            requestWorkspaceSelection: recorder.requestWorkspaceSelection
+        )
+
+        let context = AppCommandContext.preview(
+            workspaceState: WorkspaceState(),
+            workbenchState: WorkbenchState(),
+            focusedScene: .workbench,
+            openWindowByID: recorder.openWindow
+        )
+
+        let result = await router.perform(.showCommandPalette, in: context)
+
+        #expect(result == .performed)
+        #expect(recorder.openedWindowIDs.isEmpty)
+    }
+
     @Test func workspaceChooserCommandUsesInjectedRequestHook() async throws {
         let recorder = CommandRouteRecorder()
         let router = AppCommandRouter(

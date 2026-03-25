@@ -26,7 +26,7 @@ final class AppCommandRouter {
         switch commandID {
         case .showCommandPalette:
             CommandPaletteWindowScene.requestPresentation(context: context)
-            return openWindow(CommandPaletteWindowScene.id, in: context)
+            return .performed
         case .showSettings:
             return openWindow(SettingsWindowScene.id, in: context)
         case .showOnboarding:

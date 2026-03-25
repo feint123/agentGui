@@ -102,11 +102,47 @@ final class ClaudeAdapterCLIExecutionProvider: ACPExternalExecutionProviderBase<
         )
     }
 
-    override func selectedModelOverride(
+    override func initialSessionConfigSelections(
         for configuration: ACPCLIConfiguration,
         handshake: ACPExternalAgentSessionHandshake
+    ) -> [ACPExternalSessionConfigSelection] {
+        var selections: [ACPExternalSessionConfigSelection] = []
+
+        if let modelValue = trimmedNonEmpty(configuration.defaultModel),
+           let modelConfigID = handshake.configurationSnapshot.modelConfigOption?.id?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !modelConfigID.isEmpty {
+            selections.append(
+                ACPExternalSessionConfigSelection(
+                    configID: modelConfigID,
+                    value: modelValue,
+                    category: .model
+                )
+            )
+        }
+
+        if let approvalConfigID = handshake.configurationSnapshot.approvalConfigOption?.id?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !approvalConfigID.isEmpty {
+            selections.append(
+                ACPExternalSessionConfigSelection(
+                    configID: approvalConfigID,
+                    value: GitHubCopilotCLIApprovalModeOption.resolved(from: configuration.defaultApprovalMode).rawValue,
+                    category: handshake.configurationSnapshot.approvalConfigOption?.category
+                )
+            )
+        }
+
+        return selections
+    }
+
+    override func initialSessionModeID(
+        for session: Session,
+        handshake: ACPExternalAgentSessionHandshake
     ) -> String? {
-        handshake.capabilities.supportsSessionModelOverride ? trimmedNonEmpty(configuration.defaultModel) : nil
+        guard handshake.configurationSnapshot.modes != nil else {
+            return nil
+        }
+
+        return trimmedNonEmpty(session.executionPreferences.claudeAdapterCLI.modeID ?? "")
     }
 
     override func persistBinding(

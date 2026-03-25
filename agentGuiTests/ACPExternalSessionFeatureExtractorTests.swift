@@ -3,6 +3,56 @@ import Testing
 @testable import agentGui
 
 struct ACPExternalSessionFeatureExtractorTests {
+    @Test func extractorBuildsConfigPresentationFromConfigOptionUpdate() {
+        let extractor = ACPExternalSessionFeatureExtractor()
+        let events = extractor.extract(
+            update: .session(
+                .configOptionUpdate(
+                    ACPConfigOptionUpdatePayload(
+                        meta: nil,
+                        configOptions: [sampleModelConfig(currentValue: "gpt-5")]
+                    )
+                )
+            ),
+            providerID: .openCodeCLI,
+            remoteSessionID: "remote-config"
+        )
+
+        #expect(events.count == 1)
+        guard case .replaceSessionConfiguration(let snapshot) = events[0] else {
+            Issue.record("Expected replaceSessionConfiguration event")
+            return
+        }
+
+        #expect(snapshot.providerID == .openCodeCLI)
+        #expect(snapshot.remoteSessionID == "remote-config")
+        #expect(snapshot.configOptions == [sampleModelConfig(currentValue: "gpt-5")])
+        #expect(snapshot.modes == nil)
+    }
+
+    @Test func extractorBuildsConfigPresentationFromCurrentModeUpdate() {
+        let extractor = ACPExternalSessionFeatureExtractor()
+        let events = extractor.extract(
+            update: .session(
+                .currentModeUpdate(
+                    ACPCurrentModeUpdatePayload(meta: nil, currentModeID: "edit")
+                )
+            ),
+            providerID: .githubCopilotCLI,
+            remoteSessionID: "remote-mode"
+        )
+
+        #expect(events.count == 1)
+        guard case .updateCurrentMode(let providerID, let remoteSessionID, let currentModeID) = events[0] else {
+            Issue.record("Expected updateCurrentMode event")
+            return
+        }
+
+        #expect(providerID == .githubCopilotCLI)
+        #expect(remoteSessionID == "remote-mode")
+        #expect(currentModeID == "edit")
+    }
+
     @Test func extractorBuildsReplaceCommandsEventFromSessionUpdate() {
         let extractor = ACPExternalSessionFeatureExtractor()
         let events = extractor.extract(
@@ -107,5 +157,18 @@ struct ACPExternalSessionFeatureExtractorTests {
 
         #expect(sessionEvents.isEmpty)
         #expect(permissionEvents.isEmpty)
+    }
+
+    private func sampleModelConfig(currentValue: String) -> ACPSessionConfigOption {
+        ACPSessionConfigOption(
+            meta: nil,
+            category: .model,
+            currentValue: currentValue,
+            options: .ungrouped([
+                ACPSessionConfigSelectOption(meta: nil, description: nil, name: "GPT 5", value: "gpt-5"),
+                ACPSessionConfigSelectOption(meta: nil, description: nil, name: "GPT 4.1", value: "gpt-4.1")
+            ]),
+            type: "string"
+        )
     }
 }

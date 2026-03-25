@@ -56,8 +56,8 @@ struct ACPAgentCapabilities: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var loadSession: Bool?
     var promptCapabilities: ACPPromptCapabilities?
-    var mcpCapabilities: ACPJSONValue?
-    var sessionCapabilities: ACPJSONValue?
+    var mcpCapabilities: ACPMcpCapabilities?
+    var sessionCapabilities: ACPSessionCapabilities?
 
     enum CodingKeys: String, CodingKey {
         case meta = "_meta"
@@ -150,15 +150,13 @@ struct ACPUsage: Codable, Equatable, Sendable {
 
 struct ACPNewSessionResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
-    var configOptions: [ACPJSONValue]?
-    var models: ACPJSONValue?
-    var modes: ACPJSONValue?
+    var configOptions: [ACPSessionConfigOption]?
+    var modes: ACPSessionModeState?
     var sessionID: String
 
     enum CodingKeys: String, CodingKey {
         case meta = "_meta"
         case configOptions
-        case models
         case modes
         case sessionID = "sessionId"
     }
@@ -187,14 +185,12 @@ struct ACPLoadSessionRequest: Codable, Equatable, Sendable {
 
 struct ACPLoadSessionResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
-    var configOptions: [ACPJSONValue]?
-    var models: ACPJSONValue?
-    var modes: ACPJSONValue?
+    var configOptions: [ACPSessionConfigOption]?
+    var modes: ACPSessionModeState?
 
     enum CodingKeys: String, CodingKey {
         case meta = "_meta"
         case configOptions
-        case models
         case modes
     }
 }
@@ -245,78 +241,6 @@ struct ACPListSessionsResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPForkSessionRequest: Codable, Equatable, Sendable {
-    var meta: [String: ACPJSONValue]?
-    var cwd: String
-    var mcpServers: [ACPJSONValue]?
-    var sessionID: String
-
-    init(meta: [String: ACPJSONValue]? = nil, cwd: String, mcpServers: [ACPJSONValue]? = nil, sessionID: String) {
-        self.meta = meta
-        self.cwd = cwd
-        self.mcpServers = mcpServers
-        self.sessionID = sessionID
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case meta = "_meta"
-        case cwd
-        case mcpServers
-        case sessionID = "sessionId"
-    }
-}
-
-struct ACPForkSessionResponse: Codable, Equatable, Sendable {
-    var meta: [String: ACPJSONValue]?
-    var configOptions: [ACPJSONValue]?
-    var models: ACPJSONValue?
-    var modes: ACPJSONValue?
-    var sessionID: String
-
-    enum CodingKeys: String, CodingKey {
-        case meta = "_meta"
-        case configOptions
-        case models
-        case modes
-        case sessionID = "sessionId"
-    }
-}
-
-struct ACPResumeSessionRequest: Codable, Equatable, Sendable {
-    var meta: [String: ACPJSONValue]?
-    var cwd: String
-    var mcpServers: [ACPJSONValue]?
-    var sessionID: String
-
-    init(meta: [String: ACPJSONValue]? = nil, cwd: String, mcpServers: [ACPJSONValue]? = nil, sessionID: String) {
-        self.meta = meta
-        self.cwd = cwd
-        self.mcpServers = mcpServers
-        self.sessionID = sessionID
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case meta = "_meta"
-        case cwd
-        case mcpServers
-        case sessionID = "sessionId"
-    }
-}
-
-struct ACPResumeSessionResponse: Codable, Equatable, Sendable {
-    var meta: [String: ACPJSONValue]?
-    var configOptions: [ACPJSONValue]?
-    var models: ACPJSONValue?
-    var modes: ACPJSONValue?
-
-    enum CodingKeys: String, CodingKey {
-        case meta = "_meta"
-        case configOptions
-        case models
-        case modes
-    }
-}
-
 struct ACPSetSessionModeRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var modeID: String
@@ -330,26 +254,6 @@ struct ACPSetSessionModeRequest: Codable, Equatable, Sendable {
 }
 
 struct ACPSetSessionModeResponse: Codable, Equatable, Sendable {
-    var meta: [String: ACPJSONValue]?
-
-    enum CodingKeys: String, CodingKey {
-        case meta = "_meta"
-    }
-}
-
-struct ACPSetSessionModelRequest: Codable, Equatable, Sendable {
-    var meta: [String: ACPJSONValue]?
-    var modelID: String
-    var sessionID: String
-
-    enum CodingKeys: String, CodingKey {
-        case meta = "_meta"
-        case modelID = "modelId"
-        case sessionID = "sessionId"
-    }
-}
-
-struct ACPSetSessionModelResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
 
     enum CodingKeys: String, CodingKey {
@@ -373,7 +277,7 @@ struct ACPSetSessionConfigOptionRequest: Codable, Equatable, Sendable {
 
 struct ACPSetSessionConfigOptionResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
-    var configOptions: [ACPJSONValue]
+    var configOptions: [ACPSessionConfigOption]
 
     enum CodingKeys: String, CodingKey {
         case meta = "_meta"
@@ -468,6 +372,8 @@ enum ACPPromptContentBlock: Codable, Equatable, Sendable {
     case text(ACPTextContentBlock)
     case resourceLink(ACPResourceLinkContentBlock)
     case embeddedResource(ACPEmbeddedResourceContentBlock)
+    case image(ACPImageContentBlock)
+    case audio(ACPAudioContentBlock)
     case other(ACPUnknownContentBlock)
 
     init(from decoder: any Decoder) throws {
@@ -484,6 +390,10 @@ enum ACPPromptContentBlock: Codable, Equatable, Sendable {
             self = .resourceLink(try ACPJSONValue.object(payload).decode(ACPResourceLinkContentBlock.self))
         case "resource":
             self = .embeddedResource(try ACPJSONValue.object(payload).decode(ACPEmbeddedResourceContentBlock.self))
+        case "image":
+            self = .image(try ACPJSONValue.object(payload).decode(ACPImageContentBlock.self))
+        case "audio":
+            self = .audio(try ACPJSONValue.object(payload).decode(ACPAudioContentBlock.self))
         default:
             self = .other(ACPUnknownContentBlock(type: type, payload: payload))
         }
@@ -497,6 +407,10 @@ enum ACPPromptContentBlock: Codable, Equatable, Sendable {
         case .resourceLink(let value):
             try container.encode(value)
         case .embeddedResource(let value):
+            try container.encode(value)
+        case .image(let value):
+            try container.encode(value)
+        case .audio(let value):
             try container.encode(value)
         case .other(let value):
             try container.encode(value.payload)
@@ -540,14 +454,60 @@ struct ACPContentChunk: Codable, Equatable, Sendable {
 
 struct ACPToolCall: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
-    var content: ACPJSONValue?
-    var kind: String?
-    var locations: ACPJSONValue?
+    var content: ACPPromptContentBlock?
+    var kind: ACPToolKind?
+    var locations: [ACPToolCallLocation]?
     var rawInput: ACPJSONValue?
     var rawOutput: ACPJSONValue?
-    var status: String?
+    var status: ACPToolCallStatus?
     var title: String
     var toolCallID: String
+
+    init(
+        meta: [String: ACPJSONValue]? = nil,
+        content: ACPPromptContentBlock? = nil,
+        kind: ACPToolKind? = nil,
+        locations: [ACPToolCallLocation]? = nil,
+        rawInput: ACPJSONValue? = nil,
+        rawOutput: ACPJSONValue? = nil,
+        status: ACPToolCallStatus? = nil,
+        title: String,
+        toolCallID: String
+    ) {
+        self.meta = meta
+        self.content = content
+        self.kind = kind
+        self.locations = locations
+        self.rawInput = rawInput
+        self.rawOutput = rawOutput
+        self.status = status
+        self.title = title
+        self.toolCallID = toolCallID
+    }
+
+    init(
+        meta: [String: ACPJSONValue]? = nil,
+        content: ACPJSONValue? = nil,
+        kind: String? = nil,
+        locations: ACPJSONValue? = nil,
+        rawInput: ACPJSONValue? = nil,
+        rawOutput: ACPJSONValue? = nil,
+        status: String? = nil,
+        title: String,
+        toolCallID: String
+    ) {
+        self.init(
+            meta: meta,
+            content: content.flatMap { try? $0.decode(ACPPromptContentBlock.self) },
+            kind: kind.map(ACPToolKind.init(rawValue:)),
+            locations: locations.flatMap { try? $0.decode([ACPToolCallLocation].self) },
+            rawInput: rawInput,
+            rawOutput: rawOutput,
+            status: status.map(ACPToolCallStatus.init(rawValue:)),
+            title: title,
+            toolCallID: toolCallID
+        )
+    }
 
     enum CodingKeys: String, CodingKey {
         case meta = "_meta"
@@ -564,14 +524,60 @@ struct ACPToolCall: Codable, Equatable, Sendable {
 
 struct ACPToolCallUpdatePayload: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
-    var content: ACPJSONValue?
-    var kind: String?
-    var locations: ACPJSONValue?
+    var content: ACPPromptContentBlock?
+    var kind: ACPToolKind?
+    var locations: [ACPToolCallLocation]?
     var rawInput: ACPJSONValue?
     var rawOutput: ACPJSONValue?
-    var status: String?
+    var status: ACPToolCallStatus?
     var title: String?
     var toolCallID: String
+
+    init(
+        meta: [String: ACPJSONValue]? = nil,
+        content: ACPPromptContentBlock? = nil,
+        kind: ACPToolKind? = nil,
+        locations: [ACPToolCallLocation]? = nil,
+        rawInput: ACPJSONValue? = nil,
+        rawOutput: ACPJSONValue? = nil,
+        status: ACPToolCallStatus? = nil,
+        title: String? = nil,
+        toolCallID: String
+    ) {
+        self.meta = meta
+        self.content = content
+        self.kind = kind
+        self.locations = locations
+        self.rawInput = rawInput
+        self.rawOutput = rawOutput
+        self.status = status
+        self.title = title
+        self.toolCallID = toolCallID
+    }
+
+    init(
+        meta: [String: ACPJSONValue]? = nil,
+        content: ACPJSONValue? = nil,
+        kind: String? = nil,
+        locations: ACPJSONValue? = nil,
+        rawInput: ACPJSONValue? = nil,
+        rawOutput: ACPJSONValue? = nil,
+        status: String? = nil,
+        title: String? = nil,
+        toolCallID: String
+    ) {
+        self.init(
+            meta: meta,
+            content: content.flatMap { try? $0.decode(ACPPromptContentBlock.self) },
+            kind: kind.map(ACPToolKind.init(rawValue:)),
+            locations: locations.flatMap { try? $0.decode([ACPToolCallLocation].self) },
+            rawInput: rawInput,
+            rawOutput: rawOutput,
+            status: status.map(ACPToolCallStatus.init(rawValue:)),
+            title: title,
+            toolCallID: toolCallID
+        )
+    }
 
     enum CodingKeys: String, CodingKey {
         case meta = "_meta"
@@ -703,6 +709,9 @@ enum ACPSessionUpdate: Codable, Equatable, Sendable {
     case toolCallUpdate(ACPToolCallUpdatePayload)
     case availableCommandsUpdate(ACPAvailableCommandsUpdatePayload)
     case plan(ACPPlanUpdatePayload)
+    case currentModeUpdate(ACPCurrentModeUpdatePayload)
+    case configOptionUpdate(ACPConfigOptionUpdatePayload)
+    case sessionInfoUpdate(ACPSessionInfoUpdatePayload)
     case other(kind: String, payload: ACPJSONValue)
 
     init(from decoder: any Decoder) throws {
@@ -727,6 +736,12 @@ enum ACPSessionUpdate: Codable, Equatable, Sendable {
             self = .availableCommandsUpdate(try ACPJSONValue.object(payload).decode(ACPAvailableCommandsUpdatePayload.self))
         case "plan":
             self = .plan(try ACPJSONValue.object(payload).decode(ACPPlanUpdatePayload.self))
+        case "current_mode_update":
+            self = .currentModeUpdate(try ACPJSONValue.object(payload).decode(ACPCurrentModeUpdatePayload.self))
+        case "config_option_update":
+            self = .configOptionUpdate(try ACPJSONValue.object(payload).decode(ACPConfigOptionUpdatePayload.self))
+        case "session_info_update":
+            self = .sessionInfoUpdate(try ACPJSONValue.object(payload).decode(ACPSessionInfoUpdatePayload.self))
         default:
             self = .other(kind: kind, payload: .object(payload))
         }
@@ -749,6 +764,12 @@ enum ACPSessionUpdate: Codable, Equatable, Sendable {
             try container.encode(SessionUpdateEnvelope(sessionUpdate: "available_commands_update", payload: try ACPJSONValue.fromEncodable(value)))
         case .plan(let value):
             try container.encode(SessionUpdateEnvelope(sessionUpdate: "plan", payload: try ACPJSONValue.fromEncodable(value)))
+        case .currentModeUpdate(let value):
+            try container.encode(SessionUpdateEnvelope(sessionUpdate: "current_mode_update", payload: try ACPJSONValue.fromEncodable(value)))
+        case .configOptionUpdate(let value):
+            try container.encode(SessionUpdateEnvelope(sessionUpdate: "config_option_update", payload: try ACPJSONValue.fromEncodable(value)))
+        case .sessionInfoUpdate(let value):
+            try container.encode(SessionUpdateEnvelope(sessionUpdate: "session_info_update", payload: try ACPJSONValue.fromEncodable(value)))
         case .other(_, let payload):
             try container.encode(payload)
         }

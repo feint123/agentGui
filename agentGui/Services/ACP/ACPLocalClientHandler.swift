@@ -65,15 +65,12 @@ actor ACPLocalClientHandler: ACPClientHandler {
     func handleCreateTerminal(_ request: ACPCreateTerminalRequest) async throws -> ACPCreateTerminalResponse? {
         let terminalID = UUID().uuidString
         let runtime = terminalRuntimeProvider(request.sessionID)
-        let commandLine = Self.makeCommandLine(
-            command: request.command,
-            args: request.args ?? [],
-            env: request.env ?? []
-        )
 
         do {
             _ = try await runtime.startDetached(
-                command: commandLine,
+                command: request.command,
+                args: request.args ?? [],
+                environment: Self.environmentDictionary(from: request.env ?? []),
                 taskId: terminalID,
                 workingDirectory: request.cwd
             )
@@ -197,27 +194,8 @@ actor ACPLocalClientHandler: ACPClientHandler {
         return allLines[startIndex..<endIndex].map(String.init).joined(separator: "\n")
     }
 
-    nonisolated private static func makeCommandLine(command: String, args: [String], env: [ACPEnvVariable]) -> String {
-        var segments: [String] = []
-        if !env.isEmpty {
-            segments.append("env")
-            segments.append(contentsOf: env.map { "\($0.name)=\(shellEscapeEnvValue($0.value))" })
-        }
-        segments.append(contentsOf: ([command] + args).map(shellEscape))
-        return segments.joined(separator: " ")
-    }
-
-    nonisolated private static func shellEscape(_ value: String) -> String {
-        guard !value.isEmpty else { return "''" }
-        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._/:=@")
-        if value.unicodeScalars.allSatisfy(safe.contains) {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    nonisolated private static func shellEscapeEnvValue(_ value: String) -> String {
-        shellEscape(value)
+    nonisolated private static func environmentDictionary(from variables: [ACPEnvVariable]) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: variables.map { ($0.name, $0.value) })
     }
 
     nonisolated private static func truncateOutput(_ output: String, byteLimit: Int?) -> (output: String, truncated: Bool) {
