@@ -63,16 +63,10 @@ struct FileEditorView: View {
 
     private func editorView(for url: URL) -> some View {
         VStack(spacing: 0) {
-            // Title bar
-            HStack(spacing: 6) {
-                Image(systemName: sessionController.document.viewer == .pdf ? "doc.richtext" : sessionController.document.viewer == .image ? "photo" : "doc.text")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(url.lastPathComponent + (sessionController.document.hasUnsavedChanges ? " •" : ""))
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            FilePathBreadcrumbBar(
+                iconSystemName: fileViewerIconName,
+                items: breadcrumbItems(for: url)
+            ) {
                 if launchOptions.isUITestMode, sessionController.document.viewer == .text {
                     Text(sessionController.document.hasUnsavedChanges ? "dirty" : "clean")
                         .font(.caption2)
@@ -129,6 +123,35 @@ struct FileEditorView: View {
             }
             triggerWorkspaceLSPBootstrap(for: url)
         }
+    }
+
+    private var fileViewerIconName: String {
+        switch sessionController.document.viewer {
+        case .pdf:
+            return "doc.richtext"
+        case .image:
+            return "photo"
+        case .text:
+            return "doc.text"
+        }
+    }
+
+    private func breadcrumbItems(for url: URL) -> [BreadcrumbNavigationItem] {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let rootURL = workspaceState.effectiveWorkingDirectoryURL(globalDefault: settings.workingDirectory)
+        var items = FilePathBreadcrumbs.makeItems(for: url, relativeTo: rootURL)
+
+        if let lastIndex = items.indices.last,
+           sessionController.document.hasUnsavedChanges {
+            let item = items[lastIndex]
+            items[lastIndex] = BreadcrumbNavigationItem(
+                title: item.title + " •",
+                url: item.url,
+                isCurrent: item.isCurrent
+            )
+        }
+
+        return items
     }
 
     private func externalConflictBanner(_ conflict: FileEditorExternalConflict) -> some View {
