@@ -6,7 +6,7 @@
 import Foundation
 
 /// A locally installed skill discovered from ~/.claude/skills/
-struct Skill: Identifiable, Hashable {
+struct Skill: Identifiable, Hashable, Sendable {
     /// Directory name — used as stable identifier
     var id: String { directoryName }
     let directoryName: String

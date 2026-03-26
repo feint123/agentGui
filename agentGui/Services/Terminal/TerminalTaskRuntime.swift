@@ -1,6 +1,6 @@
 import Foundation
 
-enum TerminalRuntimeError: Error, Equatable, LocalizedError {
+nonisolated enum TerminalRuntimeError: Error, Equatable, LocalizedError {
     case taskNotFound
     case taskAlreadyExists
 
@@ -36,8 +36,7 @@ actor TerminalTaskRuntime {
         self.sessionId = sessionId
     }
 
-    @MainActor
-    static func makeForTests() -> TerminalTaskRuntime {
+    nonisolated static func makeForTests() -> TerminalTaskRuntime {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         return TerminalTaskRuntime(
             registry: BashTaskRegistry(),

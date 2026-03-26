@@ -12,6 +12,10 @@ import Darwin
 @Observable
 @MainActor
 final class SkillService {
+    nonisolated private struct LoadedSkillContent: Sendable {
+        let cacheKey: String
+        let content: String
+    }
 
     // MARK: - State
 
@@ -21,70 +25,19 @@ final class SkillService {
 
     private var contentCache: [String: String] = [:]
 
-    private let skillsDirectory: URL = {
-        // URL.homeDirectory resolves to the sandbox container in sandboxed apps.
-        // getpwuid gives the real system home directory (e.g. /Users/feint).
-        let realHome: String
-        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
-            realHome = String(cString: dir)
-        } else {
-            realHome = NSHomeDirectory()
-        }
-        return URL(fileURLWithPath: realHome, isDirectory: true)
-            .appending(path: ".claude/skills", directoryHint: .isDirectory)
-    }()
+    private let skillsDirectory: URL
+
+    init(skillsDirectory: URL? = nil) {
+        self.skillsDirectory = skillsDirectory ?? Self.defaultSkillsDirectory()
+    }
 
     // MARK: - Load
 
     /// Scans the skills directory and populates `availableSkills`.
-    func loadSkills() {
-        let fm = FileManager.default
-        print("[SkillService] skillsDirectory = \(skillsDirectory.path)")
-
-        guard fm.fileExists(atPath: skillsDirectory.path) else {
-            print("[SkillService] ❌ directory does not exist: \(skillsDirectory.path)")
-            availableSkills = []
-            return
-        }
-        print("[SkillService] ✅ directory exists")
-
-        do {
-            let contents = try fm.contentsOfDirectory(
-                at: skillsDirectory,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )
-            print("[SkillService] entries found: \(contents.map(\.lastPathComponent))")
-
-            let loaded: [Skill] = contents.compactMap { url in
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
-                    print("[SkillService]   skip (not a directory): \(url.lastPathComponent)")
-                    return nil
-                }
-                let skillFile = url.appending(path: "SKILL.md")
-                guard fm.fileExists(atPath: skillFile.path) else {
-                    print("[SkillService]   skip (no SKILL.md): \(url.lastPathComponent)")
-                    return nil
-                }
-
-                let (name, description) = parseFrontmatter(at: skillFile)
-                let dirName = url.lastPathComponent
-                print("[SkillService]   loaded skill: dir=\(dirName) name=\(name ?? "(nil)") desc=\(description?.prefix(60) ?? "(nil)")")
-                return Skill(
-                    directoryName: dirName,
-                    name: name ?? dirName,
-                    description: description ?? "",
-                    path: url,
-                    contentURL: skillFile
-                )
-            }
-            availableSkills = loaded.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-            print("[SkillService] ✅ availableSkills(\(availableSkills.count)): \(availableSkills.map(\.name))")
-        } catch {
-            print("[SkillService] ❌ contentsOfDirectory error: \(error)")
-            availableSkills = []
-        }
+    func loadSkills() async {
+        availableSkills = await Task.detached(priority: .userInitiated) { [skillsDirectory] in
+            Self.scanSkills(in: skillsDirectory)
+        }.value
     }
 
     // MARK: - Content
@@ -94,7 +47,7 @@ final class SkillService {
     /// the skill's directory are rewritten to their real absolute paths, and a directory context
     /// header is prepended so the agent always knows where bundled resources live.
     /// Result is cached after the first load.
-    func readSkillContent(name: String) -> String? {
+    func readSkillContent(name: String) async -> String? {
         // Match by display name first, then by directoryName
         guard let skill = availableSkills.first(where: { $0.name == name || $0.directoryName == name }) else {
             print("[SkillService]  read_skill: '\(name)' not found. available=\(availableSkills.map(\.name))")
@@ -106,15 +59,18 @@ final class SkillService {
             return cached
         }
 
-        guard let raw = try? String(contentsOf: skill.contentURL, encoding: .utf8) else {
+        let loaded = await Task.detached(priority: .utility) {
+            Self.loadSkillContent(skill)
+        }.value
+
+        guard let loaded else {
             print("[SkillService]  read_skill '\(name)' — failed to read \(skill.contentURL.path)")
             return nil
         }
 
-        let processed = resolveSkillPaths(in: raw, skillDirectory: skill.path)
-        contentCache[key] = processed
-        print("[SkillService] read_skill '\(name)' — loaded \(processed.count) chars from \(skill.contentURL.path)")
-        return processed
+        contentCache[loaded.cacheKey] = loaded.content
+        print("[SkillService] read_skill '\(name)' — loaded \(loaded.content.count) chars from \(skill.contentURL.path)")
+        return loaded.content
     }
 
     /// Rewrites absolute-looking paths in `content` that resolve to real files/dirs within
@@ -123,14 +79,14 @@ final class SkillService {
     /// For example, `/references/schemas.md` becomes
     /// `/Users/feint/.claude/skills/skill-creator/references/schemas.md`
     /// when that file exists inside the skill directory.
-    private static let skillPathRegex: NSRegularExpression = {
+    nonisolated private static let skillPathRegex: NSRegularExpression = {
         // Matches a leading `/` followed by at least one path-safe character.
         // The negative lookbehind (?<![.\w]) prevents matching inside URLs (e.g. "://…")
         // or dotted identifiers.
         try! NSRegularExpression(pattern: #"(?<![.\w])(\/[A-Za-z0-9_.\-][A-Za-z0-9_.\-\/]*)"#)
     }()
 
-    private func resolveSkillPaths(in content: String, skillDirectory: URL) -> String {
+    nonisolated private static func resolveSkillPaths(in content: String, skillDirectory: URL) -> String {
         let fm = FileManager.default
         let skillDirPath = skillDirectory.path
 
@@ -191,7 +147,7 @@ final class SkillService {
 
     /// Parses YAML frontmatter (between `---` markers) and extracts `name:` and `description:` values.
     /// Only the first frontmatter block is parsed. Multi-line values are not supported.
-    private func parseFrontmatter(at url: URL) -> (name: String?, description: String?) {
+    nonisolated private static func parseFrontmatter(at url: URL) -> (name: String?, description: String?) {
         guard let raw = try? String(contentsOf: url, encoding: .utf8) else {
             print("[SkillService]   parseFrontmatter: failed to read \(url.path)")
             return (nil, nil)
@@ -243,11 +199,84 @@ final class SkillService {
         return (name, description)
     }
 
-    private func removeQuotes(_ s: String) -> String {
+    nonisolated private static func removeQuotes(_ s: String) -> String {
         var s = s
         if (s.hasPrefix("\"") && s.hasSuffix("\"")) || (s.hasPrefix("'") && s.hasSuffix("'")) {
             s = String(s.dropFirst().dropLast())
         }
         return s
+    }
+
+    nonisolated private static func defaultSkillsDirectory() -> URL {
+        let realHome: String
+        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
+            realHome = String(cString: dir)
+        } else {
+            realHome = NSHomeDirectory()
+        }
+        return URL(fileURLWithPath: realHome, isDirectory: true)
+            .appending(path: ".claude/skills", directoryHint: .isDirectory)
+    }
+
+    nonisolated private static func scanSkills(in skillsDirectory: URL) -> [Skill] {
+        let fm = FileManager.default
+        print("[SkillService] skillsDirectory = \(skillsDirectory.path)")
+
+        guard fm.fileExists(atPath: skillsDirectory.path) else {
+            print("[SkillService] ❌ directory does not exist: \(skillsDirectory.path)")
+            return []
+        }
+        print("[SkillService] ✅ directory exists")
+
+        do {
+            let contents = try fm.contentsOfDirectory(
+                at: skillsDirectory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+            print("[SkillService] entries found: \(contents.map(\.lastPathComponent))")
+
+            let loaded: [Skill] = contents.compactMap { url in
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
+                    print("[SkillService]   skip (not a directory): \(url.lastPathComponent)")
+                    return nil
+                }
+                let skillFile = url.appending(path: "SKILL.md")
+                guard fm.fileExists(atPath: skillFile.path) else {
+                    print("[SkillService]   skip (no SKILL.md): \(url.lastPathComponent)")
+                    return nil
+                }
+
+                let (name, description) = parseFrontmatter(at: skillFile)
+                let dirName = url.lastPathComponent
+                print("[SkillService]   loaded skill: dir=\(dirName) name=\(name ?? "(nil)") desc=\(description?.prefix(60) ?? "(nil)")")
+                return Skill(
+                    directoryName: dirName,
+                    name: name ?? dirName,
+                    description: description ?? "",
+                    path: url,
+                    contentURL: skillFile
+                )
+            }
+
+            let sorted = loaded.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            print("[SkillService] ✅ availableSkills(\(sorted.count)): \(sorted.map(\.name))")
+            return sorted
+        } catch {
+            print("[SkillService] ❌ contentsOfDirectory error: \(error)")
+            return []
+        }
+    }
+
+    nonisolated private static func loadSkillContent(_ skill: Skill) -> LoadedSkillContent? {
+        guard let raw = try? String(contentsOf: skill.contentURL, encoding: .utf8) else {
+            return nil
+        }
+
+        return LoadedSkillContent(
+            cacheKey: skill.directoryName,
+            content: resolveSkillPaths(in: raw, skillDirectory: skill.path)
+        )
     }
 }

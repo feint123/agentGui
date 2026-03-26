@@ -1,6 +1,6 @@
 import Foundation
 
-struct ACPImplementation: Codable, Equatable, Sendable {
+nonisolated struct ACPImplementation: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var name: String
     var title: String?
@@ -14,7 +14,7 @@ struct ACPImplementation: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPFileSystemCapability: Codable, Equatable, Sendable {
+nonisolated struct ACPFileSystemCapability: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var readTextFile: Bool?
     var writeTextFile: Bool?
@@ -26,7 +26,7 @@ struct ACPFileSystemCapability: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPClientCapabilities: Codable, Equatable, Sendable {
+nonisolated struct ACPClientCapabilities: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var filesystem: ACPFileSystemCapability?
     var terminal: Bool?
@@ -38,7 +38,7 @@ struct ACPClientCapabilities: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPPromptCapabilities: Codable, Equatable, Sendable {
+nonisolated struct ACPPromptCapabilities: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var audio: Bool?
     var embeddedContext: Bool?
@@ -52,7 +52,7 @@ struct ACPPromptCapabilities: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPAgentCapabilities: Codable, Equatable, Sendable {
+nonisolated struct ACPAgentCapabilities: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var loadSession: Bool?
     var promptCapabilities: ACPPromptCapabilities?
@@ -68,7 +68,7 @@ struct ACPAgentCapabilities: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPAuthMethod: Codable, Equatable, Sendable {
+nonisolated struct ACPAuthMethod: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var description: String?
     var id: String
@@ -82,7 +82,7 @@ struct ACPAuthMethod: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPInitializeRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPInitializeRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var clientCapabilities: ACPClientCapabilities?
     var clientInfo: ACPImplementation?
@@ -96,7 +96,7 @@ struct ACPInitializeRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPInitializeResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPInitializeResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var agentCapabilities: ACPAgentCapabilities?
     var agentInfo: ACPImplementation?
@@ -112,11 +112,12 @@ struct ACPInitializeResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPNewSessionRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPNewSessionRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var cwd: String
     var mcpServers: [ACPJSONValue]
 
+    nonisolated
     init(meta: [String: ACPJSONValue]? = nil, cwd: String, mcpServers: [ACPJSONValue] = []) {
         self.meta = meta
         self.cwd = cwd
@@ -130,7 +131,7 @@ struct ACPNewSessionRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPUsage: Codable, Equatable, Sendable {
+nonisolated struct ACPUsage: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var inputTokens: Int?
     var outputTokens: Int?
@@ -148,7 +149,7 @@ struct ACPUsage: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPNewSessionResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPNewSessionResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var configOptions: [ACPSessionConfigOption]?
     var modes: ACPSessionModeState?
@@ -162,12 +163,13 @@ struct ACPNewSessionResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPLoadSessionRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPLoadSessionRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var cwd: String
     var mcpServers: [ACPJSONValue]
     var sessionID: String
 
+    nonisolated
     init(meta: [String: ACPJSONValue]? = nil, cwd: String, mcpServers: [ACPJSONValue] = [], sessionID: String) {
         self.meta = meta
         self.cwd = cwd
@@ -183,7 +185,7 @@ struct ACPLoadSessionRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPLoadSessionResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPLoadSessionResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var configOptions: [ACPSessionConfigOption]?
     var modes: ACPSessionModeState?
@@ -195,11 +197,12 @@ struct ACPLoadSessionResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPListSessionsRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPListSessionsRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var cursor: String?
     var cwd: String?
 
+    nonisolated
     init(meta: [String: ACPJSONValue]? = nil, cursor: String? = nil, cwd: String? = nil) {
         self.meta = meta
         self.cursor = cursor
@@ -213,7 +216,7 @@ struct ACPListSessionsRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSessionInfo: Codable, Equatable, Sendable {
+nonisolated struct ACPSessionInfo: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var cwd: String
     var sessionID: String
@@ -229,7 +232,7 @@ struct ACPSessionInfo: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPListSessionsResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPListSessionsResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var nextCursor: String?
     var sessions: [ACPSessionInfo]
@@ -241,7 +244,7 @@ struct ACPListSessionsResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSetSessionModeRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPSetSessionModeRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var modeID: String
     var sessionID: String
@@ -253,7 +256,7 @@ struct ACPSetSessionModeRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSetSessionModeResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPSetSessionModeResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
 
     enum CodingKeys: String, CodingKey {
@@ -261,7 +264,7 @@ struct ACPSetSessionModeResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSetSessionConfigOptionRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPSetSessionConfigOptionRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var configID: String
     var sessionID: String
@@ -275,7 +278,7 @@ struct ACPSetSessionConfigOptionRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSetSessionConfigOptionResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPSetSessionConfigOptionResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var configOptions: [ACPSessionConfigOption]
 
@@ -285,7 +288,7 @@ struct ACPSetSessionConfigOptionResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPAuthenticateRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPAuthenticateRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var methodID: String
 
@@ -295,7 +298,7 @@ struct ACPAuthenticateRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPAuthenticateResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPAuthenticateResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
 
     enum CodingKeys: String, CodingKey {
@@ -303,7 +306,7 @@ struct ACPAuthenticateResponse: Codable, Equatable, Sendable {
     }
 }
 
-enum ACPStopReason: String, Codable, Equatable, Sendable {
+nonisolated enum ACPStopReason: String, Codable, Equatable, Sendable {
     case endTurn = "end_turn"
     case maxTokens = "max_tokens"
     case maxTurnRequests = "max_turn_requests"
@@ -311,7 +314,7 @@ enum ACPStopReason: String, Codable, Equatable, Sendable {
     case cancelled
 }
 
-struct ACPTextContentBlock: Codable, Equatable, Sendable {
+nonisolated struct ACPTextContentBlock: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var annotations: ACPJSONValue?
     var text: String
@@ -325,7 +328,7 @@ struct ACPTextContentBlock: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPResourceLinkContentBlock: Codable, Equatable, Sendable {
+nonisolated struct ACPResourceLinkContentBlock: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var annotations: ACPJSONValue?
     var description: String?
@@ -349,7 +352,7 @@ struct ACPResourceLinkContentBlock: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPEmbeddedResourceContentBlock: Codable, Equatable, Sendable {
+nonisolated struct ACPEmbeddedResourceContentBlock: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var annotations: ACPJSONValue?
     var resource: ACPJSONValue
@@ -363,12 +366,12 @@ struct ACPEmbeddedResourceContentBlock: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPUnknownContentBlock: Codable, Equatable, Sendable {
+nonisolated struct ACPUnknownContentBlock: Codable, Equatable, Sendable {
     var type: String
     var payload: [String: ACPJSONValue]
 }
 
-enum ACPPromptContentBlock: Codable, Equatable, Sendable {
+nonisolated enum ACPPromptContentBlock: Codable, Equatable, Sendable {
     case text(ACPTextContentBlock)
     case resourceLink(ACPResourceLinkContentBlock)
     case embeddedResource(ACPEmbeddedResourceContentBlock)
@@ -418,7 +421,7 @@ enum ACPPromptContentBlock: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPPromptRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPPromptRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var prompt: [ACPPromptContentBlock]
     var sessionID: String
@@ -430,7 +433,7 @@ struct ACPPromptRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPPromptResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPPromptResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var stopReason: ACPStopReason
     var usage: ACPUsage?
@@ -442,7 +445,7 @@ struct ACPPromptResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPContentChunk: Codable, Equatable, Sendable {
+nonisolated struct ACPContentChunk: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var content: ACPPromptContentBlock
 
@@ -452,7 +455,7 @@ struct ACPContentChunk: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPToolCall: Codable, Equatable, Sendable {
+nonisolated struct ACPToolCall: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var content: ACPPromptContentBlock?
     var kind: ACPToolKind?
@@ -522,7 +525,7 @@ struct ACPToolCall: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPToolCallUpdatePayload: Codable, Equatable, Sendable {
+nonisolated struct ACPToolCallUpdatePayload: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var content: ACPPromptContentBlock?
     var kind: ACPToolKind?
@@ -592,7 +595,7 @@ struct ACPToolCallUpdatePayload: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPAvailableCommandInput: Codable, Equatable, Sendable {
+nonisolated struct ACPAvailableCommandInput: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var hint: String?
 
@@ -607,7 +610,7 @@ struct ACPAvailableCommandInput: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPAvailableCommand: Codable, Equatable, Sendable {
+nonisolated struct ACPAvailableCommand: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var description: String?
     var input: ACPAvailableCommandInput?
@@ -633,7 +636,7 @@ struct ACPAvailableCommand: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPAvailableCommandsUpdatePayload: Codable, Equatable, Sendable {
+nonisolated struct ACPAvailableCommandsUpdatePayload: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var availableCommands: [ACPAvailableCommand]
 
@@ -648,19 +651,19 @@ struct ACPAvailableCommandsUpdatePayload: Codable, Equatable, Sendable {
     }
 }
 
-enum ACPPlanEntryPriority: String, Codable, Equatable, Sendable {
+nonisolated enum ACPPlanEntryPriority: String, Codable, Equatable, Sendable {
     case high
     case medium
     case low
 }
 
-enum ACPPlanEntryStatus: String, Codable, Equatable, Sendable {
+nonisolated enum ACPPlanEntryStatus: String, Codable, Equatable, Sendable {
     case pending
     case inProgress = "in_progress"
     case completed
 }
 
-struct ACPPlanEntry: Codable, Equatable, Sendable {
+nonisolated struct ACPPlanEntry: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var content: String
     var priority: ACPPlanEntryPriority
@@ -686,7 +689,7 @@ struct ACPPlanEntry: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPPlanUpdatePayload: Codable, Equatable, Sendable {
+nonisolated struct ACPPlanUpdatePayload: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var entries: [ACPPlanEntry]
 
@@ -701,7 +704,7 @@ struct ACPPlanUpdatePayload: Codable, Equatable, Sendable {
     }
 }
 
-enum ACPSessionUpdate: Codable, Equatable, Sendable {
+nonisolated enum ACPSessionUpdate: Codable, Equatable, Sendable {
     case userMessageChunk(ACPContentChunk)
     case agentMessageChunk(ACPContentChunk)
     case agentThoughtChunk(ACPContentChunk)
@@ -788,7 +791,7 @@ enum ACPSessionUpdate: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSessionNotification: Codable, Equatable, Sendable {
+nonisolated struct ACPSessionNotification: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var sessionID: String
     var update: ACPSessionUpdate
@@ -800,7 +803,7 @@ struct ACPSessionNotification: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPCancelNotification: Codable, Equatable, Sendable {
+nonisolated struct ACPCancelNotification: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var sessionID: String
 
@@ -810,14 +813,14 @@ struct ACPCancelNotification: Codable, Equatable, Sendable {
     }
 }
 
-enum ACPPermissionOptionKind: String, Codable, Equatable, Sendable {
+nonisolated enum ACPPermissionOptionKind: String, Codable, Equatable, Sendable {
     case allowOnce = "allow_once"
     case allowAlways = "allow_always"
     case rejectOnce = "reject_once"
     case rejectAlways = "reject_always"
 }
 
-struct ACPPermissionOption: Codable, Equatable, Sendable {
+nonisolated struct ACPPermissionOption: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var kind: ACPPermissionOptionKind
     var name: String
@@ -831,7 +834,7 @@ struct ACPPermissionOption: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSelectedPermissionOutcome: Codable, Equatable, Sendable {
+nonisolated struct ACPSelectedPermissionOutcome: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var optionID: String
     var outcome: String = "selected"
@@ -843,7 +846,7 @@ struct ACPSelectedPermissionOutcome: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPDeniedPermissionOutcome: Codable, Equatable, Sendable {
+nonisolated struct ACPDeniedPermissionOutcome: Codable, Equatable, Sendable {
     var outcome: String = "cancelled"
 
     enum CodingKeys: String, CodingKey {
@@ -851,7 +854,7 @@ struct ACPDeniedPermissionOutcome: Codable, Equatable, Sendable {
     }
 }
 
-enum ACPPermissionOutcome: Codable, Equatable, Sendable {
+nonisolated enum ACPPermissionOutcome: Codable, Equatable, Sendable {
     case selected(ACPSelectedPermissionOutcome)
     case cancelled(ACPDeniedPermissionOutcome)
     case other(kind: String, payload: ACPJSONValue)
@@ -886,7 +889,7 @@ enum ACPPermissionOutcome: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPRequestPermissionRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPRequestPermissionRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var options: [ACPPermissionOption]
     var sessionID: String
@@ -900,7 +903,7 @@ struct ACPRequestPermissionRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPRequestPermissionResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPRequestPermissionResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var outcome: ACPPermissionOutcome
 
@@ -910,7 +913,7 @@ struct ACPRequestPermissionResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPReadTextFileRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPReadTextFileRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var limit: Int?
     var line: Int?
@@ -926,7 +929,7 @@ struct ACPReadTextFileRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPReadTextFileResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPReadTextFileResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var content: String
 
@@ -936,7 +939,7 @@ struct ACPReadTextFileResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPWriteTextFileRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPWriteTextFileRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var content: String
     var path: String
@@ -950,7 +953,7 @@ struct ACPWriteTextFileRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPWriteTextFileResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPWriteTextFileResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
 
     enum CodingKeys: String, CodingKey {
@@ -958,7 +961,7 @@ struct ACPWriteTextFileResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPEnvVariable: Codable, Equatable, Sendable {
+nonisolated struct ACPEnvVariable: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var name: String
     var value: String
@@ -970,7 +973,7 @@ struct ACPEnvVariable: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPCreateTerminalRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPCreateTerminalRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var args: [String]?
     var command: String
@@ -990,7 +993,7 @@ struct ACPCreateTerminalRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPCreateTerminalResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPCreateTerminalResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var terminalID: String
 
@@ -1000,7 +1003,7 @@ struct ACPCreateTerminalResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPTerminalOutputRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPTerminalOutputRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var sessionID: String
     var terminalID: String
@@ -1012,7 +1015,7 @@ struct ACPTerminalOutputRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPTerminalExitStatus: Codable, Equatable, Sendable {
+nonisolated struct ACPTerminalExitStatus: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var exitCode: Int?
     var signal: String?
@@ -1024,7 +1027,7 @@ struct ACPTerminalExitStatus: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPTerminalOutputResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPTerminalOutputResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var exitStatus: ACPTerminalExitStatus?
     var output: String
@@ -1038,7 +1041,7 @@ struct ACPTerminalOutputResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPWaitForTerminalExitRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPWaitForTerminalExitRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var sessionID: String
     var terminalID: String
@@ -1050,7 +1053,7 @@ struct ACPWaitForTerminalExitRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPWaitForTerminalExitResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPWaitForTerminalExitResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var exitCode: Int?
     var signal: String?
@@ -1062,7 +1065,7 @@ struct ACPWaitForTerminalExitResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPKillTerminalRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPKillTerminalRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var sessionID: String
     var terminalID: String
@@ -1074,7 +1077,7 @@ struct ACPKillTerminalRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPKillTerminalResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPKillTerminalResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
 
     enum CodingKeys: String, CodingKey {
@@ -1082,7 +1085,7 @@ struct ACPKillTerminalResponse: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPReleaseTerminalRequest: Codable, Equatable, Sendable {
+nonisolated struct ACPReleaseTerminalRequest: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var sessionID: String
     var terminalID: String
@@ -1094,7 +1097,7 @@ struct ACPReleaseTerminalRequest: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPReleaseTerminalResponse: Codable, Equatable, Sendable {
+nonisolated struct ACPReleaseTerminalResponse: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
 
     enum CodingKeys: String, CodingKey {

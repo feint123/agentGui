@@ -1,6 +1,6 @@
 import Foundation
 
-struct TerminalExecutionOutcome: Codable, Equatable, Sendable {
+nonisolated struct TerminalExecutionOutcome: Codable, Equatable, Sendable {
     var taskId: String
     var exitCode: Int32?
     var terminationSignal: Int32?

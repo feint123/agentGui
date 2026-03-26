@@ -1,6 +1,6 @@
 import Foundation
 
-enum TerminalShellIntegrationEvent: Equatable, Sendable {
+nonisolated enum TerminalShellIntegrationEvent: Equatable, Sendable {
     case promptStart
     case promptEnd
     case commandStart
@@ -9,7 +9,7 @@ enum TerminalShellIntegrationEvent: Equatable, Sendable {
     case property(name: String, value: String)
 }
 
-struct TerminalShellIntegrationParser {
+nonisolated struct TerminalShellIntegrationParser {
     func parse(_ output: String) -> [TerminalShellIntegrationEvent] {
         let sequences = extractSequences(from: output)
         return sequences.compactMap(parseSequence)

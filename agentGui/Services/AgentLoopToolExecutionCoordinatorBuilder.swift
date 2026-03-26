@@ -69,9 +69,6 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
         input: MessageResponse.Content.Input,
         record: ToolCall
     ) async -> ToolExecutionResult? {
-        guard claudeService.currentSession?.sessionId == sessionId else {
-            return nil
-        }
         guard requestRequiresApproval(toolName: toolName, input: input) else {
             return nil
         }

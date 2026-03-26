@@ -123,7 +123,9 @@ struct SkillsView: View {
 
     private func refreshSkills() {
         skillService.clearCache()
-        skillService.loadSkills()
+        Task {
+            await skillService.loadSkills()
+        }
     }
 
     @discardableResult

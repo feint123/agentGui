@@ -69,6 +69,46 @@ enum ChatMessageListProjectionRefreshCoordinator {
     }
 }
 
+@Observable
+@MainActor
+final class ChatMessageListProjectionModel {
+    private(set) var snapshot: ChatMessageListSnapshot = .empty
+    private(set) var trigger: ChatMessageListProjectionTrigger?
+    private(set) var isInitialLoadInFlight = true
+
+    func refresh(
+        messages: [Message],
+        workspaceRoot: String,
+        showsLoadingPlaceholder: Bool = false
+    ) async {
+        if showsLoadingPlaceholder {
+            isInitialLoadInFlight = true
+        }
+
+        defer {
+            if showsLoadingPlaceholder {
+                isInitialLoadInFlight = false
+            }
+        }
+
+        await Task.yield()
+        guard !Task.isCancelled else { return }
+
+        let refreshResult = ChatMessageListProjectionRefreshCoordinator.refresh(
+            previousTrigger: trigger,
+            previousSnapshot: snapshot,
+            messages: messages,
+            workspaceRoot: workspaceRoot
+        )
+        guard refreshResult.didRefresh else {
+            return
+        }
+
+        snapshot = refreshResult.snapshot
+        trigger = refreshResult.trigger
+    }
+}
+
 @MainActor
 enum ChatMessageListSnapshotBuilder {
     static func build(

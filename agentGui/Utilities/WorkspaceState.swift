@@ -73,10 +73,16 @@ final class WorkspaceState {
     @ObservationIgnored
     private var isSynchronizingDetailSelection = false
 
+    var executionRegistry = SessionExecutionRegistry()
+
     // MARK: - State
 
     /// 当前激活的对话（nil = 无选中对话）
-    var selectedSession: Session?
+    var selectedSession: Session? {
+        didSet {
+            executionRegistry.setForegroundSession(selectedSession?.sessionId)
+        }
+    }
 
     var detailSelection: WorkbenchDetailSelection {
         if let proposalID = selectedChangeProposalID {

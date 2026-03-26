@@ -85,7 +85,7 @@ extension ClaudeService {
             apiMessages.append(MessageParameter.Message(role: .user, content: .text(text)))
         }
 
-        let turnSkillContext = try resolveTurnSkillContext(
+        let turnSkillContext = try await resolveTurnSkillContext(
             enabledSkillNames: runtimeSettings.enabledSkillNames,
             directives: []
         )
@@ -217,8 +217,8 @@ extension ClaudeService {
             writeExecutionEvidence: { self.sessionExecutionEvidence[$0] = $1 },
             readEpistemicInputs: { self.sessionEpistemicInputs[$0] ?? [] },
             writeEpistemicInputs: { self.sessionEpistemicInputs[$0] = $1 },
-            setCurrentModelId: { self.currentModelId = $0 },
-            setCurrentInputTokens: { self.currentInputTokens = $0 }
+            setCurrentModelId: { self.builtInExecutionContext(for: runtime.sessionId).currentModelID = $0 },
+            setCurrentInputTokens: { self.builtInExecutionContext(for: runtime.sessionId).currentInputTokens = $0 }
         )
         let emitter = AgentLoopHookEmitter(
             dispatcher: hookDispatcher,

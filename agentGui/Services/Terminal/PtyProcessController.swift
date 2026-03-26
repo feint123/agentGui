@@ -1,21 +1,21 @@
 import Darwin
 import Foundation
 
-struct PtyProcessResult: Equatable, Sendable {
+nonisolated struct PtyProcessResult: Equatable, Sendable {
     let pid: Int32
     let exitCode: Int32
     let rawOutput: String
     let output: String
 }
 
-enum PtyProcessControllerError: Error {
+nonisolated enum PtyProcessControllerError: Error {
     case openPtyFailed(Int32)
     case launchFailed
     case writeFailed(Int32)
     case signalFailed(Int32)
 }
 
-final class PtyProcessController {
+nonisolated final class PtyProcessController {
     private static let defaultRows: UInt16 = 24
     private static let defaultColumns: UInt16 = 80
 

@@ -4,6 +4,7 @@ enum ShellEnvironmentResolver {
     typealias LoginShellPathResolver = @Sendable ([String: String]) -> String?
     typealias LoginShellPathProcessRunner = @Sendable ([String: String]) -> String?
 
+    nonisolated
     static func resolvedEnvironment(
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         environmentOverrides: [String: String] = [:],
@@ -19,6 +20,7 @@ enum ShellEnvironmentResolver {
         return environment
     }
 
+    nonisolated
     static func resolveExecutableURL(
         command: String,
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
@@ -32,6 +34,7 @@ enum ShellEnvironmentResolver {
         return resolveExecutableURL(command: command, environment: environment, fileManager: fileManager)
     }
 
+    nonisolated
     static func resolveExecutableURL(
         command: String,
         environment: [String: String],
@@ -56,10 +59,12 @@ enum ShellEnvironmentResolver {
         return nil
     }
 
+    nonisolated
     static func resolveLoginShellPath(baseEnvironment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         resolveLoginShellPath(baseEnvironment: baseEnvironment, processRunner: defaultLoginShellPathProcessRunner)
     }
 
+    nonisolated
     static func resolveLoginShellPath(
         baseEnvironment: [String: String],
         processRunner: LoginShellPathProcessRunner
@@ -76,12 +81,14 @@ enum ShellEnvironmentResolver {
         return resolved
     }
 
+    nonisolated
     static func resetLoginShellPathCacheForTesting() {
         cacheQueue.sync {
             cachedLoginShellPaths.removeAll()
         }
     }
 
+    nonisolated
     private static func defaultLoginShellPathProcessRunner(baseEnvironment: [String: String]) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -96,6 +103,7 @@ enum ShellEnvironmentResolver {
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    nonisolated
     private static func loginShellPathCacheKey(for baseEnvironment: [String: String]) -> String {
         let keys = ["HOME", "PATH", "SHELL", "USER", "ZDOTDIR"]
         return keys.map { key in
@@ -103,6 +111,7 @@ enum ShellEnvironmentResolver {
         }.joined(separator: "\n")
     }
 
+    nonisolated
     private static func cachedLoginShellPath(for cacheKey: String) -> String? {
         cacheQueue.sync {
             cachedLoginShellPaths[cacheKey] ?? nil

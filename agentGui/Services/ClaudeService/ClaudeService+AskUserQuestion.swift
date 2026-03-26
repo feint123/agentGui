@@ -72,16 +72,15 @@ extension ClaudeService {
             return "{\"error\": \"failed to parse questions\"}"
         }
 
-        // Suspend the agentic loop. ClaudeService is @MainActor so self.pendingUserQuestion
-        // can be set directly without a Task wrapper.
+        let sessionID = activeBuiltInSessionID
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-            self.pendingUserQuestion = AskUserQuestionRequest(
+            let request = AskUserQuestionRequest(
                 questions: questions,
                 continuation: continuation
             )
+            self.publishPendingUserQuestion(request, for: sessionID)
         }
-        // Clear pending state now that the user has responded
-        self.pendingUserQuestion = nil
+        clearPendingUserQuestion(for: sessionID)
         return result
     }
 }

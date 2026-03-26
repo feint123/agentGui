@@ -118,14 +118,14 @@ extension ClaudeService {
     func resolveTurnSkillContextForTests(
         enabledSkillNames: [String],
         directives: [ChatInputDirective]
-    ) throws -> TurnSkillContext {
-        try resolveTurnSkillContext(enabledSkillNames: enabledSkillNames, directives: directives)
+    ) async throws -> TurnSkillContext {
+        try await resolveTurnSkillContext(enabledSkillNames: enabledSkillNames, directives: directives)
     }
 
     func resolveTurnSkillContext(
         enabledSkillNames: [String],
         directives: [ChatInputDirective]
-    ) throws -> TurnSkillContext {
+    ) async throws -> TurnSkillContext {
         let enabledSkills = skillService?.enabledSkills(enabledNames: enabledSkillNames) ?? []
         var effectiveSkillsByDirectory = Dictionary(uniqueKeysWithValues: enabledSkills.map { ($0.directoryName, $0) })
         var explicitlyActivatedSkills: [ExplicitlyActivatedSkill] = []
@@ -137,7 +137,7 @@ extension ClaudeService {
                     ?? skillService?.skill(namedOrDirectoryName: directiveSkill.displayName) else {
                     throw ClaudeError.missingSkill(directiveSkill.displayName)
                 }
-                guard let content = skillService?.readSkillContent(name: skill.directoryName), !content.isEmpty else {
+                guard let content = await skillService?.readSkillContent(name: skill.directoryName), !content.isEmpty else {
                     throw ClaudeError.unreadableSkill(skill.name)
                 }
 

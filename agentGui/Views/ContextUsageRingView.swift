@@ -11,10 +11,11 @@ import SwiftUI
 struct ContextUsageRingView: View {
 
     let service: ClaudeService
+    let sessionID: String
 
     @State private var isHovered = false
 
-    private var ratio: Double { min(service.contextUsageRatio, 1.0) }
+    private var ratio: Double { min(service.contextUsageRatio(for: sessionID), 1.0) }
 
     private var ringColor: Color {
         if ratio < 0.6 { return .green }
@@ -29,13 +30,13 @@ struct ContextUsageRingView: View {
     }
 
     private var compactLabel: String {
-        let t = service.currentInputTokens
+        let t = service.currentInputTokens(for: sessionID)
         if t >= 1_000 { return "\(t / 1000)k" }
         return "\(t)"
     }
 
     var body: some View {
-        if service.currentInputTokens > 0 {
+        if service.currentInputTokens(for: sessionID) > 0 {
             HStack(spacing: 5) {
                 ZStack {
                     Circle()
@@ -69,8 +70,9 @@ struct ContextUsageRingView: View {
     // MARK: - Detail Popover
 
     private var contextDetailPopover: some View {
-        let total = service.contextWindowSize(for: service.currentModelId)
-        let used = service.currentInputTokens
+        let modelID = service.currentModelID(for: sessionID)
+        let total = service.contextWindowSize(for: modelID)
+        let used = service.currentInputTokens(for: sessionID)
         let remaining = max(total - used, 0)
         let pct = Int(ratio * 100)
         let usedStr = formatTokens(used)
@@ -99,7 +101,7 @@ struct ContextUsageRingView: View {
 
             // Model
             detailRow(label: "模型") {
-                Text(service.currentModelId.isEmpty ? "—" : service.currentModelId)
+                Text(modelID.isEmpty ? "—" : modelID)
                     .font(.caption)
                     .foregroundStyle(.primary)
             }

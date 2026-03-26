@@ -18,6 +18,15 @@ actor SessionExecutionMailbox {
         queuedJobIDs.first
     }
 
+    func discardQueuedJob(jobID: UUID) -> Bool {
+        guard let index = queuedJobIDs.firstIndex(of: jobID) else {
+            return false
+        }
+
+        queuedJobIDs.remove(at: index)
+        return true
+    }
+
     func markRunning(jobID: UUID) -> Bool {
         guard runningJobID == nil, queuedJobIDs.first == jobID else {
             return false

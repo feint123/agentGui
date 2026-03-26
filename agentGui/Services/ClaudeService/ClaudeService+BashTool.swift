@@ -52,13 +52,15 @@ extension ClaudeService {
 
     func requestPromptUserAction(for decision: TerminalPromptDecision) async -> TerminalPromptUserAction {
         let questions = makeAskUserQuestions(for: decision)
+        let sessionID = activeBuiltInSessionID
         let response = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-            self.pendingUserQuestion = AskUserQuestionRequest(
+            let request = AskUserQuestionRequest(
                 questions: questions,
                 continuation: continuation
             )
+            self.publishPendingUserQuestion(request, for: sessionID)
         }
-        self.pendingUserQuestion = nil
+        clearPendingUserQuestion(for: sessionID)
         return resolvePromptUserAction(from: response, decision: decision)
     }
 

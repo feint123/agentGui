@@ -1,6 +1,6 @@
 import Foundation
 
-protocol ACPClientHandler: AnyObject {
+nonisolated protocol ACPClientHandler: AnyObject {
     func handleSessionUpdate(_ notification: ACPSessionNotification) async
     func handleRequestPermission(_ request: ACPRequestPermissionRequest) async throws -> ACPRequestPermissionResponse?
     func handleReadTextFile(_ request: ACPReadTextFileRequest) async throws -> ACPReadTextFileResponse?

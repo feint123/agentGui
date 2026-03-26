@@ -141,7 +141,7 @@ extension ClaudeService {
             guard let skillName = input["name"]?.stringValue else {
                 return .missingParameter("name")
             }
-            if let content = skillService?.readSkillContent(name: skillName) {
+            if let content = await skillService?.readSkillContent(name: skillName) {
                 return .success(content)
             }
             return .failure("Error: skill '\(skillName)' not found")
@@ -230,7 +230,7 @@ extension ClaudeService {
             guard let skillName = input["name"]?.stringValue else {
                 return .missingParameter("name")
             }
-            if let content = skillService?.readSkillContent(name: skillName) {
+            if let content = await skillService?.readSkillContent(name: skillName) {
                 return .success(content)
             }
             return .failure("Error: skill '\(skillName)' not found")

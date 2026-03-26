@@ -3,7 +3,7 @@ import Foundation
 actor ExecutionScheduler {
     private let maxConcurrentJobs: Int
     private var runningJobsBySessionID: [String: UUID] = [:]
-    private var runningRuntimeScopesBySessionID: [String: ConversationExecutionRuntimeScope] = [:]
+    private var runningProviderIDsBySessionID: [String: ConversationExecutionProviderID] = [:]
 
     init(maxConcurrentJobs: Int) {
         self.maxConcurrentJobs = max(1, maxConcurrentJobs)
@@ -14,7 +14,7 @@ actor ExecutionScheduler {
 
         var admitted: [ExecutionSchedulingCandidate] = []
         var reservedSessionIDs = Set<String>()
-        var reservedRuntimeScopes = Set<ConversationExecutionRuntimeScope>()
+        var reservedSessionCountsByProviderID: [ConversationExecutionProviderID: Int] = [:]
 
         for candidate in candidates {
             guard runningJobsBySessionID.count + admitted.count < maxConcurrentJobs else {
@@ -26,23 +26,20 @@ actor ExecutionScheduler {
             guard reservedSessionIDs.insert(candidate.sessionID).inserted else {
                 continue
             }
-            if let runtimeScope = candidate.runtimeScope {
-                guard runningRuntimeScopesBySessionID.values.contains(runtimeScope) == false else {
-                    continue
-                }
-                guard reservedRuntimeScopes.insert(runtimeScope).inserted else {
-                    continue
-                }
+            let providerSessionCount = runningProviderIDsBySessionID.values.filter { $0 == candidate.providerID }.count
+            let reservedProviderSessionCount = reservedSessionCountsByProviderID[candidate.providerID, default: 0]
+            guard providerSessionCount + reservedProviderSessionCount < candidate.capacityPolicy.maxConcurrentSessions else {
+                reservedSessionIDs.remove(candidate.sessionID)
+                continue
             }
 
             admitted.append(candidate)
+            reservedSessionCountsByProviderID[candidate.providerID, default: 0] += 1
         }
 
         for candidate in admitted {
             runningJobsBySessionID[candidate.sessionID] = candidate.jobID
-            if let runtimeScope = candidate.runtimeScope {
-                runningRuntimeScopesBySessionID[candidate.sessionID] = runtimeScope
-            }
+            runningProviderIDsBySessionID[candidate.sessionID] = candidate.providerID
         }
 
         return admitted
@@ -54,6 +51,6 @@ actor ExecutionScheduler {
         }
 
         runningJobsBySessionID.removeValue(forKey: sessionID)
-        runningRuntimeScopesBySessionID.removeValue(forKey: sessionID)
+        runningProviderIDsBySessionID.removeValue(forKey: sessionID)
     }
 }

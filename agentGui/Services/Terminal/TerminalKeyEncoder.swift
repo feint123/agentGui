@@ -1,6 +1,6 @@
 import Foundation
 
-struct TerminalKeyEncoder {
+nonisolated struct TerminalKeyEncoder {
     func encode(_ key: TerminalKey) -> String {
         switch key {
         case .enter:

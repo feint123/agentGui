@@ -7,16 +7,16 @@ import SwiftUI
 
 extension ChatView {
 
-    var currentMessageListWorkspaceRoot: String {
-        let globalWorkingDirectory = AppSettings.getOrCreate(in: modelContext).workingDirectory
-        return workspaceState.effectiveWorkingDirectory(globalDefault: globalWorkingDirectory)
-    }
-
     var currentMessageListProjectionTrigger: ChatMessageListProjectionTrigger {
         ChatMessageListProjectionTrigger(
             messages: allMessages,
             workspaceRoot: currentMessageListWorkspaceRoot
         )
+    }
+
+    var currentMessageListWorkspaceRoot: String {
+        let globalWorkingDirectory = AppSettings.getOrCreate(in: modelContext).workingDirectory
+        return workspaceState.effectiveWorkingDirectory(globalDefault: globalWorkingDirectory)
     }
 
     func refreshMessageListSnapshotForCurrentState(
@@ -35,17 +35,24 @@ extension ChatView {
 
     @ViewBuilder
     var messagesArea: some View {
-        switch ChatMessageListPresentationState.resolve(
-            isInitialLoadInFlight: isInitialMessageListLoadInFlight,
-            isClearingMessages: isClearingMessages,
-            snapshot: messageListSnapshot
-        ) {
-        case .loading:
-            messageListLoadingView
-        case .empty:
-            emptyStateView
-        case .content:
-            messageListView
+        let projectionTrigger = currentMessageListProjectionTrigger
+
+        Group {
+            switch ChatMessageListPresentationState.resolve(
+                isInitialLoadInFlight: messageListProjectionModel.isInitialLoadInFlight,
+                isClearingMessages: isClearingMessages,
+                snapshot: messageListProjectionModel.snapshot
+            ) {
+            case .loading:
+                messageListLoadingView
+            case .empty:
+                emptyStateView
+            case .content:
+                messageListView
+            }
+        }
+        .task(id: projectionTrigger) {
+            await refreshMessageListSnapshotForCurrentState()
         }
     }
 
@@ -115,16 +122,11 @@ extension ChatView {
 
     var messageListView: some View {
         let projectedMessages = allMessages
-        let workspaceRoot = currentMessageListWorkspaceRoot
-        let projectionTrigger = ChatMessageListProjectionTrigger(
-            messages: projectedMessages,
-            workspaceRoot: workspaceRoot
-        )
         let messagesByID = Dictionary(uniqueKeysWithValues: projectedMessages.map { ($0.id, $0) })
 
         return ScrollViewReader { proxy in
             List {
-                ForEach(messageListSnapshot.rows) { row in
+                ForEach(messageListProjectionModel.snapshot.rows) { row in
                     if let message = messagesByID[row.id] {
                         MessageBubbleView(
                             snapshot: row,
@@ -166,9 +168,6 @@ extension ChatView {
             }
             .listStyle(.plain)
             .accessibilityIdentifier("chat.messageList")
-            .task(id: projectionTrigger) {
-                await refreshMessageListSnapshotForCurrentState()
-            }
             .onChange(of: allMessages.last?.id) { _, _ in
                 guard let last = allMessages.last else { return }
                 if ChatMessageListAutoScrollPolicy.shouldScrollOnMessageAppend(
@@ -204,30 +203,10 @@ extension ChatView {
         workspaceRoot: String,
         showsLoadingPlaceholder: Bool = false
     ) async {
-        if showsLoadingPlaceholder {
-            isInitialMessageListLoadInFlight = true
-        }
-
-        defer {
-            if showsLoadingPlaceholder {
-                isInitialMessageListLoadInFlight = false
-            }
-        }
-
-        await Task.yield()
-        guard !Task.isCancelled else { return }
-
-        let refreshResult = ChatMessageListProjectionRefreshCoordinator.refresh(
-            previousTrigger: messageListProjectionTrigger,
-            previousSnapshot: messageListSnapshot,
+        await messageListProjectionModel.refresh(
             messages: messages,
-            workspaceRoot: workspaceRoot
+            workspaceRoot: workspaceRoot,
+            showsLoadingPlaceholder: showsLoadingPlaceholder
         )
-        guard refreshResult.didRefresh else {
-            return
-        }
-
-        messageListSnapshot = refreshResult.snapshot
-        messageListProjectionTrigger = refreshResult.trigger
     }
 }

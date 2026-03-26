@@ -15,12 +15,11 @@ enum ClaudeAdapterCLIExecutionProviderError: LocalizedError {
     }
 }
 
-@MainActor
 protocol ClaudeAdapterCLIRuntimeClient: ACPExternalProviderRuntimeClient, ACPExternalProviderRuntimeTransportClient {}
 
 extension ACPExternalAgentRuntimeClient: ClaudeAdapterCLIRuntimeClient {}
 
-typealias ClaudeAdapterCLIRuntimeClientFactory = @MainActor (
+typealias ClaudeAdapterCLIRuntimeClientFactory = @Sendable (
     ACPExternalAgentLaunchConfiguration,
     TerminalTaskRuntime,
     ToolAuthorizationPolicy,
@@ -30,15 +29,15 @@ typealias ClaudeAdapterCLIRuntimeClientFactory = @MainActor (
 
 @MainActor
 final class ClaudeAdapterCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCLIConfiguration> {
-    private let runtimeFactory: ClaudeAdapterCLIRuntimeFactory
+    nonisolated private let runtimeFactory: ClaudeAdapterCLIRuntimeFactory
     private let availabilityService: ClaudeAdapterCLIAvailabilityService
-    private let runtimeClientFactory: ClaudeAdapterCLIRuntimeClientFactory
+    nonisolated private let runtimeClientFactory: ClaudeAdapterCLIRuntimeClientFactory
 
     init(
         runtimeFactory: ClaudeAdapterCLIRuntimeFactory = ClaudeAdapterCLIRuntimeFactory(),
         availabilityService: ClaudeAdapterCLIAvailabilityService = ClaudeAdapterCLIAvailabilityService(),
-        terminalRuntimeFactory: @escaping (String, String?) -> TerminalTaskRuntime,
-        sessionRuntimeResetter: @escaping @MainActor (String) -> Void = { _ in },
+        terminalRuntimeFactory: @escaping ACPExternalTerminalRuntimeFactory,
+        sessionRuntimeResetter: @escaping ACPExternalSessionRuntimeResetter = { _ in },
         permissionCenter: ACPPermissionCenter,
         authorizationPolicyFactory: ConversationAuthorizationPolicyFactory = ConversationAuthorizationPolicyFactory(),
         runtimeClientFactory: @escaping ClaudeAdapterCLIRuntimeClientFactory = ClaudeAdapterCLIExecutionProvider.makeRuntimeClient
@@ -80,9 +79,9 @@ final class ClaudeAdapterCLIExecutionProvider: ACPExternalExecutionProviderBase<
         ToolApprovalMode.resolved(from: configuration.defaultApprovalMode)
     }
 
-    override func buildRuntimeClient(
+    override nonisolated func buildRuntimeClient(
         configuration: ACPCLIConfiguration,
-        session: Session,
+        localSessionID: String,
         workingDirectory: String,
         authorizationPolicy: ToolAuthorizationPolicy,
         permissionResolver: @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
@@ -92,7 +91,7 @@ final class ClaudeAdapterCLIExecutionProvider: ACPExternalExecutionProviderBase<
             executablePath: configuration.executablePath,
             workingDirectory: workingDirectory
         )
-        let terminalRuntime = makeTerminalRuntime(sessionID: session.sessionId, workingDirectory: workingDirectory)
+        let terminalRuntime = await makeTerminalRuntime(sessionID: localSessionID, workingDirectory: workingDirectory)
         return try runtimeClientFactory(
             launchConfiguration,
             terminalRuntime,
@@ -163,7 +162,7 @@ final class ClaudeAdapterCLIExecutionProvider: ACPExternalExecutionProviderBase<
         )
     }
 
-    private static func makeRuntimeClient(
+    nonisolated private static func makeRuntimeClient(
         launchConfiguration: ACPExternalAgentLaunchConfiguration,
         terminalRuntime: TerminalTaskRuntime,
         authorizationPolicy: ToolAuthorizationPolicy,

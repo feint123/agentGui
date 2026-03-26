@@ -1,7 +1,7 @@
 import Foundation
 
-struct ACPSessionRuntimeStateMachine: Sendable {
-    enum Event: Sendable {
+nonisolated struct ACPSessionRuntimeStateMachine: Sendable {
+    nonisolated enum Event: Sendable {
         case startRuntime
         case runtimeStarted
         case beginRestore
@@ -14,7 +14,7 @@ struct ACPSessionRuntimeStateMachine: Sendable {
         case finishClose
     }
 
-    enum Error: Swift.Error, Equatable {
+    nonisolated enum Error: Swift.Error, Equatable {
         case invalidTransition(from: ACPSessionRuntimePhase, event: Event)
     }
 

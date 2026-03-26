@@ -1,12 +1,12 @@
 import Foundation
 
-enum ACPTransportError: Error, Equatable {
+nonisolated enum ACPTransportError: Error, Equatable {
     case invalidMessageShape
     case closed
 }
 
-struct ACPStreamEvent: Sendable {
-    enum Direction: String, Sendable {
+nonisolated struct ACPStreamEvent: Sendable {
+    nonisolated enum Direction: String, Sendable {
         case incoming
         case outgoing
     }
@@ -35,7 +35,7 @@ actor ACPLineWriter {
     }
 }
 
-final class ACPTransport {
+nonisolated final class ACPTransport {
     private let reader: FileHandle
     private let writer: ACPLineWriter
     private let decoder: JSONDecoder

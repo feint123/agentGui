@@ -13,6 +13,7 @@ import SwiftData
 @Observable
 @MainActor
 final class ClaudeService {
+    private static let fallbackBuiltInSessionID = "__global__"
 
     // MARK: - Observable State
 
@@ -21,13 +22,28 @@ final class ClaudeService {
     var lastError: String?
 
     /// 当 Claude 调用 ask_user_question 时设置，触发 ChatView 弹出问题 sheet
-    var pendingUserQuestion: AskUserQuestionRequest?
+    var pendingUserQuestion: AskUserQuestionRequest? {
+        get { pendingUserQuestion(for: activeBuiltInSessionID) }
+        set {
+            if let newValue {
+                publishPendingUserQuestion(newValue, for: activeBuiltInSessionID)
+            } else {
+                clearPendingUserQuestion(for: activeBuiltInSessionID)
+            }
+        }
+    }
 
     /// 当前请求的输入 token 数（来自 message_start 事件）
-    var currentInputTokens: Int = 0
+    var currentInputTokens: Int {
+        get { currentInputTokens(for: activeBuiltInSessionID) }
+        set { builtInExecutionContext(for: activeBuiltInSessionID).currentInputTokens = newValue }
+    }
 
     /// 当前正在使用的模型 ID（用于计算上下文窗口大小）
-    var currentModelId: String = ""
+    var currentModelId: String {
+        get { currentModelID(for: activeBuiltInSessionID) }
+        set { builtInExecutionContext(for: activeBuiltInSessionID).currentModelID = newValue }
+    }
 
     // MARK: - Context Window Helpers
 
@@ -44,6 +60,14 @@ final class ClaudeService {
         return Double(currentInputTokens) / Double(windowSize)
     }
 
+    func contextUsageRatio(for sessionID: String) -> Double {
+        let modelID = currentModelID(for: sessionID)
+        let inputTokens = currentInputTokens(for: sessionID)
+        let windowSize = contextWindowSize(for: modelID)
+        guard windowSize > 0, inputTokens > 0 else { return 0 }
+        return Double(inputTokens) / Double(windowSize)
+    }
+
     // MARK: - Internal Storage
 
     var service: (any AnthropicService)?
@@ -53,6 +77,8 @@ final class ClaudeService {
 
     /// 每个 Session 对应一个 PTY terminal runtime（key = sessionId）
     var terminalTaskRuntimes: [String: TerminalTaskRuntime] = [:]
+
+    let externalACPTerminalRuntimeStore = ExternalACPTerminalRuntimeStore()
 
     /// 每个 Session 的 TodoList（key = sessionId）
     var sessionTodoLists: [String: [TodoItem]] = [:]
@@ -119,6 +145,12 @@ final class ClaudeService {
     /// Optional structured business log sink used by tests and future observability integration.
     var businessLogSink: BusinessLogSink?
 
+    /// Built-in execution state is now tracked per session instead of globally.
+    var builtInSessionExecutionRegistry = BuiltInSessionExecutionRegistry()
+
+    /// User-facing interactions that must remain attached to the originating session.
+    var sessionInteractionCenter = SessionInteractionCenter()
+
     /// The Session currently being processed for the active turn.
     var currentSession: Session?
 
@@ -126,19 +158,54 @@ final class ClaudeService {
     var executionProviderRegistry: ConversationExecutionProviderRegistry?
 
     /// Per-session execution projections used by the queue-aware runtime migration.
-    var executionProjectionStore = ExecutionProjectionStore()
+    var executionProjectionStore: ExecutionProjectionStore
 
     /// Optional job-driven execution orchestrator. When unset, messaging falls back to the legacy provider path.
     var executionOrchestrator: ConversationExecutionOrchestrator?
 
     /// Shared runtime activation coordinator used to coordinate providers that share an execution runtime scope.
-    var executionRuntimeCoordinator = ConversationExecutionRuntimeCoordinator()
+    var executionRuntimeCoordinator: ConversationExecutionRuntimeCoordinator
 
     /// Shared ACP permission center used by external ACP-backed executors.
     var acpPermissionCenter = ACPPermissionCenter()
 
     init() {
+        let projectionStore = ExecutionProjectionStore()
+        executionProjectionStore = projectionStore
+        executionRuntimeCoordinator = ConversationExecutionRuntimeCoordinator(
+            projectionStore: projectionStore
+        )
         bindLSPInstallPresentationObserver()
+    }
+
+    var activeBuiltInSessionID: String {
+        currentSession?.sessionId ?? Self.fallbackBuiltInSessionID
+    }
+
+    func builtInExecutionContext(for sessionID: String) -> BuiltInSessionExecutionContext {
+        builtInSessionExecutionRegistry.context(for: sessionID)
+    }
+
+    func currentInputTokens(for sessionID: String) -> Int {
+        builtInSessionExecutionRegistry.currentInputTokens(for: sessionID)
+    }
+
+    func currentModelID(for sessionID: String) -> String {
+        builtInSessionExecutionRegistry.currentModelID(for: sessionID)
+    }
+
+    func pendingUserQuestion(for sessionID: String) -> AskUserQuestionRequest? {
+        sessionInteractionCenter.userQuestion(for: sessionID)
+    }
+
+    func publishPendingUserQuestion(_ request: AskUserQuestionRequest, for sessionID: String) {
+        builtInExecutionContext(for: sessionID).pendingUserQuestion = request
+        sessionInteractionCenter.publishUserQuestion(request, for: sessionID)
+    }
+
+    func clearPendingUserQuestion(for sessionID: String) {
+        builtInExecutionContext(for: sessionID).pendingUserQuestion = nil
+        sessionInteractionCenter.clearUserQuestion(for: sessionID)
     }
 
     // MARK: - Configuration
@@ -181,6 +248,9 @@ final class ClaudeService {
     func resetBashSessions() {
         bashTaskRegistries.removeAll()
         terminalTaskRuntimes.removeAll()
+        Task {
+            await externalACPTerminalRuntimeStore.resetAll()
+        }
     }
 
     private func bindLSPPresentationObserver() {

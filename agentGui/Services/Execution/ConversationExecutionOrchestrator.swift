@@ -76,7 +76,11 @@ final class ConversationExecutionOrchestrator {
                 canEditComposer: true,
                 canSubmitNewJob: true,
                 activeProviderID: command.providerID,
-                currentPhase: currentProjection.currentPhase
+                currentPhase: currentProjection.currentPhase,
+                activityState: currentProjection.isRunning ? .running : .queued,
+                presentationState: currentProjection.presentationState,
+                needsAttention: currentProjection.needsAttention,
+                attentionReason: currentProjection.attentionReason
             )
         )
 
@@ -128,7 +132,11 @@ final class ConversationExecutionOrchestrator {
                     canEditComposer: true,
                     canSubmitNewJob: true,
                     activeProviderID: activeProviderIDsBySessionID[sessionID],
-                    currentPhase: nil
+                    currentPhase: nil,
+                    activityState: .queued,
+                    presentationState: currentProjection(for: sessionID).presentationState,
+                    needsAttention: false,
+                    attentionReason: nil
                 )
             )
         }
@@ -148,31 +156,54 @@ final class ConversationExecutionOrchestrator {
 
     private func dispatchReadyJobs() async {
         var candidates: [ExecutionSchedulingCandidate] = []
+        var prunedInvalidHeadJob = false
         for (sessionID, mailbox) in mailboxes {
-            if let jobID = await mailbox.peekNextJobID(),
-               let job = try? persistenceStore.job(id: jobID) {
-                candidates.append(
-                    ExecutionSchedulingCandidate(
-                        sessionID: sessionID,
-                        jobID: jobID,
-                        runtimeScope: providerRegistry.provider(for: job.providerID).runtimeScope
+            if let jobID = await mailbox.peekNextJobID() {
+                if let job = try? persistenceStore.job(id: jobID) {
+                    candidates.append(
+                        ExecutionSchedulingCandidate(
+                            sessionID: sessionID,
+                            jobID: jobID,
+                            providerID: job.providerID,
+                            capacityPolicy: providerRegistry.capacityPolicy(for: job.providerID)
+                        )
                     )
-                )
+                } else if await pruneInvalidQueuedJob(sessionID: sessionID, jobID: jobID, mailbox: mailbox) {
+                    prunedInvalidHeadJob = true
+                }
             }
         }
 
+        if prunedInvalidHeadJob {
+            await dispatchReadyJobs()
+            return
+        }
+
         let admitted = await scheduler.admitReadyJobs(candidates)
-        for candidate in admitted {
-            await dispatch(candidate)
+        let dispatchTasks = admitted.map { candidate in
+            Task { @MainActor [weak self] in
+                await self?.dispatch(candidate)
+            }
+        }
+
+        for task in dispatchTasks {
+            await task.value
         }
     }
 
     private func dispatch(_ candidate: ExecutionSchedulingCandidate) async {
         let mailbox = mailbox(for: candidate.sessionID)
-        guard await mailbox.markRunning(jobID: candidate.jobID),
-              let job = try? persistenceStore.job(id: candidate.jobID),
-              let session = try? persistenceStore.session(id: candidate.sessionID) else {
+        guard await mailbox.markRunning(jobID: candidate.jobID) else {
             await scheduler.markFinished(jobID: candidate.jobID, sessionID: candidate.sessionID)
+            return
+        }
+
+        guard let job = try? persistenceStore.job(id: candidate.jobID),
+              let session = try? persistenceStore.session(id: candidate.sessionID) else {
+            _ = await mailbox.finishRunning(jobID: candidate.jobID)
+            await scheduler.markFinished(jobID: candidate.jobID, sessionID: candidate.sessionID)
+            _ = await pruneInvalidQueuedJob(sessionID: candidate.sessionID, jobID: candidate.jobID, mailbox: mailbox)
+            await dispatchReadyJobs()
             return
         }
 
@@ -191,7 +222,7 @@ final class ConversationExecutionOrchestrator {
             activeProvider: provider,
             registry: providerRegistry,
             modelContext: modelContext,
-            trigger: .selection
+            trigger: .executionDispatch
         )
 
         if pendingCancellationJobIDs.remove(job.id) != nil {
@@ -413,8 +444,17 @@ final class ConversationExecutionOrchestrator {
                 canEditComposer: true,
                 canSubmitNewJob: true,
                 activeProviderID: activeProviderID,
-                currentPhase: nil
+                currentPhase: nil,
+                activityState: currentProjection.queuedJobIDs.isEmpty ? .idle : .queued,
+                presentationState: currentProjection.presentationState,
+                needsAttention: false,
+                attentionReason: nil
             )
+        )
+
+        await runtimeCoordinator.reconcileRuntimeRetention(
+            registry: providerRegistry,
+            modelContext: modelContext
         )
 
         await dispatchReadyJobs()
@@ -437,7 +477,73 @@ final class ConversationExecutionOrchestrator {
                 canEditComposer: true,
                 canSubmitNewJob: true,
                 activeProviderID: providerID,
-                currentPhase: .executing
+                currentPhase: .executing,
+                activityState: .running,
+                presentationState: currentProjection.presentationState,
+                needsAttention: currentProjection.needsAttention,
+                attentionReason: currentProjection.attentionReason
+            )
+        )
+    }
+
+    private func currentProjection(for sessionID: String) -> SessionExecutionProjection {
+        projectionStore.projection(for: sessionID)
+    }
+
+    private func pruneInvalidQueuedJob(
+        sessionID: String,
+        jobID: UUID,
+        mailbox: SessionExecutionMailbox
+    ) async -> Bool {
+        guard await mailbox.discardQueuedJob(jobID: jobID) else {
+            let currentProjection = currentProjection(for: sessionID)
+            let queuedJobIDs = currentProjection.queuedJobIDs.filter { $0 != jobID }
+            guard queuedJobIDs.count != currentProjection.queuedJobIDs.count else {
+                return false
+            }
+
+            updateProjectionAfterPruningQueuedJob(sessionID: sessionID, queuedJobIDs: queuedJobIDs)
+            return true
+        }
+
+        let currentProjection = currentProjection(for: sessionID)
+        let queuedJobIDs = currentProjection.queuedJobIDs.filter { $0 != jobID }
+        updateProjectionAfterPruningQueuedJob(sessionID: sessionID, queuedJobIDs: queuedJobIDs)
+        return true
+    }
+
+    private func updateProjectionAfterPruningQueuedJob(
+        sessionID: String,
+        queuedJobIDs: [UUID]
+    ) {
+        let currentProjection = currentProjection(for: sessionID)
+        let activeProviderID = queuedJobIDs.isEmpty && !currentProjection.isRunning
+            ? nil
+            : currentProjection.activeProviderID
+        let activityState: SessionExecutionActivityState
+        if currentProjection.isRunning {
+            activityState = .running
+        } else if queuedJobIDs.isEmpty {
+            activityState = .idle
+        } else {
+            activityState = .queued
+        }
+
+        projectionStore.setProjection(
+            SessionExecutionProjection(
+                sessionID: sessionID,
+                runningJobID: currentProjection.runningJobID,
+                queuedJobIDs: queuedJobIDs,
+                queuedCount: queuedJobIDs.count,
+                isRunning: currentProjection.isRunning,
+                canEditComposer: true,
+                canSubmitNewJob: true,
+                activeProviderID: activeProviderID,
+                currentPhase: currentProjection.currentPhase,
+                activityState: activityState,
+                presentationState: currentProjection.presentationState,
+                needsAttention: currentProjection.needsAttention,
+                attentionReason: currentProjection.attentionReason
             )
         )
     }

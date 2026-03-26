@@ -1,6 +1,6 @@
 import Foundation
 
-enum ACPExternalAgentRuntimeError: LocalizedError, Equatable {
+nonisolated enum ACPExternalAgentRuntimeError: LocalizedError, Equatable {
     case sessionAlreadyAttached(current: String, requested: String)
     case initializeTimedOut
     case runtimeNotRunning
@@ -21,7 +21,7 @@ private enum ACPExternalSessionRestoreError: Error {
     case timedOut
 }
 
-struct ACPExternalAgentLaunchConfiguration: Equatable, Sendable {
+nonisolated struct ACPExternalAgentLaunchConfiguration: Equatable, Sendable {
     let command: String
     let arguments: [String]
     let environmentOverrides: [String: String]
@@ -40,18 +40,18 @@ struct ACPExternalAgentLaunchConfiguration: Equatable, Sendable {
     }
 }
 
-struct ACPExternalAgentCapabilitySnapshot: Codable, Equatable, Sendable {
+nonisolated struct ACPExternalAgentCapabilitySnapshot: Codable, Equatable, Sendable {
     let loadSession: Bool
     let supportsSessionModelOverride: Bool
     let agentVersion: String?
 }
 
-struct ACPExternalAgentSessionConfigurationSnapshot: Codable, Equatable, Sendable {
+nonisolated struct ACPExternalAgentSessionConfigurationSnapshot: Codable, Equatable, Sendable {
     let configOptions: [ACPSessionConfigOption]
     let modes: ACPSessionModeState?
 }
 
-struct ACPExternalAgentSessionHandshake: Codable, Equatable, Sendable {
+nonisolated struct ACPExternalAgentSessionHandshake: Codable, Equatable, Sendable {
     let remoteSessionID: String
     let capabilities: ACPExternalAgentCapabilitySnapshot
     let configurationSnapshot: ACPExternalAgentSessionConfigurationSnapshot
@@ -128,8 +128,7 @@ private actor ACPExternalAgentClientHandler: ACPClientHandler {
     }
 }
 
-@MainActor
-final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACPExternalProviderRuntimeTransportClient {
+nonisolated final class ACPExternalAgentRuntimeClient: @unchecked Sendable, ACPExternalProviderRuntimeClient, ACPExternalProviderRuntimeTransportClient {
     nonisolated private static let defaultLoadSessionTimeoutNanoseconds: UInt64 = 15_000_000_000
     nonisolated private static let defaultInitializeTimeoutNanoseconds: UInt64 = 15_000_000_000
 
@@ -138,6 +137,7 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
     private let loadSessionTimeoutNanoseconds: UInt64
     private let debugID: String
     private let debugLogger: (@Sendable (String) -> Void)?
+    private let stateLock = NSLock()
     private var capabilitySnapshot: ACPExternalAgentCapabilitySnapshot?
     private var attachedSessionHandshake: ACPExternalAgentSessionHandshake?
 
@@ -202,15 +202,17 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
     }
 
     func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> ACPExternalAgentSessionHandshake {
+        let currentHandshake = currentAttachedSessionHandshake()
+        let hasCachedCapabilities = currentCapabilitySnapshot() != nil
         debugLog(
-            "ensureSession start requestedRemote=\(remoteSessionID?.nonEmptyValue ?? "nil") workingDirectory=\(workingDirectory) attachedRemote=\(attachedSessionHandshake?.remoteSessionID ?? "nil") cachedCapabilities=\(capabilitySnapshot != nil) runtimeRunning=\(managedRuntime.isRunning)"
+            "ensureSession start requestedRemote=\(remoteSessionID?.nonEmptyValue ?? "nil") workingDirectory=\(workingDirectory) attachedRemote=\(currentHandshake?.remoteSessionID ?? "nil") cachedCapabilities=\(hasCachedCapabilities) runtimeRunning=\(managedRuntime.isRunning)"
         )
         let capabilities = try await initializeIfNeeded()
         debugLog(
             "ensureSession capabilities loadSession=\(capabilities.loadSession) supportsSessionModelOverride=\(capabilities.supportsSessionModelOverride) agentVersion=\(capabilities.agentVersion ?? "nil")"
         )
 
-        if let attachedSessionHandshake {
+        if let attachedSessionHandshake = currentAttachedSessionHandshake() {
             if let remoteSessionID = remoteSessionID?.nonEmptyValue {
                 guard attachedSessionHandshake.remoteSessionID == remoteSessionID else {
                     debugLog(
@@ -259,7 +261,7 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
             remoteSessionID: remoteSessionID,
             capabilities: capabilities
         ) {
-            attachedSessionHandshake = handshake
+            setAttachedSessionHandshake(handshake)
             return handshake
         }
 
@@ -280,7 +282,7 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
                 modes: response.modes
             )
         )
-        attachedSessionHandshake = handshake
+        setAttachedSessionHandshake(handshake)
         debugLog("createSession complete remote=\(handshake.remoteSessionID)")
         return handshake
     }
@@ -291,9 +293,9 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
         _ = try await managedRuntime.runtime.setSessionMode(
             ACPSetSessionModeRequest(meta: nil, modeID: modeID, sessionID: sessionID)
         )
-        if let currentHandshake = self.attachedSessionHandshake,
+        if let currentHandshake = currentAttachedSessionHandshake(),
            currentHandshake.remoteSessionID == sessionID {
-            self.attachedSessionHandshake = Self.updatingMode(modeID, in: currentHandshake)
+            setAttachedSessionHandshake(Self.updatingMode(modeID, in: currentHandshake))
         }
         debugLog("setSessionMode complete session=\(sessionID) mode=\(modeID)")
     }
@@ -304,16 +306,16 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
         let response = try await managedRuntime.runtime.setSessionConfigOption(
             ACPSetSessionConfigOptionRequest(meta: nil, configID: configID, sessionID: sessionID, value: value)
         )
-        if let currentHandshake = self.attachedSessionHandshake,
+        if let currentHandshake = currentAttachedSessionHandshake(),
            currentHandshake.remoteSessionID == sessionID {
-            self.attachedSessionHandshake = ACPExternalAgentSessionHandshake(
+            setAttachedSessionHandshake(ACPExternalAgentSessionHandshake(
                 remoteSessionID: currentHandshake.remoteSessionID,
                 capabilities: currentHandshake.capabilities,
                 configurationSnapshot: ACPExternalAgentSessionConfigurationSnapshot(
                     configOptions: response.configOptions,
                     modes: currentHandshake.configurationSnapshot.modes
                 )
-            )
+            ))
         }
         debugLog("setSessionConfigOption complete session=\(sessionID) configID=\(configID) count=\(response.configOptions.count)")
         return response.configOptions
@@ -339,11 +341,11 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
     }
 
     func close() async {
+        let currentHandshake = currentAttachedSessionHandshake()
         debugLog(
-            "close start attachedRemote=\(attachedSessionHandshake?.remoteSessionID ?? "nil") runtimeRunning=\(managedRuntime.isRunning)"
+            "close start attachedRemote=\(currentHandshake?.remoteSessionID ?? "nil") runtimeRunning=\(managedRuntime.isRunning)"
         )
-        attachedSessionHandshake = nil
-        capabilitySnapshot = nil
+        clearSessionState()
         await managedRuntime.close()
         debugLog("close complete")
     }
@@ -377,8 +379,9 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
         debugLog(
             "loadSession start remote=\(request.sessionID) cwd=\(request.cwd) timeoutNs=\(loadSessionTimeoutNanoseconds)"
         )
-        let loadTask = Task { @MainActor [managedRuntime] in
-            try await managedRuntime.runtime.loadSession(request)
+        let runtime = managedRuntime.runtime
+        let loadTask = Task {
+            try await runtime.loadSession(request)
         }
 
         defer { loadTask.cancel() }
@@ -408,7 +411,7 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
             throw ACPExternalAgentRuntimeError.runtimeNotRunning
         }
 
-        if let capabilitySnapshot {
+        if let capabilitySnapshot = currentCapabilitySnapshot() {
             debugLog("initialize reuse cached capabilities")
             return capabilitySnapshot
         }
@@ -438,16 +441,50 @@ final class ACPExternalAgentRuntimeClient: ACPExternalProviderRuntimeClient, ACP
             supportsSessionModelOverride: false,
             agentVersion: response.agentInfo?.version
         )
-        capabilitySnapshot = capabilities
+        setCapabilitySnapshot(capabilities)
         debugLog(
             "initialize complete loadSession=\(capabilities.loadSession) supportsSessionModelOverride=\(capabilities.supportsSessionModelOverride) agentVersion=\(capabilities.agentVersion ?? "nil")"
         )
         return capabilities
     }
 
+    private func currentCapabilitySnapshot() -> ACPExternalAgentCapabilitySnapshot? {
+        withStateLock { capabilitySnapshot }
+    }
+
+    private func setCapabilitySnapshot(_ snapshot: ACPExternalAgentCapabilitySnapshot?) {
+        withStateLock {
+            capabilitySnapshot = snapshot
+        }
+    }
+
+    private func currentAttachedSessionHandshake() -> ACPExternalAgentSessionHandshake? {
+        withStateLock { attachedSessionHandshake }
+    }
+
+    private func setAttachedSessionHandshake(_ handshake: ACPExternalAgentSessionHandshake?) {
+        withStateLock {
+            attachedSessionHandshake = handshake
+        }
+    }
+
+    private func clearSessionState() {
+        withStateLock {
+            attachedSessionHandshake = nil
+            capabilitySnapshot = nil
+        }
+    }
+
+    private func withStateLock<T>(_ body: () -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return body()
+    }
+
     private func initializeWithTimeout(_ request: ACPInitializeRequest) async throws -> ACPInitializeResponse {
-        let initializeTask = Task { @MainActor [managedRuntime] in
-            try await managedRuntime.runtime.initialize(request)
+        let runtime = managedRuntime.runtime
+        let initializeTask = Task {
+            try await runtime.initialize(request)
         }
 
         defer { initializeTask.cancel() }

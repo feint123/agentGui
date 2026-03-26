@@ -1,13 +1,16 @@
 import Foundation
 import SwiftData
 
+typealias ACPExternalTerminalRuntimeFactory = @Sendable (String, String?) async -> TerminalTaskRuntime
+typealias ACPExternalSessionRuntimeResetter = @Sendable (String) async -> Void
+
 @MainActor
 class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProvider, ACPRemoteSessionConfigurationControlling {
     let id: ConversationExecutionProviderID
     let runtimeScope: ConversationExecutionRuntimeScope? = .externalACP
 
-    private let terminalRuntimeFactory: (String, String?) -> TerminalTaskRuntime
-    private let sessionRuntimeResetter: @MainActor (String) -> Void
+    nonisolated private let terminalRuntimeFactory: ACPExternalTerminalRuntimeFactory
+    nonisolated private let sessionRuntimeResetter: ACPExternalSessionRuntimeResetter
     private let permissionCenter: ACPPermissionCenter
     private let authorizationPolicyFactory: ConversationAuthorizationPolicyFactory
     private let runtimeSupervisor: ACPProviderRuntimeSupervisor
@@ -18,6 +21,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     private let updateRouter = ACPSessionUpdateRouter()
     private let featureAdapter: ACPExternalProviderFeatureAdapter
     private let sessionStateStore = ACPExternalProviderSessionStateStore()
+    private let updateQueue = ACPExternalProviderUpdateQueue()
 
     private struct StoredRemoteBinding {
         let remoteSessionID: String
@@ -30,8 +34,8 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
 
     init(
         providerID: ConversationExecutionProviderID,
-        terminalRuntimeFactory: @escaping (String, String?) -> TerminalTaskRuntime,
-        sessionRuntimeResetter: @escaping @MainActor (String) -> Void,
+        terminalRuntimeFactory: @escaping ACPExternalTerminalRuntimeFactory,
+        sessionRuntimeResetter: @escaping ACPExternalSessionRuntimeResetter,
         permissionCenter: ACPPermissionCenter,
         authorizationPolicyFactory: ConversationAuthorizationPolicyFactory,
         featureAdapter: ACPExternalProviderFeatureAdapter = ACPExternalProviderFeatureAdapter()
@@ -67,8 +71,6 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         }
 
         do {
-            await closeInactiveSessionRuntimes(keeping: request.session.sessionId)
-
             let activation = try await ensureRemoteSessionPrepared(
                 session: request.session,
                 configuration: configuration,
@@ -157,7 +159,9 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             )
             let assistantMessage = resolveAssistantMessage(for: request)
             updateProjector.reset(sessionID: request.session.sessionId)
-            sessionStateStore.state(for: request.session.sessionId).activeTurn = ACPExternalProviderActiveTurnState(
+            let sessionState = sessionStateStore.state(for: request.session.sessionId)
+            sessionState.resetProjectedMutations()
+            sessionState.activeTurn = ACPExternalProviderActiveTurnState(
                 assistantMessage: assistantMessage,
                 modelContext: request.modelContext
             )
@@ -175,7 +179,8 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 session: request.session,
                 modelContext: request.modelContext
             )
-            sessionStateStore.state(for: request.session.sessionId).activeTurn = nil
+            sessionState.resetProjectedMutations()
+            sessionState.activeTurn = nil
             turnRouter.finishLiveTurn(sessionID: request.session.sessionId)
         } catch is CancellationError {
             turnRouter.reset(sessionID: request.session.sessionId)
@@ -265,6 +270,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 activeTurn.assistantMessage.textContent = "(已取消)"
             }
             try? activeTurn.modelContext.save()
+            sessionState.resetProjectedMutations()
             sessionState.activeTurn = nil
         } else {
             _ = modelContext
@@ -285,18 +291,12 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         debugLog(
             "prepareForActivation start localSession=\(session.sessionId) isActive=\(isActiveProvider) trigger=\(String(describing: trigger))"
         )
-        if isActiveProvider {
-            await closeInactiveSessionRuntimes(keeping: session.sessionId)
-        } else {
-            await deactivateAllSessionRuntimes()
-        }
-
         guard isActiveProvider else {
             debugLog("prepareForActivation skipped because provider is inactive localSession=\(session.sessionId)")
             return
         }
 
-        guard trigger == .selection || trigger == .sessionBootstrap else {
+        guard trigger == .selection || trigger == .sessionBootstrap || trigger == .executionDispatch else {
             debugLog(
                 "prepareForActivation finished without remote warmup localSession=\(session.sessionId)"
             )
@@ -342,6 +342,21 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         }
     }
 
+    func releasePreparedRuntime(
+        localSessionID: String,
+        modelContext: ModelContext,
+        reason: ConversationExecutionRuntimeReleaseReason
+    ) async {
+        debugLog(
+            "releasePreparedRuntime localSession=\(localSessionID) reason=\(String(describing: reason))"
+        )
+        await resetRuntime(
+            for: localSessionID,
+            modelContext: modelContext,
+            removeBinding: false
+        )
+    }
+
     func resolveConfiguration(for session: Session, settings: AppSettings) -> Configuration {
         fatalError("Subclasses must override resolveConfiguration")
     }
@@ -366,9 +381,9 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         fatalError("Subclasses must override approvalMode")
     }
 
-    func buildRuntimeClient(
+    nonisolated func buildRuntimeClient(
         configuration: Configuration,
-        session: Session,
+        localSessionID: String,
         workingDirectory: String,
         authorizationPolicy: ToolAuthorizationPolicy,
         permissionResolver: @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
@@ -447,8 +462,8 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         )
     }
 
-    func makeTerminalRuntime(sessionID: String, workingDirectory: String) -> TerminalTaskRuntime {
-        terminalRuntimeFactory(sessionID, workingDirectory)
+    nonisolated func makeTerminalRuntime(sessionID: String, workingDirectory: String) async -> TerminalTaskRuntime {
+        await terminalRuntimeFactory(sessionID, workingDirectory)
     }
 
     private func makePermissionResolver(
@@ -472,64 +487,47 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     ) -> @Sendable (CopilotACPUpdate) async -> Void {
         { [weak self] update in
             guard let self else { return }
-            let task = await self.enqueueUpdateTask(
-                update: update,
-                localSessionID: localSessionID,
-                activationID: activationID
-            )
-            await task.value
+            await self.updateQueue.enqueue(localSessionID: localSessionID) { [weak self] in
+                guard let self else { return }
+                await MainActor.run {
+                    self.consume(
+                        update: update,
+                        localSessionID: localSessionID,
+                        activationID: activationID
+                    )
+                }
+            }
         }
     }
 
-    @MainActor
-    private func enqueueUpdateTask(
-        update: CopilotACPUpdate,
+    private func drainPendingUpdates(localSessionID: String) async {
+        await updateQueue.drain(localSessionID: localSessionID)
+    }
+
+    private func recordProjectedMutation(
         localSessionID: String,
-        activationID: RuntimeActivationID
-    ) -> Task<Void, Never> {
-        let sessionState = sessionStateStore.state(for: localSessionID)
-        let previousTask = sessionState.pendingUpdateTask
-        let token = UUID()
-        let task = Task { [weak self] in
-            await previousTask?.value
-            await self?.consumeOnMain(
-                update: update,
-                localSessionID: localSessionID,
-                activationID: activationID
-            )
-            await self?.finishUpdateTask(localSessionID: localSessionID, token: token)
-        }
-        sessionState.pendingUpdateTask = task
-        sessionState.pendingUpdateTaskToken = token
-        return task
-    }
-
-    @MainActor
-    private func finishUpdateTask(localSessionID: String, token: UUID) {
-        guard let sessionState = sessionStateStore.existingState(for: localSessionID),
-              sessionState.pendingUpdateTaskToken == token else {
+        count: Int = 1
+    ) {
+        guard let sessionState = sessionStateStore.existingState(for: localSessionID) else {
             return
         }
-        sessionState.clearPendingUpdateTask()
-    }
 
-    @MainActor
-    private func drainPendingUpdates(localSessionID: String) async {
-        for _ in 0..<3 {
-            while let task = sessionStateStore.existingState(for: localSessionID)?.pendingUpdateTask {
-                await task.value
-            }
-            await Task.yield()
+        guard sessionState.recordProjectedMutation(count: count) else {
+            return
         }
+
+        persistProjectedMutationsIfNeeded(localSessionID: localSessionID)
     }
 
-    @MainActor
-    private func consumeOnMain(
-        update: CopilotACPUpdate,
-        localSessionID: String,
-        activationID: RuntimeActivationID
-    ) {
-        consume(update: update, localSessionID: localSessionID, activationID: activationID)
+    private func persistProjectedMutationsIfNeeded(localSessionID: String) {
+        guard let sessionState = sessionStateStore.existingState(for: localSessionID),
+              sessionState.hasPendingProjectedMutations,
+              let activeTurn = sessionState.activeTurn else {
+            return
+        }
+
+        try? activeTurn.modelContext.save()
+        sessionState.resetProjectedMutations()
     }
 
     private func applyPermissionResolution(
@@ -575,7 +573,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             break
         }
 
-        try? activeTurn.modelContext.save()
+        recordProjectedMutation(localSessionID: localSessionID)
     }
 
     private func consume(
@@ -653,7 +651,9 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             apply(event: event, to: activeTurn.assistantMessage, in: activeTurn.modelContext)
         }
 
-        try? activeTurn.modelContext.save()
+        if projectedEvents.isEmpty == false {
+            recordProjectedMutation(localSessionID: localSessionID, count: projectedEvents.count)
+        }
     }
 
     private func flushProjectedUpdates(for sessionID: String) {
@@ -671,7 +671,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             apply(event: event, to: activeTurn.assistantMessage, in: activeTurn.modelContext)
         }
 
-        try? activeTurn.modelContext.save()
+        recordProjectedMutation(localSessionID: sessionID, count: pendingEvents.count)
     }
 
     private func apply(event: CopilotNormalizedEvent, to message: Message, in modelContext: ModelContext) {
@@ -903,6 +903,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 activeTurn.assistantMessage.textContent = "错误: \(error.localizedDescription)"
             }
             try? activeTurn.modelContext.save()
+            sessionState.resetProjectedMutations()
         } else {
             _ = modelContext
         }
@@ -946,6 +947,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 activeTurn.assistantMessage.textContent = "(已取消)"
             }
             try? activeTurn.modelContext.save()
+            sessionState.resetProjectedMutations()
         }
     }
 
@@ -958,11 +960,12 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             permissionCenter.cancelRequests(for: inactiveSessionID)
             markCancelledIfNeeded(sessionID: inactiveSessionID)
             await runtimeSupervisor.removeActivation(for: inactiveSessionID)
+            await updateQueue.clear(localSessionID: inactiveSessionID)
             sessionStateStore.state(for: inactiveSessionID).clearRuntimeState(
                 removeBinding: false,
                 removeFeatureStore: false
             )
-            sessionRuntimeResetter(inactiveSessionID)
+            await sessionRuntimeResetter(inactiveSessionID)
         }
     }
 
@@ -972,11 +975,12 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             permissionCenter.cancelRequests(for: activeSessionID)
             markCancelledIfNeeded(sessionID: activeSessionID)
             await runtimeSupervisor.removeActivation(for: activeSessionID)
+            await updateQueue.clear(localSessionID: activeSessionID)
             sessionStateStore.state(for: activeSessionID).clearRuntimeState(
                 removeBinding: false,
                 removeFeatureStore: false
             )
-            sessionRuntimeResetter(activeSessionID)
+            await sessionRuntimeResetter(activeSessionID)
         }
     }
 
@@ -991,7 +995,8 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         permissionCenter.cancelRequests(for: localSessionID)
         turnRouter.reset(sessionID: localSessionID)
         await runtimeSupervisor.removeActivation(for: localSessionID)
-        sessionRuntimeResetter(localSessionID)
+        await updateQueue.clear(localSessionID: localSessionID)
+        await sessionRuntimeResetter(localSessionID)
         if removeBinding {
             try? bindingStore(in: modelContext).removeBinding(for: localSessionID, providerID: id)
         }
@@ -1142,7 +1147,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             runtimeFactory: { workingDirectory, activationID in
                 try await self.buildRuntimeClient(
                     configuration: configuration,
-                    session: session,
+                    localSessionID: session.sessionId,
                     workingDirectory: workingDirectory,
                     authorizationPolicy: authorizationPolicy,
                     permissionResolver: self.makePermissionResolver(localSessionID: session.sessionId),

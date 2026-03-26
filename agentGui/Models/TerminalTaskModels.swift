@@ -1,6 +1,6 @@
 import Foundation
 
-enum TerminalExecutionMode: String, Codable, Equatable, Sendable {
+nonisolated enum TerminalExecutionMode: String, Codable, Equatable, Sendable {
     case attached
     case detached
 
@@ -27,7 +27,7 @@ enum TerminalExecutionMode: String, Codable, Equatable, Sendable {
     }
 }
 
-enum TerminalTaskStatus: String, Codable, Equatable, Sendable {
+nonisolated enum TerminalTaskStatus: String, Codable, Equatable, Sendable {
     case launching
     case running
     case waitingForInput
@@ -76,7 +76,7 @@ enum TerminalTaskStatus: String, Codable, Equatable, Sendable {
     }
 }
 
-enum TerminalPromptKind: String, Codable, Equatable, Sendable {
+nonisolated enum TerminalPromptKind: String, Codable, Equatable, Sendable {
     case yesNo
     case singleChoice
     case multiChoice
@@ -88,13 +88,13 @@ enum TerminalPromptKind: String, Codable, Equatable, Sendable {
     case unknown
 }
 
-enum TerminalRiskLevel: String, Codable, Equatable, Sendable {
+nonisolated enum TerminalRiskLevel: String, Codable, Equatable, Sendable {
     case low
     case medium
     case high
 }
 
-enum TerminalCompletionReason: String, Codable, Equatable, Sendable {
+nonisolated enum TerminalCompletionReason: String, Codable, Equatable, Sendable {
     case exitedZero
     case exitedNonZero
     case terminatedBySignal
@@ -104,7 +104,7 @@ enum TerminalCompletionReason: String, Codable, Equatable, Sendable {
     case runtimeFailure
 }
 
-enum TerminalTaskEventKind: String, Codable, Equatable, Sendable {
+nonisolated enum TerminalTaskEventKind: String, Codable, Equatable, Sendable {
     case output
     case promptDetected
     case plannerDecision
@@ -116,7 +116,7 @@ enum TerminalTaskEventKind: String, Codable, Equatable, Sendable {
     case signalSent
 }
 
-struct TerminalPromptSnapshot: Codable, Equatable, Sendable {
+nonisolated struct TerminalPromptSnapshot: Codable, Equatable, Sendable {
     var kind: TerminalPromptKind
     var promptText: String
     var options: [String]
@@ -132,7 +132,7 @@ struct TerminalPromptSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-struct TerminalTaskSnapshot: Codable, Equatable, Sendable, Identifiable {
+nonisolated struct TerminalTaskSnapshot: Codable, Equatable, Sendable, Identifiable {
     var id: String
     var sessionId: String
     var command: String
@@ -242,7 +242,7 @@ extension TerminalTaskSnapshot {
     }
 }
 
-struct TerminalTaskEvent: Codable, Equatable, Sendable, Identifiable {
+nonisolated struct TerminalTaskEvent: Codable, Equatable, Sendable, Identifiable {
     var id: UUID
     var taskId: String
     var timestamp: Date

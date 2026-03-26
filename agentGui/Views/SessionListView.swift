@@ -159,6 +159,7 @@ struct SessionListView: View {
                         SessionRowView(
                             session: item.session,
                             isSelected: workspaceState.selectedSession?.persistentModelID == item.session.persistentModelID,
+                            projection: workspaceState.executionRegistry.projection(for: item.session.sessionId),
                             canRename: item.canRename,
                             globalWorkingDirectory: globalWorkingDirectory,
                             isRenaming: inlineRename.isEditing(item.session.sessionId),
@@ -314,6 +315,7 @@ struct SessionListView: View {
 private struct SessionRowView: View {
     let session: Session
     let isSelected: Bool
+    let projection: SessionExecutionProjection
     let canRename: Bool
     let globalWorkingDirectory: String
     let isRenaming: Bool
@@ -392,6 +394,9 @@ private struct SessionRowView: View {
             HStack(spacing: 6) {
                 SessionRowChip(systemImage: "bubble.left.and.text.bubble.right", text: session.displaySourceTitle)
                 SessionRowChip(systemImage: workspacePresentation.isMissing ? "folder.badge.questionmark" : "folder", text: workspacePresentation.title)
+                if let executionChip = executionChip {
+                    SessionRowChip(systemImage: executionChip.systemImage, text: executionChip.text)
+                }
                 Spacer(minLength: 0)
                 Text("\(session.messageCount) 条")
                     .font(.caption2)
@@ -473,6 +478,22 @@ private struct SessionRowView: View {
     private var sessionPreview: String {
         let preview = session.lastMessagePreview.trimmingCharacters(in: .whitespacesAndNewlines)
         return preview.isEmpty ? "尚无消息，点击继续当前会话。" : preview
+    }
+
+    private var executionChip: (systemImage: String, text: String)? {
+        if projection.needsAttention {
+            return ("exclamationmark.circle", "等待处理")
+        }
+        if projection.presentationState == .background, projection.activityState == .running {
+            return ("arrow.triangle.2.circlepath", "后台运行")
+        }
+        if projection.activityState == .running {
+            return ("waveform", "运行中")
+        }
+        if projection.activityState == .queued {
+            return ("clock", "排队中")
+        }
+        return nil
     }
 }
 

@@ -100,6 +100,7 @@ struct ToolAuthorizationPolicy: Codable, Equatable, Sendable {
     var capabilityLevels: [ToolCapabilityID: ToolCapabilityLevel]
     var approvalMode: ToolApprovalMode
 
+    nonisolated
     init(
         preset: ToolAuthorizationPreset = .observeOnly,
         capabilityLevels: [ToolCapabilityID: ToolCapabilityLevel]? = nil,
@@ -137,6 +138,7 @@ struct ToolAuthorizationPolicy: Codable, Equatable, Sendable {
         }
     }
 
+    nonisolated
     static func defaultCapabilityLevels(for preset: ToolAuthorizationPreset) -> [ToolCapabilityID: ToolCapabilityLevel] {
         var levels = Dictionary(uniqueKeysWithValues: ToolCapabilityID.allCases.map { ($0, ToolCapabilityLevel.disabled) })
 

@@ -1,6 +1,6 @@
 import Foundation
 
-enum ACPRequestID: Codable, Equatable, Hashable, Sendable {
+nonisolated enum ACPRequestID: Codable, Equatable, Hashable, Sendable {
     case int(Int)
     case string(String)
 
@@ -26,18 +26,19 @@ enum ACPRequestID: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-struct ACPErrorObject: Codable, Equatable, Sendable {
+nonisolated struct ACPErrorObject: Codable, Equatable, Sendable {
     let code: Int
     let message: String
     let data: ACPJSONValue?
 }
 
-struct ACPRequestMessage: Codable, Equatable, Sendable {
+nonisolated struct ACPRequestMessage: Codable, Equatable, Sendable {
     let jsonrpc: String
     let id: ACPRequestID
     let method: String
     let params: ACPJSONValue?
 
+    nonisolated
     init(id: ACPRequestID, method: String, params: ACPJSONValue? = nil) {
         self.jsonrpc = "2.0"
         self.id = id
@@ -46,11 +47,12 @@ struct ACPRequestMessage: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPNotificationMessage: Codable, Equatable, Sendable {
+nonisolated struct ACPNotificationMessage: Codable, Equatable, Sendable {
     let jsonrpc: String
     let method: String
     let params: ACPJSONValue?
 
+    nonisolated
     init(method: String, params: ACPJSONValue? = nil) {
         self.jsonrpc = "2.0"
         self.method = method
@@ -58,12 +60,13 @@ struct ACPNotificationMessage: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPResponseMessage: Codable, Equatable, Sendable {
+nonisolated struct ACPResponseMessage: Codable, Equatable, Sendable {
     let jsonrpc: String
     let id: ACPRequestID
     let result: ACPJSONValue?
     let error: ACPErrorObject?
 
+    nonisolated
     init(id: ACPRequestID, result: ACPJSONValue? = nil, error: ACPErrorObject? = nil) {
         self.jsonrpc = "2.0"
         self.id = id
@@ -72,7 +75,7 @@ struct ACPResponseMessage: Codable, Equatable, Sendable {
     }
 }
 
-enum ACPWireMessage: Equatable, Sendable {
+nonisolated enum ACPWireMessage: Equatable, Sendable {
     case request(ACPRequestMessage)
     case notification(ACPNotificationMessage)
     case response(ACPResponseMessage)
@@ -131,7 +134,7 @@ extension ACPWireMessage {
     }
 }
 
-private struct ACPMessageEnvelope: Codable {
+private nonisolated struct ACPMessageEnvelope: Codable {
     let jsonrpc: String?
     let id: ACPRequestID?
     let method: String?

@@ -151,6 +151,13 @@ extension ChatView {
                             .foregroundStyle(.secondary)
                     }
 
+                    if let statusBadgeText = composerExecutionPresentation.statusBadgeText {
+                        Text(statusBadgeText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("chat.executionStatusBadge")
+                    }
+
                     if let queueBadgeText = composerExecutionPresentation.queueBadgeText {
                         Text(queueBadgeText)
                             .font(.caption)
@@ -197,7 +204,7 @@ extension ChatView {
 
         HStack {
             Spacer()
-            ContextUsageRingView(service: claudeService)
+            ContextUsageRingView(service: claudeService, sessionID: session.sessionId)
             Spacer()
         }
         .padding(.bottom, 10)

@@ -1,11 +1,11 @@
 import Foundation
 
-enum TerminalBufferKind: String, Codable, Equatable, Sendable {
+nonisolated enum TerminalBufferKind: String, Codable, Equatable, Sendable {
     case primary
     case alternate
 }
 
-enum TerminalANSI16Color: String, Codable, CaseIterable, Equatable, Sendable {
+nonisolated enum TerminalANSI16Color: String, Codable, CaseIterable, Equatable, Sendable {
     case black
     case red
     case green
@@ -24,7 +24,7 @@ enum TerminalANSI16Color: String, Codable, CaseIterable, Equatable, Sendable {
     case brightWhite
 }
 
-enum TerminalColor: Codable, Equatable, Sendable {
+nonisolated enum TerminalColor: Codable, Equatable, Sendable {
     case defaultForeground
     case defaultBackground
     case ansi16(TerminalANSI16Color)
@@ -32,7 +32,7 @@ enum TerminalColor: Codable, Equatable, Sendable {
     case rgb(red: Int, green: Int, blue: Int)
 }
 
-enum TerminalTextAttribute: String, Codable, CaseIterable, Hashable, Sendable {
+nonisolated enum TerminalTextAttribute: String, Codable, CaseIterable, Hashable, Sendable {
     case bold
     case dim
     case italic
@@ -43,7 +43,7 @@ enum TerminalTextAttribute: String, Codable, CaseIterable, Hashable, Sendable {
     case hidden
 }
 
-struct TerminalScreenCell: Codable, Equatable, Sendable {
+nonisolated struct TerminalScreenCell: Codable, Equatable, Sendable {
     var text: String
     var displayWidth: Int
     var foreground: TerminalColor
@@ -70,7 +70,7 @@ struct TerminalScreenCell: Codable, Equatable, Sendable {
     static let blank = TerminalScreenCell(text: " ")
 }
 
-struct TerminalScreenLine: Codable, Equatable, Sendable {
+nonisolated struct TerminalScreenLine: Codable, Equatable, Sendable {
     var cells: [TerminalScreenCell]
 
     init(cells: [TerminalScreenCell] = []) {
@@ -86,7 +86,7 @@ struct TerminalScreenLine: Codable, Equatable, Sendable {
     }
 }
 
-struct TerminalCursorSnapshot: Codable, Equatable, Sendable {
+nonisolated struct TerminalCursorSnapshot: Codable, Equatable, Sendable {
     var row: Int
     var column: Int
     var isVisible: Bool
@@ -98,7 +98,7 @@ struct TerminalCursorSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-struct TerminalScreenSnapshot: Codable, Equatable, Sendable {
+nonisolated struct TerminalScreenSnapshot: Codable, Equatable, Sendable {
     var lines: [TerminalScreenLine]
     var plainTextLines: [String]
     var activeBuffer: TerminalBufferKind
@@ -129,7 +129,7 @@ struct TerminalScreenSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-enum TerminalVTEvent: Equatable, Sendable {
+nonisolated enum TerminalVTEvent: Equatable, Sendable {
     case print(String)
     case carriageReturn
     case lineFeed
@@ -147,7 +147,7 @@ enum TerminalVTEvent: Equatable, Sendable {
     case exitAlternateScreen
 }
 
-enum TerminalSelectionMode: String, Codable, Equatable, Sendable {
+nonisolated enum TerminalSelectionMode: String, Codable, Equatable, Sendable {
     case none
     case singleSelect
     case multiSelect
@@ -155,14 +155,14 @@ enum TerminalSelectionMode: String, Codable, Equatable, Sendable {
     case unknown
 }
 
-enum TerminalInteractionPhase: String, Codable, Equatable, Sendable {
+nonisolated enum TerminalInteractionPhase: String, Codable, Equatable, Sendable {
     case planning
     case autoExecuting
     case awaitingApproval
     case userTakeover
 }
 
-enum TerminalKey: String, Codable, Equatable, Sendable {
+nonisolated enum TerminalKey: String, Codable, Equatable, Sendable {
     case enter
     case space
     case tab
@@ -172,7 +172,7 @@ enum TerminalKey: String, Codable, Equatable, Sendable {
     case right
 }
 
-struct TerminalVisibleOption: Codable, Equatable, Sendable, Identifiable {
+nonisolated struct TerminalVisibleOption: Codable, Equatable, Sendable, Identifiable {
     let id: String
     var label: String
     var isSelected: Bool
@@ -186,7 +186,7 @@ struct TerminalVisibleOption: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-struct TerminalSurfaceSnapshot: Codable, Equatable, Sendable {
+nonisolated struct TerminalSurfaceSnapshot: Codable, Equatable, Sendable {
     var plainTextFrame: String
     var rawANSISnippet: String
     var visibleOptions: [TerminalVisibleOption]
@@ -220,14 +220,14 @@ struct TerminalSurfaceSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-struct TerminalInteractionObservation: Codable, Equatable, Sendable {
+nonisolated struct TerminalInteractionObservation: Codable, Equatable, Sendable {
     var taskId: String
     var command: String
     var surface: TerminalSurfaceSnapshot
     var recentOutput: String
 }
 
-enum TerminalInteractionAction: Codable, Equatable, Sendable {
+nonisolated enum TerminalInteractionAction: Codable, Equatable, Sendable {
     case key(TerminalKey)
     case text(String)
     case wait(milliseconds: Int)
@@ -243,7 +243,7 @@ enum TerminalInteractionAction: Codable, Equatable, Sendable {
     }
 }
 
-struct TerminalInteractionPlan: Codable, Equatable, Sendable {
+nonisolated struct TerminalInteractionPlan: Codable, Equatable, Sendable {
     var interactionType: String
     var intentSummary: String
     var confidence: Double

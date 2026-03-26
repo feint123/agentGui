@@ -53,6 +53,7 @@ enum GitServiceError: LocalizedError, Equatable {
 final class GitService: GitServicing {
     private let commandRunner: GitCommandRunning
 
+    @MainActor
     init(commandRunner: GitCommandRunning = ProcessGitCommandRunner()) {
         self.commandRunner = commandRunner
     }

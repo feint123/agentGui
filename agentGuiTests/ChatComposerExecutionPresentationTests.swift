@@ -2,10 +2,33 @@ import Foundation
 import Testing
 @testable import agentGui
 
+@MainActor
 struct ChatComposerExecutionPresentationTests {
-    @Test func projectionRunningStateKeepsComposerEditableAndAllowsQueueing() {
+    @Test
+    func blockedAttentionOnlyProjectionStillUsesProjectionUI() {
         let projection = SessionExecutionProjection(
-            sessionID: "session-1",
+            sessionID: "session-a",
+            runningJobID: nil,
+            queuedJobIDs: [],
+            queuedCount: 0,
+            isRunning: false,
+            canEditComposer: false,
+            canSubmitNewJob: true,
+            activeProviderID: .builtInAgent,
+            currentPhase: nil,
+            activityState: .blocked,
+            presentationState: .background,
+            needsAttention: true,
+            attentionReason: .userQuestion
+        )
+
+        #expect(ChatComposerExecutionPresentation.shouldUseExecutionProjectionUI(for: projection))
+    }
+
+    @Test
+    func backgroundRunningProjectionShowsStatusBadge() {
+        let projection = SessionExecutionProjection(
+            sessionID: "session-a",
             runningJobID: UUID(),
             queuedJobIDs: [],
             queuedCount: 0,
@@ -13,7 +36,11 @@ struct ChatComposerExecutionPresentationTests {
             canEditComposer: true,
             canSubmitNewJob: true,
             activeProviderID: .builtInAgent,
-            currentPhase: .executing
+            currentPhase: .executing,
+            activityState: .running,
+            presentationState: .background,
+            needsAttention: false,
+            attentionReason: nil
         )
 
         let presentation = ChatComposerExecutionPresentation.resolve(
@@ -23,25 +50,26 @@ struct ChatComposerExecutionPresentationTests {
             canSend: true
         )
 
-        #expect(presentation.isComposerDisabled == false)
-        #expect(presentation.showsRunningBadge == true)
-        #expect(presentation.queueBadgeText == nil)
-        #expect(presentation.showsStopButton == true)
-        #expect(presentation.showsSendButton == true)
-        #expect(presentation.isSendDisabled == false)
+        #expect(presentation.showsRunningBadge)
+        #expect(presentation.statusBadgeText == "后台运行")
     }
 
-    @Test func projectionQueuedStateShowsQueueBadge() {
+    @Test
+    func blockedProjectionShowsAttentionStatusBadge() {
         let projection = SessionExecutionProjection(
-            sessionID: "session-1",
+            sessionID: "session-a",
             runningJobID: UUID(),
-            queuedJobIDs: [UUID()],
-            queuedCount: 1,
+            queuedJobIDs: [],
+            queuedCount: 0,
             isRunning: true,
-            canEditComposer: true,
+            canEditComposer: false,
             canSubmitNewJob: true,
             activeProviderID: .builtInAgent,
-            currentPhase: .executing
+            currentPhase: .executing,
+            activityState: .blocked,
+            presentationState: .background,
+            needsAttention: true,
+            attentionReason: .userQuestion
         )
 
         let presentation = ChatComposerExecutionPresentation.resolve(
@@ -51,21 +79,7 @@ struct ChatComposerExecutionPresentationTests {
             canSend: true
         )
 
-        #expect(presentation.queueBadgeText == "队列 1")
-    }
-
-    @Test func legacyStreamingStateKeepsSendHiddenAndComposerLocked() {
-        let presentation = ChatComposerExecutionPresentation.resolve(
-            usesExecutionProjectionUI: false,
-            projection: .empty(sessionID: "session-1"),
-            legacyIsStreaming: true,
-            canSend: true
-        )
-
-        #expect(presentation.isComposerDisabled == true)
-        #expect(presentation.showsRunningBadge == false)
-        #expect(presentation.queueBadgeText == nil)
-        #expect(presentation.showsStopButton == true)
-        #expect(presentation.showsSendButton == false)
+        #expect(presentation.showsRunningBadge)
+        #expect(presentation.statusBadgeText == "等待处理")
     }
 }

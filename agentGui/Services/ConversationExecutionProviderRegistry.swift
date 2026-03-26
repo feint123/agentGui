@@ -1,14 +1,20 @@
 import Foundation
 import SwiftData
 
-enum ConversationExecutionRuntimeScope: String, Equatable, Sendable {
+nonisolated enum ConversationExecutionRuntimeScope: String, Equatable, Sendable {
     case builtIn
     case externalACP
 }
 
-enum ConversationExecutionActivationTrigger: Equatable, Sendable {
+nonisolated enum ConversationExecutionActivationTrigger: Equatable, Sendable {
     case selection
     case sessionBootstrap
+    case executionDispatch
+}
+
+nonisolated enum ConversationExecutionRuntimeReleaseReason: Equatable, Sendable {
+    case sessionBecameInactive
+    case providerBecameInactive
 }
 
 struct ConversationExecutionRequest {
@@ -78,6 +84,11 @@ protocol ConversationExecutionProvider: AnyObject {
         modelContext: ModelContext,
         trigger: ConversationExecutionActivationTrigger
     ) async
+    func releasePreparedRuntime(
+        localSessionID: String,
+        modelContext: ModelContext,
+        reason: ConversationExecutionRuntimeReleaseReason
+    ) async
 }
 
 extension ConversationExecutionProvider {
@@ -98,6 +109,16 @@ extension ConversationExecutionProvider {
         _ = isActiveProvider
         _ = modelContext
         _ = trigger
+    }
+
+    func releasePreparedRuntime(
+        localSessionID: String,
+        modelContext: ModelContext,
+        reason: ConversationExecutionRuntimeReleaseReason
+    ) async {
+        _ = localSessionID
+        _ = modelContext
+        _ = reason
     }
 }
 
@@ -183,6 +204,25 @@ struct ConversationExecutionProviderRegistry {
 
     func compatibilityDriver(for providerID: ConversationExecutionProviderID) -> any ConversationExecutionDriver {
         LegacyConversationExecutionDriver(provider: provider(for: providerID))
+    }
+
+    func capacityPolicy(for providerID: ConversationExecutionProviderID) -> ProviderExecutionCapacityPolicy {
+        switch providerID {
+        case .builtInAgent:
+            return ProviderExecutionCapacityPolicy(
+                providerID: providerID,
+                maxConcurrentSessions: .max,
+                maxConcurrentJobsPerSession: 1,
+                allowsBackgroundExecution: true
+            )
+        case .githubCopilotCLI, .openCodeCLI, .claudeAdapterCLI:
+            return ProviderExecutionCapacityPolicy(
+                providerID: providerID,
+                maxConcurrentSessions: .max,
+                maxConcurrentJobsPerSession: 1,
+                allowsBackgroundExecution: true
+            )
+        }
     }
 
     func provider(for session: Session, settings: AppSettings) -> any ConversationExecutionProvider {

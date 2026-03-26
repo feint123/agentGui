@@ -134,7 +134,9 @@ struct agentGuiApp: App {
                     let settings = AppSettings.getOrCreate(in: context, persistenceCoordinator: .shared)
                     claudeService.applyConnectionSettings(settings)
                     claudeService.skillService = skillService
-                    skillService.loadSkills()
+                    Task {
+                        await skillService.loadSkills()
+                    }
                     let backgroundCoordinator = BackgroundActivityCoordinator(
                         settingsProvider: { settings },
                         registry: BackgroundTaskRegistry(observationService: BackgroundTaskObservationService()),
@@ -469,7 +471,11 @@ struct agentGuiApp: App {
                     canEditComposer: true,
                     canSubmitNewJob: true,
                     activeProviderID: .builtInAgent,
-                    currentPhase: .executing
+                    currentPhase: .executing,
+                    activityState: .running,
+                    presentationState: .foreground,
+                    needsAttention: false,
+                    attentionReason: nil
                 )
             )
 
@@ -486,8 +492,8 @@ struct agentGuiApp: App {
                     providerRegistry: claudeService.executionProviderRegistry ?? ConversationExecutionProviderRegistry(
                         builtIn: BuiltInConversationExecutionProvider(claudeService: claudeService),
                         copilot: GitHubCopilotCLIExecutionProvider(
-                            terminalRuntimeFactory: { [unowned claudeService] sessionID, workingDirectory in
-                                claudeService.getExternalACPTerminalTaskRuntime(
+                            terminalRuntimeFactory: { [externalStore = claudeService.externalACPTerminalRuntimeStore] sessionID, workingDirectory in
+                                await externalStore.runtime(
                                     for: sessionID,
                                     providerID: .githubCopilotCLI,
                                     workingDirectory: workingDirectory
@@ -496,8 +502,8 @@ struct agentGuiApp: App {
                             permissionCenter: claudeService.acpPermissionCenter
                         ),
                         openCode: OpenCodeCLIExecutionProvider(
-                            terminalRuntimeFactory: { [unowned claudeService] sessionID, workingDirectory in
-                                claudeService.getExternalACPTerminalTaskRuntime(
+                            terminalRuntimeFactory: { [externalStore = claudeService.externalACPTerminalRuntimeStore] sessionID, workingDirectory in
+                                await externalStore.runtime(
                                     for: sessionID,
                                     providerID: .openCodeCLI,
                                     workingDirectory: workingDirectory
@@ -506,8 +512,8 @@ struct agentGuiApp: App {
                             permissionCenter: claudeService.acpPermissionCenter
                         ),
                         claudeAdapter: ClaudeAdapterCLIExecutionProvider(
-                            terminalRuntimeFactory: { [unowned claudeService] sessionID, workingDirectory in
-                                claudeService.getExternalACPTerminalTaskRuntime(
+                            terminalRuntimeFactory: { [externalStore = claudeService.externalACPTerminalRuntimeStore] sessionID, workingDirectory in
+                                await externalStore.runtime(
                                     for: sessionID,
                                     providerID: .claudeAdapterCLI,
                                     workingDirectory: workingDirectory

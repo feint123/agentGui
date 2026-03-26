@@ -1,6 +1,51 @@
 import Foundation
 import SwiftData
 
+actor ACPExternalProviderUpdateQueue {
+    private struct SessionState {
+        var tailTask: Task<Void, Never>
+        var tailToken: UUID
+    }
+
+    private var sessionStates: [String: SessionState] = [:]
+
+    func enqueue(
+        localSessionID: String,
+        operation: @escaping @Sendable () async -> Void
+    ) {
+        let previousTask = sessionStates[localSessionID]?.tailTask
+        let token = UUID()
+        let task = Task {
+            await previousTask?.value
+            await operation()
+            await finish(localSessionID: localSessionID, token: token)
+        }
+
+        sessionStates[localSessionID] = SessionState(tailTask: task, tailToken: token)
+    }
+
+    func drain(localSessionID: String) async {
+        for _ in 0..<3 {
+            while let task = sessionStates[localSessionID]?.tailTask {
+                await task.value
+            }
+            await Task.yield()
+        }
+    }
+
+    func clear(localSessionID: String) {
+        sessionStates.removeValue(forKey: localSessionID)
+    }
+
+    private func finish(localSessionID: String, token: UUID) {
+        guard sessionStates[localSessionID]?.tailToken == token else {
+            return
+        }
+
+        sessionStates.removeValue(forKey: localSessionID)
+    }
+}
+
 @MainActor
 struct ACPExternalProviderActiveTurnState {
     let assistantMessage: Message
@@ -11,14 +56,15 @@ struct ACPExternalProviderActiveTurnState {
 final class ACPExternalProviderSessionStateStore {
     @MainActor
     final class SessionState {
+        static let projectedPersistenceBatchThreshold = 8
+
         let localSessionID: String
 
         var modelContext: ModelContext?
         var activeTurn: ACPExternalProviderActiveTurnState?
         var remoteSessionID: String?
         var activationID: RuntimeActivationID?
-        var pendingUpdateTask: Task<Void, Never>?
-        var pendingUpdateTaskToken: UUID?
+        private(set) var pendingProjectedMutationCount = 0
 
         private var featureStoreCache: ACPExternalSessionFeatureStore?
 
@@ -69,9 +115,18 @@ final class ACPExternalProviderSessionStateStore {
             featureStoreCache?.sessionConfiguration(for: providerID, remoteSessionID: remoteSessionID)
         }
 
-        func clearPendingUpdateTask() {
-            pendingUpdateTask = nil
-            pendingUpdateTaskToken = nil
+        var hasPendingProjectedMutations: Bool {
+            pendingProjectedMutationCount > 0
+        }
+
+        @discardableResult
+        func recordProjectedMutation(count: Int = 1) -> Bool {
+            pendingProjectedMutationCount += max(1, count)
+            return pendingProjectedMutationCount >= Self.projectedPersistenceBatchThreshold
+        }
+
+        func resetProjectedMutations() {
+            pendingProjectedMutationCount = 0
         }
 
         func clearRuntimeState(
@@ -81,7 +136,7 @@ final class ACPExternalProviderSessionStateStore {
             modelContext = nil
             activeTurn = nil
             activationID = nil
-            clearPendingUpdateTask()
+            resetProjectedMutations()
 
             if removeBinding {
                 remoteSessionID = nil

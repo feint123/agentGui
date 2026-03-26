@@ -14,6 +14,7 @@ final class FeishuChannelAdapter: IMChannelAdapter, ChannelProjectionDriver {
     private let renderer: FeishuOutboundMessageRenderer
     private var configuration: IMChannelConfiguration?
 
+    @MainActor
     init(
         client: (any FeishuClient)? = nil,
         normalizer: FeishuMessageNormalizer = FeishuMessageNormalizer(),

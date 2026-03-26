@@ -1,6 +1,6 @@
 import Foundation
 
-struct TerminalScreenModel {
+nonisolated struct TerminalScreenModel {
     private struct GraphicsState {
         var foreground: TerminalColor = .defaultForeground
         var background: TerminalColor = .defaultBackground
@@ -311,25 +311,25 @@ struct TerminalScreenModel {
 }
 
 private extension TerminalANSI16Color {
-    static func foregroundCode(_ code: Int) -> TerminalANSI16Color {
+    nonisolated static func foregroundCode(_ code: Int) -> TerminalANSI16Color {
         [.black, .red, .green, .yellow, .blue, .magenta, .cyan, .white][max(0, min(code - 30, 7))]
     }
 
-    static func backgroundCode(_ code: Int) -> TerminalANSI16Color {
+    nonisolated static func backgroundCode(_ code: Int) -> TerminalANSI16Color {
         foregroundCode(code - 10 + 30)
     }
 
-    static func brightForegroundCode(_ code: Int) -> TerminalANSI16Color {
+    nonisolated static func brightForegroundCode(_ code: Int) -> TerminalANSI16Color {
         [.brightBlack, .brightRed, .brightGreen, .brightYellow, .brightBlue, .brightMagenta, .brightCyan, .brightWhite][max(0, min(code - 90, 7))]
     }
 
-    static func brightBackgroundCode(_ code: Int) -> TerminalANSI16Color {
+    nonisolated static func brightBackgroundCode(_ code: Int) -> TerminalANSI16Color {
         brightForegroundCode(code - 10 + 90)
     }
 }
 
 private extension String {
-    var terminalDisplayWidth: Int {
+    nonisolated var terminalDisplayWidth: Int {
         guard let scalar = unicodeScalars.first else { return 1 }
 
         if scalar.properties.isEmojiPresentation || scalar.properties.generalCategory == .otherSymbol {

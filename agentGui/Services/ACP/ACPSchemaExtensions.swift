@@ -1,6 +1,6 @@
 import Foundation
 
-struct ACPMcpCapabilities: Codable, Equatable, Sendable {
+nonisolated struct ACPMcpCapabilities: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var http: Bool?
     var sse: Bool?
@@ -12,7 +12,7 @@ struct ACPMcpCapabilities: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSessionListCapabilities: Codable, Equatable, Sendable {
+nonisolated struct ACPSessionListCapabilities: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var pageSize: Int?
 
@@ -22,7 +22,7 @@ struct ACPSessionListCapabilities: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSessionCapabilities: Codable, Equatable, Sendable {
+nonisolated struct ACPSessionCapabilities: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var list: ACPSessionListCapabilities?
 
@@ -32,7 +32,7 @@ struct ACPSessionCapabilities: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSessionMode: Codable, Equatable, Sendable {
+nonisolated struct ACPSessionMode: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var description: String?
     var id: String
@@ -46,7 +46,7 @@ struct ACPSessionMode: Codable, Equatable, Sendable {
     }
 }
 
-enum ACPSessionConfigOptionCategory: Codable, Equatable, Sendable {
+nonisolated enum ACPSessionConfigOptionCategory: Codable, Equatable, Sendable {
     case mode
     case model
     case thoughtLevel
@@ -82,7 +82,7 @@ enum ACPSessionConfigOptionCategory: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSessionConfigSelectOption: Codable, Equatable, Sendable {
+nonisolated struct ACPSessionConfigSelectOption: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var description: String?
     var name: String
@@ -96,7 +96,7 @@ struct ACPSessionConfigSelectOption: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSessionConfigSelectGroup: Codable, Equatable, Sendable {
+nonisolated struct ACPSessionConfigSelectGroup: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var group: String
     var name: String
@@ -110,7 +110,7 @@ struct ACPSessionConfigSelectGroup: Codable, Equatable, Sendable {
     }
 }
 
-enum ACPSessionConfigSelectOptions: Codable, Equatable, Sendable {
+nonisolated enum ACPSessionConfigSelectOptions: Codable, Equatable, Sendable {
     case ungrouped([ACPSessionConfigSelectOption])
     case grouped([ACPSessionConfigSelectGroup])
 
@@ -135,7 +135,7 @@ enum ACPSessionConfigSelectOptions: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSessionConfigOption: Codable, Equatable, Sendable {
+nonisolated struct ACPSessionConfigOption: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var id: String?
     var category: ACPSessionConfigOptionCategory?
@@ -219,7 +219,7 @@ extension ACPExternalAgentSessionConfigurationSnapshot {
     }
 }
 
-struct ACPSessionModeState: Codable, Equatable, Sendable {
+nonisolated struct ACPSessionModeState: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var availableModes: [ACPSessionMode]
     var currentModeID: String
@@ -231,7 +231,7 @@ struct ACPSessionModeState: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPCurrentModeUpdatePayload: Codable, Equatable, Sendable {
+nonisolated struct ACPCurrentModeUpdatePayload: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var currentModeID: String
 
@@ -241,7 +241,7 @@ struct ACPCurrentModeUpdatePayload: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPConfigOptionUpdatePayload: Codable, Equatable, Sendable {
+nonisolated struct ACPConfigOptionUpdatePayload: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var configOptions: [ACPSessionConfigOption]
 
@@ -251,7 +251,7 @@ struct ACPConfigOptionUpdatePayload: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPSessionInfoUpdatePayload: Codable, Equatable, Sendable {
+nonisolated struct ACPSessionInfoUpdatePayload: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var title: String?
     var updatedAt: String?
@@ -263,7 +263,7 @@ struct ACPSessionInfoUpdatePayload: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPImageContentBlock: Codable, Equatable, Sendable {
+nonisolated struct ACPImageContentBlock: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var annotations: ACPJSONValue?
     var data: String
@@ -279,7 +279,7 @@ struct ACPImageContentBlock: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPAudioContentBlock: Codable, Equatable, Sendable {
+nonisolated struct ACPAudioContentBlock: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var annotations: ACPJSONValue?
     var data: String
@@ -295,7 +295,7 @@ struct ACPAudioContentBlock: Codable, Equatable, Sendable {
     }
 }
 
-struct ACPToolCallLocation: Codable, Equatable, Sendable {
+nonisolated struct ACPToolCallLocation: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
     var path: String?
     var line: Int?
@@ -311,7 +311,7 @@ struct ACPToolCallLocation: Codable, Equatable, Sendable {
     }
 }
 
-enum ACPToolKind: Codable, Equatable, Sendable {
+nonisolated enum ACPToolKind: Codable, Equatable, Sendable {
     case read
     case edit
     case delete
@@ -365,7 +365,7 @@ enum ACPToolKind: Codable, Equatable, Sendable {
     }
 }
 
-enum ACPToolCallStatus: Codable, Equatable, Sendable {
+nonisolated enum ACPToolCallStatus: Codable, Equatable, Sendable {
     case pending
     case inProgress
     case completed

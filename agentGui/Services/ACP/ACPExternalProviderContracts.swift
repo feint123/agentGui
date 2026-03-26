@@ -1,7 +1,6 @@
 import Foundation
 
-@MainActor
-protocol ACPExternalProviderRuntimeClient: AnyObject {
+protocol ACPExternalProviderRuntimeClient: AnyObject, Sendable {
     func ensureSession(workingDirectory: String, remoteSessionID: String?) async throws -> ACPExternalAgentSessionHandshake
     func setSessionMode(_ modeID: String, sessionID: String) async throws
     func setSessionConfigOption(_ configID: String, value: String, sessionID: String) async throws -> [ACPSessionConfigOption]
@@ -10,8 +9,7 @@ protocol ACPExternalProviderRuntimeClient: AnyObject {
     func close() async
 }
 
-@MainActor
-protocol ACPExternalProviderRuntimeTransportClient: AnyObject {
+protocol ACPExternalProviderRuntimeTransportClient: AnyObject, Sendable {
     func initializeIfNeeded() async throws -> ACPExternalAgentCapabilitySnapshot
     func loadSessionIfPossible(workingDirectory: String, remoteSessionID: String) async throws -> ACPExternalAgentSessionHandshake?
     func createSession(workingDirectory: String) async throws -> ACPExternalAgentSessionHandshake
@@ -22,18 +20,18 @@ protocol ACPExternalProviderRuntimeTransportClient: AnyObject {
     func close() async
 }
 
-struct ACPExternalSessionConfigSelection: Equatable, Sendable {
+nonisolated struct ACPExternalSessionConfigSelection: Equatable, Sendable {
     let configID: String
     let value: String
     let category: ACPSessionConfigOptionCategory?
 }
 
-struct SessionRuntimeKey: Hashable, Sendable {
+nonisolated struct SessionRuntimeKey: Hashable, Sendable {
     let providerID: ConversationExecutionProviderID
     let localSessionID: String
 }
 
-struct RuntimeActivationID: Hashable, Sendable {
+nonisolated struct RuntimeActivationID: Hashable, Sendable {
     let rawValue: UUID
 
     init(rawValue: UUID = UUID()) {
@@ -41,7 +39,7 @@ struct RuntimeActivationID: Hashable, Sendable {
     }
 }
 
-enum ACPSessionRuntimePhase: String, Equatable, Sendable {
+nonisolated enum ACPSessionRuntimePhase: String, Equatable, Sendable {
     case idle
     case startingRuntime
     case initializing

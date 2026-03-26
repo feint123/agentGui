@@ -389,15 +389,15 @@ extension ClaudeService {
         let registry = ConversationExecutionProviderRegistry(
             builtIn: BuiltInConversationExecutionProvider(claudeService: self),
             copilot: GitHubCopilotCLIExecutionProvider(
-                terminalRuntimeFactory: { [unowned self] sessionID, workingDirectory in
-                    self.getExternalACPTerminalTaskRuntime(
+                terminalRuntimeFactory: { [externalStore = externalACPTerminalRuntimeStore] sessionID, workingDirectory in
+                    await externalStore.runtime(
                         for: sessionID,
                         providerID: .githubCopilotCLI,
                         workingDirectory: workingDirectory
                     )
                 },
-                sessionRuntimeResetter: { [unowned self] sessionID in
-                    self.resetExternalACPTerminalTaskRuntime(
+                sessionRuntimeResetter: { [externalStore = externalACPTerminalRuntimeStore] sessionID in
+                    await externalStore.reset(
                         for: sessionID,
                         providerID: .githubCopilotCLI
                     )
@@ -405,15 +405,15 @@ extension ClaudeService {
                 permissionCenter: acpPermissionCenter
             ),
             openCode: OpenCodeCLIExecutionProvider(
-                terminalRuntimeFactory: { [unowned self] sessionID, workingDirectory in
-                    self.getExternalACPTerminalTaskRuntime(
+                terminalRuntimeFactory: { [externalStore = externalACPTerminalRuntimeStore] sessionID, workingDirectory in
+                    await externalStore.runtime(
                         for: sessionID,
                         providerID: .openCodeCLI,
                         workingDirectory: workingDirectory
                     )
                 },
-                sessionRuntimeResetter: { [unowned self] sessionID in
-                    self.resetExternalACPTerminalTaskRuntime(
+                sessionRuntimeResetter: { [externalStore = externalACPTerminalRuntimeStore] sessionID in
+                    await externalStore.reset(
                         for: sessionID,
                         providerID: .openCodeCLI
                     )
@@ -421,15 +421,15 @@ extension ClaudeService {
                 permissionCenter: acpPermissionCenter
             ),
             claudeAdapter: ClaudeAdapterCLIExecutionProvider(
-                terminalRuntimeFactory: { [unowned self] sessionID, workingDirectory in
-                    self.getExternalACPTerminalTaskRuntime(
+                terminalRuntimeFactory: { [externalStore = externalACPTerminalRuntimeStore] sessionID, workingDirectory in
+                    await externalStore.runtime(
                         for: sessionID,
                         providerID: .claudeAdapterCLI,
                         workingDirectory: workingDirectory
                     )
                 },
-                sessionRuntimeResetter: { [unowned self] sessionID in
-                    self.resetExternalACPTerminalTaskRuntime(
+                sessionRuntimeResetter: { [externalStore = externalACPTerminalRuntimeStore] sessionID in
+                    await externalStore.reset(
                         for: sessionID,
                         providerID: .claudeAdapterCLI
                     )
@@ -454,7 +454,7 @@ extension ClaudeService {
         modelContext: ModelContext
     ) async throws {
         let settings = AppSettings.getOrCreate(in: modelContext)
-        let turnSkillContext = try resolveTurnSkillContext(
+        let turnSkillContext = try await resolveTurnSkillContext(
             enabledSkillNames: settings.enabledSkillNames,
             directives: directives
         )

@@ -13,6 +13,7 @@ final class BackgroundTaskExecutionCoordinator {
     private let fileManager: FileManager
     private let environmentSnapshotProvider: any BackgroundExecutionEnvironmentSnapshotProviding
 
+    @MainActor
     init(
         evaluator: BackgroundTaskEligibilityEvaluator,
         observationService: BackgroundTaskObservationService,

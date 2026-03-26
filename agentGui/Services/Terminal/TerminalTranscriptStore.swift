@@ -1,6 +1,6 @@
 import Foundation
 
-final class TerminalTranscriptStore {
+nonisolated final class TerminalTranscriptStore {
     private let baseDirectory: URL
     private let fileManager: FileManager
 

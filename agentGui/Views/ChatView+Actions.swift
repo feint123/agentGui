@@ -115,7 +115,7 @@ extension ChatView {
         }
 
         do {
-            _ = try claudeService.resolveTurnSkillContext(
+            _ = try await claudeService.resolveTurnSkillContext(
                 enabledSkillNames: settings.enabledSkillNames,
                 directives: activeInputDirectives
             )

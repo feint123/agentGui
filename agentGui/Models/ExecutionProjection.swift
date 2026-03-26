@@ -1,5 +1,24 @@
 import Foundation
 
+enum SessionExecutionActivityState: String, Equatable, Sendable {
+    case idle
+    case queued
+    case running
+    case blocked
+    case finishing
+}
+
+enum SessionExecutionPresentationState: String, Equatable, Sendable {
+    case foreground
+    case background
+}
+
+enum SessionExecutionAttentionReason: String, Equatable, Sendable {
+    case userQuestion
+    case toolApproval
+    case terminalPrompt
+}
+
 struct EnqueueExecutionCommand: Sendable {
     let sessionID: String
     let providerID: ConversationExecutionProviderID
@@ -22,6 +41,10 @@ struct SessionExecutionProjection: Equatable, Sendable {
     let canSubmitNewJob: Bool
     let activeProviderID: ConversationExecutionProviderID?
     let currentPhase: AgentLoopPhase?
+    let activityState: SessionExecutionActivityState
+    let presentationState: SessionExecutionPresentationState
+    let needsAttention: Bool
+    let attentionReason: SessionExecutionAttentionReason?
 
     static func empty(sessionID: String) -> SessionExecutionProjection {
         SessionExecutionProjection(
@@ -33,7 +56,11 @@ struct SessionExecutionProjection: Equatable, Sendable {
             canEditComposer: true,
             canSubmitNewJob: true,
             activeProviderID: nil,
-            currentPhase: nil
+            currentPhase: nil,
+            activityState: .idle,
+            presentationState: .foreground,
+            needsAttention: false,
+            attentionReason: nil
         )
     }
 }

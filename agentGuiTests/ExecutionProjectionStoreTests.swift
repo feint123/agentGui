@@ -1,44 +1,42 @@
-import Foundation
 import Testing
 @testable import agentGui
 
 @MainActor
 struct ExecutionProjectionStoreTests {
-    @Test func projectionStoreReturnsEmptyProjectionForUnknownSession() {
+    @Test
+    func projectionDefaultsToIdleForegroundWithoutAttention() {
         let store = ExecutionProjectionStore()
 
-        let projection = store.projection(for: "session-1")
+        let projection = store.projection(for: "session-a")
 
-        #expect(projection.sessionID == "session-1")
-        #expect(projection.currentPhase == nil)
-        #expect(projection.queuedJobIDs.isEmpty)
-        #expect(projection.queuedCount == 0)
-        #expect(projection.isRunning == false)
-        #expect(projection.canEditComposer == true)
-        #expect(projection.canSubmitNewJob == true)
+        #expect(projection.sessionID == "session-a")
+        #expect(projection.activityState == .idle)
+        #expect(projection.presentationState == .foreground)
+        #expect(projection.needsAttention == false)
+        #expect(projection.attentionReason == nil)
     }
 
-    @Test func projectionStorePersistsLatestProjectionBySession() {
+    @Test
+    func setProjectionPersistsAttentionAndPresentationFields() {
         let store = ExecutionProjectionStore()
-        let jobID = UUID()
-        store.setProjection(
-            SessionExecutionProjection(
-                sessionID: "session-1",
-                runningJobID: nil,
-                queuedJobIDs: [jobID],
-                queuedCount: 1,
-                isRunning: false,
-                canEditComposer: true,
-                canSubmitNewJob: true,
-                activeProviderID: .githubCopilotCLI,
-                currentPhase: nil
-            )
+        let projection = SessionExecutionProjection(
+            sessionID: "session-a",
+            runningJobID: nil,
+            queuedJobIDs: [],
+            queuedCount: 0,
+            isRunning: false,
+            canEditComposer: true,
+            canSubmitNewJob: true,
+            activeProviderID: .builtInAgent,
+            currentPhase: nil,
+            activityState: .blocked,
+            presentationState: .background,
+            needsAttention: true,
+            attentionReason: .userQuestion
         )
 
-        let projection = store.projection(for: "session-1")
+        store.setProjection(projection)
 
-        #expect(projection.queuedJobIDs == [jobID])
-        #expect(projection.activeProviderID == .githubCopilotCLI)
-        #expect(projection.currentPhase == nil)
+        #expect(store.projection(for: "session-a") == projection)
     }
 }

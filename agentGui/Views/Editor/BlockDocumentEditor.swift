@@ -111,18 +111,27 @@ struct BlockDocumentEditor: View {
     private var scrollContent: some View {
         let orderedListIndices = BlockListIndexMap.make(for: document.blocks)
 
-        return VStack(alignment: .leading, spacing: 0) {
-            ChatReadableWidthContainer {
-                List {
-                    ForEach(Array(document.blocks.enumerated()), id: \.element.id) { index, block in
-                        blockRow(for: block, at: index, orderedListIndices: orderedListIndices)
-                    }
+        return List {
+            Color.clear
+                    .frame(height: 16)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
+            ForEach(Array(document.blocks.enumerated()), id: \.element.id) { index, block in
+                ChatReadableWidthContainer {
+                    blockRow(for: block, at: index, orderedListIndices: orderedListIndices)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden) // 隐藏默认背景
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
             }
+            Color.clear
+                    .frame(height: 16)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden) // 隐藏默认背景   
         .frame(maxWidth:.infinity)
         .coordinateSpace(name: BlockEditorLayoutCoordinateSpace.canvas)
         .background(editorBackground)

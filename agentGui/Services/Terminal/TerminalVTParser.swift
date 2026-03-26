@@ -1,6 +1,6 @@
 import Foundation
 
-struct TerminalVTParser {
+nonisolated struct TerminalVTParser {
     func parse(_ text: String) -> [TerminalVTEvent] {
         let scalars = Array(text.unicodeScalars)
         var events: [TerminalVTEvent] = []

@@ -1,6 +1,6 @@
 import Foundation
 
-final class ACPManagedClientRuntime {
+nonisolated final class ACPManagedClientRuntime {
     let runtime: ACPClientRuntime
 
     private let supervisor: ACPProcessSupervisor

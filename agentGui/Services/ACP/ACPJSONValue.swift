@@ -1,6 +1,6 @@
 import Foundation
 
-enum ACPJSONValue: Codable, Equatable, Sendable {
+nonisolated enum ACPJSONValue: Codable, Equatable, Sendable {
     case string(String)
     case number(Double)
     case bool(Bool)

@@ -41,9 +41,7 @@ struct ChatView: View {
     /// Prevents ForEach from accessing Message objects that are about to be deleted
     @State var isClearingMessages = false
     @State var isDeletingAllSessions = false
-    @State var messageListSnapshot = ChatMessageListSnapshot.empty
-    @State var messageListProjectionTrigger: ChatMessageListProjectionTrigger?
-    @State var isInitialMessageListLoadInFlight = true
+    @State var messageListProjectionModel = ChatMessageListProjectionModel()
     @State var isMessageListPinnedToBottom = true
     @State var isProgrammaticMessageListScrollInFlight = false
     @State var isExecutionRuntimeBootstrapInFlight = false
@@ -107,9 +105,6 @@ struct ChatView: View {
                 ChatReadableWidthContainer {
                     messagesArea
                 }
-                .task(id: currentMessageListProjectionTrigger) {
-                    await refreshMessageListSnapshotForCurrentState()
-                }
                 ChatReadableWidthContainer {
                     inputArea
                 }
@@ -127,11 +122,11 @@ struct ChatView: View {
             if let error = errorMessage { Text(error) }
         }
         .sheet(item: Binding(
-            get: { claudeService.pendingUserQuestion },
+            get: { claudeService.pendingUserQuestion(for: session.sessionId) },
             set: { newVal in
                 if newVal == nil {
-                    claudeService.pendingUserQuestion?.cancel()
-                    claudeService.pendingUserQuestion = nil
+                    claudeService.pendingUserQuestion(for: session.sessionId)?.cancel()
+                    claudeService.clearPendingUserQuestion(for: session.sessionId)
                 }
             }
         )) { request in
@@ -186,8 +181,9 @@ struct ChatView: View {
     }
 
     var usesExecutionProjectionUI: Bool {
-        sessionExecutionProjection.isRunning ||
-        sessionExecutionProjection.queuedCount > 0
+        ChatComposerExecutionPresentation.shouldUseExecutionProjectionUI(
+            for: sessionExecutionProjection
+        )
     }
 
     var effectiveStreamingState: Bool {

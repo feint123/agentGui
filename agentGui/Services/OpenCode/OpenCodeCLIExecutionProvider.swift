@@ -15,12 +15,11 @@ enum OpenCodeCLIExecutionProviderError: LocalizedError {
     }
 }
 
-@MainActor
 protocol OpenCodeCLIRuntimeClient: ACPExternalProviderRuntimeClient, ACPExternalProviderRuntimeTransportClient {}
 
 extension ACPExternalAgentRuntimeClient: OpenCodeCLIRuntimeClient {}
 
-typealias OpenCodeCLIRuntimeClientFactory = @MainActor (
+typealias OpenCodeCLIRuntimeClientFactory = @Sendable (
     ACPExternalAgentLaunchConfiguration,
     TerminalTaskRuntime,
     ToolAuthorizationPolicy,
@@ -30,15 +29,15 @@ typealias OpenCodeCLIRuntimeClientFactory = @MainActor (
 
 @MainActor
 final class OpenCodeCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCLIConfiguration> {
-    private let runtimeFactory: OpenCodeCLIRuntimeFactory
+    nonisolated private let runtimeFactory: OpenCodeCLIRuntimeFactory
     private let availabilityService: OpenCodeCLIAvailabilityService
-    private let runtimeClientFactory: OpenCodeCLIRuntimeClientFactory
+    nonisolated private let runtimeClientFactory: OpenCodeCLIRuntimeClientFactory
 
     init(
         runtimeFactory: OpenCodeCLIRuntimeFactory = OpenCodeCLIRuntimeFactory(),
         availabilityService: OpenCodeCLIAvailabilityService = OpenCodeCLIAvailabilityService(),
-        terminalRuntimeFactory: @escaping (String, String?) -> TerminalTaskRuntime,
-        sessionRuntimeResetter: @escaping @MainActor (String) -> Void = { _ in },
+        terminalRuntimeFactory: @escaping ACPExternalTerminalRuntimeFactory,
+        sessionRuntimeResetter: @escaping ACPExternalSessionRuntimeResetter = { _ in },
         permissionCenter: ACPPermissionCenter,
         authorizationPolicyFactory: ConversationAuthorizationPolicyFactory = ConversationAuthorizationPolicyFactory(),
         runtimeClientFactory: @escaping OpenCodeCLIRuntimeClientFactory = OpenCodeCLIExecutionProvider.makeRuntimeClient
@@ -80,9 +79,9 @@ final class OpenCodeCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCL
         ToolApprovalMode.resolved(from: configuration.defaultApprovalMode)
     }
 
-    override func buildRuntimeClient(
+    override nonisolated func buildRuntimeClient(
         configuration: ACPCLIConfiguration,
-        session: Session,
+        localSessionID: String,
         workingDirectory: String,
         authorizationPolicy: ToolAuthorizationPolicy,
         permissionResolver: @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
@@ -92,7 +91,7 @@ final class OpenCodeCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCL
             executablePath: configuration.executablePath,
             workingDirectory: workingDirectory
         )
-        let terminalRuntime = makeTerminalRuntime(sessionID: session.sessionId, workingDirectory: workingDirectory)
+        let terminalRuntime = await makeTerminalRuntime(sessionID: localSessionID, workingDirectory: workingDirectory)
         return try runtimeClientFactory(
             launchConfiguration,
             terminalRuntime,
@@ -168,7 +167,7 @@ final class OpenCodeCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCL
         )
     }
 
-    private static func makeRuntimeClient(
+    nonisolated private static func makeRuntimeClient(
         launchConfiguration: ACPExternalAgentLaunchConfiguration,
         terminalRuntime: TerminalTaskRuntime,
         authorizationPolicy: ToolAuthorizationPolicy,

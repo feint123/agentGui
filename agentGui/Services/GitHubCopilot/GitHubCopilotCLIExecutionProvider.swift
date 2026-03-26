@@ -45,12 +45,11 @@ extension ACPExternalAgentSessionHandshake {
     }
 }
 
-@MainActor
 protocol GitHubCopilotCLIRuntimeClient: ACPExternalProviderRuntimeClient, ACPExternalProviderRuntimeTransportClient {}
 
 extension ACPExternalAgentRuntimeClient: GitHubCopilotCLIRuntimeClient {}
 
-typealias GitHubCopilotCLIRuntimeClientFactory = @MainActor (
+typealias GitHubCopilotCLIRuntimeClientFactory = @Sendable (
     GitHubCopilotCLILaunchConfiguration,
     TerminalTaskRuntime,
     ToolAuthorizationPolicy,
@@ -60,15 +59,15 @@ typealias GitHubCopilotCLIRuntimeClientFactory = @MainActor (
 
 @MainActor
 final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<ACPCLIConfiguration> {
-    private let runtimeFactory: GitHubCopilotCLIRuntimeFactory
+    nonisolated private let runtimeFactory: GitHubCopilotCLIRuntimeFactory
     private let availabilityService: GitHubCopilotCLIAvailabilityService
-    private let runtimeClientFactory: GitHubCopilotCLIRuntimeClientFactory
+    nonisolated private let runtimeClientFactory: GitHubCopilotCLIRuntimeClientFactory
 
     init(
         runtimeFactory: GitHubCopilotCLIRuntimeFactory = GitHubCopilotCLIRuntimeFactory(),
         availabilityService: GitHubCopilotCLIAvailabilityService = GitHubCopilotCLIAvailabilityService(),
-        terminalRuntimeFactory: @escaping (String, String?) -> TerminalTaskRuntime,
-        sessionRuntimeResetter: @escaping @MainActor (String) -> Void = { _ in },
+        terminalRuntimeFactory: @escaping ACPExternalTerminalRuntimeFactory,
+        sessionRuntimeResetter: @escaping ACPExternalSessionRuntimeResetter = { _ in },
         permissionCenter: ACPPermissionCenter,
         authorizationPolicyFactory: ConversationAuthorizationPolicyFactory = ConversationAuthorizationPolicyFactory(),
         runtimeClientFactory: @escaping GitHubCopilotCLIRuntimeClientFactory = GitHubCopilotCLIExecutionProvider.makeRuntimeClient
@@ -110,9 +109,9 @@ final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<
         ToolApprovalMode.resolved(from: configuration.defaultApprovalMode)
     }
 
-    override func buildRuntimeClient(
+    override nonisolated func buildRuntimeClient(
         configuration: ACPCLIConfiguration,
-        session: Session,
+        localSessionID: String,
         workingDirectory: String,
         authorizationPolicy: ToolAuthorizationPolicy,
         permissionResolver: @escaping @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse?,
@@ -122,7 +121,7 @@ final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<
             executablePath: configuration.executablePath,
             workingDirectory: workingDirectory
         )
-        let terminalRuntime = makeTerminalRuntime(sessionID: session.sessionId, workingDirectory: workingDirectory)
+        let terminalRuntime = await makeTerminalRuntime(sessionID: localSessionID, workingDirectory: workingDirectory)
         return try runtimeClientFactory(
             launchConfiguration,
             terminalRuntime,
@@ -191,7 +190,7 @@ final class GitHubCopilotCLIExecutionProvider: ACPExternalExecutionProviderBase<
         )
     }
 
-    private static func makeRuntimeClient(
+    nonisolated private static func makeRuntimeClient(
         launchConfiguration: GitHubCopilotCLILaunchConfiguration,
         terminalRuntime: TerminalTaskRuntime,
         authorizationPolicy: ToolAuthorizationPolicy,
