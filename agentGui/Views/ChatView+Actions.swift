@@ -27,6 +27,51 @@ extension ChatView {
         return normalized == GitHubCopilotCLIApprovalModeOption.resolved(from: fallback).rawValue ? nil : normalized
     }
 
+    func toggleVoiceInput() {
+        guard sessionInteractionPolicy.canSend else {
+            errorMessage = sessionInteractionPolicy.readOnlyReason
+            return
+        }
+
+        clearSlashState()
+        clearMentionStateIfNeeded()
+
+        switch voiceInputController.phase {
+        case .idle, .failed(_):
+            let currentText = inputText
+            activeTask = Task {
+                @MainActor in
+                await voiceInputController.startRecording(currentText: currentText)
+            }
+        case .requestingPermission, .preparing, .recording, .finalizing:
+            activeTask = Task {
+                @MainActor in
+                await voiceInputController.stopRecording()
+            }
+        }
+    }
+
+    func syncComposerTextFromVoiceControllerIfNeeded(_ text: String) {
+        guard inputText != text else { return }
+        inputText = text
+        updateComposerAssistState(text)
+    }
+
+    func handleComposerTextChanged(_ text: String) {
+        updateComposerAssistState(text)
+
+        switch voiceInputController.phase {
+        case .preparing, .recording, .finalizing:
+            guard text != voiceInputController.displayedText else { return }
+            Task {
+                @MainActor in
+                await voiceInputController.handleManualTextMutation(text)
+            }
+        case .idle, .requestingPermission, .failed(_):
+            break
+        }
+    }
+
     private func resolvedBuiltInModelID(settings: AppSettings) -> String {
         SessionExecutionPreferencesResolver.builtInModelID(for: session, settings: settings)
     }

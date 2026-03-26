@@ -1,8 +1,8 @@
 import Foundation
 
 actor ACPConnection {
-    typealias StreamObserver = (ACPStreamEvent) async -> Void
-    typealias ErrorObserver = (Error) async -> Void
+    typealias StreamObserver = @Sendable (ACPStreamEvent) async -> Void
+    typealias ErrorObserver = @Sendable (Error) async -> Void
 
     private struct PendingRequest {
         let method: String
@@ -40,12 +40,12 @@ actor ACPConnection {
         receiveTask = Task {
             do {
                 for try await message in stream {
-                    await self.notifyObservers(direction: .incoming, message: message)
+                    await self.dispatchObservers(direction: .incoming, message: message)
                     await self.process(message)
                 }
                 await self.failAllPending(with: ACPTransportError.closed)
             } catch {
-                await self.notifyErrorObservers(error)
+                await self.dispatchErrorObservers(error)
                 await self.failAllPending(with: error)
             }
         }
@@ -73,7 +73,7 @@ actor ACPConnection {
             Task {
                 do {
                     try await self.transport.send(message)
-                    await self.notifyObservers(direction: .outgoing, message: message)
+                    await self.dispatchObservers(direction: .outgoing, message: message)
                 } catch {
                     await self.failPending(requestID: requestID, error: error)
                 }
@@ -86,7 +86,7 @@ actor ACPConnection {
         start()
         let message = ACPWireMessage.notification(ACPNotificationMessage(method: method, params: params))
         try await transport.send(message)
-        await notifyObservers(direction: .outgoing, message: message)
+        await dispatchObservers(direction: .outgoing, message: message)
     }
 
     func close() async {
@@ -103,15 +103,16 @@ actor ACPConnection {
         case .response(let response):
             handleResponse(response)
         case .notification(let notification):
-            Task {
+            let router = self.router
+            Task.detached {
                 do {
-                    _ = try await self.router.handle(method: notification.method, params: notification.params, isNotification: true)
+                    _ = try await router.handle(method: notification.method, params: notification.params, isNotification: true)
                 } catch {
-                    await self.notifyErrorObservers(error)
+                    await self.dispatchErrorObservers(error)
                 }
             }
         case .request(let request):
-            Task {
+            Task.detached {
                 await self.handleIncomingRequest(request)
             }
         }
@@ -143,9 +144,9 @@ actor ACPConnection {
         let wireMessage = ACPWireMessage.response(response)
         do {
             try await transport.send(wireMessage)
-            await notifyObservers(direction: .outgoing, message: wireMessage)
+            await dispatchObservers(direction: .outgoing, message: wireMessage)
         } catch {
-            await notifyErrorObservers(error)
+            await dispatchErrorObservers(error)
             await close()
         }
     }
@@ -163,18 +164,24 @@ actor ACPConnection {
         }
     }
 
-    private func notifyObservers(direction: ACPStreamEvent.Direction, message: ACPWireMessage) async {
+    private func dispatchObservers(direction: ACPStreamEvent.Direction, message: ACPWireMessage) {
         guard !observers.isEmpty else { return }
         let event = ACPStreamEvent(direction: direction, message: message)
-        for observer in observers {
-            await observer(event)
+        let currentObservers = observers
+        Task.detached {
+            for observer in currentObservers {
+                await observer(event)
+            }
         }
     }
 
-    private func notifyErrorObservers(_ error: Error) async {
+    private func dispatchErrorObservers(_ error: Error) {
         guard !errorObservers.isEmpty else { return }
-        for observer in errorObservers {
-            await observer(error)
+        let currentErrorObservers = errorObservers
+        Task.detached {
+            for observer in currentErrorObservers {
+                await observer(error)
+            }
         }
     }
 }

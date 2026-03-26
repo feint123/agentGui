@@ -39,7 +39,7 @@ struct ACPIsolationTests {
         await client.close()
     }
 
-    @Test
+  @Test
     func localClientHandlerDoesNotExposeTerminalAcrossSessions() async throws {
         let runtimeA = TerminalTaskRuntime.makeForTests()
         let runtimeB = TerminalTaskRuntime.makeForTests()
@@ -50,7 +50,7 @@ struct ACPIsolationTests {
                 case "session-a":
                     return runtimeA
                 case "session-b":
-                    return runtimeB
+                  return runtimeB
                 default:
                     return runtimeA
                 }
@@ -61,7 +61,7 @@ struct ACPIsolationTests {
             ACPCreateTerminalRequest(
                 meta: nil,
                 args: ["-c", "printf 'hello from a'"] ,
-                command: "/bin/sh",
+            command: "/bin/sh",
                 cwd: nil,
                 env: nil,
                 outputByteLimit: nil,
@@ -172,6 +172,150 @@ end
 
 @MainActor
 struct ACPExternalAgentRuntimeClientConcurrencyTests {
+  @Test
+  func sessionUpdateHandlingDoesNotBlockPromptResponseDrain() async throws {
+    let workingDirectory = makeTemporaryDirectory()
+    let updateGate = AsyncGate()
+    let handler = BlockingSessionUpdateHandler(gate: updateGate)
+
+    let managedRuntime = try ACPManagedClientRuntime.launch(
+      command: "/usr/bin/ruby",
+      arguments: ["-rjson", "-e", promptResponseAfterNotificationsRubyAgentScript],
+      currentDirectoryURL: workingDirectory,
+      clientHandler: handler
+    )
+
+    let runtime = managedRuntime.runtime
+    _ = try await runtime.initialize(
+      ACPInitializeRequest(
+        meta: nil,
+        clientCapabilities: ACPClientCapabilities(
+          meta: nil,
+          filesystem: ACPFileSystemCapability(meta: nil, readTextFile: true, writeTextFile: true),
+          terminal: true
+        ),
+        clientInfo: ACPImplementation(meta: nil, name: "agentGui-tests", title: "agentGui-tests", version: "1.0"),
+        protocolVersion: ACPMethodCatalog.protocolVersion
+      )
+    )
+
+    let newSession = try await runtime.newSession(
+      ACPNewSessionRequest(cwd: workingDirectory.path)
+    )
+
+    let promptTask = Task {
+      try await runtime.prompt(
+        ACPPromptRequest(
+          meta: nil,
+          prompt: [.text(ACPTextContentBlock(meta: nil, annotations: nil, text: "hello"))],
+          sessionID: newSession.sessionID
+        )
+      )
+    }
+
+    let completedBeforeUpdateRelease = await withTaskGroup(of: Bool.self) { group in
+      group.addTask {
+        _ = try? await promptTask.value
+        return true
+      }
+      group.addTask {
+        try? await Task.sleep(for: .milliseconds(300))
+        return false
+      }
+
+      let first = await group.next() ?? false
+      group.cancelAll()
+      return first
+    }
+
+    await updateGate.release()
+    let response = try await promptTask.value
+
+    #expect(await handler.observedUpdateCount >= 1)
+    #expect(completedBeforeUpdateRelease)
+    #expect(response.stopReason == .endTurn)
+
+    await managedRuntime.close()
+  }
+
+  @Test
+  func connectionObserversDoNotBlockPromptResponseDrain() async throws {
+    let workingDirectory = makeTemporaryDirectory()
+    let observerGate = AsyncGate()
+    let observedNotifications = LockedCounter()
+
+    let managedRuntime = try ACPManagedClientRuntime.launch(
+      command: "/usr/bin/ruby",
+      arguments: ["-rjson", "-e", promptResponseAfterNotificationsRubyAgentScript],
+      currentDirectoryURL: workingDirectory,
+      streamObserver: { event in
+        guard event.direction == .incoming,
+              case .notification(let notification) = event.message,
+              notification.method == ACPMethodCatalog.Client.sessionUpdate else {
+          return
+        }
+
+        await observedNotifications.increment()
+        await observerGate.wait()
+      }
+    )
+
+    let runtime = managedRuntime.runtime
+    _ = try await runtime.initialize(
+      ACPInitializeRequest(
+        meta: nil,
+        clientCapabilities: ACPClientCapabilities(
+          meta: nil,
+          filesystem: ACPFileSystemCapability(meta: nil, readTextFile: true, writeTextFile: true),
+          terminal: true
+        ),
+        clientInfo: ACPImplementation(meta: nil, name: "agentGui-tests", title: "agentGui-tests", version: "1.0"),
+        protocolVersion: ACPMethodCatalog.protocolVersion
+      )
+    )
+
+    let newSession = try await runtime.newSession(
+      ACPNewSessionRequest(cwd: workingDirectory.path)
+    )
+
+    let clock = ContinuousClock()
+    let start = clock.now
+    let promptTask = Task {
+      try await runtime.prompt(
+        ACPPromptRequest(
+          meta: nil,
+          prompt: [.text(ACPTextContentBlock(meta: nil, annotations: nil, text: "hello"))],
+          sessionID: newSession.sessionID
+        )
+      )
+    }
+
+    let completedBeforeObserverRelease = await withTaskGroup(of: Bool.self) { group in
+      group.addTask {
+        _ = try? await promptTask.value
+        return true
+      }
+      group.addTask {
+        try? await Task.sleep(for: .milliseconds(300))
+        return false
+      }
+
+      let first = await group.next() ?? false
+      group.cancelAll()
+      return first
+    }
+
+    await observerGate.release()
+    let response = try await promptTask.value
+    let elapsed = start.duration(to: clock.now)
+
+    #expect(await observedNotifications.value >= 1)
+    #expect(completedBeforeObserverRelease)
+    #expect(response.stopReason == .endTurn, Comment(rawValue: "elapsed=\(String(describing: elapsed))"))
+
+    await managedRuntime.close()
+  }
+
   @Test
   func externalRuntimeSnapshotsAreDetachedTaskSafe() async throws {
     let payload = Data(
@@ -488,4 +632,137 @@ struct ACPExternalAgentRuntimeClientConcurrencyTests {
   sleep
   """#
     }
+
+    private var promptResponseAfterNotificationsRubyAgentScript: String {
+      #"""
+  initialize_request = JSON.parse(STDIN.gets)
+
+  initialize_response = {
+    "jsonrpc" => "2.0",
+    "id" => initialize_request.fetch("id"),
+    "result" => {
+      "protocolVersion" => 1,
+      "agentCapabilities" => {
+        "loadSession" => true
+      },
+      "agentInfo" => {
+        "name" => "test-agent",
+        "version" => "0.1.0"
+      }
+    }
   }
+  STDOUT.write(JSON.generate(initialize_response) + "\n")
+  STDOUT.flush
+
+  while (line = STDIN.gets)
+    request = JSON.parse(line)
+    case request["method"]
+    when "session/new"
+      response = {
+        "jsonrpc" => "2.0",
+        "id" => request.fetch("id"),
+        "result" => {
+          "sessionId" => "remote-update-session",
+          "configOptions" => [],
+          "modes" => nil
+        }
+      }
+      STDOUT.write(JSON.generate(response) + "\n")
+      STDOUT.flush
+    when "session/prompt"
+      4.times do |index|
+        session_update = {
+          "jsonrpc" => "2.0",
+          "method" => "session/update",
+          "params" => {
+            "sessionId" => "remote-update-session",
+            "update" => {
+              "sessionUpdate" => "available_commands_update",
+              "availableCommands" => [
+                {
+                  "name" => "plan-#{index}",
+                  "description" => "Create plan #{index}",
+                  "input" => {
+                    "hint" => "what to plan"
+                  }
+                }
+              ]
+            }
+          }
+        }
+        STDOUT.write(JSON.generate(session_update) + "\n")
+        STDOUT.flush
+      end
+
+      response = {
+        "jsonrpc" => "2.0",
+        "id" => request.fetch("id"),
+        "result" => {
+          "stopReason" => "end_turn"
+        }
+      }
+      STDOUT.write(JSON.generate(response) + "\n")
+      STDOUT.flush
+    when "session/cancel"
+    else
+      response = {
+        "jsonrpc" => "2.0",
+        "id" => request.fetch("id"),
+        "result" => {}
+      }
+      STDOUT.write(JSON.generate(response) + "\n")
+      STDOUT.flush
+    end
+  end
+  """#
+    }
+  }
+
+actor LockedCounter {
+  private(set) var value = 0
+
+  func increment() {
+    value += 1
+  }
+}
+
+actor AsyncGate {
+  private var isOpen = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  func wait() async {
+    guard !isOpen else { return }
+    await withCheckedContinuation { continuation in
+      if isOpen {
+        continuation.resume()
+      } else {
+        waiters.append(continuation)
+      }
+    }
+  }
+
+  func release() {
+    guard !isOpen else { return }
+    isOpen = true
+    let pendingWaiters = waiters
+    waiters.removeAll()
+    for waiter in pendingWaiters {
+      waiter.resume()
+    }
+  }
+}
+
+actor BlockingSessionUpdateHandler: ACPClientHandler {
+  private let gate: AsyncGate
+  private(set) var observedUpdateCount = 0
+
+  init(gate: AsyncGate) {
+    self.gate = gate
+  }
+
+  func handleSessionUpdate(_ notification: ACPSessionNotification) async {
+    _ = notification
+    observedUpdateCount += 1
+    await gate.wait()
+  }
+}

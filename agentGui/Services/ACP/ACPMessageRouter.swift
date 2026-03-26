@@ -1,10 +1,10 @@
 import Foundation
 
-nonisolated final class ACPMessageRouter {
-    typealias RequestHandler = (ACPJSONValue?) async throws -> ACPJSONValue?
-    typealias NotificationHandler = (ACPJSONValue?) async throws -> Void
-    typealias ExtensionRequestHandler = (String, [String: ACPJSONValue]) async throws -> ACPJSONValue?
-    typealias ExtensionNotificationHandler = (String, [String: ACPJSONValue]) async throws -> Void
+nonisolated final class ACPMessageRouter: @unchecked Sendable {
+    typealias RequestHandler = @Sendable (ACPJSONValue?) async throws -> ACPJSONValue?
+    typealias NotificationHandler = @Sendable (ACPJSONValue?) async throws -> Void
+    typealias ExtensionRequestHandler = @Sendable (String, [String: ACPJSONValue]) async throws -> ACPJSONValue?
+    typealias ExtensionNotificationHandler = @Sendable (String, [String: ACPJSONValue]) async throws -> Void
 
     private var requestHandlers: [String: RequestHandler] = [:]
     private var notificationHandlers: [String: NotificationHandler] = [:]

@@ -65,6 +65,7 @@ struct ChatView: View {
     @State var activeInputDirectives: [ChatInputDirective] = []
     @State var didApplyUITestInitialComposerText = false
     @State var showingRMSPanel = false
+    @State var voiceInputController = VoiceInputController()
 
     @FocusState var isInputFocused: Bool
 
@@ -156,6 +157,9 @@ struct ChatView: View {
         }
         .onChange(of: workspaceState.editorSelection) { _, _ in
             showSelectionContext = true
+        }
+        .onChange(of: voiceInputController.displayedText) { _, newValue in
+            syncComposerTextFromVoiceControllerIfNeeded(newValue)
         }
         .task(id: session.sessionId) {
             await bootstrapSessionViewState()

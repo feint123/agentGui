@@ -140,6 +140,14 @@ extension ChatView {
                             .truncationMode(.tail)
                     }
 
+                    if let voiceStatusText = voiceInputStatusText {
+                        Text(voiceStatusText)
+                            .font(.caption)
+                            .foregroundStyle(voiceInputStatusColor)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
                     Spacer(minLength: 0)
 
                     if isExecutionRuntimeBootstrapInFlight {
@@ -172,7 +180,7 @@ extension ChatView {
                         text: $inputText,
                         height: $composerHeight,
                         isDisabled: composerExecutionPresentation.isComposerDisabled,
-                        onTextChange: { updateComposerAssistState($0) },
+                        onTextChange: { handleComposerTextChanged($0) },
                         onMoveSelection: { handleComposerSelectionMove(delta: $0) },
                         onCommitSelection: { commitComposerSelection() },
                         onCancelAssist: { cancelComposerAssist() },
@@ -642,6 +650,12 @@ var fileChipsRow: some View {
         Group {
             if composerExecutionPresentation.showsSendButton && composerExecutionPresentation.showsStopButton {
                 HStack(spacing: 8) {
+                    VoiceInputButton(
+                        phase: voiceInputController.phase,
+                        isEnabled: sessionInteractionPolicy.canSend,
+                        action: toggleVoiceInput
+                    )
+
                     if composerExecutionPresentation.showsStopButton {
                         Button {
                             stopStreaming()
@@ -667,6 +681,12 @@ var fileChipsRow: some View {
                     .accessibilityIdentifier("chat.sendButton")
                 }
             } else {
+                VoiceInputButton(
+                    phase: voiceInputController.phase,
+                    isEnabled: sessionInteractionPolicy.canSend,
+                    action: toggleVoiceInput
+                )
+
                 if composerExecutionPresentation.showsStopButton {
                     Button {
                         stopStreaming()
@@ -703,6 +723,34 @@ var fileChipsRow: some View {
 
         let settings = AppSettings.getOrCreate(in: modelContext)
         return (sendReadinessError(settings: settings) ?? "") .isEmpty
+    }
+
+    private var voiceInputStatusText: String? {
+        switch voiceInputController.phase {
+        case .idle:
+            return nil
+        case .requestingPermission:
+            return "请求麦克风权限"
+        case .preparing:
+            return "正在准备听写"
+        case .recording:
+            return "正在听写"
+        case .finalizing:
+            return "正在整理转写结果"
+        case let .failed(message):
+            return message
+        }
+    }
+
+    private var voiceInputStatusColor: Color {
+        switch voiceInputController.phase {
+        case .failed(_):
+            return .red
+        case .recording:
+            return .accentColor
+        default:
+            return .secondary
+        }
     }
 
     // MARK: - File Drop
@@ -1106,7 +1154,7 @@ var fileChipsRow: some View {
         highlightedSlashItemID = nil
     }
 
-    private func clearMentionStateIfNeeded() {
+    func clearMentionStateIfNeeded() {
         guard mentionQuery != nil || !mentionCandidates.isEmpty || highlightedMentionIndex != nil else {
             return
         }
