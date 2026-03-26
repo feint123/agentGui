@@ -33,15 +33,6 @@ struct AppCommandRegistry {
             requirement: .openWindow
         ),
         AppCommandDescriptor(
-            id: .showOnboarding,
-            title: "开始使用...",
-            category: .app,
-            menuPlacement: .appSettings,
-            shortcut: nil,
-            keywords: ["开始使用", "欢迎", "onboarding"],
-            requirement: .openWindow
-        ),
-        AppCommandDescriptor(
             id: .openWorkspaceChooser,
             title: "打开/切换工作区...",
             category: .workspace,

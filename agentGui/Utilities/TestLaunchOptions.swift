@@ -14,7 +14,6 @@ struct TestLaunchOptions {
     let initialComposerText: String?
     let chatProjectionFixture: String?
     let executionFixtureMode: String?
-    let suppressOnboarding: Bool
 
     static var current: TestLaunchOptions {
         TestLaunchOptions(arguments: ProcessInfo.processInfo.arguments)
@@ -33,7 +32,6 @@ struct TestLaunchOptions {
         initialComposerText = Self.stringValue(for: "-com.agentgui.test.initialComposerText", in: arguments)
         chatProjectionFixture = Self.stringValue(for: "-com.agentgui.test.chatProjectionFixture", in: arguments)
         executionFixtureMode = Self.stringValue(for: "-com.agentgui.test.executionFixture", in: arguments)
-        suppressOnboarding = Self.boolValue(for: "-com.agentgui.test.suppressOnboarding", in: arguments)
 
         if let rawTab = Self.stringValue(for: "-com.agentgui.test.initialTab", in: arguments),
            let parsedTab = WorkbenchNavigationItem(launchArgument: rawTab) {

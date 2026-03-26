@@ -6,7 +6,6 @@ enum AppFocusedSceneKind: Equatable {
     case workbench
     case contextWindow
     case settings
-    case onboarding
     case agentStudio
 }
 

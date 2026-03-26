@@ -228,14 +228,6 @@ struct agentGuiApp: App {
         }
         .modelContainer(sharedModelContainer)
         .defaultSize(width: 960, height: 540)
-
-        Window("开始使用 agentGui", id: OnboardingWindowScene.id) {
-            OnboardingWindowView()
-                .environment(claudeService)
-                .environment(PersistenceCoordinator.shared)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .modelContainer(sharedModelContainer)
     }
 
     @MainActor

@@ -47,7 +47,6 @@ struct AppMenuCommands: Commands {
 
         CommandGroup(after: .appSettings) {
             commandButton(.showSettings)
-            commandButton(.showOnboarding)
         }
     }
 

@@ -29,8 +29,6 @@ final class AppCommandRouter {
             return .performed
         case .showSettings:
             return openWindow(SettingsWindowScene.id, in: context)
-        case .showOnboarding:
-            return openWindow(OnboardingWindowScene.id, in: context)
         case .openWorkspaceChooser:
             requestWorkspaceSelection()
             return .performed
