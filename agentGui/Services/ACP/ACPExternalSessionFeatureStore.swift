@@ -22,12 +22,12 @@ final class ACPExternalSessionFeatureStore {
         for event in events {
             switch event {
             case .replaceCommands(let snapshot):
-                let key = CommandCacheKey(providerID: snapshot.providerID, remoteSessionID: snapshot.remoteSessionID)
+                let key = CommandCacheKey(providerReference: snapshot.providerReference, remoteSessionID: snapshot.remoteSessionID)
                 print(
-                    "[ACP][feature-store] replaceCommands session=\(sessionID) provider=\(snapshot.providerID.rawValue) remoteSession=\(snapshot.remoteSessionID) count=\(snapshot.commands.count) names=\(snapshot.commands.map(\.name).joined(separator: ","))"
+                    "[ACP][feature-store] replaceCommands session=\(sessionID) provider=\(snapshot.providerReference.persistedValue) remoteSession=\(snapshot.remoteSessionID) count=\(snapshot.commands.count) names=\(snapshot.commands.map(\.name).joined(separator: ","))"
                 )
                 commandsCache[key] = snapshot.commands
-                sessionCommandsCache[SessionCommandCacheKey(sessionID: sessionID, providerID: snapshot.providerID)] = snapshot.commands
+                sessionCommandsCache[SessionCommandCacheKey(sessionID: sessionID, providerReference: snapshot.providerReference)] = snapshot.commands
             case .replacePlan(let snapshot):
                 print(
                     "[ACP][feature-store] replacePlan session=\(sessionID) entries=\(snapshot.entries.count)"
@@ -39,36 +39,36 @@ final class ACPExternalSessionFeatureStore {
                 let configuration = mergedConfigurationSnapshot(
                     existing: currentConfigurationSnapshot(
                         sessionID: sessionID,
-                        providerID: snapshot.providerID,
+                        providerReference: snapshot.providerReference,
                         remoteSessionID: snapshot.remoteSessionID
                     ),
                     replacement: snapshot
                 )
                 print(
-                    "[ACP][feature-store] replaceSessionConfiguration session=\(sessionID) provider=\(snapshot.providerID.rawValue) remoteSession=\(snapshot.remoteSessionID) configOptions=\(configuration.configOptions.count) hasModes=\(configuration.modes != nil)"
+                    "[ACP][feature-store] replaceSessionConfiguration session=\(sessionID) provider=\(snapshot.providerReference.persistedValue) remoteSession=\(snapshot.remoteSessionID) configOptions=\(configuration.configOptions.count) hasModes=\(configuration.modes != nil)"
                 )
                 storeConfigurationSnapshot(
                     configuration,
                     sessionID: sessionID,
-                    providerID: snapshot.providerID,
+                    providerReference: snapshot.providerReference,
                     remoteSessionID: snapshot.remoteSessionID
                 )
-            case .updateCurrentMode(let providerID, let remoteSessionID, let currentModeID):
+            case .updateCurrentMode(let providerReference, let remoteSessionID, let currentModeID):
                 let configuration = updatedCurrentModeSnapshot(
                     existing: currentConfigurationSnapshot(
                         sessionID: sessionID,
-                        providerID: providerID,
+                        providerReference: providerReference,
                         remoteSessionID: remoteSessionID
                     ),
                     currentModeID: currentModeID
                 )
                 print(
-                    "[ACP][feature-store] updateCurrentMode session=\(sessionID) provider=\(providerID.rawValue) remoteSession=\(remoteSessionID) currentMode=\(currentModeID)"
+                    "[ACP][feature-store] updateCurrentMode session=\(sessionID) provider=\(providerReference.persistedValue) remoteSession=\(remoteSessionID) currentMode=\(currentModeID)"
                 )
                 storeConfigurationSnapshot(
                     configuration,
                     sessionID: sessionID,
-                    providerID: providerID,
+                    providerReference: providerReference,
                     remoteSessionID: remoteSessionID
                 )
             }
@@ -76,17 +76,17 @@ final class ACPExternalSessionFeatureStore {
     }
 
     func commands(
-        for providerID: ConversationExecutionProviderID,
+        for providerReference: ExecutionProviderReference,
         remoteSessionID: String
     ) -> [ACPCommandDescriptor] {
-        commandsCache[CommandCacheKey(providerID: providerID, remoteSessionID: remoteSessionID)] ?? []
+        commandsCache[CommandCacheKey(providerReference: providerReference, remoteSessionID: remoteSessionID)] ?? []
     }
 
     func commands(
         for sessionID: String,
-        providerID: ConversationExecutionProviderID
+        providerReference: ExecutionProviderReference
     ) -> [ACPCommandDescriptor] {
-        sessionCommandsCache[SessionCommandCacheKey(sessionID: sessionID, providerID: providerID)] ?? []
+        sessionCommandsCache[SessionCommandCacheKey(sessionID: sessionID, providerReference: providerReference)] ?? []
     }
 
     func plan(for sessionID: String) -> ACPPlanSnapshotDraft? {
@@ -95,25 +95,25 @@ final class ACPExternalSessionFeatureStore {
 
     func sessionConfiguration(
         for sessionID: String,
-        providerID: ConversationExecutionProviderID
+        providerReference: ExecutionProviderReference
     ) -> ACPExternalAgentSessionConfigurationSnapshot? {
-        sessionConfigurationCache[SessionConfigurationCacheKey(sessionID: sessionID, providerID: providerID)]
+        sessionConfigurationCache[SessionConfigurationCacheKey(sessionID: sessionID, providerReference: providerReference)]
     }
 
     func sessionConfiguration(
-        for providerID: ConversationExecutionProviderID,
+        for providerReference: ExecutionProviderReference,
         remoteSessionID: String
     ) -> ACPExternalAgentSessionConfigurationSnapshot? {
-        configurationCache[ConfigurationCacheKey(providerID: providerID, remoteSessionID: remoteSessionID)]
+        configurationCache[ConfigurationCacheKey(providerReference: providerReference, remoteSessionID: remoteSessionID)]
     }
 
     private func currentConfigurationSnapshot(
         sessionID: String,
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
         remoteSessionID: String
     ) -> ACPExternalAgentSessionConfigurationSnapshot? {
-        configurationCache[ConfigurationCacheKey(providerID: providerID, remoteSessionID: remoteSessionID)]
-            ?? sessionConfigurationCache[SessionConfigurationCacheKey(sessionID: sessionID, providerID: providerID)]
+        configurationCache[ConfigurationCacheKey(providerReference: providerReference, remoteSessionID: remoteSessionID)]
+            ?? sessionConfigurationCache[SessionConfigurationCacheKey(sessionID: sessionID, providerReference: providerReference)]
     }
 
     private func mergedConfigurationSnapshot(
@@ -150,30 +150,30 @@ final class ACPExternalSessionFeatureStore {
     private func storeConfigurationSnapshot(
         _ snapshot: ACPExternalAgentSessionConfigurationSnapshot,
         sessionID: String,
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
         remoteSessionID: String
     ) {
-        configurationCache[ConfigurationCacheKey(providerID: providerID, remoteSessionID: remoteSessionID)] = snapshot
-        sessionConfigurationCache[SessionConfigurationCacheKey(sessionID: sessionID, providerID: providerID)] = snapshot
+        configurationCache[ConfigurationCacheKey(providerReference: providerReference, remoteSessionID: remoteSessionID)] = snapshot
+        sessionConfigurationCache[SessionConfigurationCacheKey(sessionID: sessionID, providerReference: providerReference)] = snapshot
     }
 }
 
 private struct CommandCacheKey: Hashable {
-    var providerID: ConversationExecutionProviderID
+    var providerReference: ExecutionProviderReference
     var remoteSessionID: String
 }
 
 private struct SessionCommandCacheKey: Hashable {
     var sessionID: String
-    var providerID: ConversationExecutionProviderID
+    var providerReference: ExecutionProviderReference
 }
 
 private struct ConfigurationCacheKey: Hashable {
-    var providerID: ConversationExecutionProviderID
+    var providerReference: ExecutionProviderReference
     var remoteSessionID: String
 }
 
 private struct SessionConfigurationCacheKey: Hashable {
     var sessionID: String
-    var providerID: ConversationExecutionProviderID
+    var providerReference: ExecutionProviderReference
 }

@@ -1,7 +1,8 @@
 import Foundation
 
 struct ACPCommandDescriptor: Equatable, Sendable {
-    var providerID: ConversationExecutionProviderID
+    var providerReference: ExecutionProviderReference
+    var providerDisplayName: String
     var remoteSessionID: String
     var name: String
     var description: String?
@@ -9,14 +10,16 @@ struct ACPCommandDescriptor: Equatable, Sendable {
     var source: ACPCommandSource
 
     init(
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
+        providerDisplayName: String,
         remoteSessionID: String,
         name: String,
         description: String? = nil,
         inputHint: String? = nil,
         source: ACPCommandSource = .remoteAdvertised
     ) {
-        self.providerID = providerID
+        self.providerReference = providerReference
+        self.providerDisplayName = providerDisplayName
         self.remoteSessionID = remoteSessionID
         self.name = name
         self.description = description
@@ -26,19 +29,19 @@ struct ACPCommandDescriptor: Equatable, Sendable {
 }
 
 struct ACPPlanSnapshotDraft: Equatable, Sendable {
-    var providerID: ConversationExecutionProviderID
+    var providerReference: ExecutionProviderReference
     var remoteSessionID: String
     var entries: [ACPPlanEntry]
 }
 
 struct ACPCommandSnapshotDraft: Equatable, Sendable {
-    var providerID: ConversationExecutionProviderID
+    var providerReference: ExecutionProviderReference
     var remoteSessionID: String
     var commands: [ACPCommandDescriptor]
 }
 
 struct ACPExternalSessionConfigurationDraft: Equatable, Sendable {
-    var providerID: ConversationExecutionProviderID
+    var providerReference: ExecutionProviderReference
     var remoteSessionID: String
     var configOptions: [ACPSessionConfigOption]?
     var modes: ACPSessionModeState?
@@ -49,7 +52,7 @@ enum ACPExternalSessionFeatureEvent: Equatable, Sendable {
     case replacePlan(ACPPlanSnapshotDraft)
     case replaceSessionConfiguration(ACPExternalSessionConfigurationDraft)
     case updateCurrentMode(
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
         remoteSessionID: String,
         currentModeID: String
     )
@@ -58,7 +61,7 @@ enum ACPExternalSessionFeatureEvent: Equatable, Sendable {
 struct ACPExternalSessionFeatureExtractor {
     func bootstrapEvents(
         configurationSnapshot: ACPExternalAgentSessionConfigurationSnapshot,
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
         remoteSessionID: String
     ) -> [ACPExternalSessionFeatureEvent] {
         guard !configurationSnapshot.configOptions.isEmpty || configurationSnapshot.modes != nil else {
@@ -68,7 +71,7 @@ struct ACPExternalSessionFeatureExtractor {
         return [
             .replaceSessionConfiguration(
                 ACPExternalSessionConfigurationDraft(
-                    providerID: providerID,
+                    providerReference: providerReference,
                     remoteSessionID: remoteSessionID,
                     configOptions: configurationSnapshot.configOptions,
                     modes: configurationSnapshot.modes
@@ -79,16 +82,23 @@ struct ACPExternalSessionFeatureExtractor {
 
     func extract(
         update: ACPExternalAgentUpdate,
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
+        providerDisplayName: String,
         remoteSessionID: String
     ) -> [ACPExternalSessionFeatureEvent] {
         switch update {
         case .session(let sessionUpdate):
-            return extract(sessionUpdate: sessionUpdate, providerID: providerID, remoteSessionID: remoteSessionID)
+            return extract(
+                sessionUpdate: sessionUpdate,
+                providerReference: providerReference,
+                providerDisplayName: providerDisplayName,
+                remoteSessionID: remoteSessionID
+            )
         case .sessionNotification(let notification):
             return extract(
                 sessionUpdate: notification.update,
-                providerID: providerID,
+                providerReference: providerReference,
+                providerDisplayName: providerDisplayName,
                 remoteSessionID: notification.sessionID
             )
         case .permission:
@@ -98,7 +108,8 @@ struct ACPExternalSessionFeatureExtractor {
 
     private func extract(
         sessionUpdate: ACPSessionUpdate,
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
+        providerDisplayName: String,
         remoteSessionID: String
     ) -> [ACPExternalSessionFeatureEvent] {
         switch sessionUpdate {
@@ -106,11 +117,12 @@ struct ACPExternalSessionFeatureExtractor {
             return [
                 .replaceCommands(
                     ACPCommandSnapshotDraft(
-                        providerID: providerID,
+                        providerReference: providerReference,
                         remoteSessionID: remoteSessionID,
                         commands: payload.availableCommands.map {
                             ACPCommandDescriptor(
-                                providerID: providerID,
+                                providerReference: providerReference,
+                                providerDisplayName: providerDisplayName,
                                 remoteSessionID: remoteSessionID,
                                 name: $0.name,
                                 description: $0.description,
@@ -124,7 +136,7 @@ struct ACPExternalSessionFeatureExtractor {
             return [
                 .replacePlan(
                     ACPPlanSnapshotDraft(
-                        providerID: providerID,
+                        providerReference: providerReference,
                         remoteSessionID: remoteSessionID,
                         entries: payload.entries
                     )
@@ -133,7 +145,7 @@ struct ACPExternalSessionFeatureExtractor {
         case .currentModeUpdate(let payload):
             return [
                 .updateCurrentMode(
-                    providerID: providerID,
+                    providerReference: providerReference,
                     remoteSessionID: remoteSessionID,
                     currentModeID: payload.currentModeID
                 )
@@ -142,7 +154,7 @@ struct ACPExternalSessionFeatureExtractor {
             return [
                 .replaceSessionConfiguration(
                     ACPExternalSessionConfigurationDraft(
-                        providerID: providerID,
+                        providerReference: providerReference,
                         remoteSessionID: remoteSessionID,
                         configOptions: payload.configOptions,
                         modes: nil

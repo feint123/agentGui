@@ -392,16 +392,46 @@ struct ACPExternalAgentRuntimeClientConcurrencyTests {
               defaultModel: "",
               defaultApprovalMode: ACPCLIConfiguration.externalProviderDefaultApprovalMode
             )
+            let copilotProfile = ACPProviderProfile(
+              legacyProviderKeyRaw: LegacyExternalACPProviderKey.githubCopilotCLI.rawValue,
+              displayName: "GitHub Copilot",
+              executablePath: configuration.executablePath,
+              arguments: ["--acp", "--stdio"],
+              isEnabled: true,
+              sortOrder: 0,
+              sourceKind: .manual
+            )
+            let openCodeProfile = ACPProviderProfile(
+              legacyProviderKeyRaw: LegacyExternalACPProviderKey.openCodeCLI.rawValue,
+              displayName: "OpenCode",
+              executablePath: configuration.executablePath,
+              arguments: ["acp"],
+              isEnabled: true,
+              sortOrder: 1,
+              sourceKind: .manual
+            )
+            let claudeProfile = ACPProviderProfile(
+              legacyProviderKeyRaw: LegacyExternalACPProviderKey.claudeAdapterCLI.rawValue,
+              displayName: "Claude Code",
+              executablePath: configuration.executablePath,
+              arguments: [],
+              isEnabled: true,
+              sortOrder: 2,
+              sourceKind: .manual
+            )
 
-            let copilot = GitHubCopilotCLIExecutionProvider(
+            let copilot = DynamicACPExternalExecutionProvider(
+              profile: copilotProfile,
               terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
               permissionCenter: permissionCenter
             )
-            let openCode = OpenCodeCLIExecutionProvider(
+            let openCode = DynamicACPExternalExecutionProvider(
+              profile: openCodeProfile,
               terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
               permissionCenter: permissionCenter
             )
-            let claudeAdapter = ClaudeAdapterCLIExecutionProvider(
+            let claudeAdapter = DynamicACPExternalExecutionProvider(
+              profile: claudeProfile,
               terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
               permissionCenter: permissionCenter
             )
@@ -411,11 +441,14 @@ struct ACPExternalAgentRuntimeClientConcurrencyTests {
                 "copilot",
                 AsyncRuntimeClientBuildInvoker {
                   _ = try await copilot.buildRuntimeClient(
-                    configuration: configuration,
+                    configuration: copilotProfile,
                     localSessionID: "runtime-build-copilot",
                     workingDirectory: FileManager.default.temporaryDirectory.path,
                     authorizationPolicy: authorizationPolicy,
-                    permissionResolver: { _, _ in nil },
+                    permissionResolver: { _, _ in
+                      let response: ACPRequestPermissionResponse? = nil
+                      return response
+                    },
                     updateSink: { _ in }
                   )
                 }
@@ -424,11 +457,14 @@ struct ACPExternalAgentRuntimeClientConcurrencyTests {
                 "openCode",
                 AsyncRuntimeClientBuildInvoker {
                   _ = try await openCode.buildRuntimeClient(
-                    configuration: configuration,
+                    configuration: openCodeProfile,
                     localSessionID: "runtime-build-opencode",
                     workingDirectory: FileManager.default.temporaryDirectory.path,
                     authorizationPolicy: authorizationPolicy,
-                    permissionResolver: { _, _ in nil },
+                    permissionResolver: { _, _ in
+                      let response: ACPRequestPermissionResponse? = nil
+                      return response
+                    },
                     updateSink: { _ in }
                   )
                 }
@@ -437,11 +473,14 @@ struct ACPExternalAgentRuntimeClientConcurrencyTests {
                 "claudeAdapter",
                 AsyncRuntimeClientBuildInvoker {
                   _ = try await claudeAdapter.buildRuntimeClient(
-                    configuration: configuration,
+                    configuration: claudeProfile,
                     localSessionID: "runtime-build-claude",
                     workingDirectory: FileManager.default.temporaryDirectory.path,
                     authorizationPolicy: authorizationPolicy,
-                    permissionResolver: { _, _ in nil },
+                    permissionResolver: { _, _ in
+                      let response: ACPRequestPermissionResponse? = nil
+                      return response
+                    },
                     updateSink: { _ in }
                   )
                 }
@@ -478,8 +517,18 @@ struct ACPExternalAgentRuntimeClientConcurrencyTests {
         @Test
         func providerUpdateSinkDoesNotBlockInitializeWhenMainActorIsBusy() async throws {
           let agentScript = initializeAfterNotificationRubyAgentScript
+          let profile = ACPProviderProfile(
+            legacyProviderKeyRaw: LegacyExternalACPProviderKey.githubCopilotCLI.rawValue,
+            displayName: "GitHub Copilot",
+            executablePath: "/usr/bin/false",
+            arguments: ["--acp", "--stdio"],
+            isEnabled: true,
+            sortOrder: 0,
+            sourceKind: .manual
+          )
           let provider = await MainActor.run {
-            GitHubCopilotCLIExecutionProvider(
+            DynamicACPExternalExecutionProvider(
+              profile: profile,
               terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
               permissionCenter: ACPPermissionCenter(),
               runtimeClientFactory: { _, terminalRuntime, authorizationPolicy, permissionResolver, updateSink in
@@ -501,11 +550,7 @@ struct ACPExternalAgentRuntimeClientConcurrencyTests {
           }
 
           let runtimeClient = try await provider.buildRuntimeClient(
-            configuration: ACPCLIConfiguration(
-              executablePath: "/usr/bin/false",
-              defaultModel: "",
-              defaultApprovalMode: ACPCLIConfiguration.externalProviderDefaultApprovalMode
-            ),
+            configuration: profile,
             localSessionID: "update-sink-isolation",
             workingDirectory: FileManager.default.temporaryDirectory.path,
             authorizationPolicy: ToolAuthorizationPolicy(preset: .actLimited),

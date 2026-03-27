@@ -92,6 +92,15 @@ final class Session {
 
 // MARK: - Computed Properties
 extension Session {
+    var defaultExecutionProviderReference: ExecutionProviderReference {
+        get {
+            ExecutionProviderReference.decodePersisted(defaultExecutionProviderID)
+        }
+        set {
+            defaultExecutionProviderID = newValue.persistedValue
+        }
+    }
+
     var kind: SessionKind {
         get { SessionKind(rawValue: kindRaw) ?? .local }
         set { kindRaw = newValue.rawValue }

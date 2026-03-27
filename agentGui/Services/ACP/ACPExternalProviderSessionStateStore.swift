@@ -86,16 +86,16 @@ final class ACPExternalProviderSessionStateStore {
         }
 
         func commands(
-            for providerID: ConversationExecutionProviderID,
+            for providerReference: ExecutionProviderReference,
             remoteSessionID: String
         ) -> [ACPCommandDescriptor] {
-            featureStoreCache?.commands(for: providerID, remoteSessionID: remoteSessionID) ?? []
+            featureStoreCache?.commands(for: providerReference, remoteSessionID: remoteSessionID) ?? []
         }
 
         func commands(
-            for providerID: ConversationExecutionProviderID
+            for providerReference: ExecutionProviderReference
         ) -> [ACPCommandDescriptor] {
-            featureStoreCache?.commands(for: localSessionID, providerID: providerID) ?? []
+            featureStoreCache?.commands(for: localSessionID, providerReference: providerReference) ?? []
         }
 
         func plan() -> ACPPlanSnapshotDraft? {
@@ -103,16 +103,16 @@ final class ACPExternalProviderSessionStateStore {
         }
 
         func sessionConfiguration(
-            for providerID: ConversationExecutionProviderID
+            for providerReference: ExecutionProviderReference
         ) -> ACPExternalAgentSessionConfigurationSnapshot? {
-            featureStoreCache?.sessionConfiguration(for: localSessionID, providerID: providerID)
+            featureStoreCache?.sessionConfiguration(for: localSessionID, providerReference: providerReference)
         }
 
         func sessionConfiguration(
-            for providerID: ConversationExecutionProviderID,
+            for providerReference: ExecutionProviderReference,
             remoteSessionID: String
         ) -> ACPExternalAgentSessionConfigurationSnapshot? {
-            featureStoreCache?.sessionConfiguration(for: providerID, remoteSessionID: remoteSessionID)
+            featureStoreCache?.sessionConfiguration(for: providerReference, remoteSessionID: remoteSessionID)
         }
 
         var hasPendingProjectedMutations: Bool {

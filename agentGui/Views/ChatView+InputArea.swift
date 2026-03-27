@@ -10,7 +10,7 @@ import AppKit
 extension ChatView {
 
     private func debugSlashLog(_ message: String) {
-        print("[Slash][\(resolvedExecutionProviderID.rawValue)][session=\(session.sessionId)] \(message)")
+        print("[Slash][\(resolvedExecutionProviderReference.persistedValue)][session=\(session.sessionId)] \(message)")
     }
 
     private var testLaunchOptions: TestLaunchOptions {
@@ -94,7 +94,7 @@ extension ChatView {
                 }
 
                 HStack(spacing: 8) {
-                    Text(resolvedExecutionProviderID.displayName)
+                    Text(resolvedExecutionProviderDisplayName)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 10)
@@ -108,30 +108,30 @@ extension ChatView {
                     composerExecutionPreferencesControls
                         .disabled(sessionInteractionPolicy.canSend == false)
 
-                    if resolvedExecutionProviderID == .githubCopilotCLI,
+                    if resolvedExecutionProviderReference.compatibilityProviderID == .githubCopilotCLI,
                        executionProviderAvailabilityModel.isRefreshingCopilotStatus {
                         composerStatusSkeleton(width: 132)
-                    } else if resolvedExecutionProviderID == .githubCopilotCLI,
+                    } else if resolvedExecutionProviderReference.compatibilityProviderID == .githubCopilotCLI,
                               copilotComposerAvailabilityStatus.kind != .available {
                         Text(copilotComposerAvailabilityStatus.summaryText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                    } else if resolvedExecutionProviderID == .openCodeCLI,
+                      } else if resolvedExecutionProviderReference.compatibilityProviderID == .openCodeCLI,
                               executionProviderAvailabilityModel.isRefreshingOpenCodeStatus {
                         composerStatusSkeleton(width: 118)
-                    } else if resolvedExecutionProviderID == .openCodeCLI,
+                      } else if resolvedExecutionProviderReference.compatibilityProviderID == .openCodeCLI,
                               openCodeComposerAvailabilityStatus.kind != .available {
                         Text(openCodeComposerAvailabilityStatus.summaryText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                    } else if resolvedExecutionProviderID == .claudeAdapterCLI,
+                      } else if resolvedExecutionProviderReference.compatibilityProviderID == .claudeAdapterCLI,
                               executionProviderAvailabilityModel.isRefreshingClaudeAdapterStatus {
                         composerStatusSkeleton(width: 126)
-                    } else if resolvedExecutionProviderID == .claudeAdapterCLI,
+                      } else if resolvedExecutionProviderReference.compatibilityProviderID == .claudeAdapterCLI,
                               claudeAdapterComposerAvailabilityStatus.kind != .available {
                         Text(claudeAdapterComposerAvailabilityStatus.summaryText)
                             .font(.caption)
@@ -225,15 +225,15 @@ extension ChatView {
         slashStateDebouncer.cancel()
     }
     .task(id: copilotComposerAvailabilityRefreshToken) {
-        for providerID in ChatComposerAvailabilityRefreshPolicy.startupRefreshProviderIDs {
-            switch providerID {
+        for providerReference in ChatComposerAvailabilityRefreshPolicy.startupRefreshProviderReferences {
+            switch providerReference.compatibilityProviderID {
             case .githubCopilotCLI:
                 await refreshCopilotComposerAvailabilityStatus()
             case .openCodeCLI:
                 await refreshOpenCodeComposerAvailabilityStatus()
             case .claudeAdapterCLI:
                 await refreshClaudeAdapterComposerAvailabilityStatus()
-            case .builtInAgent:
+            case .builtInAgent, .none:
                 break
             }
         }
@@ -290,8 +290,8 @@ extension ChatView {
 
     @ViewBuilder
     private var composerExecutionPreferencesControls: some View {
-        switch resolvedExecutionProviderID {
-        case .builtInAgent:
+        switch resolvedExecutionProviderReference {
+        case .builtIn:
             ExecutionOptionPicker(
                 title: "",
                 options: AppSettings.availableModelOptions(inheritingTitle: "跟随全局设置"),
@@ -307,23 +307,7 @@ extension ChatView {
                 selection: builtInComposerApprovalModeSelectionBinding,
                 accessibilityIdentifier: "chat.builtInApprovalModePicker"
             )
-        case .githubCopilotCLI:
-            if let presentation = currentACPSessionConfigurationPresentation {
-                ACPSessionConfigurationControls(
-                    presentation: presentation,
-                    onSelectMode: updateACPMode,
-                    onSelectConfigOption: updateACPConfigOption(configID:value:)
-                )
-            }
-        case .openCodeCLI:
-            if let presentation = currentACPSessionConfigurationPresentation {
-                ACPSessionConfigurationControls(
-                    presentation: presentation,
-                    onSelectMode: updateACPMode,
-                    onSelectConfigOption: updateACPConfigOption(configID:value:)
-                )
-            }
-        case .claudeAdapterCLI:
+        case .externalACP:
             if let presentation = currentACPSessionConfigurationPresentation {
                 ACPSessionConfigurationControls(
                     presentation: presentation,
@@ -1060,10 +1044,10 @@ var fileChipsRow: some View {
     }
 
     private func currentACPCommands() -> [ACPCommandDescriptor] {
-        guard resolvedExecutionProviderID != .builtInAgent,
+                guard resolvedExecutionProviderReference != .builtIn,
               let registry = claudeService.executionProviderRegistry,
-              let provider = registry.provider(for: resolvedExecutionProviderID) as? ACPChatSlashCommandSource else {
-            debugSlashLog("currentACPCommandProvider unavailable provider=\(resolvedExecutionProviderID.rawValue)")
+                            let provider = registry.provider(for: resolvedExecutionProviderReference) as? ACPChatSlashCommandSource else {
+                        debugSlashLog("currentACPCommandProvider unavailable provider=\(resolvedExecutionProviderReference.persistedValue)")
             return []
         }
 

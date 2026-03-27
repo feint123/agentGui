@@ -31,7 +31,7 @@ extension ClaudeService {
                 text: text,
                 session: session,
                 modelId: modelId,
-                providerID: ConversationExecutionProviderRegistry.resolveProviderID(
+                providerReference: ConversationExecutionProviderRegistry.resolveProviderReference(
                     for: session,
                     settings: AppSettings.getOrCreate(in: modelContext)
                 ),
@@ -110,7 +110,7 @@ extension ClaudeService {
         text: String,
         session: Session,
         modelId: String,
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
         selectedFilePath: String?,
         selectedText: String?,
         directives: [ChatInputDirective],
@@ -124,7 +124,7 @@ extension ClaudeService {
 
         return EnqueueExecutionCommand(
             sessionID: session.sessionId,
-            providerID: providerID,
+            providerReference: providerReference,
             payload: .userPrompt(
                 text: text,
                 modelID: modelId,
@@ -155,12 +155,12 @@ extension ClaudeService {
 
         let settings = AppSettings.getOrCreate(in: modelContext)
         let registry = executionProviderRegistry(for: modelContext)
-        let providerID = ConversationExecutionProviderRegistry.resolveProviderID(for: session, settings: settings)
-        await registry.provider(for: providerID).resetSessionState(session: session, modelContext: modelContext)
+        let providerReference = ConversationExecutionProviderRegistry.resolveProviderReference(for: session, settings: settings)
+        await registry.provider(for: providerReference).resetSessionState(session: session, modelContext: modelContext)
 
         return EnqueueExecutionCommand(
             sessionID: session.sessionId,
-            providerID: providerID,
+            providerReference: providerReference,
             payload: .userPrompt(
                 text: lastUserText,
                 modelID: modelId,
@@ -189,12 +189,12 @@ extension ClaudeService {
 
         let settings = AppSettings.getOrCreate(in: modelContext)
         let registry = executionProviderRegistry(for: modelContext)
-        let providerID = ConversationExecutionProviderRegistry.resolveProviderID(for: session, settings: settings)
-        await registry.provider(for: providerID).resetSessionState(session: session, modelContext: modelContext)
+        let providerReference = ConversationExecutionProviderRegistry.resolveProviderReference(for: session, settings: settings)
+        await registry.provider(for: providerReference).resetSessionState(session: session, modelContext: modelContext)
 
         return EnqueueExecutionCommand(
             sessionID: session.sessionId,
-            providerID: providerID,
+            providerReference: providerReference,
             payload: .userPrompt(
                 text: newText,
                 modelID: modelId,
@@ -250,15 +250,15 @@ extension ClaudeService {
 
     func handleExecutionProviderSelectionChange(
         session: Session,
-        selectedProviderID: ConversationExecutionProviderID,
+        selectedProviderReference: ExecutionProviderReference,
         modelContext: ModelContext,
         trigger: ConversationExecutionActivationTrigger = .selection
     ) async {
         print(
-            "[ExecutionProviderSelection] localSession=\(session.sessionId) selectedProvider=\(selectedProviderID.rawValue) trigger=\(String(describing: trigger))"
+            "[ExecutionProviderSelection] localSession=\(session.sessionId) selectedProvider=\(selectedProviderReference.persistedValue) trigger=\(String(describing: trigger))"
         )
         let registry = executionProviderRegistry(for: modelContext)
-        let activeProvider = registry.allProviders.first(where: { $0.id == selectedProviderID }) ?? registry.builtIn
+        let activeProvider = registry.provider(for: selectedProviderReference)
         await executionRuntimeCoordinator.prepareForActivation(
             session: session,
             activeProvider: activeProvider,
@@ -386,60 +386,45 @@ extension ClaudeService {
             return executionProviderRegistry
         }
 
-        let registry = ConversationExecutionProviderRegistry(
-            builtIn: BuiltInConversationExecutionProvider(claudeService: self),
-            copilot: GitHubCopilotCLIExecutionProvider(
-                terminalRuntimeFactory: { [externalStore = externalACPTerminalRuntimeStore] sessionID, workingDirectory in
-                    await externalStore.runtime(
-                        for: sessionID,
-                        providerID: .githubCopilotCLI,
-                        workingDirectory: workingDirectory
-                    )
-                },
-                sessionRuntimeResetter: { [externalStore = externalACPTerminalRuntimeStore] sessionID in
-                    await externalStore.reset(
-                        for: sessionID,
-                        providerID: .githubCopilotCLI
-                    )
-                },
-                permissionCenter: acpPermissionCenter
-            ),
-            openCode: OpenCodeCLIExecutionProvider(
-                terminalRuntimeFactory: { [externalStore = externalACPTerminalRuntimeStore] sessionID, workingDirectory in
-                    await externalStore.runtime(
-                        for: sessionID,
-                        providerID: .openCodeCLI,
-                        workingDirectory: workingDirectory
-                    )
-                },
-                sessionRuntimeResetter: { [externalStore = externalACPTerminalRuntimeStore] sessionID in
-                    await externalStore.reset(
-                        for: sessionID,
-                        providerID: .openCodeCLI
-                    )
-                },
-                permissionCenter: acpPermissionCenter
-            ),
-            claudeAdapter: ClaudeAdapterCLIExecutionProvider(
-                terminalRuntimeFactory: { [externalStore = externalACPTerminalRuntimeStore] sessionID, workingDirectory in
-                    await externalStore.runtime(
-                        for: sessionID,
-                        providerID: .claudeAdapterCLI,
-                        workingDirectory: workingDirectory
-                    )
-                },
-                sessionRuntimeResetter: { [externalStore = externalACPTerminalRuntimeStore] sessionID in
-                    await externalStore.reset(
-                        for: sessionID,
-                        providerID: .claudeAdapterCLI
-                    )
-                },
-                permissionCenter: acpPermissionCenter
-            )
-        )
+        let registry = buildExecutionProviderRegistry(for: modelContext)
         executionProviderRegistry = registry
-        _ = modelContext
         return registry
+    }
+
+    func refreshExecutionProviderRuntime(for modelContext: ModelContext) {
+        executionProviderRegistry = buildExecutionProviderRegistry(for: modelContext)
+        executionOrchestrator = nil
+    }
+
+    func buildExecutionProviderRegistry(for modelContext: ModelContext) -> ConversationExecutionProviderRegistry {
+        let builtIn = BuiltInConversationExecutionProvider(claudeService: self)
+        let repository = ACPProviderProfileRepository(modelContext: modelContext)
+        let builder = DynamicACPProviderRegistryBuilder(
+            repository: repository,
+            providerFactory: { [externalStore = externalACPTerminalRuntimeStore, permissionCenter = acpPermissionCenter] profile in
+                let providerReference = ExecutionProviderReference.externalACP(profileID: profile.id)
+                return DynamicACPExternalExecutionProvider(
+                    profile: profile,
+                    terminalRuntimeFactory: { sessionID, workingDirectory in
+                        await externalStore.runtime(
+                            for: sessionID,
+                            providerReference: providerReference,
+                            workingDirectory: workingDirectory
+                        )
+                    },
+                    sessionRuntimeResetter: { sessionID in
+                        await externalStore.reset(
+                            for: sessionID,
+                            providerReference: providerReference
+                        )
+                    },
+                    permissionCenter: permissionCenter
+                )
+            }
+        )
+
+        return (try? builder.build(builtIn: builtIn))
+            ?? ConversationExecutionProviderRegistry(builtIn: builtIn, externalProviders: [:])
     }
 
     private func resumeSendBuiltIn(

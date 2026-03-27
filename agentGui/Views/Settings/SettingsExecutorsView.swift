@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsExecutorsView: View {
+    @Environment(ClaudeService.self) private var claudeService
     @Bindable var store: SettingsStore
 
     var body: some View {
@@ -8,16 +9,8 @@ struct SettingsExecutorsView: View {
             Section("默认执行器") {
                 ExecutionOptionPicker(
                     title: "对话默认执行器",
-                    options: ConversationExecutionProviderID.optionItems(
-                        copilotAvailabilityStatus: store.gitHubCopilotCLIAvailabilityStatus,
-                        openCodeAvailabilityStatus: store.openCodeCLIAvailabilityStatus,
-                        claudeAdapterAvailabilityStatus: store.claudeAdapterCLIAvailabilityStatus
-                    ),
-                    selection: store.persistedSettingsBinding(
-                        get: { store.settings.defaultExecutionProviderID },
-                        userMessage: "默认执行器设置未成功保存",
-                        set: { store.settings.defaultExecutionProviderID = $0 }
-                    ),
+                    options: store.defaultExecutionProviderOptions(),
+                    selection: store.defaultExecutionProviderSelectionBinding(),
                     accessibilityIdentifier: "settings.executors.defaultProviderPicker"
                 )
             }
@@ -41,98 +34,64 @@ struct SettingsExecutorsView: View {
                 Text("default approvals 会审批 Bash 和 Web 操作；bypass approvals 不做操作审批。")
             }
 
-            Section {
-                TextField("Copilot 可执行文件路径", text: store.persistedGitHubCopilotCLIConfigurationBinding(
-                    get: { $0.executablePath },
-                    userMessage: "Copilot CLI 可执行文件路径未成功保存",
-                    set: { $0.executablePath = $1 }
-                ))
-                .accessibilityIdentifier("settings.executors.copilotPathField")
-                HStack {
-                    Text(store.gitHubCopilotCLIAvailabilityStatus.summaryText)
-                        .foregroundStyle(statusColor(for: store.gitHubCopilotCLIAvailabilityStatus))
-                        .accessibilityIdentifier("settings.executors.copilotStatus")
-                    Spacer()
-                    Button("重新检测") {
-                        Task {
-                            await store.refreshGitHubCopilotCLIAvailabilityStatus()
-                        }
-                    }
-                    .accessibilityIdentifier("settings.executors.refreshButton")
-                }
-            } header: {
-                Text("GitHub Copilot CLI")
-            } footer: {
-                Text("配置项已统一为可执行文件；模型与审批项在会话内通过 ACP 动态获取。")
-            }
-
-            Section {
-                TextField("OpenCode 可执行文件路径", text: store.persistedOpenCodeCLIConfigurationBinding(
-                    get: { $0.executablePath },
-                    userMessage: "OpenCode CLI 可执行文件路径未成功保存",
-                    set: { $0.executablePath = $1 }
-                ))
-                .accessibilityIdentifier("settings.executors.openCodePathField")
-                HStack {
-                    Text(store.openCodeCLIAvailabilityStatus.summaryText)
-                        .foregroundStyle(statusColor(for: store.openCodeCLIAvailabilityStatus))
-                        .accessibilityIdentifier("settings.executors.openCodeStatus")
-                    Spacer()
-                    Button("重新检测") {
-                        Task {
-                            await store.refreshOpenCodeCLIAvailabilityStatus()
-                        }
-                    }
-                    .accessibilityIdentifier("settings.executors.refreshOpenCodeButton")
-                }
-            } header: {
-                Text("OpenCode CLI")
-            } footer: {
-                Text("配置项已统一为可执行文件；模型与审批项在会话内通过 ACP 动态获取。")
-            }
-
-            Section {
-                TextField("Claude adapter 可执行文件路径", text: store.persistedClaudeAdapterCLIConfigurationBinding(
-                    get: { $0.executablePath },
-                    userMessage: "Claude adapter CLI 可执行文件路径未成功保存",
-                    set: { $0.executablePath = $1 }
-                ))
-                .accessibilityIdentifier("settings.executors.claudeAdapterPathField")
-                HStack {
-                    Text(store.claudeAdapterCLIAvailabilityStatus.summaryText)
-                        .foregroundStyle(statusColor(for: store.claudeAdapterCLIAvailabilityStatus))
-                        .accessibilityIdentifier("settings.executors.claudeAdapterStatus")
-                    Spacer()
-                    Button("重新检测") {
-                        Task {
-                            await store.refreshClaudeAdapterCLIAvailabilityStatus()
-                        }
-                    }
-                    .accessibilityIdentifier("settings.executors.refreshClaudeAdapterButton")
-                }
-            } header: {
-                Text("Claude Code Adapter")
-            } footer: {
-                Text("使用 ACP adapter CLI 连接 Claude Code。")
-            }
+            ACPProviderListSection(
+                profiles: store.acpProviderProfiles
+            )
         }
         .formStyle(.grouped)
         .navigationTitle("执行器")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink(value: ACPProviderEditorRoute.newProvider) {
+                    Label("新增 Provider", systemImage: "plus")
+                }
+                .accessibilityIdentifier("settings.executors.addProviderButton")
+            }
+        }
+        .navigationDestination(for: ACPProviderEditorRoute.self) { route in
+            ACPProviderEditorScreen(store: store, route: route, claudeService: claudeService)
+        }
         .task {
-            await store.refreshGitHubCopilotCLIAvailabilityStatus()
-            await store.refreshOpenCodeCLIAvailabilityStatus()
-            await store.refreshClaudeAdapterCLIAvailabilityStatus()
+            try? store.reloadACPProviderProfiles(refreshing: claudeService)
+        }
+    }
+}
+
+enum ACPProviderEditorRoute: Hashable {
+    case newProvider
+    case provider(UUID)
+}
+
+private struct ACPProviderEditorScreen: View {
+    let store: SettingsStore
+    let route: ACPProviderEditorRoute
+    let claudeService: ClaudeService
+
+    @State private var viewModel: ACPProviderSettingsEditorViewModel
+
+    init(store: SettingsStore, route: ACPProviderEditorRoute, claudeService: ClaudeService) {
+        self.store = store
+        self.route = route
+        self.claudeService = claudeService
+
+        switch route {
+        case .newProvider:
+            _viewModel = State(initialValue: store.makeACPProviderEditorViewModel())
+        case .provider(let profileID):
+            _viewModel = State(initialValue: store.makeACPProviderEditorViewModel(profileID: profileID))
         }
     }
 
-    private func statusColor(for status: ACPCLIAvailabilityStatus) -> Color {
-        switch status.kind {
-        case .available:
-            return .green
-        case .failed:
-            return .red
-        case .notInstalled, .notAuthenticated, .unknown:
-            return .secondary
-        }
+    var body: some View {
+        ACPProviderEditorView(
+            viewModel: viewModel,
+            onSaved: {
+                try? store.reloadACPProviderProfiles(refreshing: claudeService)
+            },
+            onDelete: {
+                _ = store.deleteACPProvider(profileID: viewModel.id)
+                try? store.reloadACPProviderProfiles(refreshing: claudeService)
+            }
+        )
     }
 }

@@ -73,7 +73,11 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
             return nil
         }
 
-        let source = ACPPermissionCenter.RequestSource(providerID: .builtInAgent, localSessionID: sessionId)
+        let source = ACPPermissionCenter.RequestSource(
+            providerReference: .builtIn,
+            providerDisplayName: ConversationExecutionProviderID.builtInAgent.displayName,
+            localSessionID: sessionId
+        )
         let response = await claudeService.acpPermissionCenter.resolveBuiltInToolApproval(
             toolName: toolName,
             input: input,

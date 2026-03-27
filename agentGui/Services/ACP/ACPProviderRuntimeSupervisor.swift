@@ -2,15 +2,15 @@ import Foundation
 
 @MainActor
 final class ACPProviderRuntimeSupervisor {
-    let providerID: ConversationExecutionProviderID
+    let providerReference: ExecutionProviderReference
 
     private let registry: ACPSessionRuntimeRegistry
 
     init(
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
         registry: ACPSessionRuntimeRegistry = ACPSessionRuntimeRegistry()
     ) {
-        self.providerID = providerID
+        self.providerReference = providerReference
         self.registry = registry
     }
 
@@ -19,7 +19,7 @@ final class ACPProviderRuntimeSupervisor {
         make: @Sendable () -> ACPSessionRuntimeActor
     ) async -> ACPSessionRuntimeActor {
         await registry.activation(
-            for: SessionRuntimeKey(providerID: providerID, localSessionID: localSessionID),
+            for: SessionRuntimeKey(providerReference: providerReference, localSessionID: localSessionID),
             make: make
         )
     }
@@ -27,34 +27,34 @@ final class ACPProviderRuntimeSupervisor {
     func activation(for localSessionID: String) async -> ACPSessionRuntimeActor {
         await activation(for: localSessionID) {
             ACPSessionRuntimeActor(
-                key: SessionRuntimeKey(providerID: self.providerID, localSessionID: localSessionID)
+                key: SessionRuntimeKey(providerReference: self.providerReference, localSessionID: localSessionID)
             )
         }
     }
 
     func existingActivation(for localSessionID: String) async -> ACPSessionRuntimeActor? {
         await registry.existingActivation(
-            for: SessionRuntimeKey(providerID: providerID, localSessionID: localSessionID)
+            for: SessionRuntimeKey(providerReference: providerReference, localSessionID: localSessionID)
         )
     }
 
     func rebuildActivation(for localSessionID: String) async -> ACPSessionRuntimeActor {
         await registry.rebuildActivation(
-            for: SessionRuntimeKey(providerID: providerID, localSessionID: localSessionID)
+            for: SessionRuntimeKey(providerReference: providerReference, localSessionID: localSessionID)
         )
     }
 
     func removeActivation(for localSessionID: String) async {
         await registry.removeActivation(
-            for: SessionRuntimeKey(providerID: providerID, localSessionID: localSessionID)
+            for: SessionRuntimeKey(providerReference: providerReference, localSessionID: localSessionID)
         )
     }
 
     func shutdownProviderSessions() async {
-        await registry.removeAll(providerID: providerID)
+        await registry.removeAll(providerReference: providerReference)
     }
 
     func activeLocalSessionIDs() async -> [String] {
-        await registry.localSessionIDs(providerID: providerID)
+        await registry.localSessionIDs(providerReference: providerReference)
     }
 }

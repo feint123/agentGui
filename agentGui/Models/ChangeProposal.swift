@@ -77,6 +77,15 @@ final class ChangeProposal {
 }
 
 extension ChangeProposal {
+    var providerReference: ExecutionProviderReference {
+        get {
+            ExecutionProviderReference.decodePersisted(providerIDRaw)
+        }
+        set {
+            providerIDRaw = newValue.persistedValue
+        }
+    }
+
     var providerID: ConversationExecutionProviderID {
         get { ConversationExecutionProviderID(rawValue: providerIDRaw) ?? .builtInAgent }
         set { providerIDRaw = newValue.rawValue }

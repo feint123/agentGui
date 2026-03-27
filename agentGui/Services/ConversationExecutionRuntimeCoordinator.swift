@@ -5,6 +5,7 @@ import SwiftData
 final class ConversationExecutionRuntimeCoordinator {
     private struct ScopeState {
         var foregroundSessionID: String?
+        var executionLeaseProviderReferencesBySessionID: [String: Set<ExecutionProviderReference>] = [:]
         var retainedSessionIDs: Set<String> = []
     }
 
@@ -38,15 +39,20 @@ final class ConversationExecutionRuntimeCoordinator {
         let transition = makeActivationTransition(
             activatingSessionID: session.sessionId,
             activeScope: runtimeScope,
+            activeProviderReference: activeProvider.reference,
             registry: registry,
             trigger: trigger
         )
-        await applyReleasePlans(transition.releasePlans, registry: registry, modelContext: modelContext)
         scopeStates = transition.scopeStates
+        await applyReleasePlans(transition.releasePlans, registry: registry, modelContext: modelContext)
 
         let scopedProviders = registry.providers(in: runtimeScope)
+        let protectedProviderReferences = transition.scopeStates[runtimeScope]?
+            .executionLeaseProviderReferencesBySessionID[session.sessionId] ?? []
 
-        for provider in scopedProviders where provider.id != activeProvider.id {
+        for provider in scopedProviders
+        where provider.reference != activeProvider.reference
+        && !protectedProviderReferences.contains(provider.reference) {
             await provider.releasePreparedRuntime(
                 localSessionID: session.sessionId,
                 modelContext: modelContext,
@@ -67,13 +73,14 @@ final class ConversationExecutionRuntimeCoordinator {
         modelContext: ModelContext
     ) async {
         let transition = makeRetentionTransition(registry: registry)
-        await applyReleasePlans(transition.releasePlans, registry: registry, modelContext: modelContext)
         scopeStates = transition.scopeStates
+        await applyReleasePlans(transition.releasePlans, registry: registry, modelContext: modelContext)
     }
 
     private func makeActivationTransition(
         activatingSessionID sessionID: String,
         activeScope: ConversationExecutionRuntimeScope,
+        activeProviderReference: ExecutionProviderReference,
         registry: ConversationExecutionProviderRegistry,
         trigger: ConversationExecutionActivationTrigger
     ) -> (scopeStates: [ConversationExecutionRuntimeScope: ScopeState], releasePlans: [ReleasePlan]) {
@@ -87,6 +94,9 @@ final class ConversationExecutionRuntimeCoordinator {
             case .selection, .sessionBootstrap:
                 state.foregroundSessionID = scope == activeScope ? sessionID : nil
             case .executionDispatch:
+                if scope == activeScope {
+                    state.executionLeaseProviderReferencesBySessionID[sessionID, default: []].insert(activeProviderReference)
+                }
                 break
             }
 
@@ -110,6 +120,11 @@ final class ConversationExecutionRuntimeCoordinator {
 
         for scope in knownScopes {
             var state = nextStates[scope] ?? ScopeState()
+            state.executionLeaseProviderReferencesBySessionID = retainedExecutionLeaseProviderReferencesBySessionID(
+                state.executionLeaseProviderReferencesBySessionID,
+                in: scope,
+                registry: registry
+            )
             state.retainedSessionIDs = retainedSessionIDs(
                 for: scope,
                 currentState: state,
@@ -138,11 +153,33 @@ final class ConversationExecutionRuntimeCoordinator {
             retainedSessionIDs.insert(activatingSessionID)
         }
 
+        retainedSessionIDs.formUnion(currentState.executionLeaseProviderReferencesBySessionID.keys)
+
         for sessionID in currentState.retainedSessionIDs where shouldProtectRuntime(for: sessionID, in: scope, registry: registry) {
             retainedSessionIDs.insert(sessionID)
         }
 
         return retainedSessionIDs
+    }
+
+    private func retainedExecutionLeaseProviderReferencesBySessionID(
+        _ providerReferencesBySessionID: [String: Set<ExecutionProviderReference>],
+        in scope: ConversationExecutionRuntimeScope,
+        registry: ConversationExecutionProviderRegistry
+    ) -> [String: Set<ExecutionProviderReference>] {
+        var retained: [String: Set<ExecutionProviderReference>] = [:]
+
+        for (sessionID, providerReferences) in providerReferencesBySessionID {
+            let retainedReferences = providerReferences.filter {
+                shouldProtectRuntime(for: sessionID, providerReference: $0, in: scope, registry: registry)
+            }
+
+            if !retainedReferences.isEmpty {
+                retained[sessionID] = Set(retainedReferences)
+            }
+        }
+
+        return retained
     }
 
     private func shouldProtectRuntime(
@@ -152,11 +189,28 @@ final class ConversationExecutionRuntimeCoordinator {
     ) -> Bool {
         let projection = projectionStore.projection(for: sessionID)
         guard projection.isRunning,
-              let providerID = projection.activeProviderID else {
+              let providerReference = projection.activeProviderReference,
+              let protectedProvider = registry.providerIfAvailable(for: providerReference) else {
             return false
         }
 
-        return registry.provider(for: providerID).runtimeScope == scope
+        return protectedProvider.runtimeScope == scope
+    }
+
+    private func shouldProtectRuntime(
+        for sessionID: String,
+        providerReference: ExecutionProviderReference,
+        in scope: ConversationExecutionRuntimeScope,
+        registry: ConversationExecutionProviderRegistry
+    ) -> Bool {
+        let projection = projectionStore.projection(for: sessionID)
+        guard projection.isRunning,
+              projection.activeProviderReference == providerReference,
+              let protectedProvider = registry.providerIfAvailable(for: providerReference) else {
+            return false
+        }
+
+        return protectedProvider.runtimeScope == scope
     }
 
     private func releasePlans(

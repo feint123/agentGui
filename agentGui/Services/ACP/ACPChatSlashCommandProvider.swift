@@ -13,17 +13,18 @@ struct ACPChatSlashCommandProvider: ChatSlashCommandProvider {
     func items() -> [ChatSlashCommandItem] {
         commands.map { command in
             ChatSlashCommandItem(
-                id: "acp:\(command.providerID.rawValue):\(command.name)",
+                id: "acp:\(command.providerReference.persistedValue):\(command.name)",
                 kind: .agent,
                 title: command.name,
                 subtitle: command.description ?? command.inputHint ?? "ACP command",
                 aliases: ["/\(command.name)"],
-                badge: command.providerID.displayName,
+                badge: command.providerDisplayName,
                 isEnabledByDefault: true,
                 payload: .acpCommand(
                     name: command.name,
                     argumentHint: command.inputHint,
-                    providerID: command.providerID,
+                    providerReference: command.providerReference,
+                    providerDisplayName: command.providerDisplayName,
                     source: command.source
                 )
             )

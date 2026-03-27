@@ -1,18 +1,21 @@
 import SwiftUI
+import SwiftData
 
 struct NewSessionExecutionProviderMenu<Label: View>: View {
+    @Environment(\.modelContext) private var modelContext
+
     let options: [ExecutionOptionItem]
     let accessibilityIdentifier: String?
-    let onSelect: (ConversationExecutionProviderID) -> Void
+    let onSelect: (ExecutionProviderReference) -> Void
     let label: () -> Label
 
     init(
-        options: [ExecutionOptionItem] = ConversationExecutionProviderID.newSessionOptionItems(),
+        options: [ExecutionOptionItem]? = nil,
         accessibilityIdentifier: String? = nil,
-        onSelect: @escaping (ConversationExecutionProviderID) -> Void,
+        onSelect: @escaping (ExecutionProviderReference) -> Void,
         @ViewBuilder label: @escaping () -> Label
     ) {
-        self.options = options
+        self.options = options ?? []
         self.accessibilityIdentifier = accessibilityIdentifier
         self.onSelect = onSelect
         self.label = label
@@ -20,12 +23,9 @@ struct NewSessionExecutionProviderMenu<Label: View>: View {
 
     var body: some View {
         Menu {
-            ForEach(options) { option in
+            ForEach(resolvedOptions) { option in
                 Button(option.title) {
-                    guard let providerID = ConversationExecutionProviderID(rawValue: option.id) else {
-                        return
-                    }
-                    onSelect(providerID)
+                    onSelect(ExecutionProviderReference.decodePersisted(option.id))
                 }
                 .disabled(option.isEnabled == false)
             }
@@ -33,5 +33,14 @@ struct NewSessionExecutionProviderMenu<Label: View>: View {
             label()
         }
         .applyAccessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private var resolvedOptions: [ExecutionOptionItem] {
+        if options.isEmpty == false {
+            return options
+        }
+
+        let store = SettingsStore(modelContext: modelContext, persistenceCoordinator: nil)
+        return store.defaultExecutionProviderOptions()
     }
 }

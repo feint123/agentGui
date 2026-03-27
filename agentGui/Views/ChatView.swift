@@ -225,7 +225,7 @@ extension ChatView {
 
         await claudeService.handleExecutionProviderSelectionChange(
             session: session,
-            selectedProviderID: resolvedExecutionProviderID,
+            selectedProviderReference: resolvedExecutionProviderReference,
             modelContext: modelContext
             ,
             trigger: .sessionBootstrap

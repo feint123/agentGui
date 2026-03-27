@@ -7,6 +7,9 @@ typealias ACPExternalSessionRuntimeResetter = @Sendable (String) async -> Void
 @MainActor
 class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProvider, ACPRemoteSessionConfigurationControlling {
     let id: ConversationExecutionProviderID
+    let reference: ExecutionProviderReference
+    let providerDisplayName: String
+    let legacyProviderID: ConversationExecutionProviderID?
     let runtimeScope: ConversationExecutionRuntimeScope? = .externalACP
 
     nonisolated private let terminalRuntimeFactory: ACPExternalTerminalRuntimeFactory
@@ -33,24 +36,29 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     }
 
     init(
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
+        providerDisplayName: String,
+        legacyProviderID: ConversationExecutionProviderID? = nil,
         terminalRuntimeFactory: @escaping ACPExternalTerminalRuntimeFactory,
         sessionRuntimeResetter: @escaping ACPExternalSessionRuntimeResetter,
         permissionCenter: ACPPermissionCenter,
         authorizationPolicyFactory: ConversationAuthorizationPolicyFactory,
         featureAdapter: ACPExternalProviderFeatureAdapter = ACPExternalProviderFeatureAdapter()
     ) {
-        self.id = providerID
+        self.reference = providerReference
+        self.providerDisplayName = providerDisplayName
+        self.legacyProviderID = legacyProviderID
+        self.id = legacyProviderID ?? .builtInAgent
         self.terminalRuntimeFactory = terminalRuntimeFactory
         self.sessionRuntimeResetter = sessionRuntimeResetter
         self.permissionCenter = permissionCenter
         self.authorizationPolicyFactory = authorizationPolicyFactory
-        self.runtimeSupervisor = ACPProviderRuntimeSupervisor(providerID: providerID)
+        self.runtimeSupervisor = ACPProviderRuntimeSupervisor(providerReference: providerReference)
         self.featureAdapter = featureAdapter
     }
 
     private func debugLog(_ message: String) {
-        print("[ACP][\(id.rawValue)] \(message)")
+        print("[ACP][\(reference.persistedValue)][\(providerDisplayName)] \(message)")
     }
 
     func send(_ request: ConversationExecutionRequest) async throws {
@@ -90,7 +98,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 try applyFeatureEvents(
                     [
                         .updateCurrentMode(
-                            providerID: id,
+                            providerReference: reference,
                             remoteSessionID: handshake.remoteSessionID,
                             currentModeID: preferredModeID
                         )
@@ -100,7 +108,11 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 )
             }
 
-            let initialConfigSelections = initialSessionConfigSelections(for: configuration, handshake: handshake)
+            let initialConfigSelections = initialSessionConfigSelections(
+                for: request.session,
+                configuration: configuration,
+                handshake: handshake
+            )
             var selectedModel: String?
             var latestConfigOptions: [ACPSessionConfigOption]?
             for selection in initialConfigSelections {
@@ -131,7 +143,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                     [
                         .replaceSessionConfiguration(
                             ACPExternalSessionConfigurationDraft(
-                                providerID: id,
+                                providerReference: reference,
                                 remoteSessionID: handshake.remoteSessionID,
                                 configOptions: projectedConfigOptions,
                                 modes: nil
@@ -393,9 +405,13 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     }
 
     func initialSessionConfigSelections(
-        for configuration: Configuration,
+        for session: Session,
+        configuration: Configuration,
         handshake: ACPExternalAgentSessionHandshake
     ) -> [ACPExternalSessionConfigSelection] {
+        _ = session
+        _ = configuration
+        _ = handshake
         fatalError("Subclasses must override initialSessionConfigSelections")
     }
 
@@ -453,7 +469,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     ) async {
         _ = try? bindingStore(in: modelContext).upsert(
             sessionID: sessionID,
-            providerID: id,
+            providerReference: reference,
             remoteSessionID: remoteSessionID,
             agentVersion: capabilities.agentVersion,
             capabilities: capabilities,
@@ -470,7 +486,11 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         localSessionID: String
     ) -> @Sendable (ACPRequestPermissionRequest, ToolAuthorizationPolicy) async -> ACPRequestPermissionResponse? {
         let permissionCenter = permissionCenter
-        let source = ACPPermissionCenter.RequestSource(providerID: id, localSessionID: localSessionID)
+        let source = ACPPermissionCenter.RequestSource(
+            providerReference: reference,
+            providerDisplayName: providerDisplayName,
+            localSessionID: localSessionID
+        )
 
         return { [self] request, policy in
             let response = await permissionCenter.resolve(request: request, source: source, policy: policy)
@@ -615,7 +635,8 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
            let remoteSessionID = remoteSessionID(for: update, localSessionID: localSessionID) {
             let featureEvents = featureExtractor.extract(
                 update: update,
-                providerID: id,
+                providerReference: reference,
+                providerDisplayName: providerDisplayName,
                 remoteSessionID: remoteSessionID
             )
             if !featureEvents.isEmpty {
@@ -913,7 +934,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         for localSessionID: String,
         modelContext: ModelContext
     ) async -> StoredRemoteBinding? {
-        guard let storedBinding = try? bindingStore(in: modelContext).binding(for: localSessionID, providerID: id),
+                guard let storedBinding = try? bindingStore(in: modelContext).binding(for: localSessionID, providerReference: reference),
               let remoteSessionID = trimmedNonEmpty(storedBinding.remoteSessionID) else {
             return nil
         }
@@ -931,7 +952,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     }
 
     private func storedRemoteSessionID(for localSessionID: String, modelContext: ModelContext) -> String? {
-        guard let storedBinding = try? bindingStore(in: modelContext).binding(for: localSessionID, providerID: id) else {
+        guard let storedBinding = try? bindingStore(in: modelContext).binding(for: localSessionID, providerReference: reference) else {
             return nil
         }
         return trimmedNonEmpty(storedBinding.remoteSessionID)
@@ -998,7 +1019,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         await updateQueue.clear(localSessionID: localSessionID)
         await sessionRuntimeResetter(localSessionID)
         if removeBinding {
-            try? bindingStore(in: modelContext).removeBinding(for: localSessionID, providerID: id)
+            try? bindingStore(in: modelContext).removeBinding(for: localSessionID, providerReference: reference)
         }
         if removeBinding {
             sessionStateStore.removeState(for: localSessionID)
@@ -1084,7 +1105,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         sessionState.remoteSessionID = prepared.handshake.remoteSessionID
 
         let existingConfiguration = sessionState.sessionConfiguration(
-            for: id,
+            for: reference,
             remoteSessionID: prepared.handshake.remoteSessionID
         )
 
@@ -1099,7 +1120,8 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 currentActivationID: activationID,
                 hasExistingConfiguration: existingConfiguration != nil
             ) + featureAdapter.bootstrapEvents(
-                providerID: id,
+                providerReference: reference,
+                providerDisplayName: providerDisplayName,
                 remoteSessionID: prepared.handshake.remoteSessionID
             ),
             localSessionID: session.sessionId,
@@ -1129,7 +1151,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
 
         return featureExtractor.bootstrapEvents(
             configurationSnapshot: handshake.configurationSnapshot,
-            providerID: id,
+            providerReference: reference,
             remoteSessionID: handshake.remoteSessionID
         )
     }
@@ -1140,7 +1162,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         modelContext: ModelContext,
         authorizationPolicy: ToolAuthorizationPolicy
     ) -> ACPSessionRuntimeActor {
-        let key = SessionRuntimeKey(providerID: id, localSessionID: session.sessionId)
+        let key = SessionRuntimeKey(providerReference: reference, localSessionID: session.sessionId)
 
         return ACPSessionRuntimeActor(
             key: key,
@@ -1178,11 +1200,11 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     }
 
     func remoteCommands(localSessionID: String, remoteSessionID: String) -> [ACPCommandDescriptor] {
-        sessionStateStore.existingState(for: localSessionID)?.commands(for: id, remoteSessionID: remoteSessionID) ?? []
+        sessionStateStore.existingState(for: localSessionID)?.commands(for: reference, remoteSessionID: remoteSessionID) ?? []
     }
 
     func remoteCommands(localSessionID: String) -> [ACPCommandDescriptor] {
-        if let cached = sessionStateStore.existingState(for: localSessionID)?.commands(for: id),
+        if let cached = sessionStateStore.existingState(for: localSessionID)?.commands(for: reference),
            !cached.isEmpty {
             debugLog(
                 "remoteCommands hit session cache localSession=\(localSessionID) count=\(cached.count) names=\(cached.map(\.name).joined(separator: ","))"
@@ -1206,7 +1228,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     }
 
     func remoteSessionConfiguration(localSessionID: String) -> ACPExternalAgentSessionConfigurationSnapshot? {
-        sessionStateStore.existingState(for: localSessionID)?.sessionConfiguration(for: id)
+        sessionStateStore.existingState(for: localSessionID)?.sessionConfiguration(for: reference)
     }
 
     func updateSessionMode(session: Session, modelContext: ModelContext, modeID: String) async throws {
@@ -1239,7 +1261,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         try applyFeatureEvents(
             [
                 .updateCurrentMode(
-                    providerID: id,
+                    providerReference: reference,
                     remoteSessionID: activation.handshake.remoteSessionID,
                     currentModeID: modeID
                 )
@@ -1284,7 +1306,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             [
                 .replaceSessionConfiguration(
                     ACPExternalSessionConfigurationDraft(
-                        providerID: id,
+                        providerReference: reference,
                         remoteSessionID: activation.handshake.remoteSessionID,
                         configOptions: configOptions,
                         modes: nil
@@ -1326,7 +1348,7 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
         }
 
         let existingOptions = sessionStateStore.existingState(for: localSessionID)?.sessionConfiguration(
-            for: id,
+            for: reference,
             remoteSessionID: remoteSessionID
         )?.configOptions
         let baseOptions: [ACPSessionConfigOption]

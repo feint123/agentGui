@@ -122,11 +122,11 @@ extension ChatView {
 
         var fullText = trimmed
         let settings = AppSettings.getOrCreate(in: modelContext)
-        if resolvedExecutionProviderID == .githubCopilotCLI {
+        if resolvedExecutionProviderReference.compatibilityProviderID == .githubCopilotCLI {
             await refreshCopilotComposerAvailabilityStatus()
-        } else if resolvedExecutionProviderID == .openCodeCLI {
+        } else if resolvedExecutionProviderReference.compatibilityProviderID == .openCodeCLI {
             await refreshOpenCodeComposerAvailabilityStatus()
-        } else if resolvedExecutionProviderID == .claudeAdapterCLI {
+        } else if resolvedExecutionProviderReference.compatibilityProviderID == .claudeAdapterCLI {
             await refreshClaudeAdapterComposerAvailabilityStatus()
         }
         let preflightError = sendReadinessError(settings: settings) ?? sendReadinessFallbackMessage(settings: settings)
@@ -211,17 +211,34 @@ extension ChatView {
         }
     }
 
-    var resolvedExecutionProviderID: ConversationExecutionProviderID {
-        ConversationExecutionProviderRegistry.resolveProviderID(
+    var resolvedExecutionProviderReference: ExecutionProviderReference {
+        ConversationExecutionProviderRegistry.resolveProviderReference(
             for: session,
             settings: AppSettings.getOrCreate(in: modelContext)
         )
     }
 
+    var resolvedExecutionProviderID: ConversationExecutionProviderID {
+        resolvedExecutionProviderReference.compatibilityProviderID ?? .builtInAgent
+    }
+
+    var resolvedExecutionProviderDisplayName: String {
+        switch resolvedExecutionProviderReference {
+        case .builtIn:
+            return ConversationExecutionProviderID.builtInAgent.displayName
+        case .externalACP:
+            if let registry = claudeService.executionProviderRegistry,
+               let provider = registry.providerIfAvailable(for: resolvedExecutionProviderReference) as? DynamicACPExternalExecutionProvider {
+                return provider.profile.displayName
+            }
+            return resolvedExecutionProviderID.displayName
+        }
+    }
+
     var currentACPConfigurationController: (any ACPRemoteSessionConfigurationControlling)? {
-        guard resolvedExecutionProviderID != .builtInAgent,
+        guard resolvedExecutionProviderReference != .builtIn,
               let registry = claudeService.executionProviderRegistry,
-              let provider = registry.provider(for: resolvedExecutionProviderID) as? any ACPRemoteSessionConfigurationControlling else {
+              let provider = registry.provider(for: resolvedExecutionProviderReference) as? any ACPRemoteSessionConfigurationControlling else {
             return nil
         }
 
@@ -236,15 +253,16 @@ extension ChatView {
         }
 
         return ACPSessionConfigurationPresentationBuilder.make(
-            providerID: resolvedExecutionProviderID,
+            providerReference: resolvedExecutionProviderReference,
+            providerDisplayName: resolvedExecutionProviderDisplayName,
             snapshot: snapshot
         )
     }
 
     private func persistACPModeSelection(_ modeID: String) {
-        let providerID = resolvedExecutionProviderID
+        let providerReference = resolvedExecutionProviderReference
         updateSessionExecutionPreferences { preferences in
-            preferences.applyACPModeSelection(providerID: providerID, modeID: modeID)
+            preferences.applyACPModeSelection(providerReference: providerReference, modeID: modeID)
         }
     }
 
@@ -253,10 +271,10 @@ extension ChatView {
         value: String,
         presentation: ACPSessionConfigurationPresentation?
     ) {
-        let providerID = resolvedExecutionProviderID
+        let providerReference = resolvedExecutionProviderReference
         updateSessionExecutionPreferences { preferences in
             preferences.applyACPConfigSelection(
-                providerID: providerID,
+            providerReference: providerReference,
                 configID: configID,
                 value: value,
                 modelConfigID: presentation?.modelConfig?.id,
@@ -350,27 +368,40 @@ extension ChatView {
             return sessionInteractionPolicy.readOnlyReason
         }
 
-        switch resolvedExecutionProviderID {
-        case .builtInAgent:
+        switch resolvedExecutionProviderReference {
+        case .builtIn:
             return claudeService.isConfigured ? "" : "请先在「设置」中配置 Anthropic API Key"
-        case .githubCopilotCLI:
+        case .externalACP:
+            guard let compatibilityProviderID = resolvedExecutionProviderReference.compatibilityProviderID else {
+                if let registry = claudeService.executionProviderRegistry,
+                   registry.providerIfAvailable(for: resolvedExecutionProviderReference) != nil {
+                    return ""
+                }
+                return "当前 ACP Provider 不可用，请先在“设置 > 执行器”中启用并验证。"
+            }
+
+            switch compatibilityProviderID {
+            case .githubCopilotCLI:
             if executionProviderAvailabilityModel.isRefreshingCopilotStatus {
                 return "正在检查 GitHub Copilot CLI…"
             }
             let status = copilotComposerAvailabilityStatus
             return status.kind == .available ? "" : status.summaryText
-        case .openCodeCLI:
+            case .openCodeCLI:
             if executionProviderAvailabilityModel.isRefreshingOpenCodeStatus {
                 return "正在检查 OpenCode…"
             }
             let status = openCodeComposerAvailabilityStatus
             return status.kind == .available ? "" : status.summaryText
-        case .claudeAdapterCLI:
+            case .claudeAdapterCLI:
             if executionProviderAvailabilityModel.isRefreshingClaudeAdapterStatus {
                 return "正在检查 Claude Code…"
             }
             let status = claudeAdapterComposerAvailabilityStatus
             return status.kind == .available ? "" : status.summaryText
+            case .builtInAgent:
+                return ""
+            }
         }
     }
 

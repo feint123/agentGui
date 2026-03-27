@@ -47,8 +47,8 @@ actor ACPSessionRuntimeRegistry {
         }
     }
 
-    func removeAll(providerID: ConversationExecutionProviderID) async {
-        let keys = activations.keys.filter { $0.providerID == providerID }
+    func removeAll(providerReference: ExecutionProviderReference) async {
+        let keys = activations.keys.filter { $0.providerReference == providerReference }
         for key in keys {
             if let activation = activations.removeValue(forKey: key) {
                 await activation.close()
@@ -60,16 +60,16 @@ actor ACPSessionRuntimeRegistry {
         activations[key] != nil
     }
 
-    func count(providerID: ConversationExecutionProviderID? = nil) -> Int {
-        guard let providerID else {
+    func count(providerReference: ExecutionProviderReference? = nil) -> Int {
+        guard let providerReference else {
             return activations.count
         }
-        return activations.keys.filter { $0.providerID == providerID }.count
+        return activations.keys.filter { $0.providerReference == providerReference }.count
     }
 
-    func localSessionIDs(providerID: ConversationExecutionProviderID) -> [String] {
+    func localSessionIDs(providerReference: ExecutionProviderReference) -> [String] {
         activations.keys
-            .filter { $0.providerID == providerID }
+            .filter { $0.providerReference == providerReference }
             .map(\.localSessionID)
     }
 }

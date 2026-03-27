@@ -44,7 +44,7 @@ struct ChatInputCommandParser {
             updated.replaceSubrange(range, with: "")
             updated = updated.replacingOccurrences(of: "  ", with: " ")
             updated = updated.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .acpCommand(let name, _, _, _):
+        case .acpCommand(let name, _, _, _, _):
             updated.replaceSubrange(range, with: "/\(name)")
             if range.upperBound == text.endIndex {
                 updated.append(" ")

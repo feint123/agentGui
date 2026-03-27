@@ -56,7 +56,7 @@ final class ConversationExecutionOrchestrator {
 
         let result = try await persistenceStore.enqueue(
             sessionID: command.sessionID,
-            providerID: command.providerID,
+            providerReference: command.providerReference,
             payload: command.payload,
             sourceUserMessageID: command.sourceUserMessageID
         )
@@ -75,7 +75,7 @@ final class ConversationExecutionOrchestrator {
                 isRunning: currentProjection.isRunning,
                 canEditComposer: true,
                 canSubmitNewJob: true,
-                activeProviderID: command.providerID,
+                activeProviderReference: command.providerReference,
                 currentPhase: currentProjection.currentPhase,
                 activityState: currentProjection.isRunning ? .running : .queued,
                 presentationState: currentProjection.presentationState,
@@ -98,7 +98,7 @@ final class ConversationExecutionOrchestrator {
 
         pendingCancellationJobIDs.insert(runningJobID)
         activePreparationTasksByJobID[runningJobID]?.cancel()
-        let driver = runtimePool.driver(for: job.providerID, registry: providerRegistry)
+        let driver = runtimePool.driver(for: job.providerReference, registry: providerRegistry)
         await driver.cancel(jobID: runningJobID, sessionID: sessionID)
     }
 
@@ -113,12 +113,12 @@ final class ConversationExecutionOrchestrator {
         }
 
         var queuedJobIDsBySessionID: [String: [UUID]] = [:]
-        var activeProviderIDsBySessionID: [String: ConversationExecutionProviderID] = [:]
+        var activeProviderReferencesBySessionID: [String: ExecutionProviderReference] = [:]
 
         for job in jobs {
             await mailbox(for: job.sessionID).enqueue(jobID: job.id)
             queuedJobIDsBySessionID[job.sessionID, default: []].append(job.id)
-            activeProviderIDsBySessionID[job.sessionID] = activeProviderIDsBySessionID[job.sessionID] ?? job.providerID
+            activeProviderReferencesBySessionID[job.sessionID] = activeProviderReferencesBySessionID[job.sessionID] ?? job.providerReference
         }
 
         for (sessionID, queuedJobIDs) in queuedJobIDsBySessionID {
@@ -131,7 +131,7 @@ final class ConversationExecutionOrchestrator {
                     isRunning: false,
                     canEditComposer: true,
                     canSubmitNewJob: true,
-                    activeProviderID: activeProviderIDsBySessionID[sessionID],
+                    activeProviderReference: activeProviderReferencesBySessionID[sessionID],
                     currentPhase: nil,
                     activityState: .queued,
                     presentationState: currentProjection(for: sessionID).presentationState,
@@ -164,8 +164,8 @@ final class ConversationExecutionOrchestrator {
                         ExecutionSchedulingCandidate(
                             sessionID: sessionID,
                             jobID: jobID,
-                            providerID: job.providerID,
-                            capacityPolicy: providerRegistry.capacityPolicy(for: job.providerID)
+                            providerReference: job.providerReference,
+                            capacityPolicy: providerRegistry.capacityPolicy(for: job.providerReference)
                         )
                     )
                 } else if await pruneInvalidQueuedJob(sessionID: sessionID, jobID: jobID, mailbox: mailbox) {
@@ -207,7 +207,7 @@ final class ConversationExecutionOrchestrator {
             return
         }
 
-        let provider = providerRegistry.provider(for: job.providerID)
+        let provider = providerRegistry.provider(for: job.providerReference)
         guard let attempt = try? persistenceStore.start(jobID: candidate.jobID, runtimeScope: provider.runtimeScope) else {
             _ = await mailbox.finishRunning(jobID: candidate.jobID)
             await scheduler.markFinished(jobID: candidate.jobID, sessionID: candidate.sessionID)
@@ -215,7 +215,7 @@ final class ConversationExecutionOrchestrator {
         }
 
         activeAttemptIDsByJobID[candidate.jobID] = attempt.id
-        updateProjectionForRunningJob(jobID: candidate.jobID, sessionID: candidate.sessionID, providerID: job.providerID)
+        updateProjectionForRunningJob(jobID: candidate.jobID, sessionID: candidate.sessionID, providerReference: job.providerReference)
 
         await runtimeCoordinator.prepareForActivation(
             session: session,
@@ -230,7 +230,7 @@ final class ConversationExecutionOrchestrator {
             return
         }
 
-        let driver = runtimePool.driver(for: job.providerID, registry: providerRegistry)
+        let driver = runtimePool.driver(for: job.providerReference, registry: providerRegistry)
         let preparationTask = Task {
             try await prepareDispatchContext(
                 for: job,
@@ -433,7 +433,7 @@ final class ConversationExecutionOrchestrator {
         await scheduler.markFinished(jobID: job.id, sessionID: job.sessionID)
 
         let currentProjection = projectionStore.projection(for: job.sessionID)
-        let activeProviderID: ConversationExecutionProviderID? = currentProjection.queuedJobIDs.isEmpty ? nil : currentProjection.activeProviderID
+        let activeProviderReference: ExecutionProviderReference? = currentProjection.queuedJobIDs.isEmpty ? nil : currentProjection.activeProviderReference
         projectionStore.setProjection(
             SessionExecutionProjection(
                 sessionID: job.sessionID,
@@ -443,7 +443,7 @@ final class ConversationExecutionOrchestrator {
                 isRunning: false,
                 canEditComposer: true,
                 canSubmitNewJob: true,
-                activeProviderID: activeProviderID,
+            activeProviderReference: activeProviderReference,
                 currentPhase: nil,
                 activityState: currentProjection.queuedJobIDs.isEmpty ? .idle : .queued,
                 presentationState: currentProjection.presentationState,
@@ -463,7 +463,7 @@ final class ConversationExecutionOrchestrator {
     private func updateProjectionForRunningJob(
         jobID: UUID,
         sessionID: String,
-        providerID: ConversationExecutionProviderID
+        providerReference: ExecutionProviderReference
     ) {
         let currentProjection = projectionStore.projection(for: sessionID)
         let queuedJobIDs = currentProjection.queuedJobIDs.filter { $0 != jobID }
@@ -476,7 +476,7 @@ final class ConversationExecutionOrchestrator {
                 isRunning: true,
                 canEditComposer: true,
                 canSubmitNewJob: true,
-                activeProviderID: providerID,
+                activeProviderReference: providerReference,
                 currentPhase: .executing,
                 activityState: .running,
                 presentationState: currentProjection.presentationState,
@@ -517,9 +517,9 @@ final class ConversationExecutionOrchestrator {
         queuedJobIDs: [UUID]
     ) {
         let currentProjection = currentProjection(for: sessionID)
-        let activeProviderID = queuedJobIDs.isEmpty && !currentProjection.isRunning
+        let activeProviderReference = queuedJobIDs.isEmpty && !currentProjection.isRunning
             ? nil
-            : currentProjection.activeProviderID
+            : currentProjection.activeProviderReference
         let activityState: SessionExecutionActivityState
         if currentProjection.isRunning {
             activityState = .running
@@ -538,7 +538,7 @@ final class ConversationExecutionOrchestrator {
                 isRunning: currentProjection.isRunning,
                 canEditComposer: true,
                 canSubmitNewJob: true,
-                activeProviderID: activeProviderID,
+                activeProviderReference: activeProviderReference,
                 currentPhase: currentProjection.currentPhase,
                 activityState: activityState,
                 presentationState: currentProjection.presentationState,

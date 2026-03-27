@@ -28,4 +28,13 @@ extension ProviderExecutionCapacityPolicy {
             allowsBackgroundExecution: true
         )
     }
+
+    static func `default`(for providerReference: ExecutionProviderReference) -> ProviderExecutionCapacityPolicy {
+        ProviderExecutionCapacityPolicy(
+            providerID: providerReference.compatibilityProviderID ?? .builtInAgent,
+            maxConcurrentSessions: .max,
+            maxConcurrentJobsPerSession: 1,
+            allowsBackgroundExecution: true
+        )
+    }
 }

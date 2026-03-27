@@ -27,7 +27,7 @@ nonisolated struct ACPExternalSessionConfigSelection: Equatable, Sendable {
 }
 
 nonisolated struct SessionRuntimeKey: Hashable, Sendable {
-    let providerID: ConversationExecutionProviderID
+    let providerReference: ExecutionProviderReference
     let localSessionID: String
 }
 

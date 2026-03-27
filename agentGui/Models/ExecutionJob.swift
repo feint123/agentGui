@@ -34,7 +34,7 @@ final class ExecutionJob {
     ) {
         self.id = UUID()
         self.sessionID = sessionID
-        self.providerIDRaw = providerID.rawValue
+        self.providerIDRaw = Self.reference(for: providerID).persistedValue
         self.stateRaw = ExecutionJobState.queued.rawValue
         self.payloadJSON = payload.encodedJSON
         self.sourceUserMessageID = sourceUserMessageID
@@ -44,11 +44,50 @@ final class ExecutionJob {
         self.startedAt = nil
         self.finishedAt = nil
     }
+
+    init(
+        sessionID: String,
+        providerReference: ExecutionProviderReference,
+        payload: ExecutionPayloadDraft,
+        sourceUserMessageID: UUID?,
+        targetAgentMessageID: UUID?
+    ) {
+        self.id = UUID()
+        self.sessionID = sessionID
+        self.providerIDRaw = providerReference.persistedValue
+        self.stateRaw = ExecutionJobState.queued.rawValue
+        self.payloadJSON = payload.encodedJSON
+        self.sourceUserMessageID = sourceUserMessageID
+        self.targetAgentMessageID = targetAgentMessageID
+        self.latestAttemptID = nil
+        self.enqueuedAt = Date()
+        self.startedAt = nil
+        self.finishedAt = nil
+    }
+
+    private static func reference(for providerID: ConversationExecutionProviderID) -> ExecutionProviderReference {
+        if providerID == .builtInAgent {
+            return .builtIn
+        }
+
+        return LegacyExternalACPProviderKey.allCases.first(where: {
+            $0.conversationExecutionProviderID == providerID
+        })?.compatibilityReference ?? .builtIn
+    }
 }
 
 extension ExecutionJob {
+    var providerReference: ExecutionProviderReference {
+        get {
+            ExecutionProviderReference.decodePersisted(providerIDRaw)
+        }
+        set {
+            providerIDRaw = newValue.persistedValue
+        }
+    }
+
     var providerID: ConversationExecutionProviderID {
-        ConversationExecutionProviderID(rawValue: providerIDRaw) ?? .builtInAgent
+        providerReference.compatibilityProviderID ?? .builtInAgent
     }
 
     var state: ExecutionJobState {

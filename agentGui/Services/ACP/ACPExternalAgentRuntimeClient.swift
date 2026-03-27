@@ -141,6 +141,43 @@ nonisolated final class ACPExternalAgentRuntimeClient: @unchecked Sendable, ACPE
     private var capabilitySnapshot: ACPExternalAgentCapabilitySnapshot?
     private var attachedSessionHandshake: ACPExternalAgentSessionHandshake?
 
+    nonisolated static func makeInitializeRequest() -> ACPInitializeRequest {
+        ACPInitializeRequest(
+            meta: nil,
+            clientCapabilities: ACPClientCapabilities(
+                meta: nil,
+                filesystem: ACPFileSystemCapability(meta: nil, readTextFile: true, writeTextFile: true),
+                terminal: true
+            ),
+            clientInfo: ACPImplementation(meta: nil, name: "agentGui", title: "agentGui", version: "1.0"),
+            protocolVersion: ACPMethodCatalog.protocolVersion
+        )
+    }
+
+    nonisolated static func makeCapabilitySnapshot(from response: ACPInitializeResponse) -> ACPExternalAgentCapabilitySnapshot {
+        ACPExternalAgentCapabilitySnapshot(
+            loadSession: response.agentCapabilities?.loadSession ?? false,
+            supportsSessionModelOverride: false,
+            agentVersion: response.agentInfo?.version
+        )
+    }
+
+    nonisolated static func makeValidationSnapshot(
+        from response: ACPInitializeResponse,
+        resolvedExecutablePath: String,
+        verifiedAt: Date
+    ) -> ACPProviderValidationSnapshot {
+        ACPProviderValidationSnapshot(
+            agentInfo: response.agentInfo,
+            agentCapabilities: response.agentCapabilities,
+            authMethods: response.authMethods ?? [],
+            status: .ready,
+            message: "",
+            resolvedExecutablePath: resolvedExecutablePath,
+            verifiedAt: verifiedAt
+        )
+    }
+
     init(
         launchConfiguration: ACPExternalAgentLaunchConfiguration,
         terminalRuntime: TerminalTaskRuntime,
@@ -417,16 +454,7 @@ nonisolated final class ACPExternalAgentRuntimeClient: @unchecked Sendable, ACPE
         }
 
         debugLog("initialize start")
-        let request = ACPInitializeRequest(
-            meta: nil,
-            clientCapabilities: ACPClientCapabilities(
-                meta: nil,
-                filesystem: ACPFileSystemCapability(meta: nil, readTextFile: true, writeTextFile: true),
-                terminal: true
-            ),
-            clientInfo: ACPImplementation(meta: nil, name: "agentGui", title: "agentGui", version: "1.0"),
-            protocolVersion: ACPMethodCatalog.protocolVersion
-        )
+        let request = Self.makeInitializeRequest()
         let response: ACPInitializeResponse
         do {
             response = try await initializeWithTimeout(request)
@@ -436,11 +464,7 @@ nonisolated final class ACPExternalAgentRuntimeClient: @unchecked Sendable, ACPE
             throw ACPExternalAgentRuntimeError.initializeTimedOut
         }
 
-        let capabilities = ACPExternalAgentCapabilitySnapshot(
-            loadSession: response.agentCapabilities?.loadSession ?? false,
-            supportsSessionModelOverride: false,
-            agentVersion: response.agentInfo?.version
-        )
+        let capabilities = Self.makeCapabilitySnapshot(from: response)
         setCapabilitySnapshot(capabilities)
         debugLog(
             "initialize complete loadSession=\(capabilities.loadSession) supportsSessionModelOverride=\(capabilities.supportsSessionModelOverride) agentVersion=\(capabilities.agentVersion ?? "nil")"

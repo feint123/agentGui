@@ -70,7 +70,8 @@ struct ConversationEditAndResendRequest {
 
 @MainActor
 protocol ConversationExecutionProvider: AnyObject {
-    var id: ConversationExecutionProviderID { get }
+    var reference: ExecutionProviderReference { get }
+    var legacyProviderID: ConversationExecutionProviderID? { get }
     var runtimeScope: ConversationExecutionRuntimeScope? { get }
 
     func send(_ request: ConversationExecutionRequest) async throws
@@ -92,6 +93,12 @@ protocol ConversationExecutionProvider: AnyObject {
 }
 
 extension ConversationExecutionProvider {
+    var legacyProviderID: ConversationExecutionProviderID? { nil }
+
+    var id: ConversationExecutionProviderID {
+        legacyProviderID ?? .builtInAgent
+    }
+
     var runtimeScope: ConversationExecutionRuntimeScope? { nil }
 
     func resetSessionState(session: Session, modelContext: ModelContext) async {
@@ -124,7 +131,8 @@ extension ConversationExecutionProvider {
 
 @MainActor
 final class BuiltInConversationExecutionProvider: ConversationExecutionProvider {
-    let id: ConversationExecutionProviderID = .builtInAgent
+    let reference: ExecutionProviderReference = .builtIn
+    let legacyProviderID: ConversationExecutionProviderID? = .builtInAgent
     let runtimeScope: ConversationExecutionRuntimeScope? = .builtIn
 
     private unowned let claudeService: ClaudeService
@@ -177,33 +185,51 @@ final class BuiltInConversationExecutionProvider: ConversationExecutionProvider 
 
 struct ConversationExecutionProviderRegistry {
     let builtIn: any ConversationExecutionProvider
-    let copilot: any ConversationExecutionProvider
-    let openCode: any ConversationExecutionProvider
-    let claudeAdapter: any ConversationExecutionProvider
+    private let providersByReference: [ExecutionProviderReference: any ConversationExecutionProvider]
+    private let compatibilityProvidersByID: [ConversationExecutionProviderID: any ConversationExecutionProvider]
+
+    init(
+        builtIn: any ConversationExecutionProvider,
+        externalProviders: [ExecutionProviderReference: any ConversationExecutionProvider],
+        compatibilityProvidersByID: [ConversationExecutionProviderID: any ConversationExecutionProvider] = [:]
+    ) {
+        self.builtIn = builtIn
+        var providersByReference = externalProviders
+        providersByReference[builtIn.reference] = builtIn
+        self.providersByReference = providersByReference
+
+        var compatibilityProviders = compatibilityProvidersByID
+        compatibilityProviders[.builtInAgent] = builtIn
+        for provider in externalProviders.values {
+            if let legacyProviderID = provider.legacyProviderID {
+                compatibilityProviders[legacyProviderID] = provider
+            }
+        }
+        self.compatibilityProvidersByID = compatibilityProviders
+    }
 
     var allProviders: [any ConversationExecutionProvider] {
-        [builtIn, copilot, openCode, claudeAdapter]
+        Array(providersByReference.values)
     }
 
     func providers(in runtimeScope: ConversationExecutionRuntimeScope) -> [any ConversationExecutionProvider] {
         allProviders.filter { $0.runtimeScope == runtimeScope }
     }
 
-    func provider(for providerID: ConversationExecutionProviderID) -> any ConversationExecutionProvider {
-        switch providerID {
-        case .builtInAgent:
-            return builtIn
-        case .githubCopilotCLI:
-            return copilot
-        case .openCodeCLI:
-            return openCode
-        case .claudeAdapterCLI:
-            return claudeAdapter
-        }
+    func providerIfAvailable(for reference: ExecutionProviderReference) -> (any ConversationExecutionProvider)? {
+        providersByReference[reference]
     }
 
-    func compatibilityDriver(for providerID: ConversationExecutionProviderID) -> any ConversationExecutionDriver {
-        LegacyConversationExecutionDriver(provider: provider(for: providerID))
+    func provider(for reference: ExecutionProviderReference) -> any ConversationExecutionProvider {
+        providersByReference[reference] ?? builtIn
+    }
+
+    func provider(for providerID: ConversationExecutionProviderID) -> any ConversationExecutionProvider {
+        compatibilityProvidersByID[providerID] ?? builtIn
+    }
+
+    func driver(for providerReference: ExecutionProviderReference) -> any ConversationExecutionDriver {
+        LegacyConversationExecutionDriver(provider: provider(for: providerReference))
     }
 
     func capacityPolicy(for providerID: ConversationExecutionProviderID) -> ProviderExecutionCapacityPolicy {
@@ -225,25 +251,36 @@ struct ConversationExecutionProviderRegistry {
         }
     }
 
-    func provider(for session: Session, settings: AppSettings) -> any ConversationExecutionProvider {
-        switch Self.resolveProviderID(for: session, settings: settings) {
-        case .builtInAgent:
-            return builtIn
-        case .githubCopilotCLI:
-            return copilot
-        case .openCodeCLI:
-            return openCode
-        case .claudeAdapterCLI:
-            return claudeAdapter
+    func capacityPolicy(for providerReference: ExecutionProviderReference) -> ProviderExecutionCapacityPolicy {
+        if let providerID = providerReference.compatibilityProviderID {
+            return capacityPolicy(for: providerID)
         }
+
+        return ProviderExecutionCapacityPolicy.default(for: providerReference)
+    }
+
+    func provider(for session: Session, settings: AppSettings) -> any ConversationExecutionProvider {
+        provider(for: Self.resolveProviderReference(for: session, settings: settings))
+    }
+
+    static func resolveProviderReference(for session: Session, settings: AppSettings) -> ExecutionProviderReference {
+        if !session.defaultExecutionProviderID.isEmpty {
+            return session.defaultExecutionProviderReference
+        }
+
+        return settings.defaultExecutionProviderReference
     }
 
     static func resolveProviderID(for session: Session, settings: AppSettings) -> ConversationExecutionProviderID {
-        if let sessionProviderID = ConversationExecutionProviderID(rawValue: session.defaultExecutionProviderID),
-           !session.defaultExecutionProviderID.isEmpty {
-            return sessionProviderID
+        let reference = resolveProviderReference(for: session, settings: settings)
+        switch reference {
+        case .builtIn:
+            return .builtInAgent
+        case .externalACP(let profileID):
+            let legacyKey = LegacyExternalACPProviderKey.allCases.first {
+                $0.compatibilityReference == .externalACP(profileID: profileID)
+            }
+            return legacyKey?.conversationExecutionProviderID ?? .builtInAgent
         }
-
-        return ConversationExecutionProviderID(rawValue: settings.defaultExecutionProviderID) ?? .builtInAgent
     }
 }

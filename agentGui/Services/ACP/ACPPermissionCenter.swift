@@ -5,13 +5,13 @@ import SwiftAnthropic
 @Observable
 final class ACPPermissionCenter: @unchecked Sendable {
     struct RequestSource: Equatable, Sendable {
-        let providerID: ConversationExecutionProviderID
+        let providerReference: ExecutionProviderReference
         let providerDisplayName: String
         let localSessionID: String
 
-        init(providerID: ConversationExecutionProviderID, localSessionID: String) {
-            self.providerID = providerID
-            self.providerDisplayName = providerID.displayName
+        init(providerReference: ExecutionProviderReference, providerDisplayName: String, localSessionID: String) {
+            self.providerReference = providerReference
+            self.providerDisplayName = providerDisplayName
             self.localSessionID = localSessionID
         }
     }

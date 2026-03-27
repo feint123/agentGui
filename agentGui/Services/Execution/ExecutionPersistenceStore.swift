@@ -25,6 +25,22 @@ final class ExecutionPersistenceStore {
         payload: ExecutionPayloadDraft,
         sourceUserMessageID: UUID
     ) async throws -> EnqueueResult {
+        try await enqueue(
+            sessionID: sessionID,
+            providerReference: providerID == .builtInAgent
+                ? .builtIn
+                : LegacyExternalACPProviderKey.allCases.first(where: { $0.conversationExecutionProviderID == providerID })?.compatibilityReference ?? .builtIn,
+            payload: payload,
+            sourceUserMessageID: sourceUserMessageID
+        )
+    }
+
+    func enqueue(
+        sessionID: String,
+        providerReference: ExecutionProviderReference,
+        payload: ExecutionPayloadDraft,
+        sourceUserMessageID: UUID
+    ) async throws -> EnqueueResult {
         let session = try resolveSession(id: sessionID)
         let agentMessage = Message.agentMessage(text: nil, session: session)
         agentMessage.status = .pending
@@ -32,7 +48,7 @@ final class ExecutionPersistenceStore {
 
         let job = ExecutionJob(
             sessionID: sessionID,
-            providerID: providerID,
+            providerReference: providerReference,
             payload: payload,
             sourceUserMessageID: sourceUserMessageID,
             targetAgentMessageID: agentMessage.id

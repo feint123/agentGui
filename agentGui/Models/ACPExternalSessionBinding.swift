@@ -45,6 +45,15 @@ final class ACPExternalSessionBinding {
 }
 
 extension ACPExternalSessionBinding {
+    var providerReference: ExecutionProviderReference {
+        get {
+            ExecutionProviderReference.decodePersisted(providerIDRaw)
+        }
+        set {
+            providerIDRaw = newValue.persistedValue
+        }
+    }
+
     var providerID: ConversationExecutionProviderID? {
         ConversationExecutionProviderID(rawValue: providerIDRaw)
     }

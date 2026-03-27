@@ -1,9 +1,9 @@
 import Foundation
 
 enum ChatComposerAvailabilityRefreshPolicy {
-    static let startupRefreshProviderIDs: [ConversationExecutionProviderID] = [
-        .githubCopilotCLI,
-        .openCodeCLI,
-        .claudeAdapterCLI
+    static let startupRefreshProviderReferences: [ExecutionProviderReference] = [
+        LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference,
+        LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference,
+        LegacyExternalACPProviderKey.claudeAdapterCLI.compatibilityReference
     ]
 }

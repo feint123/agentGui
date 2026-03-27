@@ -95,6 +95,67 @@ struct ConversationExecutionRecoveryTests {
 
         await harness.provider.releaseAll()
     }
+
+    @Test
+    func restorePendingJobsPreservesDynamicExternalProviderReference() async throws {
+        let schema = Schema(PersistenceSchema.sharedModelTypes)
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = ModelContext(container)
+        let projectionStore = ExecutionProjectionStore()
+        let dynamicReference = ExecutionProviderReference.externalACP(profileID: UUID())
+        let dynamicProvider = BlockingExecutionProvider(reference: dynamicReference, runtimeScope: .externalACP)
+        let registry = ConversationExecutionProviderRegistry(
+            builtIn: NoOpExecutionProvider(id: .builtInAgent, runtimeScope: .builtIn),
+            externalProviders: [dynamicReference: dynamicProvider]
+        )
+        let orchestrator = ConversationExecutionOrchestrator(
+            modelContext: context,
+            persistenceStore: ExecutionPersistenceStore(
+                modelContext: context,
+                persistenceCoordinator: PersistenceCoordinator()
+            ),
+            projectionStore: projectionStore,
+            scheduler: ExecutionScheduler(maxConcurrentJobs: 1),
+            runtimePool: ExecutionRuntimePool(),
+            providerRegistry: registry,
+            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(projectionStore: projectionStore)
+        )
+
+        let session = Session.fixture(sessionId: "dynamic-session", title: "Dynamic")
+        session.defaultExecutionProviderReference = dynamicReference
+        let userMessage = Message.userMessage(text: "dynamic prompt", session: session)
+        userMessage.status = .completed
+        context.insert(session)
+        context.insert(userMessage)
+        try context.save()
+
+        let store = ExecutionPersistenceStore(
+            modelContext: context,
+            persistenceCoordinator: PersistenceCoordinator()
+        )
+        _ = try await store.enqueue(
+            sessionID: session.sessionId,
+            providerReference: dynamicReference,
+            payload: .userPrompt(
+                text: "dynamic prompt",
+                modelID: "test-model",
+                selectedFilePath: nil,
+                selectedText: nil,
+                directives: []
+            ),
+            sourceUserMessageID: userMessage.id
+        )
+
+        await orchestrator.restorePendingJobs()
+        await Task.yield()
+
+        let projection = projectionStore.projection(for: session.sessionId)
+        #expect(projection.activeProviderReference == dynamicReference)
+        #expect(projection.isRunning || projection.queuedCount > 0)
+
+        await dynamicProvider.releaseAll()
+    }
 }
 
 @MainActor
@@ -136,9 +197,11 @@ private struct ExecutionRecoveryHarness {
         let provider = BlockingExecutionProvider(id: .builtInAgent, runtimeScope: .builtIn)
         let registry = ConversationExecutionProviderRegistry(
             builtIn: provider,
-            copilot: NoOpExecutionProvider(id: .githubCopilotCLI, runtimeScope: .externalACP),
-            openCode: NoOpExecutionProvider(id: .openCodeCLI, runtimeScope: .externalACP),
-            claudeAdapter: NoOpExecutionProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            externalProviders: [
+                LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference: NoOpExecutionProvider(id: .githubCopilotCLI, runtimeScope: .externalACP),
+                LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference: NoOpExecutionProvider(id: .openCodeCLI, runtimeScope: .externalACP),
+                LegacyExternalACPProviderKey.claudeAdapterCLI.compatibilityReference: NoOpExecutionProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
         )
         let orchestrator = ConversationExecutionOrchestrator(
             modelContext: context,
@@ -242,9 +305,11 @@ private struct ParallelDispatchHarness {
         let provider = ActivationBlockingExecutionProvider(blockedSessionIDs: ["parallel-a"])
         let registry = ConversationExecutionProviderRegistry(
             builtIn: NoOpExecutionProvider(id: .builtInAgent, runtimeScope: .builtIn),
-            copilot: provider,
-            openCode: NoOpExecutionProvider(id: .openCodeCLI, runtimeScope: .externalACP),
-            claudeAdapter: NoOpExecutionProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            externalProviders: [
+                provider.reference: provider,
+                LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference: NoOpExecutionProvider(id: .openCodeCLI, runtimeScope: .externalACP),
+                LegacyExternalACPProviderKey.claudeAdapterCLI.compatibilityReference: NoOpExecutionProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
         )
         let orchestrator = ConversationExecutionOrchestrator(
             modelContext: context,
@@ -320,12 +385,36 @@ private struct ParallelDispatchHarness {
 @MainActor
 private final class BlockingExecutionProvider: ConversationExecutionProvider {
     let id: ConversationExecutionProviderID
+    let reference: ExecutionProviderReference
+    let legacyProviderID: ConversationExecutionProviderID?
     let runtimeScope: ConversationExecutionRuntimeScope?
 
     private var continuations: [CheckedContinuation<Void, Never>] = []
 
     init(id: ConversationExecutionProviderID, runtimeScope: ConversationExecutionRuntimeScope?) {
         self.id = id
+        self.legacyProviderID = id
+        self.reference = switch id {
+        case .builtInAgent:
+            .builtIn
+        case .githubCopilotCLI:
+            LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+        case .openCodeCLI:
+            LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        case .claudeAdapterCLI:
+            LegacyExternalACPProviderKey.claudeAdapterCLI.compatibilityReference
+        }
+        self.runtimeScope = runtimeScope
+    }
+
+    init(
+        reference: ExecutionProviderReference,
+        legacyProviderID: ConversationExecutionProviderID? = nil,
+        runtimeScope: ConversationExecutionRuntimeScope?
+    ) {
+        self.id = legacyProviderID ?? .builtInAgent
+        self.reference = reference
+        self.legacyProviderID = legacyProviderID
         self.runtimeScope = runtimeScope
     }
 
@@ -379,6 +468,8 @@ private final class BlockingExecutionProvider: ConversationExecutionProvider {
 @MainActor
 private final class ActivationBlockingExecutionProvider: ConversationExecutionProvider {
     let id: ConversationExecutionProviderID = .githubCopilotCLI
+    let reference: ExecutionProviderReference = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+    let legacyProviderID: ConversationExecutionProviderID? = .githubCopilotCLI
     let runtimeScope: ConversationExecutionRuntimeScope? = .externalACP
 
     private let blockedSessionIDs: Set<String>
@@ -462,10 +553,34 @@ private final class ActivationBlockingExecutionProvider: ConversationExecutionPr
 @MainActor
 private final class NoOpExecutionProvider: ConversationExecutionProvider {
     let id: ConversationExecutionProviderID
+    let reference: ExecutionProviderReference
+    let legacyProviderID: ConversationExecutionProviderID?
     let runtimeScope: ConversationExecutionRuntimeScope?
 
     init(id: ConversationExecutionProviderID, runtimeScope: ConversationExecutionRuntimeScope?) {
         self.id = id
+        self.legacyProviderID = id
+        self.reference = switch id {
+        case .builtInAgent:
+            .builtIn
+        case .githubCopilotCLI:
+            LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+        case .openCodeCLI:
+            LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        case .claudeAdapterCLI:
+            LegacyExternalACPProviderKey.claudeAdapterCLI.compatibilityReference
+        }
+        self.runtimeScope = runtimeScope
+    }
+
+    init(
+        reference: ExecutionProviderReference,
+        legacyProviderID: ConversationExecutionProviderID? = nil,
+        runtimeScope: ConversationExecutionRuntimeScope?
+    ) {
+        self.id = legacyProviderID ?? .builtInAgent
+        self.reference = reference
+        self.legacyProviderID = legacyProviderID
         self.runtimeScope = runtimeScope
     }
 

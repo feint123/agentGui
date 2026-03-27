@@ -180,6 +180,15 @@ final class AppSettings {
 
 // MARK: - Skill Helpers
 extension AppSettings {
+    var defaultExecutionProviderReference: ExecutionProviderReference {
+        get {
+            ExecutionProviderReference.decodePersisted(defaultExecutionProviderID)
+        }
+        set {
+            defaultExecutionProviderID = newValue.persistedValue
+        }
+    }
+
     var githubCopilotCLIConfiguration: ACPCLIConfiguration {
         get {
             guard let data = githubCopilotCLIConfigurationJSON.data(using: .utf8),

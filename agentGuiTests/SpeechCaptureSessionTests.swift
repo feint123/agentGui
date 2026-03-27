@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import agentGui
 
+@MainActor
 struct SpeechCaptureSessionTests {
     @Test
     func unavailableLocaleThrowsHelpfulError() async throws {
@@ -36,7 +37,7 @@ struct SpeechCaptureSessionTests {
     @Test
     func stopFinalizesWithoutCancellingActiveStream() async throws {
         let harness = SpeechCaptureSessionHarness()
-        let session = harness.makeSession()
+        let session = await harness.makeSession()
 
         _ = try await session.start(locale: Locale(identifier: "zh-CN"))
         try await session.stop()

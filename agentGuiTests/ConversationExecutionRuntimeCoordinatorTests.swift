@@ -13,11 +13,13 @@ struct ConversationExecutionRuntimeCoordinatorTests {
         let builtIn = RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
-        let registry = ConversationExecutionProviderRegistry(
+        let registry = makeRegistry(
             builtIn: builtIn,
-            copilot: copilot,
-            openCode: openCode,
-            claudeAdapter: RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            providers: [
+                copilot,
+                openCode,
+                RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
         )
 
         await coordinator.prepareForActivation(
@@ -49,11 +51,13 @@ struct ConversationExecutionRuntimeCoordinatorTests {
         let coordinator = ConversationExecutionRuntimeCoordinator(projectionStore: projectionStore)
         let builtIn = RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
-        let registry = ConversationExecutionProviderRegistry(
+        let registry = makeRegistry(
             builtIn: builtIn,
-            copilot: copilot,
-            openCode: RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP),
-            claudeAdapter: RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            providers: [
+                copilot,
+                RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP),
+                RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
         )
 
         await coordinator.prepareForActivation(
@@ -83,11 +87,13 @@ struct ConversationExecutionRuntimeCoordinatorTests {
         let coordinator = ConversationExecutionRuntimeCoordinator(projectionStore: projectionStore)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
-        let registry = ConversationExecutionProviderRegistry(
+        let registry = makeRegistry(
             builtIn: RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn),
-            copilot: copilot,
-            openCode: openCode,
-            claudeAdapter: RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            providers: [
+                copilot,
+                openCode,
+                RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
         )
 
         await coordinator.prepareForActivation(
@@ -112,17 +118,107 @@ struct ConversationExecutionRuntimeCoordinatorTests {
     }
 
     @Test
+    func selectionSwitchKeepsExecutionDispatchLeaseBeforeProjectionTurnsRunning() async throws {
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness()
+        let projectionStore = ExecutionProjectionStore()
+        let coordinator = ConversationExecutionRuntimeCoordinator(projectionStore: projectionStore)
+        let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
+        let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
+        let registry = makeRegistry(
+            builtIn: RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn),
+            providers: [
+                copilot,
+                openCode,
+                RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.firstSession,
+            activeProvider: copilot,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .sessionBootstrap
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.firstSession,
+            activeProvider: copilot,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .executionDispatch
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.secondSession,
+            activeProvider: openCode,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .selection
+        )
+
+        #expect(copilot.releasedRuntimeEvents.contains(.init(localSessionID: harness.firstSession.sessionId, reason: .sessionBecameInactive)) == false)
+        #expect(openCode.releasedRuntimeEvents.contains(.init(localSessionID: harness.firstSession.sessionId, reason: .sessionBecameInactive)) == false)
+    }
+
+    @Test
+    func switchingProviderInSameSessionKeepsDispatchLeaseOwnerRuntime() async throws {
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness()
+        let projectionStore = ExecutionProjectionStore()
+        let coordinator = ConversationExecutionRuntimeCoordinator(projectionStore: projectionStore)
+        let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
+        let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
+        let registry = makeRegistry(
+            builtIn: RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn),
+            providers: [
+                copilot,
+                openCode,
+                RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.firstSession,
+            activeProvider: copilot,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .sessionBootstrap
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.firstSession,
+            activeProvider: copilot,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .executionDispatch
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.firstSession,
+            activeProvider: openCode,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .selection
+        )
+
+        #expect(copilot.releasedRuntimeEvents.contains(.init(localSessionID: harness.firstSession.sessionId, reason: .providerBecameInactive)) == false)
+        #expect(copilot.releasedRuntimeEvents.contains(.init(localSessionID: harness.firstSession.sessionId, reason: .sessionBecameInactive)) == false)
+    }
+
+    @Test
     func selectionSwitchKeepsRunningPreviousForegroundRuntimeRetained() async throws {
         let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness()
         let projectionStore = ExecutionProjectionStore()
         let coordinator = ConversationExecutionRuntimeCoordinator(projectionStore: projectionStore)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
-        let registry = ConversationExecutionProviderRegistry(
+        let registry = makeRegistry(
             builtIn: RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn),
-            copilot: copilot,
-            openCode: openCode,
-            claudeAdapter: RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            providers: [
+                copilot,
+                openCode,
+                RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
         )
 
         await coordinator.prepareForActivation(
@@ -171,11 +267,13 @@ struct ConversationExecutionRuntimeCoordinatorTests {
         let coordinator = ConversationExecutionRuntimeCoordinator(projectionStore: projectionStore)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
-        let registry = ConversationExecutionProviderRegistry(
+        let registry = makeRegistry(
             builtIn: RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn),
-            copilot: copilot,
-            openCode: openCode,
-            claudeAdapter: RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            providers: [
+                copilot,
+                openCode,
+                RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
         )
 
         await coordinator.prepareForActivation(
@@ -238,6 +336,75 @@ struct ConversationExecutionRuntimeCoordinatorTests {
         #expect(copilot.releasedRuntimeEvents.contains(.init(localSessionID: harness.firstSession.sessionId, reason: .sessionBecameInactive)))
         #expect(openCode.releasedRuntimeEvents.contains(.init(localSessionID: harness.firstSession.sessionId, reason: .sessionBecameInactive)))
     }
+
+    @Test
+    func selectionSwitchKeepsRunningDynamicProviderRuntimeRetainedByReference() async throws {
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness()
+        let projectionStore = ExecutionProjectionStore()
+        let coordinator = ConversationExecutionRuntimeCoordinator(projectionStore: projectionStore)
+        let firstReference = ExecutionProviderReference.externalACP(profileID: UUID())
+        let secondReference = ExecutionProviderReference.externalACP(profileID: UUID())
+        let firstProvider = RuntimeCoordinatorTestProvider(reference: firstReference, runtimeScope: .externalACP)
+        let secondProvider = RuntimeCoordinatorTestProvider(reference: secondReference, runtimeScope: .externalACP)
+        let registry = ConversationExecutionProviderRegistry(
+            builtIn: RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn),
+            externalProviders: [
+                firstReference: firstProvider,
+                secondReference: secondProvider
+            ]
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.firstSession,
+            activeProvider: firstProvider,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .sessionBootstrap
+        )
+
+        projectionStore.setProjection(
+            SessionExecutionProjection(
+                sessionID: harness.firstSession.sessionId,
+                runningJobID: UUID(),
+                queuedJobIDs: [],
+                queuedCount: 0,
+                isRunning: true,
+                canEditComposer: true,
+                canSubmitNewJob: true,
+                activeProviderReference: firstReference,
+                currentPhase: .executing,
+                activityState: .running,
+                presentationState: .foreground,
+                needsAttention: false,
+                attentionReason: nil
+            )
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.secondSession,
+            activeProvider: secondProvider,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .selection
+        )
+
+        #expect(firstProvider.releasedRuntimeEvents.contains(.init(localSessionID: harness.firstSession.sessionId, reason: .sessionBecameInactive)) == false)
+        #expect(secondProvider.releasedRuntimeEvents.contains(.init(localSessionID: harness.firstSession.sessionId, reason: .sessionBecameInactive)) == false)
+        #expect(secondProvider.activePreparationEvents == [harness.secondSession.sessionId])
+    }
+}
+
+@MainActor
+private func makeRegistry(
+    builtIn: any ConversationExecutionProvider,
+    providers: [any ConversationExecutionProvider]
+) -> ConversationExecutionProviderRegistry {
+    ConversationExecutionProviderRegistry(
+        builtIn: builtIn,
+        externalProviders: Dictionary(
+            uniqueKeysWithValues: providers.map { ($0.reference, $0) }
+        )
+    )
 }
 
 @MainActor
@@ -248,6 +415,8 @@ private final class RuntimeCoordinatorTestProvider: ConversationExecutionProvide
     }
 
     let id: ConversationExecutionProviderID
+    let reference: ExecutionProviderReference
+    let legacyProviderID: ConversationExecutionProviderID?
     let runtimeScope: ConversationExecutionRuntimeScope?
 
     private(set) var activePreparationEvents: [String] = []
@@ -255,6 +424,28 @@ private final class RuntimeCoordinatorTestProvider: ConversationExecutionProvide
 
     init(id: ConversationExecutionProviderID, runtimeScope: ConversationExecutionRuntimeScope?) {
         self.id = id
+        self.legacyProviderID = id
+        self.reference = switch id {
+        case .builtInAgent:
+            .builtIn
+        case .githubCopilotCLI:
+            LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+        case .openCodeCLI:
+            LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        case .claudeAdapterCLI:
+            LegacyExternalACPProviderKey.claudeAdapterCLI.compatibilityReference
+        }
+        self.runtimeScope = runtimeScope
+    }
+
+    init(
+        reference: ExecutionProviderReference,
+        legacyProviderID: ConversationExecutionProviderID? = nil,
+        runtimeScope: ConversationExecutionRuntimeScope?
+    ) {
+        self.id = legacyProviderID ?? .builtInAgent
+        self.reference = reference
+        self.legacyProviderID = legacyProviderID
         self.runtimeScope = runtimeScope
     }
 

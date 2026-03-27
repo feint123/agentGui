@@ -91,7 +91,7 @@ struct SessionListView: View {
 
                 NewSessionExecutionProviderMenu(
                     accessibilityIdentifier: "sessionList.createButton",
-                    onSelect: createNewSession(providerID:)
+                    onSelect: createNewSession(providerReference:)
                 ) {
                     Image(systemName: "plus")
                         .font(.system(size: 12, weight: .semibold))
@@ -113,7 +113,7 @@ struct SessionListView: View {
         ) {
             NewSessionExecutionProviderMenu(
                 accessibilityIdentifier: "sessionList.createButton",
-                onSelect: createNewSession(providerID:)
+                onSelect: createNewSession(providerReference:)
             ) {
                 Text("新建对话")
             }
@@ -140,7 +140,7 @@ struct SessionListView: View {
 
                 NewSessionExecutionProviderMenu(
                     accessibilityIdentifier: "sessionList.createButton",
-                    onSelect: createNewSession(providerID:)
+                    onSelect: createNewSession(providerReference:)
                 ) {
                     Text("新建对话")
                 }
@@ -210,9 +210,9 @@ struct SessionListView: View {
 
     // MARK: - Actions
 
-    private func createNewSession(providerID: ConversationExecutionProviderID) {
+    private func createNewSession(providerReference: ExecutionProviderReference) {
         let newSession = Session()
-        newSession.defaultExecutionProviderID = providerID.rawValue
+        newSession.defaultExecutionProviderReference = providerReference
         modelContext.insert(newSession)
         do {
             try modelContext.save()

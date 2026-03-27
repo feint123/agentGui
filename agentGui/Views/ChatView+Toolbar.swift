@@ -35,7 +35,7 @@ extension ChatView {
         ToolbarItem(placement: .primaryAction) {
             NewSessionExecutionProviderMenu(
                 accessibilityIdentifier: "chat.newSessionButton",
-                onSelect: createNewSession(providerID:)
+                onSelect: createNewSession(providerReference:)
             ) {
                 Image(systemName: "plus")
             }
@@ -82,9 +82,9 @@ extension ChatView {
         }
     }
 
-    func createNewSession(providerID: ConversationExecutionProviderID) {
+    func createNewSession(providerReference: ExecutionProviderReference) {
         let newSession = Session()
-        newSession.defaultExecutionProviderID = providerID.rawValue
+        newSession.defaultExecutionProviderReference = providerReference
         modelContext.insert(newSession)
         try? modelContext.save()
         workspaceState.selectedSession = newSession
@@ -145,7 +145,7 @@ struct SessionToolbarActions {
 
         let cloned = Session(title: session.title, kind: .local)
         cloned.workingDirectory = session.workingDirectory
-        cloned.defaultExecutionProviderID = session.defaultExecutionProviderID
+        cloned.defaultExecutionProviderReference = session.defaultExecutionProviderReference
         cloned.planJson = session.planJson
         cloned.executionPreferencesJSON = session.executionPreferencesJSON
         modelContext.insert(cloned)

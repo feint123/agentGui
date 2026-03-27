@@ -127,16 +127,8 @@ struct InMemoryAppHarness {
     }
 
     private static func makeContainer() throws -> ModelContainer {
-        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try ModelContainer(
-            for: AppSettings.self,
-            Session.self,
-            Message.self,
-            ToolCall.self,
-            AgentRound.self,
-            RecoverySnapshot.self,
-            SessionTaskState.self,
-            configurations: configuration
-        )
+        let schema = Schema(PersistenceSchema.sharedModelTypes)
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: schema, configurations: [configuration])
     }
 }

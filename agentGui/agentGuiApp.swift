@@ -15,6 +15,7 @@ enum PersistenceSchema {
 
     static let sharedModelTypes: [any PersistentModel.Type] = [
         AppSettings.self,
+        ACPProviderProfile.self,
         Session.self,
         ChangeProposal.self,
         ProposedFileChange.self,
@@ -481,39 +482,7 @@ struct agentGuiApp: App {
                     projectionStore: claudeService.executionProjectionStore,
                     scheduler: ExecutionScheduler(maxConcurrentJobs: 2),
                     runtimePool: ExecutionRuntimePool(),
-                    providerRegistry: claudeService.executionProviderRegistry ?? ConversationExecutionProviderRegistry(
-                        builtIn: BuiltInConversationExecutionProvider(claudeService: claudeService),
-                        copilot: GitHubCopilotCLIExecutionProvider(
-                            terminalRuntimeFactory: { [externalStore = claudeService.externalACPTerminalRuntimeStore] sessionID, workingDirectory in
-                                await externalStore.runtime(
-                                    for: sessionID,
-                                    providerID: .githubCopilotCLI,
-                                    workingDirectory: workingDirectory
-                                )
-                            },
-                            permissionCenter: claudeService.acpPermissionCenter
-                        ),
-                        openCode: OpenCodeCLIExecutionProvider(
-                            terminalRuntimeFactory: { [externalStore = claudeService.externalACPTerminalRuntimeStore] sessionID, workingDirectory in
-                                await externalStore.runtime(
-                                    for: sessionID,
-                                    providerID: .openCodeCLI,
-                                    workingDirectory: workingDirectory
-                                )
-                            },
-                            permissionCenter: claudeService.acpPermissionCenter
-                        ),
-                        claudeAdapter: ClaudeAdapterCLIExecutionProvider(
-                            terminalRuntimeFactory: { [externalStore = claudeService.externalACPTerminalRuntimeStore] sessionID, workingDirectory in
-                                await externalStore.runtime(
-                                    for: sessionID,
-                                    providerID: .claudeAdapterCLI,
-                                    workingDirectory: workingDirectory
-                                )
-                            },
-                            permissionCenter: claudeService.acpPermissionCenter
-                        )
-                    ),
+                    providerRegistry: claudeService.executionProviderRegistry ?? claudeService.buildExecutionProviderRegistry(for: context),
                     runtimeCoordinator: claudeService.executionRuntimeCoordinator,
                     changeReviewProjectionStore: claudeService.changeReviewProjectionStore
                 )

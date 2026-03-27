@@ -8,7 +8,7 @@ struct ACPSessionConfigControl: Equatable {
 }
 
 struct ACPSessionConfigurationPresentation: Equatable {
-    let providerID: ConversationExecutionProviderID
+    let providerReference: ExecutionProviderReference
     let providerDisplayName: String
     let modeOptions: [ExecutionOptionItem]
     let selectedModeID: String?
@@ -22,12 +22,13 @@ struct ACPSessionConfigurationPresentation: Equatable {
 
 enum ACPSessionConfigurationPresentationBuilder {
     static func make(
-        providerID: ConversationExecutionProviderID,
+        providerReference: ExecutionProviderReference,
+        providerDisplayName: String,
         snapshot: ACPExternalAgentSessionConfigurationSnapshot
     ) -> ACPSessionConfigurationPresentation {
         ACPSessionConfigurationPresentation(
-            providerID: providerID,
-            providerDisplayName: providerID.displayName,
+            providerReference: providerReference,
+            providerDisplayName: providerDisplayName,
             modeOptions: modeOptions(from: snapshot),
             selectedModeID: snapshot.modes?.currentModeID,
             modelConfig: control(from: snapshot.modelConfigOption, fallbackTitle: "模型"),

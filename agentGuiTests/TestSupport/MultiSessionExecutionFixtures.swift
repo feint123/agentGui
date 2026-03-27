@@ -15,7 +15,9 @@ final class SessionRuntimeResetTracker {
 final class UnavailableACPTestExecutionProvider: ACPExternalExecutionProviderBase<ACPCLIConfiguration> {
     init(sessionRuntimeResetter: @escaping ACPExternalSessionRuntimeResetter = { _ in }) {
         super.init(
-            providerID: .githubCopilotCLI,
+            providerReference: LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference,
+            providerDisplayName: ConversationExecutionProviderID.githubCopilotCLI.displayName,
+            legacyProviderID: .githubCopilotCLI,
             terminalRuntimeFactory: { _, _ in TerminalTaskRuntime.makeForTests() },
             sessionRuntimeResetter: sessionRuntimeResetter,
             permissionCenter: ACPPermissionCenter(),
@@ -65,10 +67,14 @@ final class UnavailableACPTestExecutionProvider: ACPExternalExecutionProviderBas
     }
 
     override func initialSessionConfigSelections(
-        for configuration: ACPCLIConfiguration,
+        for session: Session,
+        configuration: ACPCLIConfiguration,
         handshake: ACPExternalAgentSessionHandshake
     ) -> [ACPExternalSessionConfigSelection] {
-        []
+        _ = session
+        _ = configuration
+        _ = handshake
+        return []
     }
 }
 
