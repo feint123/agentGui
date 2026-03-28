@@ -30,7 +30,11 @@ main() {
   generate_appcast_bin="$(resolve_generate_appcast)"
 
   local archive_dir="${SPARKLE_ARCHIVE_DIR:-$PWD/build/release}"
-  local output_dir="${SPARKLE_OUTPUT_DIR:-$PWD/build/appcast}"
+  local output_path="${SPARKLE_OUTPUT_PATH:-${SPARKLE_OUTPUT_DIR:-$PWD/build/appcast}/appcast.xml}"
+  local output_dir
+  output_dir="$(dirname "$output_path")"
+  local download_url_prefix="${SPARKLE_DOWNLOAD_URL_PREFIX:-}"
+  local release_notes_url_prefix="${SPARKLE_RELEASE_NOTES_URL_PREFIX:-}"
 
   if [[ ! -d "$archive_dir" ]]; then
     echo "归档目录不存在：$archive_dir" >&2
@@ -41,11 +45,21 @@ main() {
 
   echo "Using generate_appcast: $generate_appcast_bin"
   echo "Archive directory: $archive_dir"
-  echo "Output directory: $output_dir"
+  echo "Output path: $output_path"
 
-  "$generate_appcast_bin" "$archive_dir" --output-dir "$output_dir"
+  local args=("-o" "$output_path")
 
-  echo "Appcast generated in: $output_dir"
+  if [[ -n "$download_url_prefix" ]]; then
+    args+=("--download-url-prefix" "$download_url_prefix")
+  fi
+
+  if [[ -n "$release_notes_url_prefix" ]]; then
+    args+=("--release-notes-url-prefix" "$release_notes_url_prefix")
+  fi
+
+  "$generate_appcast_bin" "${args[@]}" "$archive_dir"
+
+  echo "Appcast generated at: $output_path"
   echo "下一步：上传 appcast.xml、相关归档文件，并从旧版本安装包验证升级链路。"
 }
 

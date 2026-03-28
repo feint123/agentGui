@@ -411,6 +411,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -438,8 +439,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
-				SPARKLE_FEED_URL = "https://example.com/appcast.xml";
-				SPARKLE_PUBLIC_ED_KEY = "replace-me";
+				SPARKLE_FEED_URL = "https://raw.githubusercontent.com/feint123/agentGui/main/appcast.xml";
+				SPARKLE_PUBLIC_ED_KEY = "cclTNGJwq1ra4oP1qqllq9Q1ZrrPVz+eXQ3JnyiIqHA=";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = macosx;
 				SUPPORTS_MACCATALYST = NO;
@@ -461,6 +462,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
@@ -500,8 +502,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
-				SPARKLE_FEED_URL = "https://example.com/appcast.xml";
-				SPARKLE_PUBLIC_ED_KEY = "replace-me";
+				SPARKLE_FEED_URL = "https://raw.githubusercontent.com/feint123/agentGui/main/appcast.xml";
+				SPARKLE_PUBLIC_ED_KEY = "cclTNGJwq1ra4oP1qqllq9Q1ZrrPVz+eXQ3JnyiIqHA=";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = macosx;
 				SUPPORTS_MACCATALYST = NO;
