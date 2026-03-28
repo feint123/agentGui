@@ -24,6 +24,15 @@ struct AppCommandRegistry {
             requirement: .workbench
         ),
         AppCommandDescriptor(
+            id: .checkForUpdates,
+            title: "检查更新...",
+            category: .app,
+            menuPlacement: .appSettings,
+            shortcut: nil,
+            keywords: ["更新", "检查更新", "sparkle"],
+            requirement: .updateCheckAvailable
+        ),
+        AppCommandDescriptor(
             id: .showSettings,
             title: "设置...",
             category: .app,

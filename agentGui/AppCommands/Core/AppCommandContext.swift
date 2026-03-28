@@ -1,6 +1,12 @@
 import Foundation
 import SwiftData
 
+@MainActor
+protocol UpdateCommandHandling: AnyObject {
+    var canCheckForUpdates: Bool { get }
+    func checkForUpdates()
+}
+
 enum AppFocusedSceneKind: Equatable {
     case none
     case workbench
@@ -17,6 +23,7 @@ struct AppCommandContext {
     var modelContext: ModelContext?
     var focusedScene: AppFocusedSceneKind
     var openWindowByID: ((String) -> Void)?
+    var updateCommandHandler: UpdateCommandHandling? = nil
 
     static let empty = AppCommandContext(
         sceneID: nil,
@@ -24,7 +31,8 @@ struct AppCommandContext {
         workbenchState: nil,
         modelContext: nil,
         focusedScene: .none,
-        openWindowByID: nil
+        openWindowByID: nil,
+        updateCommandHandler: nil
     )
 
     static func preview(
@@ -33,7 +41,8 @@ struct AppCommandContext {
         workbenchState: WorkbenchState? = nil,
         modelContext: ModelContext? = nil,
         focusedScene: AppFocusedSceneKind = .workbench,
-        openWindowByID: ((String) -> Void)? = nil
+        openWindowByID: ((String) -> Void)? = nil,
+        updateCommandHandler: UpdateCommandHandling? = nil
     ) -> AppCommandContext {
         AppCommandContext(
             sceneID: sceneID,
@@ -41,7 +50,8 @@ struct AppCommandContext {
             workbenchState: workbenchState,
             modelContext: modelContext,
             focusedScene: focusedScene,
-            openWindowByID: openWindowByID
+            openWindowByID: openWindowByID,
+            updateCommandHandler: updateCommandHandler
         )
     }
 }

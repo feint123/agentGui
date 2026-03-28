@@ -126,6 +126,9 @@ final class AppSettings {
     /// 后台任务观测保留天数
     var backgroundAgentObservationRetentionDays: Int = 30
 
+    /// Sparkle 更新渠道持久化值
+    var sparkleUpdateChannelRaw: String = SparkleUpdateChannel.stable.rawValue
+
 
     init() {
         self.apiKey = ""
@@ -225,6 +228,15 @@ extension AppSettings {
         }
         set {
             claudeAdapterCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
+        }
+    }
+
+    var sparkleUpdateChannel: SparkleUpdateChannel {
+        get {
+            SparkleUpdateChannel(rawValue: sparkleUpdateChannelRaw) ?? .stable
+        }
+        set {
+            sparkleUpdateChannelRaw = newValue.rawValue
         }
     }
 

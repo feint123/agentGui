@@ -76,6 +76,25 @@ struct agentGuiApp: App {
         ProcessInfo.processInfo.arguments.contains("-com.agentgui.test.mode")
     }
 
+    @MainActor
+    private static func makeUpdateCoordinator() -> SparkleUpdateCoordinator {
+#if canImport(Sparkle) && os(macOS)
+        guard !isRunningTests else {
+            return SparkleUpdateCoordinator(driver: DisabledSparkleDriver())
+        }
+
+        var coordinator: SparkleUpdateCoordinator!
+        let delegate = SparkleUpdateDelegate {
+            coordinator.updateChannel
+        }
+        let driver = LiveSparkleDriver(updaterDelegate: delegate)
+        coordinator = SparkleUpdateCoordinator(driver: driver)
+        return coordinator
+#else
+        return SparkleUpdateCoordinator(driver: DisabledSparkleDriver())
+#endif
+    }
+
     init() {
         ConfigDirectoryManager.shared.setup()
         NSWindow.allowsAutomaticWindowTabbing = true
@@ -91,6 +110,7 @@ struct agentGuiApp: App {
     @State private var channelRegistry = IMChannelRegistry()
     @State private var channelRuntimeBootstrap: ChannelRuntimeBootstrap?
     @State private var workbenchSceneServices = WorkbenchSceneServices()
+    @State private var updateCoordinator = agentGuiApp.makeUpdateCoordinator()
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
@@ -133,6 +153,8 @@ struct agentGuiApp: App {
 
                     // 从持久化设置加载 API Key
                     let settings = AppSettings.getOrCreate(in: context, persistenceCoordinator: .shared)
+                    updateCoordinator.updateChannel = settings.sparkleUpdateChannel
+                    updateCoordinator.startUpdaterIfNeeded()
                     claudeService.applyConnectionSettings(settings)
                     claudeService.skillService = skillService
                     Task {
@@ -194,7 +216,7 @@ struct agentGuiApp: App {
         }
         .modelContainer(sharedModelContainer)
         .commands {
-            AppMenuCommands()
+            AppMenuCommands(updateCommandHandler: updateCoordinator)
             WorkspaceCommands()
             RecentCommands()
             NavigationCommands()
@@ -213,7 +235,9 @@ struct agentGuiApp: App {
         .modelContainer(sharedModelContainer)
 
         Window("设置", id: SettingsWindowScene.id) {
-            SettingsWindowView()
+            SettingsWindowView(
+                updatePreferencesBridge: SparkleUpdatePreferencesBridge(coordinator: updateCoordinator)
+            )
                 .environment(claudeService)
                 .environment(skillService)
                 .environment(runtimeRecoveryService)
@@ -491,4 +515,17 @@ struct agentGuiApp: App {
             break
         }
     }
+}
+
+@MainActor
+private final class DisabledSparkleDriver: SparkleUpdating {
+    let canCheckForUpdates = false
+    var automaticallyChecksForUpdates = false
+    var automaticallyDownloadsUpdates = false
+
+    func startUpdaterIfNeeded() {}
+
+    func checkForUpdates() {}
+
+    func resetUpdateCycleAfterShortDelay() {}
 }

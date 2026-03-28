@@ -2,6 +2,7 @@ import Foundation
 
 enum AppCommandID: String, CaseIterable, Identifiable {
     case showCommandPalette
+    case checkForUpdates
     case showSettings
     case openWorkspaceChooser
     case showAgentStudio

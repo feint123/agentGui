@@ -10,6 +10,12 @@ struct SettingsWindowView: View {
     @Environment(PersistenceCoordinator.self) private var persistenceCoordinator
     @State private var store: SettingsStore?
 
+    private let updatePreferencesBridge: SparkleUpdatePreferencesBridge?
+
+    init(updatePreferencesBridge: SparkleUpdatePreferencesBridge? = nil) {
+        self.updatePreferencesBridge = updatePreferencesBridge
+    }
+
     var body: some View {
         NavigationSplitView {
             List(SettingsNavigationItem.allCases, selection: selectionBinding) { item in
@@ -27,7 +33,8 @@ struct SettingsWindowView: View {
             if store == nil {
                 store = SettingsStore(
                     modelContext: modelContext,
-                    persistenceCoordinator: persistenceCoordinator
+                    persistenceCoordinator: persistenceCoordinator,
+                    updatePreferencesBridge: updatePreferencesBridge
                 )
             }
         }
@@ -61,6 +68,8 @@ struct SettingsWindowView: View {
         switch store.selectedItem {
         case .connection:
             SettingsConnectionView(store: store)
+        case .updates:
+            SettingsUpdatesView(store: store)
         case .channels:
             SettingsChannelsView()
         case .executors:

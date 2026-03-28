@@ -11,6 +11,7 @@ final class SettingsStore {
     @ObservationIgnored private let persistenceCoordinator: PersistenceCoordinator?
     @ObservationIgnored private let providerProfileRepository: ACPProviderProfileRepository
     @ObservationIgnored private let providerValidationService: ACPProviderValidationService
+    @ObservationIgnored private let updatePreferencesBridge: SparkleUpdatePreferencesBridge?
 
     var settings: AppSettings
     var acpProviderProfiles: [ACPProviderProfile]
@@ -23,18 +24,21 @@ final class SettingsStore {
     init(
         modelContext: ModelContext,
         persistenceCoordinator: PersistenceCoordinator?,
-        providerValidationService: ACPProviderValidationService = ACPProviderValidationService()
+        providerValidationService: ACPProviderValidationService = ACPProviderValidationService(),
+        updatePreferencesBridge: SparkleUpdatePreferencesBridge? = nil
     ) {
         self.modelContext = modelContext
         self.persistenceCoordinator = persistenceCoordinator
         self.providerProfileRepository = ACPProviderProfileRepository(modelContext: modelContext)
         self.providerValidationService = providerValidationService
+        self.updatePreferencesBridge = updatePreferencesBridge
         self.settings = AppSettings.getOrCreate(
             in: modelContext,
             persistenceCoordinator: persistenceCoordinator
         )
         self.acpProviderProfiles = (try? self.providerProfileRepository.allProfiles()) ?? []
         self.selectedItem = Self.lastSelectedItem
+        self.updatePreferencesBridge?.updateChannel = settings.sparkleUpdateChannel
     }
 
     @discardableResult
@@ -100,6 +104,40 @@ final class SettingsStore {
                 _ = self.persistSettingsMutation("默认执行器设置未成功保存") {
                     self.settings.defaultExecutionProviderReference = self.validatedProviderSelection(for: newValue)
                 }
+            }
+        )
+    }
+
+    var canConfigureAutomaticUpdates: Bool {
+        updatePreferencesBridge != nil
+    }
+
+    func automaticUpdateChecksBinding() -> Binding<Bool> {
+        Binding(
+            get: { self.updatePreferencesBridge?.automaticallyChecksForUpdates ?? false },
+            set: { newValue in
+                self.updatePreferencesBridge?.automaticallyChecksForUpdates = newValue
+            }
+        )
+    }
+
+    func automaticUpdateDownloadsBinding() -> Binding<Bool> {
+        Binding(
+            get: { self.updatePreferencesBridge?.automaticallyDownloadsUpdates ?? false },
+            set: { newValue in
+                self.updatePreferencesBridge?.automaticallyDownloadsUpdates = newValue
+            }
+        )
+    }
+
+    func updateChannelSelectionBinding() -> Binding<SparkleUpdateChannel> {
+        Binding(
+            get: { self.settings.sparkleUpdateChannel },
+            set: { newValue in
+                _ = self.persistSettingsMutation("更新渠道设置未成功保存") {
+                    self.settings.sparkleUpdateChannel = newValue
+                }
+                self.updatePreferencesBridge?.updateChannel = newValue
             }
         )
     }

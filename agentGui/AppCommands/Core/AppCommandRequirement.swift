@@ -5,6 +5,7 @@ enum AppCommandRequirement: Equatable {
     case openWindow
     case workbench
     case workbenchWithSelectedSession
+    case updateCheckAvailable
 
     @MainActor
     func evaluate(in context: AppCommandContext) -> AppCommandAvailability {
@@ -28,6 +29,12 @@ enum AppCommandRequirement: Equatable {
             }
             guard workspaceState.selectedSession != nil else {
                 return .disabled("当前没有选中的会话。")
+            }
+            return .enabled
+        case .updateCheckAvailable:
+            guard let updateCommandHandler = context.updateCommandHandler,
+                  updateCommandHandler.canCheckForUpdates else {
+                return .disabled("当前无法检查更新。")
             }
             return .enabled
         }

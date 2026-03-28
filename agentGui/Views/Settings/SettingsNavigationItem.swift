@@ -2,6 +2,7 @@ import Foundation
 
 enum SettingsNavigationItem: String, CaseIterable, Identifiable {
     case connection
+    case updates
     case channels
     case executors
     case tools
@@ -18,6 +19,8 @@ enum SettingsNavigationItem: String, CaseIterable, Identifiable {
         switch self {
         case .connection:
             return "连接"
+        case .updates:
+            return "更新"
         case .channels:
             return "渠道"
         case .executors:
@@ -39,6 +42,8 @@ enum SettingsNavigationItem: String, CaseIterable, Identifiable {
         switch self {
         case .connection:
             return "network"
+        case .updates:
+            return "arrow.trianglehead.2.clockwise"
         case .channels:
             return "bubble.left.and.bubble.right"
         case .executors:

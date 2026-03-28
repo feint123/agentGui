@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1222AEDB2F5B4A3500A4A73D /* (null) in Frameworks */ = {isa = PBXBuildFile; };
 		12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */ = {isa = PBXBuildFile; productRef = 12266AFA2F59CDD700450C6E /* SwiftAnthropic */; };
+		122C8C3B301D000100000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 122C8C3A301D000100000001 /* Sparkle */; };
 		12DF952F2F5BC7F600258995 /* BeautifulMermaid in Frameworks */ = {isa = PBXBuildFile; productRef = 1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */; };
 /* End PBXBuildFile section */
 
@@ -58,6 +59,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				122C8C3B301D000100000001 /* Sparkle in Frameworks */,
 				12DF952F2F5BC7F600258995 /* BeautifulMermaid in Frameworks */,
 				12266AFB2F59CDD700450C6E /* SwiftAnthropic in Frameworks */,
 				1222AEDB2F5B4A3500A4A73D /* (null) in Frameworks */,
@@ -123,6 +125,7 @@
 			packageProductDependencies = (
 				1222AEDA2F5B4A3500A4A73D /* BeautifulMermaid */,
 				12266AFA2F59CDD700450C6E /* SwiftAnthropic */,
+				122C8C3A301D000100000001 /* Sparkle */,
 			);
 			productName = agentGui;
 			productReference = 12D6F8342F3ACA8200B21E2D /* agentGui.app */;
@@ -209,6 +212,7 @@
 			packageReferences = (
 				12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */,
 				1222AED92F5B4A3500A4A73D /* XCRemoteSwiftPackageReference "beautiful-mermaid-swift" */,
+				122C8C39201D000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 12D6F8352F3ACA8200B21E2D /* Products */;
@@ -411,6 +415,10 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "agentGui 使用麦克风将你的语音实时转写为聊天输入内容，不会在未触发时持续录音。";
+				INFOPLIST_KEY_SUAutomaticallyUpdate = NO;
+				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
+				INFOPLIST_KEY_SUFeedURL = "$(SPARKLE_FEED_URL)";
+				INFOPLIST_KEY_SUPublicEDKey = "$(SPARKLE_PUBLIC_ED_KEY)";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -430,8 +438,10 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
+				SPARKLE_FEED_URL = https://example.com/appcast.xml;
+				SPARKLE_PUBLIC_ED_KEY = "replace-me";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = macosx;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -467,6 +477,10 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "agentGui 使用麦克风将你的语音实时转写为聊天输入内容，不会在未触发时持续录音。";
+				INFOPLIST_KEY_SUAutomaticallyUpdate = NO;
+				INFOPLIST_KEY_SUEnableAutomaticChecks = YES;
+				INFOPLIST_KEY_SUFeedURL = "$(SPARKLE_FEED_URL)";
+				INFOPLIST_KEY_SUPublicEDKey = "$(SPARKLE_PUBLIC_ED_KEY)";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -486,8 +500,10 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
+				SPARKLE_FEED_URL = https://example.com/appcast.xml;
+				SPARKLE_PUBLIC_ED_KEY = "replace-me";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = macosx;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -655,6 +671,14 @@
 				minimumVersion = 2.2.1;
 			};
 		};
+		122C8C39201D000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.7.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -667,6 +691,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 12266AF82F59CDD700450C6E /* XCRemoteSwiftPackageReference "SwiftAnthropic" */;
 			productName = SwiftAnthropic;
+		};
+		122C8C3A301D000100000001 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 122C8C39201D000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -27,6 +27,9 @@ final class AppCommandRouter {
         case .showCommandPalette:
             CommandPaletteWindowScene.requestPresentation(context: context)
             return .performed
+        case .checkForUpdates:
+            context.updateCommandHandler?.checkForUpdates()
+            return .performed
         case .showSettings:
             return openWindow(SettingsWindowScene.id, in: context)
         case .openWorkspaceChooser:

@@ -6,6 +6,17 @@ struct AppCommandMenuSupport {
     let router = AppCommandRouter()
     let focusedContext: AppCommandContext?
     let openWindow: OpenWindowAction
+    let updateCommandHandler: UpdateCommandHandling?
+
+    init(
+        focusedContext: AppCommandContext?,
+        openWindow: OpenWindowAction,
+        updateCommandHandler: UpdateCommandHandling? = nil
+    ) {
+        self.focusedContext = focusedContext
+        self.openWindow = openWindow
+        self.updateCommandHandler = updateCommandHandler
+    }
 
     func descriptor(for id: AppCommandID) -> AppCommandDescriptor? {
         registry.descriptor(for: id)
@@ -17,6 +28,9 @@ struct AppCommandMenuSupport {
             context.openWindowByID = { windowID in
                 openWindow(id: windowID)
             }
+        }
+        if context.updateCommandHandler == nil {
+            context.updateCommandHandler = updateCommandHandler
         }
         return context
     }
@@ -39,6 +53,11 @@ struct AppCommandMenuSupport {
 struct AppMenuCommands: Commands {
     @FocusedValue(\.appCommandContext) private var focusedCommandContext
     @Environment(\.openWindow) private var openWindow
+    let updateCommandHandler: UpdateCommandHandling?
+
+    init(updateCommandHandler: UpdateCommandHandling? = nil) {
+        self.updateCommandHandler = updateCommandHandler
+    }
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
@@ -46,6 +65,7 @@ struct AppMenuCommands: Commands {
         }
 
         CommandGroup(after: .appSettings) {
+            commandButton(.checkForUpdates)
             commandButton(.showSettings)
         }
     }
@@ -64,7 +84,8 @@ struct AppMenuCommands: Commands {
     private var support: AppCommandMenuSupport {
         AppCommandMenuSupport(
             focusedContext: focusedCommandContext,
-            openWindow: openWindow
+            openWindow: openWindow,
+            updateCommandHandler: updateCommandHandler
         )
     }
 }
