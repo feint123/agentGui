@@ -122,11 +122,7 @@ extension ChatView {
                     }
 
                     if let voiceStatusText = voiceInputStatusText {
-                        Text(voiceStatusText)
-                            .font(.caption)
-                            .foregroundStyle(voiceInputStatusColor)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        voiceInputStatusView(text: voiceStatusText)
                     }
 
                     Spacer(minLength: 0)
@@ -687,6 +683,8 @@ var fileChipsRow: some View {
             return "请求麦克风权限"
         case .preparing:
             return "正在准备听写"
+        case let .installingModel(_, message):
+            return message
         case .recording:
             return "正在听写"
         case .finalizing:
@@ -696,11 +694,44 @@ var fileChipsRow: some View {
         }
     }
 
+    private var voiceInputProgressValue: Double? {
+        switch voiceInputController.phase {
+        case let .installingModel(progress, _):
+            return progress
+        default:
+            return nil
+        }
+    }
+
+    @ViewBuilder
+    private func voiceInputStatusView(text voiceStatusText: String) -> some View {
+        if let progressValue = voiceInputProgressValue {
+            HStack(spacing: 6) {
+                ProgressView(value: progressValue)
+                    .controlSize(.small)
+                    .frame(width: 56)
+                Text(voiceStatusText)
+                    .font(.caption)
+                    .foregroundStyle(voiceInputStatusColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .accessibilityIdentifier("chat.voiceInputStatus")
+        } else {
+            Text(voiceStatusText)
+                .font(.caption)
+                .foregroundStyle(voiceInputStatusColor)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityIdentifier("chat.voiceInputStatus")
+        }
+    }
+
     private var voiceInputStatusColor: Color {
         switch voiceInputController.phase {
         case .failed(_):
             return .red
-        case .recording:
+        case .installingModel, .recording:
             return .accentColor
         default:
             return .secondary

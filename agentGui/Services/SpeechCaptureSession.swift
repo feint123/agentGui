@@ -13,6 +13,9 @@ protocol SpeechCaptureSessionProtocol: Sendable {
 actor SpeechCaptureSession: SpeechCaptureSessionProtocol {
     struct Event: Sendable, Equatable {
         enum Kind: Sendable, Equatable {
+            case preparing
+            case installingModel(progress: Double?, message: String)
+            case ready
             case partial(String)
             case final(String)
             case unavailable(String)
@@ -41,8 +44,7 @@ actor SpeechCaptureSession: SpeechCaptureSessionProtocol {
         }
 
         static let live = TranscriberFactory { locale in
-            let runtime = try await LiveSpeechCaptureRuntime(locale: locale)
-            return await runtime.makeRunningSession()
+            try await LiveSpeechCaptureCoordinator.makeRunningSession(locale: locale)
         }
     }
 
@@ -148,19 +150,19 @@ extension SpeechCaptureSession {
     }
 }
 
-private actor LiveSpeechCaptureRuntime {
+private actor LiveSpeechCaptureCoordinator {
     private let transcriber: SpeechTranscriber
-    private let analyzer: SpeechAnalyzer
-    private let engine: AVAudioEngine
-    private let analysisInputStream: AsyncThrowingStream<AnalyzerInput, Swift.Error>
-    private let analysisInputContinuation: AsyncThrowingStream<AnalyzerInput, Swift.Error>.Continuation
     private let eventStream: AsyncThrowingStream<SpeechCaptureSession.Event, Swift.Error>
     private let eventContinuation: AsyncThrowingStream<SpeechCaptureSession.Event, Swift.Error>.Continuation
 
-    private var analyzerTask: Task<Void, Never>?
-    private var resultTask: Task<Void, Never>?
-    private var latestTranscript = ""
+    private var bootstrapTask: Task<Void, Never>?
+    private var runtime: LiveSpeechCaptureRuntime?
     private var hasFinished = false
+
+    static func makeRunningSession(locale: Locale) async throws -> SpeechCaptureSession.RunningSession {
+        let coordinator = try await LiveSpeechCaptureCoordinator(locale: locale)
+        return await coordinator.runningSession()
+    }
 
     init(locale: Locale) async throws {
         guard SpeechTranscriber.isAvailable else {
@@ -171,37 +173,18 @@ private actor LiveSpeechCaptureRuntime {
             throw SpeechCaptureSession.Error.unsupportedLocale
         }
 
-        let transcriber = SpeechTranscriber(locale: supportedLocale, preset: .progressiveTranscription)
-        let assetStatus = await AssetInventory.status(forModules: [transcriber])
-        switch assetStatus {
-        case .unsupported:
-            throw SpeechCaptureSession.Error.unsupportedLocale
-        case .supported, .downloading:
-            throw SpeechCaptureSession.Error.initializationFailed("语音模型尚未安装完成")
-        case .installed:
-            break
-        @unknown default:
-            throw SpeechCaptureSession.Error.initializationFailed("语音模型状态未知")
-        }
-
-        self.transcriber = transcriber
-        self.analyzer = SpeechAnalyzer(modules: [transcriber])
-        self.engine = AVAudioEngine()
-
-        let analysisParts = AsyncThrowingStream.makeStream(of: AnalyzerInput.self)
-        self.analysisInputStream = analysisParts.stream
-        self.analysisInputContinuation = analysisParts.continuation
+        self.transcriber = SpeechTranscriber(locale: supportedLocale, preset: .progressiveTranscription)
 
         let eventParts = AsyncThrowingStream.makeStream(of: SpeechCaptureSession.Event.self)
         self.eventStream = eventParts.stream
         self.eventContinuation = eventParts.continuation
 
-        try await prepareAndStartEngine()
-        startAnalyzerLoop()
-        startResultLoop()
+        bootstrapTask = Task { [weak self] in
+            await self?.bootstrapRuntime()
+        }
     }
 
-    func makeRunningSession() -> SpeechCaptureSession.RunningSession {
+    func runningSession() -> SpeechCaptureSession.RunningSession {
         SpeechCaptureSession.RunningSession(
             stream: eventStream,
             stop: { [weak self] in
@@ -213,6 +196,178 @@ private actor LiveSpeechCaptureRuntime {
                 await self.cancel()
             }
         )
+    }
+
+    func stop() async throws {
+        guard hasFinished == false else { return }
+
+        if let runtime {
+            try await runtime.stop()
+            hasFinished = true
+            return
+        }
+
+        await cancel()
+    }
+
+    func cancel() async {
+        guard hasFinished == false else { return }
+        hasFinished = true
+        bootstrapTask?.cancel()
+        if let runtime {
+            await runtime.cancel()
+        } else {
+            eventContinuation.finish()
+        }
+    }
+
+    private func bootstrapRuntime() async {
+        do {
+            emitPreparing()
+            try await installAssetsIfNeeded()
+            guard Task.isCancelled == false else {
+                eventContinuation.finish()
+                hasFinished = true
+                return
+            }
+
+            let runtime = try await LiveSpeechCaptureRuntime(
+                transcriber: transcriber,
+                eventContinuation: eventContinuation
+            )
+            self.runtime = runtime
+        } catch is CancellationError {
+            eventContinuation.finish()
+            hasFinished = true
+        } catch {
+            eventContinuation.finish(throwing: error)
+            hasFinished = true
+        }
+    }
+
+    private func installAssetsIfNeeded() async throws {
+        let assetStatus = await AssetInventory.status(forModules: [transcriber])
+        switch assetStatus {
+        case .unsupported:
+            throw SpeechCaptureSession.Error.unsupportedLocale
+        case .installed:
+            return
+        case .supported, .downloading:
+            try await installAssets()
+        @unknown default:
+            throw SpeechCaptureSession.Error.initializationFailed("语音模型状态未知")
+        }
+    }
+
+    private func installAssets() async throws {
+        let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber])
+        if let request {
+            let progressTask = Task { [weak self] in
+                await self?.publishInstallationProgress(for: request.progress)
+            }
+            defer { progressTask.cancel() }
+
+            emitInstallationProgress(
+                progress: normalizedProgressFraction(for: request.progress),
+                message: installationMessage(for: normalizedProgressFraction(for: request.progress))
+            )
+            try await request.downloadAndInstall()
+            emitInstallationProgress(progress: 1, message: installationMessage(for: 1))
+            return
+        }
+
+        try await waitForExistingInstallation()
+    }
+
+    private func publishInstallationProgress(for progress: Progress) async {
+        while Task.isCancelled == false && progress.isFinished == false {
+            let fraction = normalizedProgressFraction(for: progress)
+            emitInstallationProgress(
+                progress: fraction,
+                message: installationMessage(for: fraction)
+            )
+
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func waitForExistingInstallation() async throws {
+        while Task.isCancelled == false {
+            let status = await AssetInventory.status(forModules: [transcriber])
+            switch status {
+            case .installed:
+                emitInstallationProgress(progress: 1, message: installationMessage(for: 1))
+                return
+            case .unsupported:
+                throw SpeechCaptureSession.Error.unsupportedLocale
+            case .supported, .downloading:
+                emitInstallationProgress(progress: nil, message: "等待系统完成语音模型安装")
+            @unknown default:
+                throw SpeechCaptureSession.Error.initializationFailed("语音模型状态未知")
+            }
+
+            try await Task.sleep(for: .milliseconds(250))
+        }
+    }
+
+    private func emitInstallationProgress(progress: Double?, message: String) {
+        guard hasFinished == false else { return }
+        eventContinuation.yield(.init(kind: .installingModel(progress: progress, message: message)))
+    }
+
+    private func emitPreparing() {
+        guard hasFinished == false else { return }
+        eventContinuation.yield(.init(kind: .preparing))
+    }
+
+    private func normalizedProgressFraction(for progress: Progress) -> Double? {
+        guard progress.totalUnitCount > 0 else { return nil }
+        return min(max(progress.fractionCompleted, 0), 1)
+    }
+
+    private func installationMessage(for progress: Double?) -> String {
+        guard let progress else {
+            return "正在下载语音模型"
+        }
+
+        return "正在下载语音模型 \(Int((progress * 100).rounded()))%"
+    }
+}
+
+private actor LiveSpeechCaptureRuntime {
+    private let transcriber: SpeechTranscriber
+    private let analyzer: SpeechAnalyzer
+    private let engine: AVAudioEngine
+    private let analysisInputStream: AsyncThrowingStream<AnalyzerInput, Swift.Error>
+    private let analysisInputContinuation: AsyncThrowingStream<AnalyzerInput, Swift.Error>.Continuation
+    private let eventContinuation: AsyncThrowingStream<SpeechCaptureSession.Event, Swift.Error>.Continuation
+
+    private var analyzerTask: Task<Void, Never>?
+    private var resultTask: Task<Void, Never>?
+    private var latestTranscript = ""
+    private var hasFinished = false
+
+    init(
+        transcriber: SpeechTranscriber,
+        eventContinuation: AsyncThrowingStream<SpeechCaptureSession.Event, Swift.Error>.Continuation
+    ) async throws {
+        self.transcriber = transcriber
+        self.analyzer = SpeechAnalyzer(modules: [transcriber])
+        self.engine = AVAudioEngine()
+
+        let analysisParts = AsyncThrowingStream.makeStream(of: AnalyzerInput.self)
+        self.analysisInputStream = analysisParts.stream
+        self.analysisInputContinuation = analysisParts.continuation
+        self.eventContinuation = eventContinuation
+
+        try await prepareAndStartEngine()
+        startAnalyzerLoop()
+        startResultLoop()
+        eventContinuation.yield(.init(kind: .ready))
     }
 
     func stop() async throws {
@@ -293,7 +448,7 @@ private actor LiveSpeechCaptureRuntime {
                 for try await result in transcriber.results {
                     let text = String(result.text.characters)
                     guard text.isEmpty == false else { continue }
-                    await self.setLatestTranscript(text)
+                    self.setLatestTranscript(text)
                     eventContinuation.yield(.init(kind: .partial(text)))
                 }
             } catch is CancellationError {

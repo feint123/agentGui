@@ -7,13 +7,19 @@ struct VoiceInputButtonPresentation: Equatable {
 
     static func make(phase: VoiceInputPhase, isEnabled: Bool) -> VoiceInputButtonPresentation {
         switch phase {
+        case .requestingPermission, .preparing, .installingModel:
+            return VoiceInputButtonPresentation(
+                symbolName: "xmark.circle.fill",
+                isEnabled: isEnabled,
+                isEmphasized: true
+            )
         case .recording, .finalizing:
             return VoiceInputButtonPresentation(
                 symbolName: "stop.circle.fill",
                 isEnabled: isEnabled,
                 isEmphasized: true
             )
-        case .idle, .requestingPermission, .preparing, .failed(_):
+        case .idle, .failed(_):
             return VoiceInputButtonPresentation(
                 symbolName: "mic.fill",
                 isEnabled: isEnabled,

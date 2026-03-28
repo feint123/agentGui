@@ -43,7 +43,12 @@ extension ChatView {
                 @MainActor in
                 await voiceInputController.startRecording(currentText: currentText)
             }
-        case .requestingPermission, .preparing, .recording, .finalizing:
+        case .requestingPermission, .preparing, .installingModel:
+            activeTask = Task {
+                @MainActor in
+                await voiceInputController.cancelRecording()
+            }
+        case .recording, .finalizing:
             activeTask = Task {
                 @MainActor in
                 await voiceInputController.stopRecording()
@@ -61,13 +66,13 @@ extension ChatView {
         updateComposerAssistState(text)
 
         switch voiceInputController.phase {
-        case .preparing, .recording, .finalizing:
+        case .requestingPermission, .installingModel, .preparing, .recording, .finalizing:
             guard text != voiceInputController.displayedText else { return }
             Task {
                 @MainActor in
                 await voiceInputController.handleManualTextMutation(text)
             }
-        case .idle, .requestingPermission, .failed(_):
+        case .idle, .failed(_):
             break
         }
     }

@@ -19,6 +19,17 @@ struct VoiceInputButtonPresentationTests {
     }
 
     @Test
+    func installingPhaseUsesStopSymbolAndEmphasis() {
+        let presentation = VoiceInputButtonPresentation.make(
+            phase: .installingModel(progress: 0.3, message: "正在下载语音模型"),
+            isEnabled: true
+        )
+
+        #expect(presentation.symbolName == "xmark.circle.fill")
+        #expect(presentation.isEmphasized)
+    }
+
+    @Test
     func failedPhaseStaysRetryable() {
         let presentation = VoiceInputButtonPresentation.make(phase: .failed("x"), isEnabled: true)
 

@@ -57,11 +57,17 @@ final class VoiceInputController {
         displayedText = currentText
         liveTranscript = ""
         startedAt = Date()
-        phase = .preparing
+        phase = .requestingPermission
 
         do {
             let stream = try await captureSession.start(locale: .current)
-            phase = .recording
+
+            guard phase == .requestingPermission else {
+                await captureSession.cancel()
+                return
+            }
+
+            phase = .preparing
             listeningTask?.cancel()
             listeningTask = Task { [weak self] in
                 guard let self else { return }
@@ -69,6 +75,9 @@ final class VoiceInputController {
                     for try await event in stream {
                         await self.consume(event)
                     }
+                    await self.handleCaptureStreamFinished()
+                } catch is CancellationError {
+                    await self.handleCaptureStreamCancelled()
                 } catch {
                     await self.handleCaptureFailure(error)
                 }
@@ -79,7 +88,16 @@ final class VoiceInputController {
     }
 
     func stopRecording() async {
-        guard phase == .recording || phase == .preparing else { return }
+        switch phase {
+        case .requestingPermission, .installingModel:
+            await cancelRecording()
+            return
+        case .recording, .preparing:
+            break
+        case .idle, .finalizing, .failed(_):
+            return
+        }
+
         phase = .finalizing
 
         do {
@@ -100,6 +118,12 @@ final class VoiceInputController {
 
     private func consume(_ event: SpeechCaptureSession.Event) async {
         switch event.kind {
+        case .preparing:
+            phase = .preparing
+        case let .installingModel(progress, message):
+            phase = .installingModel(progress: progress, message: message)
+        case .ready:
+            phase = .recording
         case let .partial(text):
             liveTranscript = text
             displayedText = Self.merge(base: baseInputText, transcript: text)
@@ -131,6 +155,21 @@ final class VoiceInputController {
         }
 
         phase = .failed("语音输入启动失败")
+    }
+
+    private func handleCaptureStreamFinished() async {
+        listeningTask = nil
+
+        switch phase {
+        case .idle, .failed(_):
+            break
+        case .requestingPermission, .preparing, .installingModel, .recording, .finalizing:
+            phase = .idle
+        }
+    }
+
+    private func handleCaptureStreamCancelled() async {
+        listeningTask = nil
     }
 
     static func merge(base: String, transcript: String) -> String {
