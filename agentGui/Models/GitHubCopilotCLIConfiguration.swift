@@ -164,17 +164,6 @@ extension ACPCLIConfiguration {
         configuration.defaultApprovalMode = Self.externalProviderDefaultApprovalMode
         return configuration
     }
-
-    func applying(_ sessionPreferences: GitHubCopilotCLISessionPreferences) -> ACPCLIConfiguration {
-        var configuration = self
-        if let modelID = sessionPreferences.modelID?.nonEmptyValue {
-            configuration.defaultModel = modelID
-        }
-        if let approvalMode = sessionPreferences.approvalMode?.nonEmptyValue {
-            configuration.defaultApprovalMode = GitHubCopilotCLIApprovalModeOption.resolved(from: approvalMode).rawValue
-        }
-        return configuration
-    }
 }
 
 private extension String {

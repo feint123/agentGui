@@ -31,7 +31,7 @@ struct DynamicACPProviderRegistryBuilderTests {
             providerFactory: { profile in
                 RegistryBuilderTestProvider(
                     reference: .externalACP(profileID: profile.id),
-                    legacyProviderID: profile.legacyProviderKey?.conversationExecutionProviderID
+                    legacyProviderID: nil
                 )
             }
         )

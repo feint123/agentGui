@@ -29,13 +29,11 @@ struct ACPProviderProfileRepository {
         } else {
             profile = ACPProviderProfile(
                 id: profileDraft.id ?? UUID(),
-                legacyProviderKeyRaw: "",
                 displayName: profileDraft.displayName,
                 executablePath: profileDraft.executablePath,
                 arguments: profileDraft.arguments,
                 isEnabled: profileDraft.isEnabled,
                 sortOrder: try profileDraft.sortOrder ?? nextSortOrder(),
-                sourceKind: profileDraft.sourceKind,
                 validationSnapshot: profileDraft.validationSnapshot,
                 createdAt: now,
                 updatedAt: now
@@ -47,7 +45,6 @@ struct ACPProviderProfileRepository {
         profile.executablePath = profileDraft.executablePath
         profile.arguments = profileDraft.arguments
         profile.isEnabled = profileDraft.isEnabled
-        profile.sourceKind = profileDraft.sourceKind
         if let sortOrder = profileDraft.sortOrder {
             profile.sortOrder = sortOrder
         }

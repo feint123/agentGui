@@ -438,7 +438,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
-				SPARKLE_FEED_URL = https://example.com/appcast.xml;
+				SPARKLE_FEED_URL = "https://example.com/appcast.xml";
 				SPARKLE_PUBLIC_ED_KEY = "replace-me";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = macosx;
@@ -500,7 +500,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
-				SPARKLE_FEED_URL = https://example.com/appcast.xml;
+				SPARKLE_FEED_URL = "https://example.com/appcast.xml";
 				SPARKLE_PUBLIC_ED_KEY = "replace-me";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = macosx;

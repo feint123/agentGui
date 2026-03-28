@@ -122,13 +122,7 @@ extension ChatView {
 
         var fullText = trimmed
         let settings = AppSettings.getOrCreate(in: modelContext)
-        if resolvedExecutionProviderReference.compatibilityProviderID == .githubCopilotCLI {
-            await refreshCopilotComposerAvailabilityStatus()
-        } else if resolvedExecutionProviderReference.compatibilityProviderID == .openCodeCLI {
-            await refreshOpenCodeComposerAvailabilityStatus()
-        } else if resolvedExecutionProviderReference.compatibilityProviderID == .claudeAdapterCLI {
-            await refreshClaudeAdapterComposerAvailabilityStatus()
-        }
+        await refreshComposerAvailabilityStatusIfNeeded()
         let preflightError = sendReadinessError(settings: settings) ?? sendReadinessFallbackMessage(settings: settings)
         if !preflightError.isEmpty {
             errorMessage = preflightError
@@ -218,21 +212,23 @@ extension ChatView {
         )
     }
 
-    var resolvedExecutionProviderID: ConversationExecutionProviderID {
-        resolvedExecutionProviderReference.compatibilityProviderID ?? .builtInAgent
-    }
-
     var resolvedExecutionProviderDisplayName: String {
         switch resolvedExecutionProviderReference {
         case .builtIn:
             return ConversationExecutionProviderID.builtInAgent.displayName
         case .externalACP:
-            if let registry = claudeService.executionProviderRegistry,
-               let provider = registry.providerIfAvailable(for: resolvedExecutionProviderReference) as? DynamicACPExternalExecutionProvider {
-                return provider.profile.displayName
-            }
-            return resolvedExecutionProviderID.displayName
+            return currentExternalACPProfile?.displayName ?? "ACP Provider"
         }
+    }
+
+    private var currentExternalACPProfile: ACPProviderProfile? {
+        guard case .externalACP = resolvedExecutionProviderReference,
+              let registry = claudeService.executionProviderRegistry,
+              let provider = registry.providerIfAvailable(for: resolvedExecutionProviderReference) as? DynamicACPExternalExecutionProvider else {
+            return nil
+        }
+
+        return provider.profile
     }
 
     var currentACPConfigurationController: (any ACPRemoteSessionConfigurationControlling)? {
@@ -323,43 +319,28 @@ extension ChatView {
         }
     }
 
-    var copilotComposerAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus {
-        executionProviderAvailabilityModel.copilotStatus
+    var composerAvailabilityStatus: ACPCLIAvailabilityStatus? {
+        executionProviderAvailabilityModel.status(for: resolvedExecutionProviderReference)
     }
 
-    var openCodeComposerAvailabilityStatus: OpenCodeCLIAvailabilityStatus {
-        executionProviderAvailabilityModel.openCodeStatus
-    }
-
-    var claudeAdapterComposerAvailabilityStatus: ClaudeAdapterCLIAvailabilityStatus {
-        executionProviderAvailabilityModel.claudeAdapterStatus
+    var isRefreshingComposerAvailabilityStatus: Bool {
+        executionProviderAvailabilityModel.isRefreshing(for: resolvedExecutionProviderReference)
     }
 
     var copilotComposerAvailabilityRefreshToken: String {
-        let settings = AppSettings.getOrCreate(in: modelContext)
-        return "\(session.defaultExecutionProviderID)|\(settings.githubCopilotCLIConfigurationJSON)|\(settings.openCodeCLIConfigurationJSON)|\(settings.claudeAdapterCLIConfigurationJSON)"
+        let executablePath = currentExternalACPProfile?.executablePath ?? ""
+        return "\(resolvedExecutionProviderReference.persistedValue)|\(executablePath)"
     }
 
-    func refreshCopilotComposerAvailabilityStatus() async {
-        let settings = AppSettings.getOrCreate(in: modelContext)
-        await executionProviderAvailabilityModel.refreshCopilotStatus(
-            configuration: settings.githubCopilotCLIConfiguration
-        )
-    }
+    func refreshComposerAvailabilityStatusIfNeeded() async {
+        guard let profile = currentExternalACPProfile else {
+            return
+        }
 
-    func refreshOpenCodeComposerAvailabilityStatus() async {
-        let settings = AppSettings.getOrCreate(in: modelContext)
         await executionProviderAvailabilityModel.refreshStatus(
-            for: .openCodeCLI,
-            executablePath: settings.openCodeCLIConfiguration.executablePath
-        )
-    }
-
-    func refreshClaudeAdapterComposerAvailabilityStatus() async {
-        let settings = AppSettings.getOrCreate(in: modelContext)
-        await executionProviderAvailabilityModel.refreshStatus(
-            for: .claudeAdapterCLI,
-            executablePath: settings.claudeAdapterCLIConfiguration.executablePath
+            for: resolvedExecutionProviderReference,
+            executablePath: profile.executablePath,
+            displayName: profile.displayName
         )
     }
 
@@ -372,36 +353,16 @@ extension ChatView {
         case .builtIn:
             return claudeService.isConfigured ? "" : "请先在「设置」中配置 Anthropic API Key"
         case .externalACP:
-            guard let compatibilityProviderID = resolvedExecutionProviderReference.compatibilityProviderID else {
-                if let registry = claudeService.executionProviderRegistry,
-                   registry.providerIfAvailable(for: resolvedExecutionProviderReference) != nil {
-                    return ""
-                }
+            guard let registry = claudeService.executionProviderRegistry,
+                  registry.providerIfAvailable(for: resolvedExecutionProviderReference) != nil else {
                 return "当前 ACP Provider 不可用，请先在“设置 > 执行器”中启用并验证。"
             }
 
-            switch compatibilityProviderID {
-            case .githubCopilotCLI:
-            if executionProviderAvailabilityModel.isRefreshingCopilotStatus {
-                return "正在检查 GitHub Copilot CLI…"
+            if isRefreshingComposerAvailabilityStatus {
+                return "正在检查 \(resolvedExecutionProviderDisplayName)…"
             }
-            let status = copilotComposerAvailabilityStatus
+            let status = composerAvailabilityStatus ?? .unknown
             return status.kind == .available ? "" : status.summaryText
-            case .openCodeCLI:
-            if executionProviderAvailabilityModel.isRefreshingOpenCodeStatus {
-                return "正在检查 OpenCode…"
-            }
-            let status = openCodeComposerAvailabilityStatus
-            return status.kind == .available ? "" : status.summaryText
-            case .claudeAdapterCLI:
-            if executionProviderAvailabilityModel.isRefreshingClaudeAdapterStatus {
-                return "正在检查 Claude Code…"
-            }
-            let status = claudeAdapterComposerAvailabilityStatus
-            return status.kind == .available ? "" : status.summaryText
-            case .builtInAgent:
-                return ""
-            }
         }
     }
 

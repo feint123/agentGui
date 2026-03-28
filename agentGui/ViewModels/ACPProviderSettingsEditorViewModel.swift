@@ -4,6 +4,12 @@ import Observation
 @MainActor
 @Observable
 final class ACPProviderSettingsEditorViewModel: Identifiable {
+    enum SavePhase: Equatable {
+        case idle
+        case validating
+        case saving
+    }
+
     struct CapabilityRow: Identifiable, Equatable {
         let title: String
         let value: String
@@ -16,14 +22,13 @@ final class ACPProviderSettingsEditorViewModel: Identifiable {
     private let repository: ACPProviderProfileRepository
     private let validationService: ACPProviderValidationService
     private let existingProfileID: UUID?
-    private let sourceKind: ACPProviderProfileSourceKind
 
     var displayName: String
     var executablePath: String
     var argumentsText: String
     var isEnabled: Bool
     var errorMessage: String?
-    var isSaving: Bool
+    var savePhase: SavePhase
     var lastValidationSnapshot: ACPProviderValidationSnapshot?
 
     init(
@@ -35,13 +40,12 @@ final class ACPProviderSettingsEditorViewModel: Identifiable {
         self.repository = repository
         self.validationService = validationService
         self.existingProfileID = profile?.id
-        self.sourceKind = profile?.sourceKind ?? .manual
         self.displayName = profile?.displayName ?? ""
         self.executablePath = profile?.executablePath ?? ""
         self.argumentsText = profile?.arguments.joined(separator: "\n") ?? ""
         self.isEnabled = profile?.isEnabled ?? true
         self.errorMessage = nil
-        self.isSaving = false
+        self.savePhase = .idle
         self.lastValidationSnapshot = profile?.validationSnapshot
     }
 
@@ -80,12 +84,33 @@ final class ACPProviderSettingsEditorViewModel: Identifiable {
     }
 
     var canDelete: Bool {
-        existingProfileID != nil && sourceKind != .preset
+        existingProfileID != nil
     }
 
-    func save() async -> Bool {
+    var isSaving: Bool {
+        savePhase != .idle
+    }
+
+    var saveProgressMessage: String? {
+        switch savePhase {
+        case .idle:
+            nil
+        case .validating:
+            "正在校验 Provider…"
+        case .saving:
+            "正在保存 Provider…"
+        }
+    }
+
+    func save(reloading refresh: (@MainActor () throws -> Void)? = nil) async -> Bool {
+        guard isSaving == false else {
+            return false
+        }
+
         let normalizedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedExecutablePath = executablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedArguments = parsedArguments
+        let isEnabled = isEnabled
 
         guard normalizedExecutablePath.isEmpty == false else {
             errorMessage = "请填写可执行文件路径。"
@@ -97,12 +122,13 @@ final class ACPProviderSettingsEditorViewModel: Identifiable {
             : normalizedDisplayName
 
         errorMessage = nil
-        isSaving = true
-        defer { isSaving = false }
+        savePhase = isEnabled ? .validating : .saving
+        defer { savePhase = .idle }
 
         var validationSnapshot = lastValidationSnapshot
         if isEnabled {
-            let result = await validationService.validate(
+            let result = await Self.validateOffMainActor(
+                validationService: validationService,
                 displayName: effectiveDisplayName,
                 executablePath: normalizedExecutablePath,
                 arguments: parsedArguments
@@ -117,6 +143,8 @@ final class ACPProviderSettingsEditorViewModel: Identifiable {
             }
         }
 
+        savePhase = .saving
+
         do {
             let savedProfile = try repository.save(
                 profileDraft: ACPProviderProfileDraft(
@@ -125,7 +153,6 @@ final class ACPProviderSettingsEditorViewModel: Identifiable {
                     executablePath: normalizedExecutablePath,
                     arguments: parsedArguments,
                     isEnabled: isEnabled,
-                    sourceKind: sourceKind,
                     validationSnapshot: validationSnapshot
                 )
             )
@@ -133,17 +160,62 @@ final class ACPProviderSettingsEditorViewModel: Identifiable {
             executablePath = savedProfile.executablePath
             argumentsText = savedProfile.arguments.joined(separator: "\n")
             lastValidationSnapshot = savedProfile.validationSnapshot
+
+            do {
+                try refresh?()
+            } catch {
+                presentReloadFailure(error)
+                return false
+            }
+
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.describe(error)
             return false
         }
+    }
+
+    func save() async -> Bool {
+        await save(reloading: nil)
+    }
+
+    func presentReloadFailure(_ error: Error) {
+        errorMessage = "刷新 Provider 运行时失败：\(Self.describe(error))"
+    }
+
+    func presentDeleteFailure() {
+        errorMessage = "删除 Provider 失败。"
     }
 
     private var parsedArguments: [String] {
         argumentsText
             .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
             .map(String.init)
+    }
+
+    private static func validateOffMainActor(
+        validationService: ACPProviderValidationService,
+        displayName: String,
+        executablePath: String,
+        arguments: [String]
+    ) async -> ACPProviderValidationResult {
+        await Task.detached(priority: .userInitiated) {
+            await validationService.validate(
+                displayName: displayName,
+                executablePath: executablePath,
+                arguments: arguments
+            )
+        }.value
+    }
+
+    private static func describe(_ error: Error) -> String {
+        if let localizedError = error as? LocalizedError,
+           let description = localizedError.errorDescription,
+           !description.isEmpty {
+            return description
+        }
+
+        return error.localizedDescription
     }
 
     private func promptCapabilitySummary(_ capabilities: ACPPromptCapabilities?) -> String? {

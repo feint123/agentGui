@@ -27,9 +27,7 @@ final class ExecutionPersistenceStore {
     ) async throws -> EnqueueResult {
         try await enqueue(
             sessionID: sessionID,
-            providerReference: providerID == .builtInAgent
-                ? .builtIn
-                : LegacyExternalACPProviderKey.allCases.first(where: { $0.conversationExecutionProviderID == providerID })?.compatibilityReference ?? .builtIn,
+            providerReference: ExecutionProviderReference.compatibilityReference(for: providerID) ?? .builtIn,
             payload: payload,
             sourceUserMessageID: sourceUserMessageID
         )

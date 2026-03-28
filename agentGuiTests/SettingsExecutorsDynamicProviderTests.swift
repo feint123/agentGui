@@ -109,6 +109,135 @@ struct SettingsExecutorsDynamicProviderTests {
     }
 
     @Test
+    func slowExecutableResolutionDoesNotBlockMainActorDuringSave() async throws {
+        let context = try makeModelContext()
+        let repository = ACPProviderProfileRepository(modelContext: context)
+        let probe = ValidationRuntimeProbe(
+            response: ACPInitializeResponse(
+                agentCapabilities: ACPAgentCapabilities(loadSession: true),
+                agentInfo: ACPImplementation(name: "copilot", title: "GitHub Copilot", version: "1.0.0"),
+                authMethods: [],
+                protocolVersion: 1
+            )
+        )
+        let viewModel = ACPProviderSettingsEditorViewModel(
+            repository: repository,
+            validationService: ACPProviderValidationService(
+                executableResolver: { _ in
+                    Thread.sleep(forTimeInterval: 0.3)
+                    return URL(fileURLWithPath: "/usr/local/bin/copilot")
+                },
+                runtimeFactory: { configuration in
+                    probe.record(configuration: configuration)
+                    return TestValidationRuntime(response: probe.response)
+                }
+            )
+        )
+        viewModel.displayName = "GitHub Copilot"
+        viewModel.executablePath = "copilot"
+        viewModel.argumentsText = "acp --stdio"
+        viewModel.isEnabled = true
+
+        let clock = ContinuousClock()
+        let start = clock.now
+        let saveTask = Task { await viewModel.save() }
+
+        await Task.yield()
+
+        let elapsed = start.duration(to: clock.now)
+        #expect(elapsed < .milliseconds(150))
+        #expect(viewModel.isSaving)
+        #expect(viewModel.saveProgressMessage == "正在校验 Provider…")
+
+        let saved = await saveTask.value
+
+        #expect(saved)
+        #expect(viewModel.isSaving == false)
+        #expect(viewModel.saveProgressMessage == nil)
+    }
+
+    @Test
+    func secondSaveAttemptWhileValidationIsRunningReturnsFalse() async throws {
+        let context = try makeModelContext()
+        let repository = ACPProviderProfileRepository(modelContext: context)
+        let probe = ValidationRuntimeProbe(
+            response: ACPInitializeResponse(
+                agentCapabilities: ACPAgentCapabilities(loadSession: true),
+                agentInfo: ACPImplementation(name: "copilot", title: "GitHub Copilot", version: "1.0.0"),
+                authMethods: [],
+                protocolVersion: 1
+            )
+        )
+        let viewModel = ACPProviderSettingsEditorViewModel(
+            repository: repository,
+            validationService: ACPProviderValidationService(
+                executableResolver: { _ in
+                    Thread.sleep(forTimeInterval: 0.3)
+                    return URL(fileURLWithPath: "/usr/local/bin/copilot")
+                },
+                runtimeFactory: { configuration in
+                    probe.record(configuration: configuration)
+                    return TestValidationRuntime(response: probe.response)
+                }
+            )
+        )
+        viewModel.displayName = "GitHub Copilot"
+        viewModel.executablePath = "copilot"
+        viewModel.argumentsText = "acp --stdio"
+        viewModel.isEnabled = true
+
+        let firstSaveTask = Task { await viewModel.save() }
+
+        await Task.yield()
+
+        let secondSave = await viewModel.save()
+        let firstSave = await firstSaveTask.value
+
+        #expect(secondSave == false)
+        #expect(firstSave)
+        #expect(try repository.allProfiles().count == 1)
+        #expect(probe.configurations.count == 1)
+    }
+
+    @Test
+    func refreshFailureAfterSuccessfulSaveSurfacesErrorWithoutRollingBackPersistedProfile() async throws {
+        let context = try makeModelContext()
+        let repository = ACPProviderProfileRepository(modelContext: context)
+        let probe = ValidationRuntimeProbe(
+            response: ACPInitializeResponse(
+                agentCapabilities: ACPAgentCapabilities(loadSession: true),
+                agentInfo: ACPImplementation(name: "copilot", title: "GitHub Copilot", version: "1.0.0"),
+                authMethods: [],
+                protocolVersion: 1
+            )
+        )
+        let viewModel = ACPProviderSettingsEditorViewModel(
+            repository: repository,
+            validationService: ACPProviderValidationService(
+                executableResolver: { _ in URL(fileURLWithPath: "/usr/local/bin/copilot") },
+                runtimeFactory: { configuration in
+                    probe.record(configuration: configuration)
+                    return TestValidationRuntime(response: probe.response)
+                }
+            )
+        )
+        viewModel.displayName = "GitHub Copilot"
+        viewModel.executablePath = "copilot"
+        viewModel.argumentsText = "acp --stdio"
+        viewModel.isEnabled = true
+
+        let saved = await viewModel.save(reloading: {
+            throw TestRefreshError.failed
+        })
+
+        #expect(saved == false)
+        #expect(viewModel.errorMessage == "刷新 Provider 运行时失败：刷新执行器失败")
+        let profile = try #require(repository.allProfiles().first)
+        #expect(profile.displayName == "GitHub Copilot")
+        #expect(profile.validationSnapshot?.status == .ready)
+    }
+
+    @Test
     func successfulSavePersistsProviderProfileAndSnapshot() async throws {
         let context = try makeModelContext()
         let repository = ACPProviderProfileRepository(modelContext: context)
@@ -300,7 +429,7 @@ struct SettingsExecutorsDynamicProviderTests {
     }
 }
 
-private final class ValidationRuntimeProbe {
+private final class ValidationRuntimeProbe: @unchecked Sendable {
     private(set) var configurations: [ACPExternalAgentLaunchConfiguration] = []
     let response: ACPInitializeResponse?
 
@@ -326,4 +455,15 @@ private final class TestValidationRuntime: ACPProviderValidationRuntime {
     }
 
     func close() async {}
+}
+
+private enum TestRefreshError: LocalizedError {
+    case failed
+
+    var errorDescription: String? {
+        switch self {
+        case .failed:
+            return "刷新执行器失败"
+        }
+    }
 }

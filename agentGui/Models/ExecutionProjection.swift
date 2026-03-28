@@ -33,9 +33,7 @@ struct EnqueueExecutionCommand: Sendable {
     ) {
         self.init(
             sessionID: sessionID,
-            providerReference: providerID == .builtInAgent
-                ? .builtIn
-                : LegacyExternalACPProviderKey.allCases.first(where: { $0.conversationExecutionProviderID == providerID })?.compatibilityReference ?? .builtIn,
+            providerReference: ExecutionProviderReference.compatibilityReference(for: providerID) ?? .builtIn,
             payload: payload,
             sourceUserMessageID: sourceUserMessageID
         )
@@ -79,17 +77,7 @@ struct SessionExecutionProjection: Equatable, Sendable {
     let attentionReason: SessionExecutionAttentionReason?
 
     private static func reference(for providerID: ConversationExecutionProviderID?) -> ExecutionProviderReference? {
-        guard let providerID else {
-            return nil
-        }
-
-        if providerID == .builtInAgent {
-            return .builtIn
-        }
-
-        return LegacyExternalACPProviderKey.allCases.first(where: {
-            $0.conversationExecutionProviderID == providerID
-        })?.compatibilityReference ?? .builtIn
+        ExecutionProviderReference.compatibilityReference(for: providerID)
     }
 
     init(

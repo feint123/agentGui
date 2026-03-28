@@ -86,11 +86,21 @@ private struct ACPProviderEditorScreen: View {
         ACPProviderEditorView(
             viewModel: viewModel,
             onSaved: {
-                try? store.reloadACPProviderProfiles(refreshing: claudeService)
+                try store.reloadACPProviderProfiles(refreshing: claudeService)
             },
             onDelete: {
-                _ = store.deleteACPProvider(profileID: viewModel.id)
-                try? store.reloadACPProviderProfiles(refreshing: claudeService)
+                guard store.deleteACPProvider(profileID: viewModel.id) else {
+                    viewModel.presentDeleteFailure()
+                    return false
+                }
+
+                do {
+                    try store.reloadACPProviderProfiles(refreshing: claudeService)
+                    return true
+                } catch {
+                    viewModel.presentReloadFailure(error)
+                    return false
+                }
             }
         )
     }

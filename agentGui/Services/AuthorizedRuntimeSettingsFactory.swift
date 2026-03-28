@@ -21,9 +21,6 @@ struct AuthorizedRuntimeSettingsFactory {
         runtimeSettings.enableExtendedThinking = base.enableExtendedThinking
         runtimeSettings.extendedThinkingBudget = base.extendedThinkingBudget
         runtimeSettings.enabledSkillNames = enabledSkillNames ?? base.enabledSkillNames
-        runtimeSettings.githubCopilotCLIConfiguration = base.githubCopilotCLIConfiguration
-        runtimeSettings.openCodeCLIConfiguration = base.openCodeCLIConfiguration
-        runtimeSettings.claudeAdapterCLIConfiguration = base.claudeAdapterCLIConfiguration
         runtimeSettings.enableWebSearchTool = snapshot.allowedToolIDs.contains("web_search")
         runtimeSettings.enableWebFetchTool = snapshot.allowedToolIDs.contains("web_fetch")
         runtimeSettings.enableLSPTools = snapshot.allowedToolIDs.contains(where: { $0.hasPrefix("lsp_") })

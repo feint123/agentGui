@@ -108,32 +108,13 @@ extension ChatView {
                     composerExecutionPreferencesControls
                         .disabled(sessionInteractionPolicy.canSend == false)
 
-                    if resolvedExecutionProviderReference.compatibilityProviderID == .githubCopilotCLI,
-                       executionProviderAvailabilityModel.isRefreshingCopilotStatus {
+                      if case .externalACP = resolvedExecutionProviderReference,
+                         isRefreshingComposerAvailabilityStatus {
                         composerStatusSkeleton(width: 132)
-                    } else if resolvedExecutionProviderReference.compatibilityProviderID == .githubCopilotCLI,
-                              copilotComposerAvailabilityStatus.kind != .available {
-                        Text(copilotComposerAvailabilityStatus.summaryText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                      } else if resolvedExecutionProviderReference.compatibilityProviderID == .openCodeCLI,
-                              executionProviderAvailabilityModel.isRefreshingOpenCodeStatus {
-                        composerStatusSkeleton(width: 118)
-                      } else if resolvedExecutionProviderReference.compatibilityProviderID == .openCodeCLI,
-                              openCodeComposerAvailabilityStatus.kind != .available {
-                        Text(openCodeComposerAvailabilityStatus.summaryText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                      } else if resolvedExecutionProviderReference.compatibilityProviderID == .claudeAdapterCLI,
-                              executionProviderAvailabilityModel.isRefreshingClaudeAdapterStatus {
-                        composerStatusSkeleton(width: 126)
-                      } else if resolvedExecutionProviderReference.compatibilityProviderID == .claudeAdapterCLI,
-                              claudeAdapterComposerAvailabilityStatus.kind != .available {
-                        Text(claudeAdapterComposerAvailabilityStatus.summaryText)
+                      } else if case .externalACP = resolvedExecutionProviderReference,
+                            let composerAvailabilityStatus,
+                            composerAvailabilityStatus.kind != .available {
+                        Text(composerAvailabilityStatus.summaryText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -225,18 +206,7 @@ extension ChatView {
         slashStateDebouncer.cancel()
     }
     .task(id: copilotComposerAvailabilityRefreshToken) {
-        for providerReference in ChatComposerAvailabilityRefreshPolicy.startupRefreshProviderReferences {
-            switch providerReference.compatibilityProviderID {
-            case .githubCopilotCLI:
-                await refreshCopilotComposerAvailabilityStatus()
-            case .openCodeCLI:
-                await refreshOpenCodeComposerAvailabilityStatus()
-            case .claudeAdapterCLI:
-                await refreshClaudeAdapterComposerAvailabilityStatus()
-            case .builtInAgent, .none:
-                break
-            }
-        }
+        await refreshComposerAvailabilityStatusIfNeeded()
     }
 }
 

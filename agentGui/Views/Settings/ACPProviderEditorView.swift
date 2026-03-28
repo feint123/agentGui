@@ -6,11 +6,22 @@ struct ACPProviderEditorView: View {
 
     @Bindable var viewModel: ACPProviderSettingsEditorViewModel
 
-    let onSaved: () -> Void
-    let onDelete: () -> Void
+    let onSaved: () throws -> Void
+    let onDelete: () -> Bool
 
     var body: some View {
         Form {
+            if let saveProgressMessage = viewModel.saveProgressMessage {
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text(saveProgressMessage)
+                    }
+                } footer: {
+                    Text("启用中的 Provider 会先解析可执行文件并执行 initialize 探测，首次校验可能需要几秒。")
+                }
+            }
+
             if let errorMessage = viewModel.errorMessage, !errorMessage.isEmpty {
                 Section {
                     Text(errorMessage)
@@ -92,17 +103,18 @@ struct ACPProviderEditorView: View {
             ToolbarItem(placement: .cancellationAction) {
                 if viewModel.canDelete {
                     Button("删除", role: .destructive) {
-                        onDelete()
-                        dismiss()
+                        if onDelete() {
+                            dismiss()
+                        }
                     }
+                    .disabled(viewModel.isSaving)
                 }
             }
 
             ToolbarItem(placement: .primaryAction) {
                 Button("保存") {
                     Task {
-                        if await viewModel.save() {
-                            onSaved()
+                        if await viewModel.save(reloading: onSaved) {
                             dismiss()
                         }
                     }

@@ -34,7 +34,7 @@ final class ExecutionJob {
     ) {
         self.id = UUID()
         self.sessionID = sessionID
-        self.providerIDRaw = Self.reference(for: providerID).persistedValue
+        self.providerIDRaw = (ExecutionProviderReference.compatibilityReference(for: providerID) ?? .builtIn).persistedValue
         self.stateRaw = ExecutionJobState.queued.rawValue
         self.payloadJSON = payload.encodedJSON
         self.sourceUserMessageID = sourceUserMessageID
@@ -65,15 +65,6 @@ final class ExecutionJob {
         self.finishedAt = nil
     }
 
-    private static func reference(for providerID: ConversationExecutionProviderID) -> ExecutionProviderReference {
-        if providerID == .builtInAgent {
-            return .builtIn
-        }
-
-        return LegacyExternalACPProviderKey.allCases.first(where: {
-            $0.conversationExecutionProviderID == providerID
-        })?.compatibilityReference ?? .builtIn
-    }
 }
 
 extension ExecutionJob {

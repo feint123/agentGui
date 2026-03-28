@@ -186,26 +186,15 @@ final class BuiltInConversationExecutionProvider: ConversationExecutionProvider 
 struct ConversationExecutionProviderRegistry {
     let builtIn: any ConversationExecutionProvider
     private let providersByReference: [ExecutionProviderReference: any ConversationExecutionProvider]
-    private let compatibilityProvidersByID: [ConversationExecutionProviderID: any ConversationExecutionProvider]
 
     init(
         builtIn: any ConversationExecutionProvider,
-        externalProviders: [ExecutionProviderReference: any ConversationExecutionProvider],
-        compatibilityProvidersByID: [ConversationExecutionProviderID: any ConversationExecutionProvider] = [:]
+        externalProviders: [ExecutionProviderReference: any ConversationExecutionProvider]
     ) {
         self.builtIn = builtIn
         var providersByReference = externalProviders
         providersByReference[builtIn.reference] = builtIn
         self.providersByReference = providersByReference
-
-        var compatibilityProviders = compatibilityProvidersByID
-        compatibilityProviders[.builtInAgent] = builtIn
-        for provider in externalProviders.values {
-            if let legacyProviderID = provider.legacyProviderID {
-                compatibilityProviders[legacyProviderID] = provider
-            }
-        }
-        self.compatibilityProvidersByID = compatibilityProviders
     }
 
     var allProviders: [any ConversationExecutionProvider] {
@@ -224,38 +213,11 @@ struct ConversationExecutionProviderRegistry {
         providersByReference[reference] ?? builtIn
     }
 
-    func provider(for providerID: ConversationExecutionProviderID) -> any ConversationExecutionProvider {
-        compatibilityProvidersByID[providerID] ?? builtIn
-    }
-
     func driver(for providerReference: ExecutionProviderReference) -> any ConversationExecutionDriver {
         LegacyConversationExecutionDriver(provider: provider(for: providerReference))
     }
 
-    func capacityPolicy(for providerID: ConversationExecutionProviderID) -> ProviderExecutionCapacityPolicy {
-        switch providerID {
-        case .builtInAgent:
-            return ProviderExecutionCapacityPolicy(
-                providerID: providerID,
-                maxConcurrentSessions: .max,
-                maxConcurrentJobsPerSession: 1,
-                allowsBackgroundExecution: true
-            )
-        case .githubCopilotCLI, .openCodeCLI, .claudeAdapterCLI:
-            return ProviderExecutionCapacityPolicy(
-                providerID: providerID,
-                maxConcurrentSessions: .max,
-                maxConcurrentJobsPerSession: 1,
-                allowsBackgroundExecution: true
-            )
-        }
-    }
-
     func capacityPolicy(for providerReference: ExecutionProviderReference) -> ProviderExecutionCapacityPolicy {
-        if let providerID = providerReference.compatibilityProviderID {
-            return capacityPolicy(for: providerID)
-        }
-
         return ProviderExecutionCapacityPolicy.default(for: providerReference)
     }
 
@@ -269,18 +231,5 @@ struct ConversationExecutionProviderRegistry {
         }
 
         return settings.defaultExecutionProviderReference
-    }
-
-    static func resolveProviderID(for session: Session, settings: AppSettings) -> ConversationExecutionProviderID {
-        let reference = resolveProviderReference(for: session, settings: settings)
-        switch reference {
-        case .builtIn:
-            return .builtInAgent
-        case .externalACP(let profileID):
-            let legacyKey = LegacyExternalACPProviderKey.allCases.first {
-                $0.compatibilityReference == .externalACP(profileID: profileID)
-            }
-            return legacyKey?.conversationExecutionProviderID ?? .builtInAgent
-        }
     }
 }

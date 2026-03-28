@@ -51,15 +51,6 @@ final class AppSettings {
     /// JSON array of enabled skill directoryNames, e.g. ["brainstorming","web-search"]
     var enabledSkillNamesJSON: String
 
-    /// GitHub Copilot CLI 配置 JSON
-    var githubCopilotCLIConfigurationJSON: String = "{}"    
-
-    /// OpenCode CLI 配置 JSON
-    var openCodeCLIConfigurationJSON: String = "{}"
-
-    /// Claude adapter CLI 配置 JSON
-    var claudeAdapterCLIConfigurationJSON: String = "{}"
-
     /// 启用 Web Search 工具（Bing 搜索）
     var enableWebSearchTool: Bool
 
@@ -144,18 +135,6 @@ final class AppSettings {
         self.enableExtendedThinking = false
         self.extendedThinkingBudget = 10000
         self.enabledSkillNamesJSON = "[]"
-        self.githubCopilotCLIConfigurationJSON = (try? String(
-            data: JSONEncoder().encode(ACPCLIConfiguration.githubCopilotDefault),
-            encoding: .utf8
-        )) ?? "{}"
-        self.openCodeCLIConfigurationJSON = (try? String(
-            data: JSONEncoder().encode(ACPCLIConfiguration.openCodeDefault),
-            encoding: .utf8
-        )) ?? "{}"
-        self.claudeAdapterCLIConfigurationJSON = (try? String(
-            data: JSONEncoder().encode(ACPCLIConfiguration.claudeAdapterDefault),
-            encoding: .utf8
-        )) ?? "{}"
         self.enableWebSearchTool = false
         self.enableWebFetchTool = false
         self.enableLSPTools = false
@@ -189,45 +168,6 @@ extension AppSettings {
         }
         set {
             defaultExecutionProviderID = newValue.persistedValue
-        }
-    }
-
-    var githubCopilotCLIConfiguration: ACPCLIConfiguration {
-        get {
-            guard let data = githubCopilotCLIConfigurationJSON.data(using: .utf8),
-                  let configuration = try? JSONDecoder().decode(ACPCLIConfiguration.self, from: data) else {
-                return .githubCopilotDefault
-            }
-            return configuration.sanitizedForGlobalSettings
-        }
-        set {
-            githubCopilotCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
-        }
-    }
-
-    var openCodeCLIConfiguration: ACPCLIConfiguration {
-        get {
-            guard let data = openCodeCLIConfigurationJSON.data(using: .utf8),
-                  let configuration = try? JSONDecoder().decode(ACPCLIConfiguration.self, from: data) else {
-                return .openCodeDefault
-            }
-            return configuration.sanitizedForGlobalSettings
-        }
-        set {
-            openCodeCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
-        }
-    }
-
-    var claudeAdapterCLIConfiguration: ACPCLIConfiguration {
-        get {
-            guard let data = claudeAdapterCLIConfigurationJSON.data(using: .utf8),
-                  let configuration = try? JSONDecoder().decode(ACPCLIConfiguration.self, from: data) else {
-                return .claudeAdapterDefault
-            }
-            return configuration.sanitizedForGlobalSettings
-        }
-        set {
-            claudeAdapterCLIConfigurationJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "{}"
         }
     }
 

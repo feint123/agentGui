@@ -21,10 +21,10 @@ struct ExecutionProviderReferenceTests {
     }
 
     @Test
-    func legacyProviderRawValuesMapToCompatibilityKeys() {
-        #expect(ExecutionProviderReference.legacyExternalACPKey(from: "github_copilot_cli") == .githubCopilotCLI)
-        #expect(ExecutionProviderReference.legacyExternalACPKey(from: "opencode_cli") == .openCodeCLI)
-        #expect(ExecutionProviderReference.legacyExternalACPKey(from: "claude_adapter_cli") == .claudeAdapterCLI)
+    func legacyProviderRawValuesFallBackToBuiltIn() {
+        #expect(ExecutionProviderReference.decodePersisted("github_copilot_cli") == .builtIn)
+        #expect(ExecutionProviderReference.decodePersisted("opencode_cli") == .builtIn)
+        #expect(ExecutionProviderReference.decodePersisted("claude_adapter_cli") == .builtIn)
     }
 
     @Test

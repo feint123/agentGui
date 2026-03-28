@@ -31,9 +31,7 @@ final class ExecutionRuntimePool {
         for providerID: ConversationExecutionProviderID,
         registry: ConversationExecutionProviderRegistry
     ) -> any ConversationExecutionDriver {
-        let providerReference: ExecutionProviderReference = providerID == .builtInAgent
-            ? .builtIn
-            : LegacyExternalACPProviderKey.allCases.first(where: { $0.conversationExecutionProviderID == providerID })?.compatibilityReference ?? .builtIn
+        let providerReference = ExecutionProviderReference.compatibilityReference(for: providerID) ?? .builtIn
         return driver(for: providerReference, registry: registry)
     }
 

@@ -49,6 +49,20 @@ enum ExecutionProviderReference: Hashable, Sendable {
         }
     }
 
+    static func compatibilityReference(for providerID: ConversationExecutionProviderID?) -> ExecutionProviderReference? {
+        guard let providerID else {
+            return nil
+        }
+
+        if providerID == .builtInAgent {
+            return .builtIn
+        }
+
+        return LegacyExternalACPProviderKey.allCases.first(where: {
+            $0.conversationExecutionProviderID == providerID
+        })?.compatibilityReference ?? .builtIn
+    }
+
     static func decodePersisted(_ rawValue: String?) -> ExecutionProviderReference {
         guard let rawValue, rawValue.isEmpty == false else {
             return .builtIn

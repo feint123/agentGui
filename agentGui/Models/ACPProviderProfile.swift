@@ -1,11 +1,6 @@
 import Foundation
 import SwiftData
 
-enum ACPProviderProfileSourceKind: String, Codable, Equatable, Sendable {
-    case manual
-    case preset
-}
-
 struct ACPProviderProfileDraft: Equatable, Sendable {
     var id: UUID?
     var displayName: String
@@ -13,7 +8,6 @@ struct ACPProviderProfileDraft: Equatable, Sendable {
     var arguments: [String]
     var isEnabled: Bool
     var sortOrder: Int?
-    var sourceKind: ACPProviderProfileSourceKind
     var validationSnapshot: ACPProviderValidationSnapshot?
 
     init(
@@ -23,7 +17,6 @@ struct ACPProviderProfileDraft: Equatable, Sendable {
         arguments: [String] = [],
         isEnabled: Bool = true,
         sortOrder: Int? = nil,
-        sourceKind: ACPProviderProfileSourceKind = .manual,
         validationSnapshot: ACPProviderValidationSnapshot? = nil
     ) {
         self.id = id
@@ -32,7 +25,6 @@ struct ACPProviderProfileDraft: Equatable, Sendable {
         self.arguments = arguments
         self.isEnabled = isEnabled
         self.sortOrder = sortOrder
-        self.sourceKind = sourceKind
         self.validationSnapshot = validationSnapshot
     }
 }
@@ -40,13 +32,11 @@ struct ACPProviderProfileDraft: Equatable, Sendable {
 @Model
 final class ACPProviderProfile {
     var id: UUID
-    var legacyProviderKeyRaw: String
     var displayName: String
     var executablePath: String
     var argumentsJSON: String
     var isEnabled: Bool
     var sortOrder: Int
-    var sourceKindRaw: String
     var discoveredAgentInfoJSON: String
     var discoveredCapabilitiesJSON: String
     var discoveredAuthMethodsJSON: String
@@ -59,25 +49,21 @@ final class ACPProviderProfile {
 
     init(
         id: UUID = UUID(),
-        legacyProviderKeyRaw: String = "",
         displayName: String,
         executablePath: String,
         arguments: [String] = [],
         isEnabled: Bool = true,
         sortOrder: Int = 0,
-        sourceKind: ACPProviderProfileSourceKind = .manual,
         validationSnapshot: ACPProviderValidationSnapshot? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
         self.id = id
-        self.legacyProviderKeyRaw = legacyProviderKeyRaw
         self.displayName = displayName
         self.executablePath = executablePath
         self.argumentsJSON = (try? String(data: JSONEncoder().encode(arguments), encoding: .utf8)) ?? "[]"
         self.isEnabled = isEnabled
         self.sortOrder = sortOrder
-        self.sourceKindRaw = sourceKind.rawValue
         self.discoveredAgentInfoJSON = ""
         self.discoveredCapabilitiesJSON = ""
         self.discoveredAuthMethodsJSON = "[]"
@@ -92,15 +78,6 @@ final class ACPProviderProfile {
 }
 
 extension ACPProviderProfile {
-    var legacyProviderKey: LegacyExternalACPProviderKey? {
-        get {
-            LegacyExternalACPProviderKey(rawValue: legacyProviderKeyRaw)
-        }
-        set {
-            legacyProviderKeyRaw = newValue?.rawValue ?? ""
-        }
-    }
-
     var arguments: [String] {
         get {
             guard let data = argumentsJSON.data(using: .utf8),
@@ -111,15 +88,6 @@ extension ACPProviderProfile {
         }
         set {
             argumentsJSON = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "[]"
-        }
-    }
-
-    var sourceKind: ACPProviderProfileSourceKind {
-        get {
-            ACPProviderProfileSourceKind(rawValue: sourceKindRaw) ?? .manual
-        }
-        set {
-            sourceKindRaw = newValue.rawValue
         }
     }
 

@@ -78,7 +78,7 @@ final class SettingsStore {
 
     func reloadACPProviderProfiles(refreshing claudeService: ClaudeService) throws {
         try reloadACPProviderProfiles()
-        claudeService.refreshExecutionProviderRuntime(for: modelContext)
+        try claudeService.refreshExecutionProviderRuntimeChecked(for: modelContext)
     }
 
     func defaultExecutionProviderOptions() -> [ExecutionOptionItem] {
@@ -168,7 +168,7 @@ final class SettingsStore {
     }
 
     func canDeleteACPProvider(_ profile: ACPProviderProfile) -> Bool {
-        profile.sourceKind != .preset && !isProviderProfileReferenced(profile.id)
+        !isProviderProfileReferenced(profile.id)
     }
 
     static func resetSelectionMemoryForTesting() {

@@ -393,31 +393,25 @@ struct ACPExternalAgentRuntimeClientConcurrencyTests {
               defaultApprovalMode: ACPCLIConfiguration.externalProviderDefaultApprovalMode
             )
             let copilotProfile = ACPProviderProfile(
-              legacyProviderKeyRaw: LegacyExternalACPProviderKey.githubCopilotCLI.rawValue,
               displayName: "GitHub Copilot",
               executablePath: configuration.executablePath,
               arguments: ["--acp", "--stdio"],
               isEnabled: true,
-              sortOrder: 0,
-              sourceKind: .manual
+              sortOrder: 0
             )
             let openCodeProfile = ACPProviderProfile(
-              legacyProviderKeyRaw: LegacyExternalACPProviderKey.openCodeCLI.rawValue,
               displayName: "OpenCode",
               executablePath: configuration.executablePath,
               arguments: ["acp"],
               isEnabled: true,
-              sortOrder: 1,
-              sourceKind: .manual
+              sortOrder: 1
             )
             let claudeProfile = ACPProviderProfile(
-              legacyProviderKeyRaw: LegacyExternalACPProviderKey.claudeAdapterCLI.rawValue,
               displayName: "Claude Code",
               executablePath: configuration.executablePath,
               arguments: [],
               isEnabled: true,
-              sortOrder: 2,
-              sourceKind: .manual
+              sortOrder: 2
             )
 
             let copilot = DynamicACPExternalExecutionProvider(
@@ -518,13 +512,11 @@ struct ACPExternalAgentRuntimeClientConcurrencyTests {
         func providerUpdateSinkDoesNotBlockInitializeWhenMainActorIsBusy() async throws {
           let agentScript = initializeAfterNotificationRubyAgentScript
           let profile = ACPProviderProfile(
-            legacyProviderKeyRaw: LegacyExternalACPProviderKey.githubCopilotCLI.rawValue,
             displayName: "GitHub Copilot",
             executablePath: "/usr/bin/false",
             arguments: ["--acp", "--stdio"],
             isEnabled: true,
-            sortOrder: 0,
-            sourceKind: .manual
+            sortOrder: 0
           )
           let provider = await MainActor.run {
             DynamicACPExternalExecutionProvider(

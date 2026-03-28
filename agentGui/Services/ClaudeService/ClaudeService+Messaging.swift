@@ -396,7 +396,24 @@ extension ClaudeService {
         executionOrchestrator = nil
     }
 
+    func refreshExecutionProviderRuntimeChecked(for modelContext: ModelContext) throws {
+        do {
+            let registry = try checkedBuildExecutionProviderRegistry(for: modelContext)
+            executionProviderRegistry = registry
+            executionOrchestrator = nil
+        } catch {
+            executionProviderRegistry = fallbackExecutionProviderRegistry()
+            executionOrchestrator = nil
+            throw error
+        }
+    }
+
     func buildExecutionProviderRegistry(for modelContext: ModelContext) -> ConversationExecutionProviderRegistry {
+        (try? checkedBuildExecutionProviderRegistry(for: modelContext))
+            ?? fallbackExecutionProviderRegistry()
+    }
+
+    func checkedBuildExecutionProviderRegistry(for modelContext: ModelContext) throws -> ConversationExecutionProviderRegistry {
         let builtIn = BuiltInConversationExecutionProvider(claudeService: self)
         let repository = ACPProviderProfileRepository(modelContext: modelContext)
         let builder = DynamicACPProviderRegistryBuilder(
@@ -423,8 +440,14 @@ extension ClaudeService {
             }
         )
 
-        return (try? builder.build(builtIn: builtIn))
-            ?? ConversationExecutionProviderRegistry(builtIn: builtIn, externalProviders: [:])
+        return try builder.build(builtIn: builtIn)
+    }
+
+    private func fallbackExecutionProviderRegistry() -> ConversationExecutionProviderRegistry {
+        ConversationExecutionProviderRegistry(
+            builtIn: BuiltInConversationExecutionProvider(claudeService: self),
+            externalProviders: [:]
+        )
     }
 
     private func resumeSendBuiltIn(

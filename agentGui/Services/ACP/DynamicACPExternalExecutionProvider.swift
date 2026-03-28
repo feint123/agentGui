@@ -35,7 +35,6 @@ final class DynamicACPExternalExecutionProvider: ACPExternalExecutionProviderBas
         super.init(
             providerReference: .externalACP(profileID: profile.id),
             providerDisplayName: profile.displayName,
-            legacyProviderID: profile.legacyProviderKey?.conversationExecutionProviderID,
             terminalRuntimeFactory: terminalRuntimeFactory,
             sessionRuntimeResetter: sessionRuntimeResetter,
             permissionCenter: permissionCenter,

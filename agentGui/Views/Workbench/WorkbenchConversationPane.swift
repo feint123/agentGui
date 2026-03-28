@@ -52,7 +52,7 @@ struct WorkbenchConversationPane: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
             }
-            .frame(maxWidth: 380)
+            .frame(maxWidth: 380, maxHeight: 240)
             .padding(.horizontal, 24)
 
             Spacer(minLength: 0)

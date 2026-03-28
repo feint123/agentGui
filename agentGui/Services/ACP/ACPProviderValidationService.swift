@@ -1,6 +1,6 @@
 import Foundation
 
-struct ACPProviderValidationService {
+struct ACPProviderValidationService: Sendable {
     typealias ExecutableResolver = @Sendable (String) -> URL?
     typealias RuntimeFactory = @Sendable (ACPExternalAgentLaunchConfiguration) throws -> any ACPProviderValidationRuntime
 

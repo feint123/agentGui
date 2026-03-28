@@ -15,9 +15,7 @@ struct ExecutionSchedulingCandidate: Equatable, Sendable {
         self.init(
             sessionID: sessionID,
             jobID: jobID,
-            providerReference: providerID == .builtInAgent
-                ? .builtIn
-                : LegacyExternalACPProviderKey.allCases.first(where: { $0.conversationExecutionProviderID == providerID })?.compatibilityReference ?? .builtIn,
+            providerReference: ExecutionProviderReference.compatibilityReference(for: providerID) ?? .builtIn,
             capacityPolicy: capacityPolicy
         )
     }
