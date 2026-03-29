@@ -39,6 +39,57 @@ struct CodeSyntaxHighlightingServiceTests {
     }
 
     @Test
+    func normalizesCommonFileExtensionAliases() {
+        let engine = RecordingHighlightEngine()
+        let service = CodeSyntaxHighlightingService(engine: engine)
+
+        _ = service.highlightedString(
+            code: "const value = 1",
+            language: "js",
+            appearance: .light,
+            fontSize: 12
+        )
+        _ = service.highlightedString(
+            code: "name: demo",
+            language: "yml",
+            appearance: .light,
+            fontSize: 12
+        )
+        _ = service.highlightedString(
+            code: "echo hello",
+            language: "sh",
+            appearance: .light,
+            fontSize: 12
+        )
+
+        #expect(engine.recordedLanguages == ["javascript", "yaml", "bash"])
+    }
+
+    @Test
+    func infersCanonicalLanguageFromFileURL() {
+        #expect(
+            CodeSyntaxHighlightingService.languageIdentifier(
+                for: URL(fileURLWithPath: "/tmp/sample.ts")
+            ) == "typescript"
+        )
+        #expect(
+            CodeSyntaxHighlightingService.languageIdentifier(
+                for: URL(fileURLWithPath: "/tmp/config.yml")
+            ) == "yaml"
+        )
+        #expect(
+            CodeSyntaxHighlightingService.languageIdentifier(
+                for: URL(fileURLWithPath: "/tmp/run.sh")
+            ) == "bash"
+        )
+        #expect(
+            CodeSyntaxHighlightingService.languageIdentifier(
+                for: URL(fileURLWithPath: "/tmp/notes.txt")
+            ) == nil
+        )
+    }
+
+    @Test
     func repeatedRequestsUseCachedResult() {
         let engine = RecordingHighlightEngine()
         let service = CodeSyntaxHighlightingService(engine: engine)

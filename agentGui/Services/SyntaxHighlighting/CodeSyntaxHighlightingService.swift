@@ -33,9 +33,39 @@ protocol CodeSyntaxHighlightingEngine: AnyObject {
     func highlight(code: String, language: String?, theme: CodeHighlightTheme) -> NSAttributedString?
 }
 
-@MainActor
 final class CodeSyntaxHighlightingService: CodeSyntaxHighlighting {
     static let shared = CodeSyntaxHighlightingService()
+
+    private static let languageAliases: [String: String?] = [
+        "text": nil,
+        "plain": nil,
+        "plaintext": nil,
+        "txt": nil,
+        "bash": "bash",
+        "shell": "bash",
+        "sh": "bash",
+        "zsh": "bash",
+        "js": "javascript",
+        "mjs": "javascript",
+        "cjs": "javascript",
+        "jsx": "javascript",
+        "ts": "typescript",
+        "tsx": "typescript",
+        "yml": "yaml",
+        "md": "markdown",
+        "rb": "ruby",
+        "py": "python",
+        "kt": "kotlin",
+        "kts": "kotlin",
+        "rs": "rust",
+        "plist": "xml",
+        "ps1": "powershell",
+        "cs": "csharp",
+        "cc": "cpp",
+        "cxx": "cpp",
+        "hpp": "cpp",
+        "hxx": "cpp"
+    ]
 
     private struct CacheKey: Hashable {
         let code: String
@@ -45,6 +75,7 @@ final class CodeSyntaxHighlightingService: CodeSyntaxHighlighting {
     }
 
     private let engine: CodeSyntaxHighlightingEngine
+    private let cacheLock = NSLock()
     private var cache: [CacheKey: NSAttributedString] = [:]
 
     init() {
@@ -69,7 +100,10 @@ final class CodeSyntaxHighlightingService: CodeSyntaxHighlighting {
             fontSize: fontSize
         )
 
-        if let cached = cache[key] {
+        cacheLock.lock()
+        let cached = cache[key]
+        cacheLock.unlock()
+        if let cached {
             return cached
         }
 
@@ -77,7 +111,9 @@ final class CodeSyntaxHighlightingService: CodeSyntaxHighlighting {
         let highlighted = engine.highlight(code: code, language: normalizedLanguage, theme: theme)
         let result = highlighted.map(Self.sanitizedHighlightedString) ?? Self.makeFallbackString(code: code, fontSize: fontSize)
 
+        cacheLock.lock()
         cache[key] = result
+        cacheLock.unlock()
         return result
     }
 
@@ -85,17 +121,20 @@ final class CodeSyntaxHighlightingService: CodeSyntaxHighlighting {
         CodeSyntaxHighlightingService()
     }
 
+    static func languageIdentifier(for fileURL: URL) -> String? {
+        normalizedLanguage(fileURL.pathExtension)
+    }
+
     static func normalizedLanguage(_ language: String?) -> String? {
         guard let trimmed = language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !trimmed.isEmpty else {
             return nil
         }
 
-        switch trimmed {
-        case "text", "plain", "plaintext", "txt":
-            return nil
-        default:
-            return trimmed
+        if let aliased = languageAliases[trimmed] {
+            return aliased
         }
+
+        return trimmed
     }
 
     private static func sanitizedHighlightedString(_ attributedString: NSAttributedString) -> NSAttributedString {
@@ -118,13 +157,16 @@ final class CodeSyntaxHighlightingService: CodeSyntaxHighlighting {
     }
 }
 
-@MainActor
 private final class LiveCodeSyntaxHighlightingEngine: CodeSyntaxHighlightingEngine {
     private lazy var highlightr = Highlightr()
+    private let stateLock = NSLock()
     private var activeThemeName: String?
     private var cachedSupportedLanguages: Set<String>?
 
     func highlight(code: String, language: String?, theme: CodeHighlightTheme) -> NSAttributedString? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+
         guard let highlightr else {
             return nil
         }

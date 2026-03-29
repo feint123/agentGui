@@ -201,7 +201,7 @@ struct ChatView: View {
     }
 
     var effectiveStreamingState: Bool {
-        usesExecutionProjectionUI ? sessionExecutionProjection.isRunning : claudeService.isStreaming
+        sessionExecutionProjection.isRunning
     }
 
     var sessionInteractionPolicy: SessionInteractionPolicy {

@@ -46,7 +46,6 @@ struct ChatComposerExecutionPresentationTests {
         let presentation = ChatComposerExecutionPresentation.resolve(
             usesExecutionProjectionUI: true,
             projection: projection,
-            legacyIsStreaming: false,
             canSend: true
         )
 
@@ -71,11 +70,34 @@ struct ChatComposerExecutionPresentationTests {
         let presentation = ChatComposerExecutionPresentation.resolve(
             usesExecutionProjectionUI: true,
             projection: projection,
-            legacyIsStreaming: false,
             canSend: true
         )
 
         #expect(presentation.showsRunningBadge)
         #expect(presentation.statusBadgeText == "等待处理")
+    }
+
+    @Test
+    func idleProjectionUsesProjectionStateWithoutLegacyFallback() {
+        let projection = SessionExecutionProjection.fixture(
+            sessionID: "session-a",
+            canEditComposer: true,
+            canSubmitNewJob: true,
+            activeProviderID: .builtInAgent,
+            activityState: .idle,
+            presentationState: .foreground,
+        )
+
+        let presentation = ChatComposerExecutionPresentation.resolve(
+            usesExecutionProjectionUI: false,
+            projection: projection,
+            canSend: true
+        )
+
+        #expect(presentation.isComposerDisabled == false)
+        #expect(presentation.showsRunningBadge == false)
+        #expect(presentation.showsStopButton == false)
+        #expect(presentation.showsSendButton)
+        #expect(presentation.isSendDisabled == false)
     }
 }

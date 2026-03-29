@@ -50,10 +50,44 @@ struct CodeEditorViewIntegrationTests {
 
         #expect(harness.window.firstResponder === harness.textView)
     }
+
+    @Test
+    func userEditSchedulesHighlightWithoutReplacingPlainTextContent() {
+        let harness = CodeEditorViewHarness(initialText: "let value = 1", persistedText: "let value = 1")
+
+        harness.replaceCharacters(in: NSRange(location: 13, length: 0), with: "\nprint(value)")
+        harness.waitForHighlightPass()
+
+        #expect(harness.visibleText == "let value = 1\nprint(value)")
+        #expect(harness.textView.selectedRange() == NSRange(location: 26, length: 0))
+        #expect(harness.latestAppliedHighlightVersion == harness.documentVersion)
+    }
+
+    @Test
+    func fileExtensionAliasStillProducesHighlightedAttributes() {
+        let harness = CodeEditorViewHarness(
+            initialText: "const value = 1",
+            persistedText: "const value = 1",
+            fileURL: URL(fileURLWithPath: "/tmp/sample.js")
+        )
+
+        harness.waitForHighlightPass()
+
+        let keywordRange = (harness.visibleText as NSString).range(of: "const")
+        let keywordColor = harness.textView.textStorage?.attribute(
+            .foregroundColor,
+            at: keywordRange.location,
+            effectiveRange: nil
+        ) as? NSColor
+
+        #expect(keywordColor == NSColor.systemBlue)
+    }
 }
 
 @MainActor
 private final class CodeEditorViewHarness {
+    private let highlighter = CodeSyntaxHighlightingService(engine: IdentityHighlightEngine())
+
     final class Recorder {
         var lastSelection: EditorSelectionSnapshot?
         var lastChange: EditorChangeSet?
@@ -74,16 +108,20 @@ private final class CodeEditorViewHarness {
 
     private let storage: Storage
     private let recorder = Recorder()
+    private let fileURL: URL
     let window: NSWindow
     private let hostingView: NSHostingView<HostView>
 
-    init(initialText: String, persistedText: String) {
+    init(initialText: String, persistedText: String, fileURL: URL = URL(fileURLWithPath: "/tmp/CodeEditorViewHarness.swift")) {
         let storage = Storage(text: initialText, persistedText: persistedText)
         self.storage = storage
+        self.fileURL = fileURL
         let recorder = self.recorder
 
         let rootView = HostView(
             storage: storage,
+            fileURL: fileURL,
+            highlighter: highlighter,
             onSelectionChange: { snapshot in
                 recorder.lastSelection = snapshot
             },
@@ -104,21 +142,28 @@ private final class CodeEditorViewHarness {
             defer: false
         )
         window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         pumpRunLoop()
     }
 
     deinit {
-        Task { @MainActor [window] in
-            window.orderOut(nil)
-        }
+        window.orderOut(nil)
+        window.close()
     }
 
-    var textView: NSTextView {
+    var textView: CodeEditorPlatformTextView {
         guard let textView = findTextView(in: hostingView) else {
             fatalError("CodeEditorViewHarness could not find NSTextView")
         }
         return textView
+    }
+
+    var latestAppliedHighlightVersion: Int? {
+        textView.latestAppliedHighlightVersion
+    }
+
+    var documentVersion: Int {
+        recorder.lastChange?.version ?? 0
     }
 
     var visibleText: String {
@@ -177,12 +222,21 @@ private final class CodeEditorViewHarness {
         recorder.changeSetCount = 0
     }
 
+    func waitForHighlightPass(timeoutSteps: Int = 300) {
+        for _ in 0..<timeoutSteps {
+            if latestAppliedHighlightVersion == documentVersion {
+                return
+            }
+            pumpRunLoop()
+        }
+    }
+
     private func pumpRunLoop() {
         RunLoop.main.run(until: Date().addingTimeInterval(0.03))
     }
 
-    private func findTextView(in view: NSView) -> NSTextView? {
-        if let textView = view as? NSTextView {
+    private func findTextView(in view: NSView) -> CodeEditorPlatformTextView? {
+        if let textView = view as? CodeEditorPlatformTextView {
             return textView
         }
 
@@ -198,6 +252,8 @@ private final class CodeEditorViewHarness {
 
 private struct HostView: View {
     @ObservedObject var storage: CodeEditorViewHarness.Storage
+    let fileURL: URL
+    let highlighter: any CodeSyntaxHighlighting
     let onSelectionChange: (EditorSelectionSnapshot?) -> Void
     let onTextChange: (String, EditorChangeSet) -> Void
 
@@ -205,11 +261,29 @@ private struct HostView: View {
         CodeEditorView(
             text: $storage.text,
             persistedText: storage.persistedText,
-            fileURL: URL(fileURLWithPath: "/tmp/CodeEditorViewHarness.swift"),
+            fileURL: fileURL,
             focusRequest: storage.focusToken,
             onSelectionChange: onSelectionChange,
-            onTextChange: onTextChange
+            onTextChange: onTextChange,
+            highlighter: highlighter,
+            highlightDebounceNanoseconds: 0
         )
         .frame(width: 480, height: 320)
+    }
+}
+
+private final class IdentityHighlightEngine: CodeSyntaxHighlightingEngine {
+    func highlight(
+        code: String,
+        language: String?,
+        theme: CodeHighlightTheme
+    ) -> NSAttributedString? {
+        NSAttributedString(
+            string: code,
+            attributes: [
+                .foregroundColor: NSColor.systemBlue,
+                .font: NSFont.monospacedSystemFont(ofSize: theme.fontSize, weight: .regular)
+            ]
+        )
     }
 }

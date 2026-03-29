@@ -21,7 +21,6 @@ extension ChatView {
         ChatComposerExecutionPresentation.resolve(
             usesExecutionProjectionUI: usesExecutionProjectionUI,
             projection: sessionExecutionProjection,
-            legacyIsStreaming: claudeService.isStreaming,
             canSend: canSend
         )
     }

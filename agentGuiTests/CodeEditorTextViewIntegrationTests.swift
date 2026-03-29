@@ -59,10 +59,50 @@ struct CodeEditorTextViewIntegrationTests {
     }
 
     @Test
+    func staleHighlightResultDoesNotOverwriteNewerVersionAttributes() {
+        let harness = CodeEditorTextViewHarness(
+            text: "let a = 1",
+            highlightExecutionDelayNanoseconds: 120_000_000
+        )
+
+        harness.replaceCharacters(in: NSRange(location: 4, length: 1), with: "b")
+        harness.replaceCharacters(in: NSRange(location: 4, length: 1), with: "c")
+        harness.waitForHighlightPass()
+
+        #expect(harness.boundText == "let c = 1")
+        #expect(harness.latestAppliedHighlightVersion == harness.document.version)
+    }
+
+    @Test
     func textViewEnablesUndoAndSetsAccessibilityIdentifier() {
         let harness = CodeEditorTextViewHarness(text: "hello")
 
         #expect(harness.textView.allowsUndo)
         #expect(harness.textView.accessibilityIdentifier() == "codeEditor.textView")
+    }
+
+    @Test
+    func applyingHighlightPreservesTypingAttributes() {
+        let harness = CodeEditorTextViewHarness(text: "let value = 1", language: "swift")
+        let before = harness.textView.typingAttributes
+
+        harness.forceApplyHighlightResult()
+
+        #expect(NSDictionary(dictionary: harness.textView.typingAttributes).isEqual(to: before))
+    }
+
+    @Test
+    func releasingHarnessWithPendingHighlightDoesNotCrash() {
+        var harness: CodeEditorTextViewHarness? = CodeEditorTextViewHarness(
+            text: "let value = 1",
+            language: "swift",
+            highlightExecutionDelayNanoseconds: 500_000_000
+        )
+
+        harness?.replaceCharacters(in: NSRange(location: 4, length: 5), with: "result")
+        harness = nil
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        #expect(Bool(true))
     }
 }

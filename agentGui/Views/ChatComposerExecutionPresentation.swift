@@ -22,7 +22,6 @@ struct ChatComposerExecutionPresentation: Equatable {
     static func resolve(
         usesExecutionProjectionUI: Bool,
         projection: SessionExecutionProjection,
-        legacyIsStreaming: Bool,
         canSend: Bool
     ) -> Self {
         if usesExecutionProjectionUI {
@@ -48,12 +47,12 @@ struct ChatComposerExecutionPresentation: Equatable {
         }
 
         return Self(
-            isComposerDisabled: legacyIsStreaming,
+            isComposerDisabled: false,
             showsRunningBadge: false,
             queueBadgeText: nil,
             statusBadgeText: nil,
-            showsStopButton: legacyIsStreaming,
-            showsSendButton: !legacyIsStreaming,
+            showsStopButton: false,
+            showsSendButton: true,
             isSendDisabled: !canSend
         )
     }

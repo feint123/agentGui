@@ -7,6 +7,10 @@ struct CodeEditorDocument: Equatable {
     var selectedRange: NSRange = NSRange(location: 0, length: 0)
     private(set) var lineIndex: CodeEditorLineIndex
 
+    var lineCount: Int {
+        lineIndex.lineCount
+    }
+
     init(
         text: String,
         persistedText: String,

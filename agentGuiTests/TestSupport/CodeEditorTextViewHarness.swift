@@ -25,15 +25,29 @@ final class CodeEditorTextViewHarness {
     private let recorder = Recorder()
     private let window: NSWindow
     private let hostingView: NSHostingView<HostView>
+    private let language: String
+    private let highlightExecutionDelayNanoseconds: UInt64
+    private let highlighter: CodeSyntaxHighlightingService
 
-    init(text: String, persistedText: String? = nil) {
+    init(
+        text: String,
+        persistedText: String? = nil,
+        language: String = "swift",
+        highlightExecutionDelayNanoseconds: UInt64 = 0
+    ) {
         let persistedText = persistedText ?? text
         let storage = Storage(text: text, persistedText: persistedText)
         self.storage = storage
+        self.language = language
+        self.highlightExecutionDelayNanoseconds = highlightExecutionDelayNanoseconds
+        self.highlighter = CodeSyntaxHighlightingService(engine: IdentityHighlightEngine())
         let recorder = self.recorder
 
         let rootView = HostView(
             storage: storage,
+            language: language,
+            highlighter: highlighter,
+            highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds,
             onSelectionChange: { snapshot in
                 recorder.lastSelection = snapshot
             },
@@ -53,14 +67,13 @@ final class CodeEditorTextViewHarness {
             defer: false
         )
         window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         pumpRunLoop()
     }
 
     deinit {
-        Task { @MainActor [window] in
-            window.orderOut(nil)
-        }
+        window.orderOut(nil)
+        window.close()
     }
 
     var boundText: String {
@@ -83,11 +96,40 @@ final class CodeEditorTextViewHarness {
         storage.document
     }
 
-    var textView: NSTextView {
+    var textView: CodeEditorPlatformTextView {
         guard let textView = findTextView(in: hostingView) else {
             fatalError("CodeEditorTextViewHarness could not find NSTextView")
         }
         return textView
+    }
+
+    var latestAppliedHighlightVersion: Int? {
+        textView.latestAppliedHighlightVersion
+    }
+
+    func forceApplyHighlightResult() {
+        let textView = textView
+        let attributedString = highlighter.highlightedString(
+            code: textView.string,
+            language: language,
+            appearance: .light,
+            fontSize: textView.font?.pointSize ?? NSFont.systemFontSize
+        )
+
+        CodeEditorHighlightApplicator.apply(
+            CodeEditorHighlightResult(
+                version: storage.document.version,
+                lineRange: 1...max(storage.document.lineCount, 1),
+                replacementRange: NSRange(location: 0, length: (textView.string as NSString).length),
+                attributedString: attributedString
+            ),
+            to: textView,
+            baseAttributes: [
+                .font: textView.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+                .foregroundColor: textView.textColor ?? NSColor.labelColor
+            ]
+        )
+        textView.latestAppliedHighlightVersion = storage.document.version
     }
 
     func replaceCharacters(in range: NSRange, with replacement: String) {
@@ -126,6 +168,12 @@ final class CodeEditorTextViewHarness {
         recorder.changeSetCount = 0
     }
 
+    func waitForHighlightPass(timeoutSteps: Int = 300) {
+        waitUntil(timeoutSteps: timeoutSteps) {
+            latestAppliedHighlightVersion == storage.document.version
+        }
+    }
+
     func pumpRunLoop() {
         RunLoop.main.run(until: Date().addingTimeInterval(0.01))
     }
@@ -139,8 +187,8 @@ final class CodeEditorTextViewHarness {
         }
     }
 
-    private func findTextView(in view: NSView) -> NSTextView? {
-        if let textView = view as? NSTextView {
+    private func findTextView(in view: NSView) -> CodeEditorPlatformTextView? {
+        if let textView = view as? CodeEditorPlatformTextView {
             return textView
         }
 
@@ -156,6 +204,9 @@ final class CodeEditorTextViewHarness {
 
 private struct HostView: View {
     @ObservedObject var storage: CodeEditorTextViewHarness.Storage
+    let language: String
+    let highlighter: any CodeSyntaxHighlighting
+    let highlightExecutionDelayNanoseconds: UInt64
     let onSelectionChange: (EditorSelectionSnapshot?) -> Void
     let onChangeSet: (EditorChangeSet) -> Void
 
@@ -163,9 +214,29 @@ private struct HostView: View {
         CodeEditorTextView(
             text: $storage.text,
             document: $storage.document,
+            language: language,
             onSelectionChange: onSelectionChange,
-            onChangeSet: onChangeSet
+            onChangeSet: onChangeSet,
+            highlighter: highlighter,
+            highlightDebounceNanoseconds: 0,
+            highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds
         )
         .frame(width: 480, height: 320)
+    }
+}
+
+private final class IdentityHighlightEngine: CodeSyntaxHighlightingEngine {
+    func highlight(
+        code: String,
+        language: String?,
+        theme: CodeHighlightTheme
+    ) -> NSAttributedString? {
+        NSAttributedString(
+            string: code,
+            attributes: [
+                .foregroundColor: NSColor.systemBlue,
+                .font: NSFont.monospacedSystemFont(ofSize: theme.fontSize, weight: .regular)
+            ]
+        )
     }
 }
