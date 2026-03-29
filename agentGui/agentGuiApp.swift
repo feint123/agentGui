@@ -494,6 +494,10 @@ struct agentGuiApp: App {
                         persistenceCoordinator: .shared
                     ),
                     projectionStore: claudeService.executionProjectionStore,
+                    projectionWriter: SessionExecutionLifecycleFanoutWriter(
+                        projectionWriter: claudeService.executionProjectionStore,
+                        runtimeStateWriter: claudeService.executionRuntimeStateStore
+                    ),
                     scheduler: ExecutionScheduler(maxConcurrentJobs: 2),
                     runtimePool: ExecutionRuntimePool(),
                     providerRegistry: claudeService.executionProviderRegistry ?? claudeService.buildExecutionProviderRegistry(for: context),

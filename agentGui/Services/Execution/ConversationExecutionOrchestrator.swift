@@ -32,7 +32,7 @@ final class ConversationExecutionOrchestrator {
         modelContext: ModelContext,
         persistenceStore: ExecutionPersistenceStore,
         projectionStore: ExecutionProjectionStore,
-        projectionWriter: (any SessionExecutionProjectionWriting)? = nil,
+        projectionWriter: any SessionExecutionProjectionWriting,
         scheduler: ExecutionScheduler,
         runtimePool: ExecutionRuntimePool,
         providerRegistry: ConversationExecutionProviderRegistry,
@@ -44,7 +44,7 @@ final class ConversationExecutionOrchestrator {
         self.modelContext = modelContext
         self.persistenceStore = persistenceStore
         self.projectionStore = projectionStore
-        self.projectionWriter = projectionWriter ?? projectionStore
+        self.projectionWriter = projectionWriter
         self.scheduler = scheduler
         self.runtimePool = runtimePool
         self.providerRegistry = providerRegistry

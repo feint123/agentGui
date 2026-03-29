@@ -219,6 +219,10 @@ extension ClaudeService {
                 persistenceCoordinator: .shared
             ),
             projectionStore: executionProjectionStore,
+            projectionWriter: SessionExecutionLifecycleFanoutWriter(
+                projectionWriter: executionProjectionStore,
+                runtimeStateWriter: executionRuntimeStateStore
+            ),
             scheduler: ExecutionScheduler(maxConcurrentJobs: 2),
             runtimePool: ExecutionRuntimePool(),
             providerRegistry: executionProviderRegistry(for: modelContext),

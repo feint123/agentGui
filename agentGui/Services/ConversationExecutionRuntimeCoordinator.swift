@@ -14,15 +14,11 @@ final class ConversationExecutionRuntimeCoordinator {
         let sessionID: String
     }
 
-    private let projectionStore: ExecutionProjectionStore
+    private let runtimeStateStore: SessionExecutionRuntimeStateStore
     private var scopeStates: [ConversationExecutionRuntimeScope: ScopeState] = [:]
 
-    init(projectionStore: ExecutionProjectionStore) {
-        self.projectionStore = projectionStore
-    }
-
-    convenience init() {
-        self.init(projectionStore: ExecutionProjectionStore())
+    init(runtimeStateStore: SessionExecutionRuntimeStateStore) {
+        self.runtimeStateStore = runtimeStateStore
     }
 
     func prepareForActivation(
@@ -47,8 +43,12 @@ final class ConversationExecutionRuntimeCoordinator {
         await applyReleasePlans(transition.releasePlans, registry: registry, modelContext: modelContext)
 
         let scopedProviders = registry.providers(in: runtimeScope)
-        let protectedProviderReferences = transition.scopeStates[runtimeScope]?
-            .executionLeaseProviderReferencesBySessionID[session.sessionId] ?? []
+        let protectedProviderReferences = protectedProviderReferences(
+            for: session.sessionId,
+            in: runtimeScope,
+            state: transition.scopeStates[runtimeScope] ?? ScopeState(),
+            registry: registry
+        )
 
         for provider in scopedProviders
         where provider.reference != activeProvider.reference
@@ -182,14 +182,39 @@ final class ConversationExecutionRuntimeCoordinator {
         return retained
     }
 
+    private func protectedProviderReferences(
+        for sessionID: String,
+        in scope: ConversationExecutionRuntimeScope,
+        state: ScopeState,
+        registry: ConversationExecutionProviderRegistry
+    ) -> Set<ExecutionProviderReference> {
+        var protectedReferences = state.executionLeaseProviderReferencesBySessionID[sessionID] ?? []
+
+        if let runningProviderReference = runtimeState(for: sessionID).runningProviderReference,
+           shouldProtectRuntime(
+               for: sessionID,
+               providerReference: runningProviderReference,
+               in: scope,
+               registry: registry
+           ) {
+            protectedReferences.insert(runningProviderReference)
+        }
+
+        return protectedReferences
+    }
+
+    private func runtimeState(for sessionID: String) -> SessionExecutionRuntimeState {
+        runtimeStateStore.state(for: sessionID)
+    }
+
     private func shouldProtectRuntime(
         for sessionID: String,
         in scope: ConversationExecutionRuntimeScope,
         registry: ConversationExecutionProviderRegistry
     ) -> Bool {
-        let projection = projectionStore.projection(for: sessionID)
-        guard projection.isRunning,
-              let providerReference = projection.activeProviderReference,
+        let state = runtimeState(for: sessionID)
+        guard state.isRunning,
+              let providerReference = state.runningProviderReference,
               let protectedProvider = registry.providerIfAvailable(for: providerReference) else {
             return false
         }
@@ -203,9 +228,9 @@ final class ConversationExecutionRuntimeCoordinator {
         in scope: ConversationExecutionRuntimeScope,
         registry: ConversationExecutionProviderRegistry
     ) -> Bool {
-        let projection = projectionStore.projection(for: sessionID)
-        guard projection.isRunning,
-              projection.activeProviderReference == providerReference,
+        let state = runtimeState(for: sessionID)
+        guard state.isRunning,
+              state.runningProviderReference == providerReference,
               let protectedProvider = registry.providerIfAvailable(for: providerReference) else {
             return false
         }

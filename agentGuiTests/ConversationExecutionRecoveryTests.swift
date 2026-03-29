@@ -32,7 +32,8 @@ struct ConversationExecutionRecoveryTests {
 
     @Test
     func restorePendingJobsRecoversBackgroundSessionWithoutSelectionBootstrap() async throws {
-        let harness = try ExecutionRecoveryHarness.make()
+        let runtimeStateStore = SessionExecutionRuntimeStateStore()
+        let harness = try ExecutionRecoveryHarness.make(runtimeStateStore: runtimeStateStore)
         try await harness.seedRecoverableRunningJob(sessionID: "background-a")
 
         await harness.orchestrator.restorePendingJobs()
@@ -48,7 +49,8 @@ struct ConversationExecutionRecoveryTests {
 
     @Test
     func restorePendingJobsRehydratesProjectionThroughRecoveryEvent() async throws {
-        let harness = try ExecutionRecoveryHarness.make()
+        let runtimeStateStore = SessionExecutionRuntimeStateStore()
+        let harness = try ExecutionRecoveryHarness.make(runtimeStateStore: runtimeStateStore)
         try await harness.seedRecoverableRunningJob(sessionID: "recover-a")
 
         await harness.orchestrator.restorePendingJobs()
@@ -57,6 +59,9 @@ struct ConversationExecutionRecoveryTests {
         let projection = harness.projectionStore.projection(for: "recover-a")
         #expect(projection.activityState == .running || projection.activityState == .queued)
         #expect(projection.activeProviderReference == .builtIn)
+        let runtimeState = harness.runtimeStateStore.state(for: "recover-a")
+        #expect(runtimeState.runningProviderReference == .builtIn)
+        #expect(runtimeState.isRunning)
 
         await harness.provider.releaseAll()
     }
@@ -175,6 +180,7 @@ struct ConversationExecutionRecoveryTests {
         let container = try ModelContainer(for: schema, configurations: [configuration])
         let context = ModelContext(container)
         let projectionStore = ExecutionProjectionStore()
+        let runtimeStateStore = SessionExecutionRuntimeStateStore()
         let dynamicReference = ExecutionProviderReference.externalACP(profileID: UUID())
         let dynamicProvider = BlockingExecutionProvider(reference: dynamicReference, runtimeScope: .externalACP)
         let registry = ConversationExecutionProviderRegistry(
@@ -188,10 +194,14 @@ struct ConversationExecutionRecoveryTests {
                 persistenceCoordinator: PersistenceCoordinator()
             ),
             projectionStore: projectionStore,
+            projectionWriter: SessionExecutionLifecycleFanoutWriter(
+                projectionWriter: projectionStore,
+                runtimeStateWriter: runtimeStateStore
+            ),
             scheduler: ExecutionScheduler(maxConcurrentJobs: 1),
             runtimePool: ExecutionRuntimePool(),
             providerRegistry: registry,
-            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(projectionStore: projectionStore)
+            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
         )
 
         let session = Session.fixture(sessionId: "dynamic-session", title: "Dynamic")
@@ -258,17 +268,20 @@ private struct ExecutionRecoveryHarness {
     let context: ModelContext
     let orchestrator: ConversationExecutionOrchestrator
     let projectionStore: ExecutionProjectionStore
+    let runtimeStateStore: SessionExecutionRuntimeStateStore
     let provider: BlockingExecutionProvider
 
     static func make(
         maxConcurrentJobs: Int = 2,
-        projectionWriter: (any SessionExecutionProjectionWriting)? = nil
+        projectionWriter: (any SessionExecutionProjectionWriting)? = nil,
+        runtimeStateStore: SessionExecutionRuntimeStateStore? = nil
     ) throws -> ExecutionRecoveryHarness {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [configuration])
         let context = ModelContext(container)
         let projectionStore = ExecutionProjectionStore()
+        let runtimeStateStore = runtimeStateStore ?? SessionExecutionRuntimeStateStore()
         let provider = BlockingExecutionProvider(id: .builtInAgent, runtimeScope: .builtIn)
         let registry = ConversationExecutionProviderRegistry(
             builtIn: provider,
@@ -278,6 +291,10 @@ private struct ExecutionRecoveryHarness {
                 LegacyExternalACPProviderKey.claudeAdapterCLI.compatibilityReference: NoOpExecutionProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
             ]
         )
+        let resolvedProjectionWriter = projectionWriter ?? SessionExecutionLifecycleFanoutWriter(
+            projectionWriter: projectionStore,
+            runtimeStateWriter: runtimeStateStore
+        )
         let orchestrator = ConversationExecutionOrchestrator(
             modelContext: context,
             persistenceStore: ExecutionPersistenceStore(
@@ -285,17 +302,18 @@ private struct ExecutionRecoveryHarness {
                 persistenceCoordinator: PersistenceCoordinator()
             ),
             projectionStore: projectionStore,
-            projectionWriter: projectionWriter,
+            projectionWriter: resolvedProjectionWriter,
             scheduler: ExecutionScheduler(maxConcurrentJobs: maxConcurrentJobs),
             runtimePool: ExecutionRuntimePool(),
             providerRegistry: registry,
-            runtimeCoordinator: ConversationExecutionRuntimeCoordinator()
+            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
         )
 
         return ExecutionRecoveryHarness(
             context: context,
             orchestrator: orchestrator,
             projectionStore: projectionStore,
+            runtimeStateStore: runtimeStateStore,
             provider: provider
         )
     }
@@ -398,6 +416,8 @@ private struct ParallelDispatchHarness {
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [configuration])
         let context = ModelContext(container)
+        let projectionStore = ExecutionProjectionStore()
+        let runtimeStateStore = SessionExecutionRuntimeStateStore()
         let provider = ActivationBlockingExecutionProvider(blockedSessionIDs: ["parallel-a"])
         let registry = ConversationExecutionProviderRegistry(
             builtIn: NoOpExecutionProvider(id: .builtInAgent, runtimeScope: .builtIn),
@@ -413,11 +433,15 @@ private struct ParallelDispatchHarness {
                 modelContext: context,
                 persistenceCoordinator: PersistenceCoordinator()
             ),
-            projectionStore: ExecutionProjectionStore(),
+            projectionStore: projectionStore,
+            projectionWriter: SessionExecutionLifecycleFanoutWriter(
+                projectionWriter: projectionStore,
+                runtimeStateWriter: runtimeStateStore
+            ),
             scheduler: ExecutionScheduler(maxConcurrentJobs: 2),
             runtimePool: ExecutionRuntimePool(),
             providerRegistry: registry,
-            runtimeCoordinator: ConversationExecutionRuntimeCoordinator()
+            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
         )
 
         return ParallelDispatchHarness(

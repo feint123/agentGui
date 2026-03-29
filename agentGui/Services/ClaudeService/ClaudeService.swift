@@ -160,6 +160,9 @@ final class ClaudeService {
     /// Per-session execution projections used by the queue-aware runtime migration.
     var executionProjectionStore: ExecutionProjectionStore
 
+    /// Per-session runtime truth snapshots used by runtime retention decisions.
+    var executionRuntimeStateStore: SessionExecutionRuntimeStateStore
+
     /// Optional job-driven execution orchestrator. When unset, messaging falls back to the legacy provider path.
     var executionOrchestrator: ConversationExecutionOrchestrator?
 
@@ -171,9 +174,11 @@ final class ClaudeService {
 
     init() {
         let projectionStore = ExecutionProjectionStore()
+        let runtimeStateStore = SessionExecutionRuntimeStateStore()
         executionProjectionStore = projectionStore
+        executionRuntimeStateStore = runtimeStateStore
         executionRuntimeCoordinator = ConversationExecutionRuntimeCoordinator(
-            projectionStore: projectionStore
+            runtimeStateStore: runtimeStateStore
         )
         bindLSPInstallPresentationObserver()
     }
