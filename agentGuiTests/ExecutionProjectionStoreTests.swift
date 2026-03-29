@@ -27,20 +27,20 @@ struct ExecutionProjectionStoreTests {
     }
 
     @Test
-    func setProjectionPersistsAttentionAndPresentationFields() {
+    func runtimeLifecycleEventsDoNotMutateProjectionWithoutSnapshot() {
         let store = ExecutionProjectionStore()
-        let projection = SessionExecutionProjection.fixture(
-            sessionID: "session-a",
-            activeProviderID: .builtInAgent,
-            activityState: .blocked,
-            presentationState: .background,
-            needsAttention: true,
-            attentionReason: .userQuestion
+        let jobID = UUID()
+
+        store.apply(
+            .started(
+                sessionID: "session-a",
+                jobID: jobID,
+                providerReference: .builtIn
+            )
         )
 
-        store.setProjection(projection)
-
-        #expect(store.projection(for: "session-a") == projection)
+        #expect(store.projections.isEmpty)
+        #expect(store.projection(for: "session-a").runningJobID == nil)
     }
 
     @Test
@@ -48,11 +48,17 @@ struct ExecutionProjectionStoreTests {
         let store = ExecutionProjectionStore()
         let jobID = UUID()
 
-        store.apply(.enqueued(
-            sessionID: "session-a",
-            jobID: jobID,
-            providerReference: .builtIn
-        ))
+        store.apply(
+            runtimeSnapshot: SessionRuntimeSnapshot(
+                sessionID: "session-a",
+                queuedJobIDs: [jobID],
+                runningJobID: nil,
+                runningProviderReference: .builtIn,
+                requestedCancellationJobIDs: [],
+                lastAction: .enqueued,
+                lastUpdatedAt: .now
+            )
+        )
 
         let projection = store.projection(for: "session-a")
         #expect(projection.queuedJobIDs == [jobID])
@@ -62,15 +68,47 @@ struct ExecutionProjectionStoreTests {
     }
 
     @Test
+    func applyRuntimeSnapshotPreservesPresentationAndAttentionFields() {
+        let store = ExecutionProjectionStore()
+        let jobID = UUID()
+        store.apply(.presentationChanged(sessionID: "session-a", state: .background))
+
+        store.apply(
+            runtimeSnapshot: SessionRuntimeSnapshot(
+                sessionID: "session-a",
+                queuedJobIDs: [],
+                runningJobID: jobID,
+                runningProviderReference: .builtIn,
+                requestedCancellationJobIDs: [],
+                lastAction: .started,
+                lastUpdatedAt: .now
+            )
+        )
+
+        let projection = store.projection(for: "session-a")
+        #expect(projection.runningJobID == jobID)
+        #expect(projection.activityState == .running)
+        #expect(projection.presentationState == .background)
+        #expect(projection.needsAttention == false)
+        #expect(projection.attentionReason == nil)
+    }
+
+    @Test
     func presentationChangedEventKeepsStoreAsOnlySourceOfTruth() {
         let store = ExecutionProjectionStore()
         let jobID = UUID()
 
-        store.apply(.started(
-            sessionID: "session-a",
-            jobID: jobID,
-            providerReference: .builtIn
-        ))
+        store.apply(
+            runtimeSnapshot: SessionRuntimeSnapshot(
+                sessionID: "session-a",
+                queuedJobIDs: [],
+                runningJobID: jobID,
+                runningProviderReference: .builtIn,
+                requestedCancellationJobIDs: [],
+                lastAction: .started,
+                lastUpdatedAt: .now
+            )
+        )
         store.apply(.presentationChanged(sessionID: "session-a", state: .background))
 
         let projection = store.projection(for: "session-a")

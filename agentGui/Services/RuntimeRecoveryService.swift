@@ -5,11 +5,24 @@ import SwiftData
 @Observable
 @MainActor
 final class RuntimeRecoveryService {
+    struct RuntimeRecoveryItem: Equatable, Sendable, Identifiable {
+        let id: String
+        let sessionID: String
+        let titleText: String
+        let summaryText: String
+        let isCancelling: Bool
+    }
+
     private let persistenceCoordinator: PersistenceCoordinator
+    private var runtimeSnapshotStore: SessionRuntimeSnapshotStore?
     private(set) var activeSnapshots: [RecoverySnapshot] = []
 
     init(persistenceCoordinator: PersistenceCoordinator = .shared) {
         self.persistenceCoordinator = persistenceCoordinator
+    }
+
+    func bindRuntimeSnapshotStore(_ runtimeSnapshotStore: SessionRuntimeSnapshotStore) {
+        self.runtimeSnapshotStore = runtimeSnapshotStore
     }
 
     func loadRecoverySummary(from modelContext: ModelContext) throws -> RecoverySummary {
@@ -68,6 +81,29 @@ final class RuntimeRecoveryService {
         activeSnapshots.filter { $0.sessionId == sessionId }
     }
 
+    func runtimeRecoveryItem(for sessionId: String) -> RuntimeRecoveryItem? {
+        guard let runtimeSnapshotStore else {
+            return nil
+        }
+
+        return makeRuntimeRecoveryItem(from: runtimeSnapshotStore.snapshot(for: sessionId))
+    }
+
+    func runtimeRecoveryItems(for sessionId: String) -> [RuntimeRecoveryItem] {
+        guard let item = runtimeRecoveryItem(for: sessionId) else {
+            return []
+        }
+        return [item]
+    }
+
+    func allRuntimeRecoveryItems() -> [RuntimeRecoveryItem] {
+        guard let runtimeSnapshotStore else {
+            return []
+        }
+
+        return runtimeSnapshotStore.allSnapshots.compactMap(makeRuntimeRecoveryItem(from:))
+    }
+
     func markViewed(_ snapshot: RecoverySnapshot, in modelContext: ModelContext) throws {
         snapshot.handlingState = .viewed
         try persistenceCoordinator.save(
@@ -121,6 +157,32 @@ final class RuntimeRecoveryService {
     private enum TerminalAction {
         case interrupted
         case cleared
+    }
+
+    private func makeRuntimeRecoveryItem(from snapshot: SessionRuntimeSnapshot) -> RuntimeRecoveryItem? {
+        guard snapshot.isRunning || snapshot.queuedJobIDs.isEmpty == false || snapshot.isCancelling else {
+            return nil
+        }
+
+        let diagnostics = SessionRuntimeDiagnosticsSnapshot(snapshot: snapshot)
+        let summaryText: String
+        if snapshot.isCancelling {
+            summaryText = "当前运行正在取消，队列中还有 \(snapshot.queuedJobIDs.count) 项待处理。"
+        } else if snapshot.isRunning && snapshot.queuedJobIDs.isEmpty == false {
+            summaryText = "当前有运行中的 \(diagnostics.providerText) 任务，另有 \(snapshot.queuedJobIDs.count) 项排队。"
+        } else if snapshot.isRunning {
+            summaryText = "当前仍有运行中的 \(diagnostics.providerText) 任务，需要等待收敛。"
+        } else {
+            summaryText = "当前仍有 \(snapshot.queuedJobIDs.count) 项排队任务等待恢复。"
+        }
+
+        return RuntimeRecoveryItem(
+            id: snapshot.sessionID,
+            sessionID: snapshot.sessionID,
+            titleText: "会话运行态恢复",
+            summaryText: summaryText,
+            isCancelling: snapshot.isCancelling
+        )
     }
 
     private func normalizeSource(_ snapshot: RecoverySnapshot, in modelContext: ModelContext, terminalAction: TerminalAction) throws {

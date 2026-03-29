@@ -38,6 +38,10 @@ struct ReliabilityCenterView: View {
                     recoveryItemsContent
                 }
 
+                WorkbenchSidebarSectionCard(title: "Session Runtime", systemImage: "bolt.horizontal.circle") {
+                    runtimeDiagnosticsContent
+                }
+
                 WorkbenchSidebarSectionCard(title: "最近保存失败", systemImage: "externaldrive.badge.exclamationmark") {
                     persistenceFailuresContent
                 }
@@ -138,6 +142,40 @@ struct ReliabilityCenterView: View {
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
+                        }
+                    }
+                    .padding(.vertical, 10)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var runtimeDiagnosticsContent: some View {
+        if viewModel.runtimeDiagnostics.isEmpty {
+            Text("当前没有活跃的运行态会话")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(viewModel.runtimeDiagnostics.enumerated()), id: \.element.id) { index, diagnostics in
+                    if index > 0 {
+                        Divider()
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(diagnostics.sessionID)
+                            .font(.subheadline.weight(.semibold))
+                        Text("状态：\(diagnostics.activityText) · Provider：\(diagnostics.providerText)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("队列：\(diagnostics.queuedCount) · 最近动作：\(diagnostics.lastActionText)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if diagnostics.isCancelling {
+                            Text("正在等待取消收敛")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
                         }
                     }
                     .padding(.vertical, 10)

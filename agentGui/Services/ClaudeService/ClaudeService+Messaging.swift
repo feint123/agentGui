@@ -221,7 +221,7 @@ extension ClaudeService {
             projectionStore: executionProjectionStore,
             projectionWriter: SessionExecutionLifecycleFanoutWriter(
                 projectionWriter: executionProjectionStore,
-                runtimeStateWriter: executionRuntimeStateStore
+                runtimeBus: executionRuntimeBus
             ),
             scheduler: ExecutionScheduler(maxConcurrentJobs: 2),
             runtimePool: ExecutionRuntimePool(),

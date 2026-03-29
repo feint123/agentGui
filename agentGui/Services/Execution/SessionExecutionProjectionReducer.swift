@@ -63,6 +63,9 @@ enum SessionExecutionProjectionReducer {
                 attentionReason: current.attentionReason
             )
 
+        case .cancelRequested:
+            return current
+
         case let .finished(sessionID, jobID, _):
             let runningJobID = current.runningJobID == jobID ? nil : current.runningJobID
             let isRunning = runningJobID != nil

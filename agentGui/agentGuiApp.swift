@@ -157,6 +157,8 @@ struct agentGuiApp: App {
                     updateCoordinator.startUpdaterIfNeeded()
                     claudeService.applyConnectionSettings(settings)
                     claudeService.skillService = skillService
+                    runtimeRecoveryService.bindRuntimeSnapshotStore(claudeService.executionRuntimeSnapshotStore)
+                    reliabilityCenterViewModel.bindRuntimeSnapshotStore(claudeService.executionRuntimeSnapshotStore)
                     Task {
                         await skillService.loadSkills()
                     }
@@ -479,10 +481,14 @@ struct agentGuiApp: App {
         case "runningWithQueueSupport":
             session.defaultExecutionProviderID = ConversationExecutionProviderID.builtInAgent.rawValue
             claudeService.executionProjectionStore.apply(
-                .started(
+                runtimeSnapshot: SessionRuntimeSnapshot(
                     sessionID: session.sessionId,
-                    jobID: UUID(),
-                    providerReference: .builtIn
+                    queuedJobIDs: [],
+                    runningJobID: UUID(),
+                    runningProviderReference: .builtIn,
+                    requestedCancellationJobIDs: [],
+                    lastAction: .started,
+                    lastUpdatedAt: .now
                 )
             )
 
@@ -496,7 +502,7 @@ struct agentGuiApp: App {
                     projectionStore: claudeService.executionProjectionStore,
                     projectionWriter: SessionExecutionLifecycleFanoutWriter(
                         projectionWriter: claudeService.executionProjectionStore,
-                        runtimeStateWriter: claudeService.executionRuntimeStateStore
+                        runtimeBus: claudeService.executionRuntimeBus
                     ),
                     scheduler: ExecutionScheduler(maxConcurrentJobs: 2),
                     runtimePool: ExecutionRuntimePool(),

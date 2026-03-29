@@ -8,9 +8,11 @@ final class ReliabilityCenterViewModel {
     private let persistenceCoordinator: PersistenceCoordinator
     private let dataIntegrityChecker: DataIntegrityChecker
     private let backupArchiveService: BackupArchiveService
+    private var runtimeSnapshotStore: SessionRuntimeSnapshotStore?
 
     private(set) var integrityIssues: [IntegrityIssue] = []
     private(set) var recoverySnapshots: [RecoverySnapshot] = []
+    private(set) var runtimeDiagnostics: [SessionRuntimeDiagnosticsSnapshot] = []
     private(set) var persistenceFailures: [PersistenceFailureRecord] = []
     private(set) var lastBackupStatus: String?
 
@@ -21,7 +23,11 @@ final class ReliabilityCenterViewModel {
     }
 
     var issueCount: Int {
-        integrityIssues.count + recoverySnapshots.count + persistenceFailures.count
+        integrityIssues.count + recoverySnapshots.count + runtimeDiagnostics.count + persistenceFailures.count
+    }
+
+    func bindRuntimeSnapshotStore(_ runtimeSnapshotStore: SessionRuntimeSnapshotStore) {
+        self.runtimeSnapshotStore = runtimeSnapshotStore
     }
 
     func refresh(using modelContext: ModelContext) {
@@ -31,6 +37,9 @@ final class ReliabilityCenterViewModel {
         recoverySnapshots = ((try? modelContext.fetch(FetchDescriptor<RecoverySnapshot>())) ?? [])
             .filter { $0.handlingState.isVisible }
             .sorted { $0.updatedAt > $1.updatedAt }
+        runtimeDiagnostics = (runtimeSnapshotStore?.allSnapshots ?? [])
+            .filter { $0.isRunning || $0.isCancelling || $0.queuedJobIDs.isEmpty == false }
+            .map(SessionRuntimeDiagnosticsSnapshot.init(snapshot:))
         persistenceFailures = persistenceCoordinator.recentFailures
     }
 

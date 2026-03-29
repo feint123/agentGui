@@ -7,9 +7,9 @@ import SwiftData
 struct ConversationExecutionRuntimeCoordinatorTests {
     @Test
     func foregroundActivationReleasesPreviousSessionLeaseAndSiblingProviders() async throws {
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
-        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeStateStore: runtimeStateStore)
-        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeSnapshotStore: runtimeSnapshotStore)
+        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         let builtIn = RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
@@ -46,9 +46,9 @@ struct ConversationExecutionRuntimeCoordinatorTests {
 
     @Test
     func foregroundBuiltInActivationClearsExternalForegroundLease() async throws {
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
-        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeStateStore: runtimeStateStore)
-        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeSnapshotStore: runtimeSnapshotStore)
+        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         let builtIn = RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let registry = makeRegistry(
@@ -82,9 +82,9 @@ struct ConversationExecutionRuntimeCoordinatorTests {
 
     @Test
     func executionDispatchDoesNotEvictForegroundSessionLease() async throws {
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
-        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeStateStore: runtimeStateStore)
-        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeSnapshotStore: runtimeSnapshotStore)
+        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
         let registry = makeRegistry(
@@ -119,9 +119,9 @@ struct ConversationExecutionRuntimeCoordinatorTests {
 
     @Test
     func selectionSwitchKeepsExecutionDispatchLeaseBeforeProjectionTurnsRunning() async throws {
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
-        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeStateStore: runtimeStateStore)
-        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeSnapshotStore: runtimeSnapshotStore)
+        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
         let registry = makeRegistry(
@@ -163,9 +163,9 @@ struct ConversationExecutionRuntimeCoordinatorTests {
 
     @Test
     func switchingProviderInSameSessionKeepsDispatchLeaseOwnerRuntime() async throws {
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
-        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeStateStore: runtimeStateStore)
-        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeSnapshotStore: runtimeSnapshotStore)
+        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
         let registry = makeRegistry(
@@ -207,13 +207,13 @@ struct ConversationExecutionRuntimeCoordinatorTests {
 
     @Test
     func projectionLagsBehindRunningRuntimeButRetentionStillHolds() async throws {
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
         let projectionStore = ExecutionProjectionStore()
         let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(
-            runtimeStateStore: runtimeStateStore,
+            runtimeSnapshotStore: runtimeSnapshotStore,
             projectionStore: projectionStore
         )
-        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
         let registry = makeRegistry(
@@ -233,15 +233,13 @@ struct ConversationExecutionRuntimeCoordinatorTests {
             trigger: .sessionBootstrap
         )
 
-        runtimeStateStore.apply(
+        runtimeSnapshotStore.apply(
             .started(
                 sessionID: harness.firstSession.sessionId,
                 jobID: UUID(),
                 providerReference: LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
             )
         )
-
-        projectionStore.setProjection(.fixture(sessionID: harness.firstSession.sessionId))
 
         await coordinator.prepareForActivation(
             session: harness.secondSession,
@@ -257,14 +255,111 @@ struct ConversationExecutionRuntimeCoordinatorTests {
     }
 
     @Test
-    func projectionLagsBehindFinishedRuntimeButReconcileStillReleases() async throws {
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
+    func runtimeCoordinatorReadsSnapshotStoreDirectly() async throws {
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeSnapshotStore: runtimeSnapshotStore)
+        let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
+        let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
+        let registry = makeRegistry(
+            builtIn: RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn),
+            providers: [
+                copilot,
+                openCode,
+                RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.firstSession,
+            activeProvider: copilot,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .sessionBootstrap
+        )
+
+        runtimeSnapshotStore.apply(
+            .started(
+                sessionID: harness.firstSession.sessionId,
+                jobID: UUID(),
+                providerReference: LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+            )
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.secondSession,
+            activeProvider: openCode,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .selection
+        )
+
+        #expect(copilot.releasedRuntimeEvents.contains(.init(localSessionID: harness.firstSession.sessionId, reason: .sessionBecameInactive)) == false)
+        #expect(openCode.activePreparationEvents == [harness.secondSession.sessionId])
+    }
+
+    @Test
+    func singleRuntimeSnapshotStoreDrivesProjectionRetentionAndRecovery() async throws {
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
         let projectionStore = ExecutionProjectionStore()
+        let recoveryService = RuntimeRecoveryService()
+        recoveryService.bindRuntimeSnapshotStore(runtimeSnapshotStore)
+
         let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(
-            runtimeStateStore: runtimeStateStore,
+            runtimeSnapshotStore: runtimeSnapshotStore,
             projectionStore: projectionStore
         )
-        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
+        let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
+        let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
+        let registry = makeRegistry(
+            builtIn: RuntimeCoordinatorTestProvider(id: .builtInAgent, runtimeScope: .builtIn),
+            providers: [
+                copilot,
+                openCode,
+                RuntimeCoordinatorTestProvider(id: .claudeAdapterCLI, runtimeScope: .externalACP)
+            ]
+        )
+
+        await coordinator.prepareForActivation(
+            session: harness.firstSession,
+            activeProvider: copilot,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .sessionBootstrap
+        )
+
+        runtimeSnapshotStore.apply(
+            .started(
+                sessionID: harness.firstSession.sessionId,
+                jobID: UUID(),
+                providerReference: LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+            )
+        )
+        projectionStore.apply(runtimeSnapshot: runtimeSnapshotStore.snapshot(for: harness.firstSession.sessionId))
+
+        await coordinator.prepareForActivation(
+            session: harness.secondSession,
+            activeProvider: openCode,
+            registry: registry,
+            modelContext: harness.context,
+            trigger: .selection
+        )
+
+        #expect(projectionStore.projection(for: harness.firstSession.sessionId).isRunning)
+        #expect(recoveryService.runtimeRecoveryItem(for: harness.firstSession.sessionId) != nil)
+        #expect(copilot.releasedRuntimeEvents.contains(.init(localSessionID: harness.firstSession.sessionId, reason: .sessionBecameInactive)) == false)
+    }
+
+    @Test
+    func projectionLagsBehindFinishedRuntimeButReconcileStillReleases() async throws {
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let projectionStore = ExecutionProjectionStore()
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(
+            runtimeSnapshotStore: runtimeSnapshotStore,
+            projectionStore: projectionStore
+        )
+        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         let copilot = RuntimeCoordinatorTestProvider(id: .githubCopilotCLI, runtimeScope: .externalACP)
         let openCode = RuntimeCoordinatorTestProvider(id: .openCodeCLI, runtimeScope: .externalACP)
         let registry = makeRegistry(
@@ -285,7 +380,7 @@ struct ConversationExecutionRuntimeCoordinatorTests {
         )
 
         let runningJobID = UUID()
-        runtimeStateStore.apply(
+        runtimeSnapshotStore.apply(
             .started(
                 sessionID: harness.firstSession.sessionId,
                 jobID: runningJobID,
@@ -293,15 +388,7 @@ struct ConversationExecutionRuntimeCoordinatorTests {
             )
         )
 
-        projectionStore.setProjection(
-            .fixture(
-                sessionID: harness.firstSession.sessionId,
-                runningJobID: runningJobID,
-                activeProviderID: .githubCopilotCLI,
-                currentPhase: .executing,
-                activityState: .running
-            )
-        )
+        projectionStore.apply(runtimeSnapshot: runtimeSnapshotStore.snapshot(for: harness.firstSession.sessionId))
 
         await coordinator.prepareForActivation(
             session: harness.secondSession,
@@ -311,23 +398,11 @@ struct ConversationExecutionRuntimeCoordinatorTests {
             trigger: .selection
         )
 
-        runtimeStateStore.apply(
+        runtimeSnapshotStore.apply(
             .finished(
                 sessionID: harness.firstSession.sessionId,
                 jobID: runningJobID,
                 outcome: .completed
-            )
-        )
-
-        projectionStore.setProjection(
-            .fixture(
-                sessionID: harness.firstSession.sessionId,
-                runningJobID: runningJobID,
-                isRunning: true,
-                activeProviderID: .githubCopilotCLI,
-                currentPhase: .executing,
-                activityState: .running,
-                presentationState: .background
             )
         )
 
@@ -342,9 +417,9 @@ struct ConversationExecutionRuntimeCoordinatorTests {
 
     @Test
     func selectionSwitchKeepsRunningDynamicProviderRuntimeRetainedByReference() async throws {
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
-        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeStateStore: runtimeStateStore)
-        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness(runtimeSnapshotStore: runtimeSnapshotStore)
+        let coordinator = ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         let firstReference = ExecutionProviderReference.externalACP(profileID: UUID())
         let secondReference = ExecutionProviderReference.externalACP(profileID: UUID())
         let firstProvider = RuntimeCoordinatorTestProvider(reference: firstReference, runtimeScope: .externalACP)
@@ -365,7 +440,7 @@ struct ConversationExecutionRuntimeCoordinatorTests {
             trigger: .sessionBootstrap
         )
 
-        runtimeStateStore.apply(
+        runtimeSnapshotStore.apply(
             .started(
                 sessionID: harness.firstSession.sessionId,
                 jobID: UUID(),

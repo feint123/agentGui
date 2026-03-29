@@ -14,11 +14,11 @@ final class ConversationExecutionRuntimeCoordinator {
         let sessionID: String
     }
 
-    private let runtimeStateStore: SessionExecutionRuntimeStateStore
+    private let runtimeSnapshotStore: SessionRuntimeSnapshotStore
     private var scopeStates: [ConversationExecutionRuntimeScope: ScopeState] = [:]
 
-    init(runtimeStateStore: SessionExecutionRuntimeStateStore) {
-        self.runtimeStateStore = runtimeStateStore
+    init(runtimeSnapshotStore: SessionRuntimeSnapshotStore) {
+        self.runtimeSnapshotStore = runtimeSnapshotStore
     }
 
     func prepareForActivation(
@@ -190,7 +190,7 @@ final class ConversationExecutionRuntimeCoordinator {
     ) -> Set<ExecutionProviderReference> {
         var protectedReferences = state.executionLeaseProviderReferencesBySessionID[sessionID] ?? []
 
-        if let runningProviderReference = runtimeState(for: sessionID).runningProviderReference,
+        if let runningProviderReference = runtimeSnapshot(for: sessionID).runningProviderReference,
            shouldProtectRuntime(
                for: sessionID,
                providerReference: runningProviderReference,
@@ -203,8 +203,8 @@ final class ConversationExecutionRuntimeCoordinator {
         return protectedReferences
     }
 
-    private func runtimeState(for sessionID: String) -> SessionExecutionRuntimeState {
-        runtimeStateStore.state(for: sessionID)
+    private func runtimeSnapshot(for sessionID: String) -> SessionRuntimeSnapshot {
+        runtimeSnapshotStore.snapshot(for: sessionID)
     }
 
     private func shouldProtectRuntime(
@@ -212,9 +212,9 @@ final class ConversationExecutionRuntimeCoordinator {
         in scope: ConversationExecutionRuntimeScope,
         registry: ConversationExecutionProviderRegistry
     ) -> Bool {
-        let state = runtimeState(for: sessionID)
-        guard state.isRunning,
-              let providerReference = state.runningProviderReference,
+          let snapshot = runtimeSnapshot(for: sessionID)
+          guard snapshot.isRunning,
+              let providerReference = snapshot.runningProviderReference,
               let protectedProvider = registry.providerIfAvailable(for: providerReference) else {
             return false
         }
@@ -228,9 +228,9 @@ final class ConversationExecutionRuntimeCoordinator {
         in scope: ConversationExecutionRuntimeScope,
         registry: ConversationExecutionProviderRegistry
     ) -> Bool {
-        let state = runtimeState(for: sessionID)
-        guard state.isRunning,
-              state.runningProviderReference == providerReference,
+          let snapshot = runtimeSnapshot(for: sessionID)
+          guard snapshot.isRunning,
+              snapshot.runningProviderReference == providerReference,
               let protectedProvider = registry.providerIfAvailable(for: providerReference) else {
             return false
         }

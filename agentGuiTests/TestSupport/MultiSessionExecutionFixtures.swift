@@ -86,10 +86,10 @@ enum TestProviderError: Error, Equatable {
 enum MultiSessionExecutionFixtureFactory {
     @MainActor
     static func makeProviderActivationHarness(
-        runtimeStateStore: SessionExecutionRuntimeStateStore? = nil,
+        runtimeSnapshotStore: SessionRuntimeSnapshotStore? = nil,
         projectionStore: ExecutionProjectionStore? = nil
     ) throws -> (context: ModelContext, firstSession: Session, secondSession: Session, projectionStore: ExecutionProjectionStore) {
-        _ = runtimeStateStore
+        _ = runtimeSnapshotStore
         let projectionStore = projectionStore ?? ExecutionProjectionStore()
         let harness = try InMemoryAppHarness.makeConfiguredSettingsScenario()
         let secondSession = Session.fixture(sessionId: "multi-session-b", title: "Session B")

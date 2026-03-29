@@ -32,8 +32,8 @@ struct ConversationExecutionRecoveryTests {
 
     @Test
     func restorePendingJobsRecoversBackgroundSessionWithoutSelectionBootstrap() async throws {
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
-        let harness = try ExecutionRecoveryHarness.make(runtimeStateStore: runtimeStateStore)
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let harness = try ExecutionRecoveryHarness.make(runtimeSnapshotStore: runtimeSnapshotStore)
         try await harness.seedRecoverableRunningJob(sessionID: "background-a")
 
         await harness.orchestrator.restorePendingJobs()
@@ -49,8 +49,8 @@ struct ConversationExecutionRecoveryTests {
 
     @Test
     func restorePendingJobsRehydratesProjectionThroughRecoveryEvent() async throws {
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
-        let harness = try ExecutionRecoveryHarness.make(runtimeStateStore: runtimeStateStore)
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let harness = try ExecutionRecoveryHarness.make(runtimeSnapshotStore: runtimeSnapshotStore)
         try await harness.seedRecoverableRunningJob(sessionID: "recover-a")
 
         await harness.orchestrator.restorePendingJobs()
@@ -59,11 +59,26 @@ struct ConversationExecutionRecoveryTests {
         let projection = harness.projectionStore.projection(for: "recover-a")
         #expect(projection.activityState == .running || projection.activityState == .queued)
         #expect(projection.activeProviderReference == .builtIn)
-        let runtimeState = harness.runtimeStateStore.state(for: "recover-a")
-        #expect(runtimeState.runningProviderReference == .builtIn)
-        #expect(runtimeState.isRunning)
+        let runtimeSnapshot = harness.runtimeSnapshotStore.snapshot(for: "recover-a")
+        #expect(runtimeSnapshot.runningProviderReference == .builtIn)
+        #expect(runtimeSnapshot.isRunning)
 
         await harness.provider.releaseAll()
+    }
+
+    @Test
+    func restorePendingJobsPublishesSharedRuntimeSnapshot() async throws {
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let harness = try ExecutionRecoveryHarness.make(runtimeSnapshotStore: runtimeSnapshotStore)
+        try await harness.seedRecoverableRunningJob(sessionID: "shared-runtime")
+
+        await harness.orchestrator.restorePendingJobs()
+        await Task.yield()
+
+        let projection = harness.projectionStore.projection(for: "shared-runtime")
+        let runtimeSnapshot = harness.runtimeSnapshotStore.snapshot(for: "shared-runtime")
+        #expect(projection.activeProviderReference == runtimeSnapshot.runningProviderReference)
+        #expect(runtimeSnapshot.isRunning)
     }
 
     @Test
@@ -115,12 +130,16 @@ struct ConversationExecutionRecoveryTests {
         _ = await mailbox.discardQueuedJob(jobID: validHandle.jobID)
         await mailbox.enqueue(jobID: staleMailboxJobID)
         await mailbox.enqueue(jobID: validHandle.jobID)
-        harness.projectionStore.setProjection(
-            .fixture(
+        harness.projectionStore.apply(
+            runtimeSnapshot: SessionRuntimeSnapshot(
                 sessionID: target.sessionId,
                 queuedJobIDs: [staleMailboxJobID, validHandle.jobID],
-                activeProviderID: .builtInAgent,
-                activityState: .queued
+                runningJobID: nil,
+                runningProviderReference: nil,
+                requestedCancellationJobIDs: [],
+                lastAction: .enqueued,
+                lastUpdatedAt: .now,
+                lastKnownProviderReference: .builtIn
             )
         )
 
@@ -150,12 +169,16 @@ struct ConversationExecutionRecoveryTests {
         _ = await mailbox.discardQueuedJob(jobID: validHandle.jobID)
         await mailbox.enqueue(jobID: staleMailboxJobID)
         await mailbox.enqueue(jobID: validHandle.jobID)
-        harness.projectionStore.setProjection(
-            .fixture(
+        harness.projectionStore.apply(
+            runtimeSnapshot: SessionRuntimeSnapshot(
                 sessionID: target.sessionId,
                 queuedJobIDs: [staleMailboxJobID, validHandle.jobID],
-                activeProviderID: .builtInAgent,
-                activityState: .queued
+                runningJobID: nil,
+                runningProviderReference: nil,
+                requestedCancellationJobIDs: [],
+                lastAction: .enqueued,
+                lastUpdatedAt: .now,
+                lastKnownProviderReference: .builtIn
             )
         )
 
@@ -180,7 +203,8 @@ struct ConversationExecutionRecoveryTests {
         let container = try ModelContainer(for: schema, configurations: [configuration])
         let context = ModelContext(container)
         let projectionStore = ExecutionProjectionStore()
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let runtimeBus = SessionRuntimeBus(store: runtimeSnapshotStore)
         let dynamicReference = ExecutionProviderReference.externalACP(profileID: UUID())
         let dynamicProvider = BlockingExecutionProvider(reference: dynamicReference, runtimeScope: .externalACP)
         let registry = ConversationExecutionProviderRegistry(
@@ -196,12 +220,12 @@ struct ConversationExecutionRecoveryTests {
             projectionStore: projectionStore,
             projectionWriter: SessionExecutionLifecycleFanoutWriter(
                 projectionWriter: projectionStore,
-                runtimeStateWriter: runtimeStateStore
+                runtimeBus: runtimeBus
             ),
             scheduler: ExecutionScheduler(maxConcurrentJobs: 1),
             runtimePool: ExecutionRuntimePool(),
             providerRegistry: registry,
-            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         )
 
         let session = Session.fixture(sessionId: "dynamic-session", title: "Dynamic")
@@ -238,6 +262,26 @@ struct ConversationExecutionRecoveryTests {
 
         await dynamicProvider.releaseAll()
     }
+
+    @Test
+    func cancelRunningPublishesCancelRequestedIntoSharedRuntimeSnapshot() async throws {
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let harness = try ExecutionRecoveryHarness.make(runtimeSnapshotStore: runtimeSnapshotStore)
+        let session = try harness.makeSession(id: "cancel-runtime")
+
+        let handle = try await harness.enqueuePrompt(text: "cancel me", in: session)
+        await waitUntil {
+            harness.runtimeSnapshotStore.snapshot(for: session.sessionId).runningJobID == handle.jobID
+        }
+
+        await harness.orchestrator.cancelRunning(in: session.sessionId)
+
+        let snapshot = harness.runtimeSnapshotStore.snapshot(for: session.sessionId)
+        #expect(snapshot.runningJobID == handle.jobID)
+        #expect(snapshot.isCancelling)
+        #expect(snapshot.lastAction == .cancelRequested)
+        await harness.provider.releaseAll()
+    }
 }
 
 @MainActor
@@ -268,20 +312,21 @@ private struct ExecutionRecoveryHarness {
     let context: ModelContext
     let orchestrator: ConversationExecutionOrchestrator
     let projectionStore: ExecutionProjectionStore
-    let runtimeStateStore: SessionExecutionRuntimeStateStore
+    let runtimeSnapshotStore: SessionRuntimeSnapshotStore
     let provider: BlockingExecutionProvider
 
     static func make(
         maxConcurrentJobs: Int = 2,
         projectionWriter: (any SessionExecutionProjectionWriting)? = nil,
-        runtimeStateStore: SessionExecutionRuntimeStateStore? = nil
+        runtimeSnapshotStore: SessionRuntimeSnapshotStore? = nil
     ) throws -> ExecutionRecoveryHarness {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [configuration])
         let context = ModelContext(container)
         let projectionStore = ExecutionProjectionStore()
-        let runtimeStateStore = runtimeStateStore ?? SessionExecutionRuntimeStateStore()
+        let runtimeSnapshotStore = runtimeSnapshotStore ?? SessionRuntimeSnapshotStore()
+        let runtimeBus = SessionRuntimeBus(store: runtimeSnapshotStore)
         let provider = BlockingExecutionProvider(id: .builtInAgent, runtimeScope: .builtIn)
         let registry = ConversationExecutionProviderRegistry(
             builtIn: provider,
@@ -293,7 +338,7 @@ private struct ExecutionRecoveryHarness {
         )
         let resolvedProjectionWriter = projectionWriter ?? SessionExecutionLifecycleFanoutWriter(
             projectionWriter: projectionStore,
-            runtimeStateWriter: runtimeStateStore
+            runtimeBus: runtimeBus
         )
         let orchestrator = ConversationExecutionOrchestrator(
             modelContext: context,
@@ -306,14 +351,14 @@ private struct ExecutionRecoveryHarness {
             scheduler: ExecutionScheduler(maxConcurrentJobs: maxConcurrentJobs),
             runtimePool: ExecutionRuntimePool(),
             providerRegistry: registry,
-            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         )
 
         return ExecutionRecoveryHarness(
             context: context,
             orchestrator: orchestrator,
             projectionStore: projectionStore,
-            runtimeStateStore: runtimeStateStore,
+            runtimeSnapshotStore: runtimeSnapshotStore,
             provider: provider
         )
     }
@@ -403,6 +448,10 @@ private final class RecordingProjectionWriter: SessionExecutionProjectionWriting
         events.append(event)
         store.apply(event)
     }
+
+    func apply(runtimeSnapshot: SessionRuntimeSnapshot) {
+        store.apply(runtimeSnapshot: runtimeSnapshot)
+    }
 }
 
 @MainActor
@@ -417,7 +466,8 @@ private struct ParallelDispatchHarness {
         let container = try ModelContainer(for: schema, configurations: [configuration])
         let context = ModelContext(container)
         let projectionStore = ExecutionProjectionStore()
-        let runtimeStateStore = SessionExecutionRuntimeStateStore()
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let runtimeBus = SessionRuntimeBus(store: runtimeSnapshotStore)
         let provider = ActivationBlockingExecutionProvider(blockedSessionIDs: ["parallel-a"])
         let registry = ConversationExecutionProviderRegistry(
             builtIn: NoOpExecutionProvider(id: .builtInAgent, runtimeScope: .builtIn),
@@ -436,12 +486,12 @@ private struct ParallelDispatchHarness {
             projectionStore: projectionStore,
             projectionWriter: SessionExecutionLifecycleFanoutWriter(
                 projectionWriter: projectionStore,
-                runtimeStateWriter: runtimeStateStore
+                runtimeBus: runtimeBus
             ),
             scheduler: ExecutionScheduler(maxConcurrentJobs: 2),
             runtimePool: ExecutionRuntimePool(),
             providerRegistry: registry,
-            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(runtimeStateStore: runtimeStateStore)
+            runtimeCoordinator: ConversationExecutionRuntimeCoordinator(runtimeSnapshotStore: runtimeSnapshotStore)
         )
 
         return ParallelDispatchHarness(

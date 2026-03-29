@@ -88,6 +88,9 @@ final class ConversationExecutionOrchestrator {
         }
 
         pendingCancellationJobIDs.insert(runningJobID)
+        projectionWriter.apply(
+            .cancelRequested(sessionID: sessionID, jobID: runningJobID)
+        )
         activePreparationTasksByJobID[runningJobID]?.cancel()
         let driver = runtimePool.driver(for: job.providerReference, registry: providerRegistry)
         await driver.cancel(jobID: runningJobID, sessionID: sessionID)

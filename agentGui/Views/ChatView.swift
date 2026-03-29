@@ -87,7 +87,11 @@ struct ChatView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 readOnlyBanner
-                if let recoverySnapshot = runtimeRecoveryService.recoveryItems(for: session.sessionId).first {
+                if let runtimeRecoveryItem = runtimeRecoveryService.runtimeRecoveryItem(for: session.sessionId) {
+                    ChatReadableWidthContainer {
+                        RecoveryBannerView(runtimeItem: runtimeRecoveryItem)
+                    }
+                } else if let recoverySnapshot = runtimeRecoveryService.recoveryItems(for: session.sessionId).first {
                     ChatReadableWidthContainer {
                         RecoveryBannerView(
                             snapshot: recoverySnapshot,

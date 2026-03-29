@@ -3,13 +3,14 @@ import Testing
 @testable import agentGui
 
 @MainActor
-struct SessionExecutionRuntimeStateStoreTests {
+struct SessionRuntimeBusTests {
     @Test
-    func applyStartEventPublishesRunningRuntimeSnapshot() {
-        let store = SessionExecutionRuntimeStateStore()
+    func busPublishesRunningRuntimeSnapshot() {
+        let store = SessionRuntimeSnapshotStore()
+        let bus = SessionRuntimeBus(store: store)
         let jobID = UUID()
 
-        store.apply(
+        bus.publish(
             .started(
                 sessionID: "session-a",
                 jobID: jobID,
@@ -17,19 +18,20 @@ struct SessionExecutionRuntimeStateStoreTests {
             )
         )
 
-        let snapshot = store.state(for: "session-a")
+        let snapshot = store.snapshot(for: "session-a")
         #expect(snapshot.runningJobID == jobID)
         #expect(snapshot.runningProviderReference == .builtIn)
         #expect(snapshot.isRunning)
     }
 
     @Test
-    func fanoutWriterUpdatesProjectionAndRuntimeStoresTogether() {
+    func fanoutWriterUpdatesProjectionAndRuntimeSnapshotsTogether() {
         let projectionStore = ExecutionProjectionStore()
-        let runtimeStore = SessionExecutionRuntimeStateStore()
+        let runtimeSnapshotStore = SessionRuntimeSnapshotStore()
+        let runtimeBus = SessionRuntimeBus(store: runtimeSnapshotStore)
         let writer = SessionExecutionLifecycleFanoutWriter(
             projectionWriter: projectionStore,
-            runtimeStateWriter: runtimeStore
+            runtimeBus: runtimeBus
         )
 
         writer.apply(
@@ -41,6 +43,6 @@ struct SessionExecutionRuntimeStateStoreTests {
         )
 
         #expect(projectionStore.projection(for: "session-a").isRunning)
-        #expect(runtimeStore.state(for: "session-a").isRunning)
+        #expect(runtimeSnapshotStore.snapshot(for: "session-a").isRunning)
     }
 }
