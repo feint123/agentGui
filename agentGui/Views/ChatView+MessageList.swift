@@ -7,8 +7,8 @@ import SwiftUI
 
 extension ChatView {
 
-    var currentMessageListProjectionTrigger: ChatMessageListProjectionTrigger {
-        ChatMessageListProjectionTrigger(
+    var currentMessageListRefreshKey: ChatMessageListRefreshKey {
+        ChatMessageListRefreshKey(
             messages: allMessages,
             workspaceRoot: currentMessageListWorkspaceRoot
         )
@@ -35,7 +35,7 @@ extension ChatView {
 
     @ViewBuilder
     var messagesArea: some View {
-        let projectionTrigger = currentMessageListProjectionTrigger
+        let refreshKey = currentMessageListRefreshKey
 
         Group {
             switch ChatMessageListPresentationState.resolve(
@@ -51,7 +51,7 @@ extension ChatView {
                 messageListView
             }
         }
-        .task(id: projectionTrigger) {
+        .task(id: refreshKey) {
             await refreshMessageListSnapshotForCurrentState()
         }
     }

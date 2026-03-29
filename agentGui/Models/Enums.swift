@@ -79,7 +79,7 @@ enum ToolKind: String, Codable {
     case todo = "todo"
     case other = "other"
 
-    var icon: String {
+    nonisolated var icon: String {
         switch self {
         case .read: return "doc.text"
         case .edit: return "pencil"
@@ -97,7 +97,7 @@ enum ToolKind: String, Codable {
         }
     }
 
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .read: return "读取文件"
         case .edit: return "写入文件"
@@ -223,7 +223,7 @@ enum ToolStatus: String, Codable {
     case failed = "failed"
     case cancelled = "cancelled"
 
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .inProgress: return "进行中"
         case .success: return "成功"
@@ -232,7 +232,7 @@ enum ToolStatus: String, Codable {
         }
     }
 
-    var icon: String {
+    nonisolated var icon: String {
         switch self {
         case .inProgress: return "circle.dashed"
         case .success: return "checkmark.circle.fill"

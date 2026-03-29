@@ -115,10 +115,6 @@ struct AuditTracePresentation: Equatable {
     var steps: [AgentMessageFlowStep] {
         flow.steps
     }
-
-    func toolCall(for id: UUID) -> ToolCall? {
-        flow.toolCall(for: id)
-    }
 }
 
 struct AgentExecutionProjection: Equatable {
@@ -131,11 +127,7 @@ struct AgentExecutionProjection: Equatable {
 }
 
 extension AgentExecutionProjection {
-    nonisolated static func make(for message: Message) -> AgentExecutionProjection {
-        make(for: message, audit: AgentMessageFlowPresentation.snapshot(for: message))
-    }
-
-    nonisolated static func make(for message: Message, audit flow: AgentMessageFlowSnapshot) -> AgentExecutionProjection {
+    nonisolated static func make(for message: MessageRowBuildInput, audit flow: AgentMessageFlowSnapshot) -> AgentExecutionProjection {
         let toolCalls = allToolCalls(in: message)
         let livePhase = phase(for: message, toolCalls: toolCalls)
         let isLive = message.status == .pending || toolCalls.contains(where: { $0.status == .inProgress })
@@ -165,13 +157,13 @@ extension AgentExecutionProjection {
         )
     }
 
-    nonisolated private static func allToolCalls(in message: Message) -> [ToolCall] {
-        let roundCalls = message.agentRounds.flatMap(\.toolCalls)
-        let directCalls = message.toolCalls.filter { $0.agentRound == nil }
+    nonisolated private static func allToolCalls(in message: MessageRowBuildInput) -> [ToolCallProjectionInput] {
+        let roundCalls = message.rounds.flatMap(\.toolCalls)
+        let directCalls = message.directToolCalls
         return (roundCalls + directCalls).filter { !$0.isPermissionRequest }
     }
 
-    nonisolated private static func phase(for message: Message, toolCalls: [ToolCall]) -> ExecutionPhase {
+    nonisolated private static func phase(for message: MessageRowBuildInput, toolCalls: [ToolCallProjectionInput]) -> ExecutionPhase {
         if message.status == .failed {
             return .blocked
         }
@@ -205,8 +197,8 @@ extension AgentExecutionProjection {
     }
 
     nonisolated private static func makeTheaterCards(
-        for message: Message,
-        toolCalls: [ToolCall],
+        for message: MessageRowBuildInput,
+        toolCalls: [ToolCallProjectionInput],
         phase: ExecutionPhase
     ) -> [LiveTaskCardPresentation] {
         let activeToolCalls = toolCalls
@@ -249,7 +241,7 @@ extension AgentExecutionProjection {
         }
 
         guard message.status == .pending,
-              let round = message.agentRounds.sorted(by: { $0.roundIndex < $1.roundIndex }).last,
+                            let round = message.rounds.sorted(by: { $0.roundIndex < $1.roundIndex }).last,
               let thinking = round.thinkingContent,
               !thinking.isEmpty else {
             return []
@@ -281,7 +273,7 @@ extension AgentExecutionProjection {
         }
     }
 
-    nonisolated private static func latestCompletedToolCall(in toolCalls: [ToolCall]) -> ToolCall? {
+    nonisolated private static func latestCompletedToolCall(in toolCalls: [ToolCallProjectionInput]) -> ToolCallProjectionInput? {
         toolCalls
             .filter { $0.status != .inProgress }
             .sorted {
@@ -292,7 +284,7 @@ extension AgentExecutionProjection {
             .first
     }
 
-    nonisolated private static func recentCompletedToolCalls(in toolCalls: [ToolCall]) -> [ToolCall] {
+    nonisolated private static func recentCompletedToolCalls(in toolCalls: [ToolCallProjectionInput]) -> [ToolCallProjectionInput] {
         Array(
             toolCalls
                 .filter { $0.status != .inProgress }
@@ -305,7 +297,7 @@ extension AgentExecutionProjection {
         )
     }
 
-    nonisolated private static func liveTitle(for toolCall: ToolCall) -> String {
+    nonisolated private static func liveTitle(for toolCall: ToolCallProjectionInput) -> String {
         switch toolCall.kind {
         case .read, .search, .fetch:
             return "检查 \(toolCall.fileName ?? toolCall.title ?? toolCall.kind.displayName)"
@@ -320,7 +312,7 @@ extension AgentExecutionProjection {
         }
     }
 
-    nonisolated private static func completedLiveTitle(for toolCall: ToolCall) -> String {
+    nonisolated private static func completedLiveTitle(for toolCall: ToolCallProjectionInput) -> String {
         switch toolCall.kind {
         case .read, .search, .fetch:
             return "已检查 \(toolCall.fileName ?? toolCall.title ?? toolCall.kind.displayName)"
@@ -335,7 +327,7 @@ extension AgentExecutionProjection {
         }
     }
 
-    nonisolated private static func recentStatusText(for toolCall: ToolCall) -> String {
+    nonisolated private static func recentStatusText(for toolCall: ToolCallProjectionInput) -> String {
         switch toolCall.status {
         case .success:
             return "刚完成"
@@ -349,7 +341,7 @@ extension AgentExecutionProjection {
     }
 
     nonisolated private static func makeTranscript(
-        for message: Message,
+        for message: MessageRowBuildInput,
         flow: AgentMessageFlowSnapshot
     ) -> NarrativeTranscriptPresentation {
         if message.status == .failed {
@@ -369,7 +361,7 @@ extension AgentExecutionProjection {
         return NarrativeTranscriptPresentation(answerText: message.textContent ?? "", isError: false)
     }
 
-    nonisolated private static func makeArtifacts(from toolCalls: [ToolCall]) -> ArtifactShelfPresentation {
+    nonisolated private static func makeArtifacts(from toolCalls: [ToolCallProjectionInput]) -> ArtifactShelfPresentation {
         let changedFiles = makeArtifactChips(from: toolCalls.filter { $0.kind == .edit })
         let referencedFiles = makeArtifactChips(from: toolCalls.filter { $0.kind == .read || $0.kind == .search || $0.kind == .fetch })
         let commandSummaries = toolCalls
@@ -390,7 +382,7 @@ extension AgentExecutionProjection {
         )
     }
 
-    nonisolated private static func makeArtifactChips(from toolCalls: [ToolCall]) -> [ArtifactChipPresentation] {
+    nonisolated private static func makeArtifactChips(from toolCalls: [ToolCallProjectionInput]) -> [ArtifactChipPresentation] {
         var seen: Set<String> = []
         return toolCalls.compactMap { toolCall in
             guard let path = toolCall.filePath ?? toolCall.toolPayloadRef ?? toolCall.title else {
@@ -432,7 +424,7 @@ extension AgentExecutionProjection {
     }
 
     nonisolated private static func artifactDisplayName(
-        for toolCall: ToolCall,
+        for toolCall: ToolCallProjectionInput,
         path: String,
         kind: ArtifactResourceKind
     ) -> String {
@@ -451,7 +443,7 @@ extension AgentExecutionProjection {
     }
 
     nonisolated private static func makeDigest(
-        from toolCalls: [ToolCall],
+        from toolCalls: [ToolCallProjectionInput],
         transcript: NarrativeTranscriptPresentation
     ) -> ExecutionDigestPresentation {
         let inspectedFileCount = toolCalls.filter { $0.kind == .read || $0.kind == .search || $0.kind == .fetch }.count
@@ -499,7 +491,7 @@ extension AgentExecutionProjection {
         return parts.isEmpty ? "整理交付结果" : parts.joined(separator: "，")
     }
 
-    nonisolated private static func statusText(for message: Message) -> String {
+    nonisolated private static func statusText(for message: MessageRowBuildInput) -> String {
         switch message.status {
         case .pending:
             return "进行中"

@@ -1,6 +1,6 @@
 import Foundation
 
-struct MessageAttachmentSnapshot: Equatable {
+struct MessageAttachmentSnapshot: Equatable, @unchecked Sendable {
     let images: [String]
     let pdfs: [String]
     let others: [String]
@@ -12,12 +12,12 @@ struct MessageAttachmentSnapshot: Equatable {
     }
 }
 
-struct UserRowSnapshot: Equatable {
+struct UserRowSnapshot: Equatable, @unchecked Sendable {
     let bodyText: String
     let presentation: UserMessagePresentation
 }
 
-struct AgentRowSnapshot: Equatable {
+struct AgentRowSnapshot: Equatable, @unchecked Sendable {
     let attachments: MessageAttachmentSnapshot
     let execution: AgentExecutionProjection
     let hasAgentRounds: Bool
@@ -27,7 +27,7 @@ struct AgentRowSnapshot: Equatable {
     }
 }
 
-struct MessageRowSnapshot: Identifiable, Equatable {
+struct MessageRowSnapshot: Identifiable, Equatable, @unchecked Sendable {
     let id: UUID
     let direction: MessageDirection
     let status: MessageStatus
@@ -37,7 +37,7 @@ struct MessageRowSnapshot: Identifiable, Equatable {
     let user: UserRowSnapshot?
     let agent: AgentRowSnapshot?
 
-    nonisolated static func make(for message: Message, workspaceRoot: String) -> MessageRowSnapshot {
+    nonisolated static func make(for message: MessageRowBuildInput, workspaceRoot: String) -> MessageRowSnapshot {
         let userSnapshot: UserRowSnapshot?
         if message.direction == .user {
             let parsed = UserMessageTextParser.parse(text: message.textContent ?? "", workspaceRoot: workspaceRoot)
@@ -56,7 +56,7 @@ struct MessageRowSnapshot: Identifiable, Equatable {
             agentSnapshot = AgentRowSnapshot(
                 attachments: attachmentSnapshot(from: message.textContent ?? ""),
                 execution: AgentMessageFlowPresentation.projection(for: message),
-                hasAgentRounds: !message.agentRounds.isEmpty
+                hasAgentRounds: !message.rounds.isEmpty
             )
         }
 

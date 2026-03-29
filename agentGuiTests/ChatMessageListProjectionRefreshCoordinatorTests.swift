@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import agentGui
 
@@ -66,5 +67,48 @@ struct ChatMessageListProjectionRefreshCoordinatorTests {
         #expect(result.didRefresh == false)
         #expect(result.snapshot.rows.map(\.id) == snapshot.rows.map(\.id))
         #expect(result.trigger == trigger)
+    }
+
+    @Test
+    func buildRequestCapturesEverythingNeededForBackgroundProjection() {
+        let session = Session.fixture(sessionId: "projection-input", title: "Projection Input")
+        let workspaceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("projection-input-\(UUID().uuidString)", isDirectory: true)
+        let viewsDirectory = workspaceRoot.appendingPathComponent("Views", isDirectory: true)
+        let fileURL = viewsDirectory.appendingPathComponent("ChatView.swift")
+        try? FileManager.default.createDirectory(at: viewsDirectory, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: fileURL.path, contents: Data())
+        defer {
+            try? FileManager.default.removeItem(at: workspaceRoot)
+        }
+
+        let userMessage = Message.userMessage(text: "open \(fileURL.path)", session: session)
+        userMessage.status = .completed
+
+        let agentMessage = Message.agentMessage(text: "done", session: session)
+        agentMessage.status = .completed
+
+        let toolCall = ToolCall(toolCallId: "tool-1", kind: .execute, message: agentMessage)
+        toolCall.title = "npm test"
+        toolCall.terminalTaskId = "task-1"
+        toolCall.terminalTaskStatus = TerminalTaskStatus.running.rawValue
+        toolCall.terminalExecutionMode = TerminalExecutionMode.detached.rawValue
+        agentMessage.toolCalls = [toolCall]
+
+        let request = ChatMessageListBuildRequest.make(
+            messages: [userMessage, agentMessage],
+            workspaceRoot: workspaceRoot.path,
+            previousCache: [:],
+            generation: 1
+        )
+
+        #expect(request.generation == 1)
+        #expect(request.workspaceRoot == workspaceRoot.path)
+        #expect(request.messages.count == 2)
+        #expect(request.messages[0].id == userMessage.id)
+        #expect(request.messages[0].textContent == userMessage.textContent)
+        #expect(request.messages[0].workspaceDependency?.requiresWorkspaceRoot == true)
+        #expect(request.messages[1].directToolCalls.count == 1)
+        #expect(request.messages[1].directToolCalls[0].terminalTaskId == "task-1")
     }
 }

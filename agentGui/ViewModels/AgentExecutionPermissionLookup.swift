@@ -6,21 +6,21 @@ enum AgentExecutionPermissionLookup {
         for flow: AgentMessageFlowSnapshot,
         permissionCenter: ACPPermissionCenter
     ) -> [ACPPermissionCenter.PendingRequest] {
-        let toolCalls = flow.steps.compactMap { step -> ToolCall? in
+        let toolCalls = flow.steps.compactMap { step -> ToolStepPresentation? in
             guard case .tool(let presentation) = step else {
                 return nil
             }
 
-            return flow.toolCall(for: presentation.toolCallID)
+            return presentation
         }
 
         var seenRequestIDs: Set<String> = []
 
         return toolCalls.reversed().compactMap { toolCall in
-            guard let localSessionID = toolCall.message?.session?.sessionId,
+            guard let localSessionID = toolCall.localSessionID,
                   let request = permissionCenter.pendingRequest(
                       localSessionID: localSessionID,
-                      toolCallID: toolCall.permissionLookupToolCallId
+                      toolCallID: toolCall.permissionLookupToolCallID
                   ),
                   seenRequestIDs.insert(request.id).inserted else {
                 return nil

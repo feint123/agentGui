@@ -1,26 +1,11 @@
 import Foundation
 
-struct AgentMessageFlowSnapshot: Equatable {
+struct AgentMessageFlowSnapshot: Equatable, @unchecked Sendable {
     let messageID: UUID
     let steps: [AgentMessageFlowStep]
-    private let toolCallsByID: [UUID: ToolCall]
-
-    init(messageID: UUID, steps: [AgentMessageFlowStep], toolCallsByID: [UUID: ToolCall] = [:]) {
-        self.messageID = messageID
-        self.steps = steps
-        self.toolCallsByID = toolCallsByID
-    }
-
-    func toolCall(for id: UUID) -> ToolCall? {
-        toolCallsByID[id]
-    }
-
-    static func == (lhs: AgentMessageFlowSnapshot, rhs: AgentMessageFlowSnapshot) -> Bool {
-        lhs.messageID == rhs.messageID && lhs.steps == rhs.steps
-    }
 }
 
-enum AgentMessageFlowStep: Equatable, Identifiable {
+enum AgentMessageFlowStep: Equatable, Identifiable, @unchecked Sendable {
     case result(ResultStepPresentation)
     case thinking(ThinkingStepPresentation)
     case tool(ToolStepPresentation)
@@ -53,13 +38,13 @@ enum AgentMessageFlowStep: Equatable, Identifiable {
     }
 }
 
-struct ResultStepPresentation: Equatable, Identifiable {
+struct ResultStepPresentation: Equatable, Identifiable, @unchecked Sendable {
     let id: String
     let text: String
     let isError: Bool
 }
 
-struct ThinkingStepPresentation: Equatable, Identifiable {
+struct ThinkingStepPresentation: Equatable, Identifiable, @unchecked Sendable {
     let id: String
     let content: String
     let summaryText: String
@@ -67,15 +52,19 @@ struct ThinkingStepPresentation: Equatable, Identifiable {
     let isActive: Bool
 }
 
-struct ToolStepPresentation: Equatable, Identifiable {
+struct ToolStepPresentation: Equatable, Identifiable, @unchecked Sendable {
     let id: String
     let toolCallID: UUID
+    let toolCall: ToolCallProjectionInput
+    let localSessionID: String?
+    let permissionLookupToolCallID: String
     let row: ToolCallRowPresentation
 }
 
-struct SubagentStepPresentation: Equatable, Identifiable {
+struct SubagentStepPresentation: Equatable, Identifiable, @unchecked Sendable {
     let id: String
     let toolCallID: UUID
+    let toolCall: ToolCallProjectionInput
     let title: String
     let task: String?
     let summary: String?
@@ -86,12 +75,12 @@ struct SubagentStepPresentation: Equatable, Identifiable {
 }
 
 enum AgentMessageFlowPresentation {
-    nonisolated static func projection(for message: Message) -> AgentExecutionProjection {
+    nonisolated static func projection(for message: MessageRowBuildInput) -> AgentExecutionProjection {
         let audit = snapshot(for: message)
         return AgentExecutionProjection.make(for: message, audit: audit)
     }
 
-    nonisolated static func snapshot(for message: Message) -> AgentMessageFlowSnapshot {
+    nonisolated static func snapshot(for message: MessageRowBuildInput) -> AgentMessageFlowSnapshot {
         let activeToolID = activeToolCallID(in: message)
         let activeThinkingRoundID = activeThinkingRoundID(in: message, activeToolID: activeToolID)
         let entries = buildEntries(
@@ -104,29 +93,17 @@ enum AgentMessageFlowPresentation {
             messageID: message.id,
             steps: entries.sorted { lhs, rhs in
                 entrySort(lhs: lhs, rhs: rhs)
-            }.map(\.step),
-            toolCallsByID: makeToolLookup(for: message)
+            }.map(\.step)
         )
     }
 
-    nonisolated private static func makeToolLookup(for message: Message) -> [UUID: ToolCall] {
-        let roundCalls = message.agentRounds.flatMap(\.toolCalls)
-        let directCalls = message.toolCalls.filter { $0.agentRound == nil }
-
-        var lookup: [UUID: ToolCall] = [:]
-        for toolCall in roundCalls + directCalls {
-            lookup[toolCall.id] = toolCall
-        }
-        return lookup
-    }
-
     nonisolated private static func buildEntries(
-        for message: Message,
+        for message: MessageRowBuildInput,
         activeToolID: UUID?,
         activeThinkingRoundID: UUID?
     ) -> [FlowEntry] {
         var entries: [FlowEntry] = []
-        let rounds = message.agentRounds.sorted { $0.roundIndex < $1.roundIndex }
+        let rounds = message.rounds.sorted { $0.roundIndex < $1.roundIndex }
 
         for round in rounds {
             let baseTime = round.timestamp
@@ -142,7 +119,7 @@ enum AgentMessageFlowPresentation {
                 entries.append(FlowEntry(order: makeOrder(baseTime, round.roundIndex, 0, 0), step: .thinking(presentation)))
             }
 
-            let roundCalls = round.sortedToolCalls
+            let roundCalls = round.toolCalls
             for (index, toolCall) in roundCalls.enumerated() {
                 entries.append(toolEntry(for: toolCall, roundIndex: round.roundIndex, fallbackDate: baseTime, subIndex: 10 + index, activeToolID: activeToolID))
             }
@@ -161,9 +138,7 @@ enum AgentMessageFlowPresentation {
             }
         }
 
-        let directCalls = message.toolCalls
-            .filter { $0.agentRound == nil }
-            .sorted { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
+        let directCalls = message.directToolCalls.sorted { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
         for (index, toolCall) in directCalls.enumerated() {
             entries.append(toolEntry(for: toolCall, roundIndex: rounds.count + 1, fallbackDate: toolCall.startTime ?? message.timestamp, subIndex: index, activeToolID: activeToolID))
         }
@@ -193,7 +168,7 @@ enum AgentMessageFlowPresentation {
     }
 
     nonisolated private static func toolEntry(
-        for toolCall: ToolCall,
+        for toolCall: ToolCallProjectionInput,
         roundIndex: Int,
         fallbackDate: Date,
         subIndex: Int,
@@ -202,10 +177,11 @@ enum AgentMessageFlowPresentation {
         let isExpanded = activeToolID == toolCall.id
         if toolCall.kind == .subagent {
             let rounds = toolCall.subagentRounds.sorted { $0.roundIndex < $1.roundIndex }
-            let summary = rounds.last(where: { $0.hasText })?.text
+            let summary = rounds.last(where: { ($0.text?.isEmpty == false) })?.text
             let presentation = SubagentStepPresentation(
                 id: "subagent-\(toolCall.id.uuidString)",
                 toolCallID: toolCall.id,
+                toolCall: toolCall,
                 title: toolCall.subagentAgentName ?? toolCall.title ?? toolCall.kind.displayName,
                 task: toolCall.subagentTask,
                 summary: summary,
@@ -221,14 +197,17 @@ enum AgentMessageFlowPresentation {
         let presentation = ToolStepPresentation(
             id: "tool-\(toolCall.id.uuidString)",
             toolCallID: toolCall.id,
+            toolCall: toolCall,
+            localSessionID: toolCall.localSessionID,
+            permissionLookupToolCallID: toolCall.permissionLookupToolCallId,
             row: row
         )
         return FlowEntry(order: makeOrder(toolCall.startTime ?? fallbackDate, roundIndex, subIndex, 0), step: .tool(presentation))
     }
 
-    nonisolated private static func activeToolCallID(in message: Message) -> UUID? {
-        let roundCalls = message.agentRounds.flatMap(\.toolCalls)
-        let directCalls = message.toolCalls.filter { $0.agentRound == nil }
+    nonisolated private static func activeToolCallID(in message: MessageRowBuildInput) -> UUID? {
+        let roundCalls = message.rounds.flatMap(\.toolCalls)
+        let directCalls = message.directToolCalls
         return (roundCalls + directCalls)
             .filter { $0.status == .inProgress }
             .sorted { ($0.startTime ?? .distantPast) < ($1.startTime ?? .distantPast) }
@@ -236,10 +215,10 @@ enum AgentMessageFlowPresentation {
             .id
     }
 
-    nonisolated private static func activeThinkingRoundID(in message: Message, activeToolID: UUID?) -> UUID? {
+    nonisolated private static func activeThinkingRoundID(in message: MessageRowBuildInput, activeToolID: UUID?) -> UUID? {
         guard activeToolID == nil, message.status == .pending else { return nil }
-        let rounds = message.agentRounds.sorted { $0.roundIndex < $1.roundIndex }
-        return rounds.last(where: { $0.hasThinking })?.id
+        let rounds = message.rounds.sorted { $0.roundIndex < $1.roundIndex }
+        return rounds.last(where: { ($0.thinkingContent?.isEmpty == false) })?.id
     }
 
     nonisolated private static func makeOrder(_ date: Date, _ roundIndex: Int, _ subIndex: Int, _ tiebreaker: Int) -> FlowOrder {
@@ -262,7 +241,7 @@ private struct FlowOrder: Comparable {
     let subIndex: Int
     let tiebreaker: Int
 
-    static func < (lhs: FlowOrder, rhs: FlowOrder) -> Bool {
+    nonisolated static func < (lhs: FlowOrder, rhs: FlowOrder) -> Bool {
         if lhs.date != rhs.date { return lhs.date < rhs.date }
         if lhs.roundIndex != rhs.roundIndex { return lhs.roundIndex < rhs.roundIndex }
         if lhs.subIndex != rhs.subIndex { return lhs.subIndex < rhs.subIndex }

@@ -1,7 +1,7 @@
 import Foundation
 
 enum ExecutionTheaterTextFormatter {
-    static func clamp(
+    nonisolated static func clamp(
         _ text: String?,
         maxLines: Int = 5
     ) -> String? {
