@@ -399,7 +399,7 @@ struct ChatMessageListBuildRequest: @unchecked Sendable {
 }
 
 struct CachedMessageRowSnapshot: @unchecked Sendable {
-    let semanticFingerprint: MessageRowFingerprint
+    let semanticFingerprint: MessageRowSemanticFingerprint
     let workspaceDependency: WorkspaceDependencyFingerprint?
     let snapshot: MessageRowSnapshot
 }
@@ -416,7 +416,7 @@ struct ChatMessageListSnapshot: @unchecked Sendable {
 }
 
 struct ChatMessageListProjectionTrigger: Equatable, @unchecked Sendable {
-    let rowFingerprints: [MessageRowFingerprint]
+    let rowFingerprints: [MessageRowSemanticFingerprint]
     let workspaceDependencies: [WorkspaceDependencyFingerprint?]
 
     @MainActor
@@ -432,19 +432,25 @@ struct ChatMessageListProjectionTrigger: Equatable, @unchecked Sendable {
     }
 
     init(request: ChatMessageListBuildRequest) {
-        self.rowFingerprints = request.messages.map(MessageRowFingerprint.init)
+        self.rowFingerprints = request.messages.map(MessageRowSemanticFingerprint.init)
         self.workspaceDependencies = request.messages.map(\.workspaceDependency)
     }
 }
 
 struct ChatMessageListRefreshKey: Equatable, @unchecked Sendable {
-    let workspaceRoot: String
-    let rowFingerprints: [MessageRowFingerprint]
+    let rowFingerprints: [MessageRowSemanticFingerprint]
+    let workspaceDependencies: [WorkspaceDependencyFingerprint?]
 
     @MainActor
     init(messages: [Message], workspaceRoot: String) {
-        self.workspaceRoot = workspaceRoot
-        self.rowFingerprints = messages.map(MessageRowFingerprint.init)
+        let request = ChatMessageListBuildRequest.make(
+            messages: messages,
+            workspaceRoot: workspaceRoot,
+            previousCache: [:],
+            generation: 0
+        )
+        self.rowFingerprints = request.messages.map(MessageRowSemanticFingerprint.init)
+        self.workspaceDependencies = request.messages.map(\.workspaceDependency)
     }
 }
 
@@ -591,7 +597,7 @@ enum ChatMessageListSnapshotBuilder {
         var reusedRowCount = 0
 
         for message in request.messages {
-            let semanticFingerprint = MessageRowFingerprint(message)
+            let semanticFingerprint = MessageRowSemanticFingerprint(message)
             if let cached = request.previousCache[message.id],
                cached.semanticFingerprint == semanticFingerprint,
                cached.workspaceDependency == message.workspaceDependency {
@@ -636,15 +642,18 @@ enum ChatMessageListSnapshotBuilder {
     }
 }
 
-struct MessageRowFingerprint: Hashable, @unchecked Sendable {
+// Row refresh compares only message semantics plus bounded tool/round summaries.
+// Never add raw JSON payloads, unbounded metadata maps, or other opaque large fields here.
+// Comparison cost must stay O(message + toolCalls + rounds), independent of payload size.
+struct MessageRowSemanticFingerprint: Hashable, @unchecked Sendable {
     let messageID: UUID
     let direction: MessageDirection
     let status: MessageStatus
     let timestamp: Date
     let textContent: String?
     let errorMessage: String?
-    let directToolCalls: [ToolCallFingerprint]
-    let rounds: [AgentRoundFingerprint]
+    let directToolCalls: [ToolCallSummaryFingerprint]
+    let rounds: [AgentRoundSummaryFingerprint]
 
     init(_ message: MessageRowBuildInput) {
         self.messageID = message.id
@@ -653,206 +662,102 @@ struct MessageRowFingerprint: Hashable, @unchecked Sendable {
         self.timestamp = message.timestamp
         self.textContent = message.textContent
         self.errorMessage = message.errorMessage
-        self.directToolCalls = message.directToolCalls.map(ToolCallFingerprint.init)
-        self.rounds = message.rounds.map(AgentRoundFingerprint.init)
-    }
-
-    @MainActor
-    init(_ message: Message) {
-        self.messageID = message.id
-        self.direction = message.direction
-        self.status = message.status
-        self.timestamp = message.timestamp
-        self.textContent = message.textContent
-        self.errorMessage = message.errorMessage
-        self.directToolCalls = message.toolCalls
-            .filter { $0.agentRound == nil }
-            .sorted { lhs, rhs in
-                (lhs.startTime ?? .distantPast, lhs.id.uuidString) < (rhs.startTime ?? .distantPast, rhs.id.uuidString)
-            }
-            .map(ToolCallFingerprint.init)
-        self.rounds = message.agentRounds
-            .sorted { lhs, rhs in
-                if lhs.roundIndex != rhs.roundIndex {
-                    return lhs.roundIndex < rhs.roundIndex
-                }
-                return lhs.timestamp < rhs.timestamp
-            }
-            .map(AgentRoundFingerprint.init)
+        self.directToolCalls = message.directToolCalls.map(ToolCallSummaryFingerprint.init)
+        self.rounds = message.rounds.map(AgentRoundSummaryFingerprint.init)
     }
 }
 
-struct AgentRoundFingerprint: Hashable, @unchecked Sendable {
+struct AgentRoundSummaryFingerprint: Hashable, @unchecked Sendable {
     let id: UUID
     let roundIndex: Int
     let text: String?
     let thinkingContent: String?
-    let thinkingSignature: String?
     let timestamp: Date
     let stopReason: String?
-    let toolCalls: [ToolCallFingerprint]
+    let toolCalls: [ToolCallSummaryFingerprint]
 
     init(_ round: AgentRoundProjectionInput) {
         self.id = round.id
         self.roundIndex = round.roundIndex
         self.text = round.text
         self.thinkingContent = round.thinkingContent
-        self.thinkingSignature = round.thinkingSignature
         self.timestamp = round.timestamp
         self.stopReason = round.stopReason
-        self.toolCalls = round.toolCalls.map(ToolCallFingerprint.init)
-    }
-
-    @MainActor
-    init(_ round: AgentRound) {
-        self.id = round.id
-        self.roundIndex = round.roundIndex
-        self.text = round.text
-        self.thinkingContent = round.thinkingContent
-        self.thinkingSignature = round.thinkingSignature
-        self.timestamp = round.timestamp
-        self.stopReason = round.stopReason
-        self.toolCalls = round.sortedToolCalls.map(ToolCallFingerprint.init)
+        self.toolCalls = round.toolCalls.map(ToolCallSummaryFingerprint.init)
     }
 }
 
-struct ToolCallFingerprint: Hashable, @unchecked Sendable {
+struct ToolCallSummaryFingerprint: Hashable, @unchecked Sendable {
     let id: UUID
     let toolCallId: String
     let kind: ToolKind
     let isPermissionRequest: Bool
-    let permissionTargetToolCallId: String?
-    let title: String?
+    let permissionLookupToolCallId: String
     let status: ToolStatus
-    let filePath: String?
-    let diffContent: String?
-    let terminalOutput: String?
-    let toolResultSummary: String?
-    let toolPayloadRef: String?
-    let terminalTaskId: String?
-    let terminalTaskStatus: String?
-    let terminalInteractionPhase: String?
-    let terminalPlannerSummary: String?
-    let terminalApprovalPending: Bool
-    let terminalUserTakeoverActive: Bool
-    let terminalPromptSummary: String?
-    let terminalAgentActionsJSON: String?
-    let terminalExecutionMode: String?
-    let terminalTranscriptPath: String?
-    let terminalCompletionReason: String?
+    let localSessionID: String?
     let startTime: Date?
     let endTime: Date?
-    let subagentAgentName: String?
+    let filePath: String?
+    let toolPayloadRef: String?
+    let terminalExecutionMode: String?
+    let terminalTaskStatus: String?
+    let terminalApprovalPending: Bool
+    let terminalUserTakeoverActive: Bool
+    let terminalTranscriptPath: String?
+    let terminalCompletionReason: String?
     let subagentTask: String?
     let subagentResultKind: String?
     let subagentMessageMetadata: [MetadataPair]
-    let memoryRuntimeProfiles: [String]
-    let memoryRuntimeLayers: [String]
-    let memoryRuntimeWarnings: [String]
-    let memoryRuntimeSnapshotID: String?
-    let memoryBackgroundConsolidationQueued: Bool?
-    let memoryConflictRecordIDs: [String]
-    let memoryConfirmationCandidateIDs: [String]
-    let subagentRounds: [SubagentRoundFingerprint]
-
-    @MainActor
-    init(_ toolCall: ToolCall) {
-        self.id = toolCall.id
-        self.toolCallId = toolCall.toolCallId
-        self.kind = toolCall.kind
-        self.isPermissionRequest = toolCall.isPermissionRequest
-        self.permissionTargetToolCallId = toolCall.permissionTargetToolCallId
-        self.title = toolCall.title
-        self.status = toolCall.status
-        self.filePath = toolCall.filePath
-        self.diffContent = toolCall.diffContent
-        self.terminalOutput = toolCall.terminalOutput
-        self.toolResultSummary = toolCall.toolResultSummary
-        self.toolPayloadRef = toolCall.toolPayloadRef
-        self.terminalTaskId = toolCall.terminalTaskId
-        self.terminalTaskStatus = toolCall.terminalTaskStatus
-        self.terminalInteractionPhase = toolCall.terminalInteractionPhase
-        self.terminalPlannerSummary = toolCall.terminalPlannerSummary
-        self.terminalApprovalPending = toolCall.terminalApprovalPending
-        self.terminalUserTakeoverActive = toolCall.terminalUserTakeoverActive
-        self.terminalPromptSummary = toolCall.terminalPromptSummary
-        self.terminalAgentActionsJSON = toolCall.terminalAgentActionsJSON
-        self.terminalExecutionMode = toolCall.terminalExecutionMode
-        self.terminalTranscriptPath = toolCall.terminalTranscriptPath
-        self.terminalCompletionReason = toolCall.terminalCompletionReason
-        self.startTime = toolCall.startTime
-        self.endTime = toolCall.endTime
-        self.subagentAgentName = toolCall.subagentAgentName
-        self.subagentTask = toolCall.subagentTask
-        self.subagentResultKind = toolCall.subagentResultKind
-        self.subagentMessageMetadata = (toolCall.subagentMessageMetadata ?? [:])
-            .map { MetadataPair(key: $0.key, value: $0.value) }
-            .sorted { lhs, rhs in lhs.key < rhs.key }
-        self.memoryRuntimeProfiles = toolCall.memoryRuntimeProfiles ?? []
-        self.memoryRuntimeLayers = toolCall.memoryRuntimeLayers ?? []
-        self.memoryRuntimeWarnings = toolCall.memoryRuntimeWarnings ?? []
-        self.memoryRuntimeSnapshotID = toolCall.memoryRuntimeSnapshotID
-        self.memoryBackgroundConsolidationQueued = toolCall.memoryBackgroundConsolidationQueued
-        self.memoryConflictRecordIDs = toolCall.memoryConflictRecordIDs ?? []
-        self.memoryConfirmationCandidateIDs = toolCall.memoryConfirmationCandidateIDs ?? []
-        self.subagentRounds = toolCall.subagentRounds
-            .sorted { lhs, rhs in
-                if lhs.roundIndex != rhs.roundIndex {
-                    return lhs.roundIndex < rhs.roundIndex
-                }
-                return lhs.timestamp < rhs.timestamp
-            }
-            .map(SubagentRoundFingerprint.init)
-    }
+    let latestAgentActionSummary: String?
+    let visiblePrimaryText: String
+    let visibleSecondaryText: String?
+    let visibleTertiaryText: String?
+    let visibleStatusText: String
+    let visibleDetailText: String?
+    let visibleDurationText: String?
+    let subagentRounds: [SubagentRoundSummaryFingerprint]
 
     init(_ toolCall: ToolCallProjectionInput) {
+        let row = ToolCallRowPresentation.make(for: toolCall)
         self.id = toolCall.id
         self.toolCallId = toolCall.toolCallId
         self.kind = toolCall.kind
         self.isPermissionRequest = toolCall.isPermissionRequest
-        self.permissionTargetToolCallId = toolCall.permissionTargetToolCallId
-        self.title = toolCall.title
+        self.permissionLookupToolCallId = toolCall.permissionLookupToolCallId
         self.status = toolCall.status
-        self.filePath = toolCall.filePath
-        self.diffContent = toolCall.diffContent
-        self.terminalOutput = toolCall.terminalOutput
-        self.toolResultSummary = toolCall.toolResultSummary
-        self.toolPayloadRef = toolCall.toolPayloadRef
-        self.terminalTaskId = toolCall.terminalTaskId
-        self.terminalTaskStatus = toolCall.terminalTaskStatus
-        self.terminalInteractionPhase = toolCall.terminalInteractionPhase
-        self.terminalPlannerSummary = toolCall.terminalPlannerSummary
-        self.terminalApprovalPending = toolCall.terminalApprovalPending
-        self.terminalUserTakeoverActive = toolCall.terminalUserTakeoverActive
-        self.terminalPromptSummary = toolCall.terminalPromptSummary
-        self.terminalAgentActionsJSON = toolCall.terminalAgentActionsJSON
-        self.terminalExecutionMode = toolCall.terminalExecutionMode
-        self.terminalTranscriptPath = toolCall.terminalTranscriptPath
-        self.terminalCompletionReason = toolCall.terminalCompletionReason
+        self.localSessionID = toolCall.localSessionID
         self.startTime = toolCall.startTime
         self.endTime = toolCall.endTime
-        self.subagentAgentName = toolCall.subagentAgentName
+        self.filePath = toolCall.filePath
+        self.toolPayloadRef = toolCall.toolPayloadRef
+        self.terminalExecutionMode = toolCall.terminalExecutionMode
+        self.terminalTaskStatus = toolCall.terminalTaskStatus
+        self.terminalApprovalPending = toolCall.terminalApprovalPending
+        self.terminalUserTakeoverActive = toolCall.terminalUserTakeoverActive
+        self.terminalTranscriptPath = toolCall.terminalTranscriptPath
+        self.terminalCompletionReason = toolCall.terminalCompletionReason
         self.subagentTask = toolCall.subagentTask
         self.subagentResultKind = toolCall.subagentResultKind
         self.subagentMessageMetadata = toolCall.subagentMessageMetadata
-        self.memoryRuntimeProfiles = toolCall.memoryRuntimeProfiles
-        self.memoryRuntimeLayers = toolCall.memoryRuntimeLayers
-        self.memoryRuntimeWarnings = toolCall.memoryRuntimeWarnings
-        self.memoryRuntimeSnapshotID = toolCall.memoryRuntimeSnapshotID
-        self.memoryBackgroundConsolidationQueued = toolCall.memoryBackgroundConsolidationQueued
-        self.memoryConflictRecordIDs = toolCall.memoryConflictRecordIDs
-        self.memoryConfirmationCandidateIDs = toolCall.memoryConfirmationCandidateIDs
-        self.subagentRounds = toolCall.subagentRounds.map(SubagentRoundFingerprint.init)
+        self.latestAgentActionSummary = latestTerminalAgentActionSummary(from: toolCall.terminalAgentActionsJSON)
+        self.visiblePrimaryText = row.primaryText
+        self.visibleSecondaryText = row.secondaryText
+        self.visibleTertiaryText = row.tertiaryText
+        self.visibleStatusText = row.statusText
+        self.visibleDetailText = row.detailText
+        self.visibleDurationText = row.durationText
+        self.subagentRounds = toolCall.subagentRounds.map(SubagentRoundSummaryFingerprint.init)
     }
 }
 
-struct SubagentRoundFingerprint: Hashable, @unchecked Sendable {
+struct SubagentRoundSummaryFingerprint: Hashable, @unchecked Sendable {
     let id: UUID
     let roundIndex: Int
     let text: String?
     let thinkingContent: String?
     let timestamp: Date
     let stopReason: String?
+    let toolCalls: [ToolCallSummaryFingerprint]
 
     init(_ round: SubagentRoundProjectionInput) {
         self.id = round.id
@@ -861,20 +766,19 @@ struct SubagentRoundFingerprint: Hashable, @unchecked Sendable {
         self.thinkingContent = round.thinkingContent
         self.timestamp = round.timestamp
         self.stopReason = round.stopReason
-    }
-
-    @MainActor
-    init(_ round: AgentRound) {
-        self.id = round.id
-        self.roundIndex = round.roundIndex
-        self.text = round.text
-        self.thinkingContent = round.thinkingContent
-        self.timestamp = round.timestamp
-        self.stopReason = round.stopReason
+        self.toolCalls = round.toolCalls.map(ToolCallSummaryFingerprint.init)
     }
 }
 
 struct MetadataPair: Hashable, @unchecked Sendable {
     let key: String
     let value: String
+}
+
+private func latestTerminalAgentActionSummary(from json: String?) -> String? {
+    guard let json, let data = json.data(using: .utf8) else { return nil }
+    guard let events = try? JSONDecoder().decode([TerminalTaskEvent].self, from: data) else {
+        return nil
+    }
+    return events.last?.summary.trimmingCharacters(in: .whitespacesAndNewlines)
 }

@@ -5,6 +5,26 @@ import Testing
 @MainActor
 struct ChatMessageListProjectionRefreshCoordinatorTests {
     @Test
+    func refreshKeyIgnoresWorkspaceRootWhenNoRowsDependOnWorkspace() {
+        let session = Session.fixture(sessionId: "refresh-key-stable", title: "Refresh Key Stable")
+        let userMessage = Message.userMessage(text: "hello", session: session)
+        let agentMessage = Message.agentMessage(text: "world", session: session)
+        userMessage.status = .completed
+        agentMessage.status = .completed
+
+        let keyA = ChatMessageListRefreshKey(
+            messages: [userMessage, agentMessage],
+            workspaceRoot: "/tmp/refresh-key-a"
+        )
+        let keyB = ChatMessageListRefreshKey(
+            messages: [userMessage, agentMessage],
+            workspaceRoot: "/tmp/refresh-key-b"
+        )
+
+        #expect(keyA == keyB)
+    }
+
+    @Test
     func projectionModelTransitionsFromEmptyToContentWhenFirstMessageArrives() async {
         let session = Session.fixture(sessionId: "chat-first-send", title: "First Send")
         let model = ChatMessageListProjectionModel()

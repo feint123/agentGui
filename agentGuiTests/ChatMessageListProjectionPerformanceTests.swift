@@ -2,7 +2,86 @@ import Foundation
 import Testing
 @testable import agentGui
 
+@MainActor
 struct ChatMessageListProjectionPerformanceTests {
+    @Test
+    func deepToolPayloadUpdateDoesNotInvalidateAgentRowWhenSummaryIsStable() async throws {
+        let worker = ChatMessageListProjectionWorker()
+        let messageID = UUID()
+        let toolCallID = UUID()
+        let timestamp = Date(timeIntervalSince1970: 15)
+        let workspaceRoot = "/tmp/projection-performance-stable-tool"
+
+        let initialMessages = [
+            MessageRowBuildInput.fixture(
+                id: messageID,
+                direction: .agent,
+                timestamp: timestamp,
+                textContent: "completed command",
+                directToolCalls: [
+                    ToolCallProjectionInput(
+                        id: toolCallID,
+                        toolCallId: "execute-stable-1",
+                        kind: .execute,
+                        title: "npm test",
+                        status: .success,
+                        terminalOutput: "stable terminal output",
+                        toolResultSummary: "Tests passed",
+                        toolPayloadRef: "artifact://tests",
+                        terminalTaskId: "task-stable-1",
+                        terminalTaskStatus: TerminalTaskStatus.completed.rawValue,
+                        terminalAgentActionsJSON: makeLargeJSONPayload(seed: "alpha"),
+                        terminalExecutionMode: TerminalExecutionMode.attached.rawValue,
+                        memoryConflictRecordIDs: ["conflict-a", "conflict-b"]
+                    )
+                ]
+            )
+        ]
+        let initialRequest = ChatMessageListBuildRequest(
+            generation: 1,
+            workspaceRoot: workspaceRoot,
+            messages: initialMessages,
+            previousCache: [:]
+        )
+        let initialResult = try await worker.build(request: initialRequest)
+
+        let updatedMessages = [
+            MessageRowBuildInput.fixture(
+                id: messageID,
+                direction: .agent,
+                timestamp: timestamp,
+                textContent: "completed command",
+                directToolCalls: [
+                    ToolCallProjectionInput(
+                        id: toolCallID,
+                        toolCallId: "execute-stable-1",
+                        kind: .execute,
+                        title: "npm test",
+                        status: .success,
+                        terminalOutput: "stable terminal output",
+                        toolResultSummary: "Tests passed",
+                        toolPayloadRef: "artifact://tests",
+                        terminalTaskId: "task-stable-1",
+                        terminalTaskStatus: TerminalTaskStatus.completed.rawValue,
+                        terminalAgentActionsJSON: makeLargeJSONPayload(seed: "beta"),
+                        terminalExecutionMode: TerminalExecutionMode.attached.rawValue,
+                        memoryConflictRecordIDs: ["conflict-c", "conflict-d", "conflict-e"]
+                    )
+                ]
+            )
+        ]
+        let updatedRequest = ChatMessageListBuildRequest(
+            generation: 2,
+            workspaceRoot: workspaceRoot,
+            messages: updatedMessages,
+            previousCache: initialResult.snapshot.cache
+        )
+        let updatedResult = try await worker.build(request: updatedRequest)
+
+        #expect(updatedResult.rebuiltRowIDs.isEmpty)
+        #expect(updatedResult.reusedRowCount == 1)
+    }
+
     @Test
     func largeHistoryIncrementalRefreshReusesOnlyStreamingTailRow() async throws {
         let worker = ChatMessageListProjectionWorker()
@@ -183,6 +262,152 @@ struct ChatMessageListProjectionPerformanceTests {
         #expect(updatedResult.reusedRowCount == 0)
         #expect(updatedResult.snapshot.rows.first?.agent?.execution.theater.cards.first?.subtitle == "Executing auto plan")
     }
+
+    @Test
+    func subagentAuditMetadataUpdatesInvalidateProjectedRow() async throws {
+        let worker = ChatMessageListProjectionWorker()
+        let messageID = UUID()
+        let toolCallID = UUID()
+        let timestamp = Date(timeIntervalSince1970: 25)
+
+        let initialMessages = [
+            MessageRowBuildInput.fixture(
+                id: messageID,
+                direction: .agent,
+                timestamp: timestamp,
+                textContent: "subagent finished",
+                directToolCalls: [
+                    ToolCallProjectionInput(
+                        id: toolCallID,
+                        toolCallId: "subagent-1",
+                        kind: .subagent,
+                        title: "delegate",
+                        status: .success,
+                        subagentTask: "Review diff",
+                        subagentResultKind: "structured",
+                        subagentMessageMetadata: [
+                            MetadataPair(key: "verificationPassed", value: "true"),
+                            MetadataPair(key: "verificationSummary", value: "Verifier stable"),
+                            MetadataPair(key: "source", value: "run-a")
+                        ]
+                    )
+                ]
+            )
+        ]
+        let initialRequest = ChatMessageListBuildRequest(
+            generation: 1,
+            workspaceRoot: "/tmp/projection-performance-subagent-metadata",
+            messages: initialMessages,
+            previousCache: [:]
+        )
+        let initialResult = try await worker.build(request: initialRequest)
+
+        let updatedMessages = [
+            MessageRowBuildInput.fixture(
+                id: messageID,
+                direction: .agent,
+                timestamp: timestamp,
+                textContent: "subagent finished",
+                directToolCalls: [
+                    ToolCallProjectionInput(
+                        id: toolCallID,
+                        toolCallId: "subagent-1",
+                        kind: .subagent,
+                        title: "delegate",
+                        status: .success,
+                        subagentTask: "Review diff",
+                        subagentResultKind: "structured",
+                        subagentMessageMetadata: [
+                            MetadataPair(key: "verificationPassed", value: "true"),
+                            MetadataPair(key: "verificationSummary", value: "Verifier stable"),
+                            MetadataPair(key: "source", value: "run-b")
+                        ]
+                    )
+                ]
+            )
+        ]
+        let updatedRequest = ChatMessageListBuildRequest(
+            generation: 2,
+            workspaceRoot: "/tmp/projection-performance-subagent-metadata",
+            messages: updatedMessages,
+            previousCache: initialResult.snapshot.cache
+        )
+        let updatedResult = try await worker.build(request: updatedRequest)
+
+        #expect(updatedResult.rebuiltRowIDs == [messageID])
+        #expect(updatedResult.reusedRowCount == 0)
+    }
+
+    @Test
+    func subagentResultKindBadgeUpdatesInvalidateProjectedRowWhenSummaryIsStable() async throws {
+        let worker = ChatMessageListProjectionWorker()
+        let messageID = UUID()
+        let toolCallID = UUID()
+        let timestamp = Date(timeIntervalSince1970: 26)
+        let metadata = [
+            MetadataPair(key: "verificationPassed", value: "true"),
+            MetadataPair(key: "verificationSummary", value: "Verifier stable")
+        ]
+
+        let initialMessages = [
+            MessageRowBuildInput.fixture(
+                id: messageID,
+                direction: .agent,
+                timestamp: timestamp,
+                textContent: "subagent finished",
+                directToolCalls: [
+                    ToolCallProjectionInput(
+                        id: toolCallID,
+                        toolCallId: "subagent-2",
+                        kind: .subagent,
+                        title: "delegate",
+                        status: .success,
+                        subagentTask: "Review diff",
+                        subagentResultKind: "structured",
+                        subagentMessageMetadata: metadata
+                    )
+                ]
+            )
+        ]
+        let initialRequest = ChatMessageListBuildRequest(
+            generation: 1,
+            workspaceRoot: "/tmp/projection-performance-subagent-kind",
+            messages: initialMessages,
+            previousCache: [:]
+        )
+        let initialResult = try await worker.build(request: initialRequest)
+
+        let updatedMessages = [
+            MessageRowBuildInput.fixture(
+                id: messageID,
+                direction: .agent,
+                timestamp: timestamp,
+                textContent: "subagent finished",
+                directToolCalls: [
+                    ToolCallProjectionInput(
+                        id: toolCallID,
+                        toolCallId: "subagent-2",
+                        kind: .subagent,
+                        title: "delegate",
+                        status: .success,
+                        subagentTask: "Review diff",
+                        subagentResultKind: "text",
+                        subagentMessageMetadata: metadata
+                    )
+                ]
+            )
+        ]
+        let updatedRequest = ChatMessageListBuildRequest(
+            generation: 2,
+            workspaceRoot: "/tmp/projection-performance-subagent-kind",
+            messages: updatedMessages,
+            previousCache: initialResult.snapshot.cache
+        )
+        let updatedResult = try await worker.build(request: updatedRequest)
+
+        #expect(updatedResult.rebuiltRowIDs == [messageID])
+        #expect(updatedResult.reusedRowCount == 0)
+    }
 }
 
 private func makeHistoryInputs(count: Int, tailText: String) -> [MessageRowBuildInput] {
@@ -196,4 +421,9 @@ private func makeHistoryInputs(count: Int, tailText: String) -> [MessageRowBuild
             textContent: index == count - 1 ? tailText : "message-\(index)"
         )
     }
+}
+
+private func makeLargeJSONPayload(seed: String) -> String {
+    let item = "{\"step\":\"\(seed)\"}"
+    return String(repeating: item, count: 200)
 }

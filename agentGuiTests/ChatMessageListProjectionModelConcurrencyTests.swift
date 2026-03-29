@@ -132,7 +132,7 @@ private actor ProjectionWorkerProbe: ChatMessageListProjectionWorking {
             (
                 message.id,
                 CachedMessageRowSnapshot(
-                    semanticFingerprint: MessageRowFingerprint(message),
+                    semanticFingerprint: MessageRowSemanticFingerprint(message),
                     workspaceDependency: message.workspaceDependency,
                     snapshot: row
                 )
