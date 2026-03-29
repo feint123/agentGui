@@ -157,22 +157,28 @@ struct agentGuiApp: App {
                     updateCoordinator.startUpdaterIfNeeded()
                     claudeService.applyConnectionSettings(settings)
                     claudeService.skillService = skillService
+                    runtimeRecoveryService.configurePersistence(container: sharedModelContainer)
+                    claudeService.runtimeRecoveryRefreshSink = runtimeRecoveryService
                     runtimeRecoveryService.bindRuntimeSnapshotStore(claudeService.executionRuntimeSnapshotStore)
                     reliabilityCenterViewModel.bindRuntimeSnapshotStore(claudeService.executionRuntimeSnapshotStore)
+                    reliabilityCenterViewModel.bindRuntimeRecoveryService(runtimeRecoveryService)
                     Task {
                         await skillService.loadSkills()
                     }
+                    let backgroundObservationService = BackgroundTaskObservationService(
+                        recoveryRefreshSink: runtimeRecoveryService
+                    )
                     let backgroundCoordinator = BackgroundActivityCoordinator(
                         settingsProvider: { settings },
-                        registry: BackgroundTaskRegistry(observationService: BackgroundTaskObservationService()),
+                        registry: BackgroundTaskRegistry(observationService: backgroundObservationService),
                         executionCoordinator: BackgroundTaskExecutionCoordinator(
                             evaluator: BackgroundTaskEligibilityEvaluator(),
-                            observationService: BackgroundTaskObservationService(),
+                            observationService: backgroundObservationService,
                             promptComposer: BackgroundPromptComposer(),
                             adapter: BackgroundAgentLoopAdapter(),
                             resultWriter: BackgroundSessionResultWriter()
                         ),
-                        observationService: BackgroundTaskObservationService(),
+                        observationService: backgroundObservationService,
                         serviceProvider: { claudeService.service ?? AnthropicServiceFactory.service(apiKey: settings.apiKey, basePath: settings.baseURL.isEmpty ? "https://api.anthropic.com" : settings.baseURL, betaHeaders: nil) }
                     )
                     backgroundActivityCoordinator = backgroundCoordinator
@@ -211,7 +217,9 @@ struct agentGuiApp: App {
                         try? await channelBootstrap.startEnabledChannels(modelContext: context)
                         await channelBootstrap.stopDisabledChannels(modelContext: context)
                     }
-                    try? runtimeRecoveryService.refresh(from: context)
+                    Task { @MainActor in
+                        await runtimeRecoveryService.scheduleBootstrapRefresh()
+                    }
                     reliabilityCenterViewModel.refresh(using: context)
                 }
                 .environment(PersistenceCoordinator.shared)
@@ -497,7 +505,8 @@ struct agentGuiApp: App {
                     modelContext: context,
                     persistenceStore: ExecutionPersistenceStore(
                         modelContext: context,
-                        persistenceCoordinator: .shared
+                        persistenceCoordinator: .shared,
+                        recoveryRefreshSink: runtimeRecoveryService
                     ),
                     projectionStore: claudeService.executionProjectionStore,
                     projectionWriter: SessionExecutionLifecycleFanoutWriter(

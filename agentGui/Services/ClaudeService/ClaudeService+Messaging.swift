@@ -216,7 +216,8 @@ extension ClaudeService {
             modelContext: modelContext,
             persistenceStore: ExecutionPersistenceStore(
                 modelContext: modelContext,
-                persistenceCoordinator: .shared
+                persistenceCoordinator: .shared,
+                recoveryRefreshSink: runtimeRecoveryRefreshSink
             ),
             projectionStore: executionProjectionStore,
             projectionWriter: SessionExecutionLifecycleFanoutWriter(

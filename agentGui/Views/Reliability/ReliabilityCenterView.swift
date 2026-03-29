@@ -68,6 +68,9 @@ struct ReliabilityCenterView: View {
         .onAppear {
             viewModel.refresh(using: modelContext)
         }
+        .onChange(of: runtimeRecoveryService.persistedRecoveryItems) { _, _ in
+            viewModel.refresh(using: modelContext)
+        }
     }
 
     private var statusSummary: String {
@@ -104,41 +107,44 @@ struct ReliabilityCenterView: View {
 
     @ViewBuilder
     private var recoveryItemsContent: some View {
-        if viewModel.recoverySnapshots.isEmpty {
+        if viewModel.recoveryItems.isEmpty {
             Text("当前没有待处理的恢复项")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(viewModel.recoverySnapshots.enumerated()), id: \.element.id) { index, snapshot in
+                ForEach(Array(viewModel.recoveryItems.enumerated()), id: \.element.id) { index, item in
                     if index > 0 {
                         Divider()
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(snapshot.sourceKind.displayName)
+                        Text(item.sourceKind.displayName)
                             .font(.subheadline.weight(.semibold))
-                        Text(snapshot.summaryText)
+                        Text(item.summaryText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 8) {
                             Button("查看") {
-                                try? runtimeRecoveryService.markViewed(snapshot, in: modelContext)
-                                viewModel.refresh(using: modelContext)
+                                Task {
+                                    try? await runtimeRecoveryService.markViewed(item)
+                                }
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
 
                             Button("中断") {
-                                try? runtimeRecoveryService.markInterrupted(snapshot, in: modelContext)
-                                viewModel.refresh(using: modelContext)
+                                Task {
+                                    try? await runtimeRecoveryService.markInterrupted(item)
+                                }
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
 
                             Button("清理", role: .destructive) {
-                                try? runtimeRecoveryService.clear(snapshot, in: modelContext)
-                                viewModel.refresh(using: modelContext)
+                                Task {
+                                    try? await runtimeRecoveryService.clear(item)
+                                }
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)

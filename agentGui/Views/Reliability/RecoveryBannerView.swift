@@ -8,13 +8,13 @@ struct RecoveryBannerView: View {
     let onClear: (() -> Void)?
 
     init(
-        snapshot: RecoverySnapshot,
+        item: PersistedRecoveryItem,
         onView: @escaping () -> Void,
         onInterrupt: @escaping () -> Void,
         onClear: @escaping () -> Void
     ) {
-        self.titleText = "检测到可恢复的\(snapshot.sourceKind.displayName)"
-        self.summaryText = snapshot.summaryText
+        self.titleText = item.titleText
+        self.summaryText = item.summaryText
         self.onView = onView
         self.onInterrupt = onInterrupt
         self.onClear = onClear

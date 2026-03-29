@@ -169,6 +169,9 @@ final class ClaudeService {
     /// Optional job-driven execution orchestrator. When unset, messaging falls back to the legacy provider path.
     var executionOrchestrator: ConversationExecutionOrchestrator?
 
+    /// Optional sink used to publish targeted persisted recovery refresh events.
+    var runtimeRecoveryRefreshSink: (any RuntimeRecoveryRefreshSink)?
+
     /// Shared runtime activation coordinator used to coordinate providers that share an execution runtime scope.
     var executionRuntimeCoordinator: ConversationExecutionRuntimeCoordinator
 

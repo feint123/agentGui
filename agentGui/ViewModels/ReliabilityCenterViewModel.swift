@@ -9,9 +9,10 @@ final class ReliabilityCenterViewModel {
     private let dataIntegrityChecker: DataIntegrityChecker
     private let backupArchiveService: BackupArchiveService
     private var runtimeSnapshotStore: SessionRuntimeSnapshotStore?
+    private var runtimeRecoveryService: RuntimeRecoveryService?
 
     private(set) var integrityIssues: [IntegrityIssue] = []
-    private(set) var recoverySnapshots: [RecoverySnapshot] = []
+    private(set) var recoveryItems: [PersistedRecoveryItem] = []
     private(set) var runtimeDiagnostics: [SessionRuntimeDiagnosticsSnapshot] = []
     private(set) var persistenceFailures: [PersistenceFailureRecord] = []
     private(set) var lastBackupStatus: String?
@@ -23,20 +24,22 @@ final class ReliabilityCenterViewModel {
     }
 
     var issueCount: Int {
-        integrityIssues.count + recoverySnapshots.count + runtimeDiagnostics.count + persistenceFailures.count
+        integrityIssues.count + recoveryItems.count + runtimeDiagnostics.count + persistenceFailures.count
     }
 
     func bindRuntimeSnapshotStore(_ runtimeSnapshotStore: SessionRuntimeSnapshotStore) {
         self.runtimeSnapshotStore = runtimeSnapshotStore
     }
 
+    func bindRuntimeRecoveryService(_ runtimeRecoveryService: RuntimeRecoveryService) {
+        self.runtimeRecoveryService = runtimeRecoveryService
+    }
+
     func refresh(using modelContext: ModelContext) {
         _ = try? dataIntegrityChecker.runLightweightChecks(in: modelContext)
         integrityIssues = (try? modelContext.fetch(FetchDescriptor<IntegrityIssue>()))?
             .sorted { $0.createdAt > $1.createdAt } ?? []
-        recoverySnapshots = ((try? modelContext.fetch(FetchDescriptor<RecoverySnapshot>())) ?? [])
-            .filter { $0.handlingState.isVisible }
-            .sorted { $0.updatedAt > $1.updatedAt }
+        recoveryItems = runtimeRecoveryService?.allPersistedRecoveryItems() ?? []
         runtimeDiagnostics = (runtimeSnapshotStore?.allSnapshots ?? [])
             .filter { $0.isRunning || $0.isCancelling || $0.queuedJobIDs.isEmpty == false }
             .map(SessionRuntimeDiagnosticsSnapshot.init(snapshot:))

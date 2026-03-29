@@ -5,17 +5,27 @@ import SwiftData
 final class BackgroundTaskObservationService {
     private let persistenceCoordinator: PersistenceCoordinator
     private let sink: BusinessLogSink?
+    private let recoveryRefreshSink: (any RuntimeRecoveryRefreshSink)?
 
     init(
         persistenceCoordinator: PersistenceCoordinator,
-        sink: BusinessLogSink? = nil
+        sink: BusinessLogSink? = nil,
+        recoveryRefreshSink: (any RuntimeRecoveryRefreshSink)? = nil
     ) {
         self.persistenceCoordinator = persistenceCoordinator
         self.sink = sink
+        self.recoveryRefreshSink = recoveryRefreshSink
     }
 
-    convenience init(sink: BusinessLogSink? = nil) {
-        self.init(persistenceCoordinator: .shared, sink: sink)
+    convenience init(
+        sink: BusinessLogSink? = nil,
+        recoveryRefreshSink: (any RuntimeRecoveryRefreshSink)? = nil
+    ) {
+        self.init(
+            persistenceCoordinator: .shared,
+            sink: sink,
+            recoveryRefreshSink: recoveryRefreshSink
+        )
     }
 
     func recordRegisteredTask(
@@ -64,6 +74,7 @@ final class BackgroundTaskObservationService {
             ],
             sink: sink
         )
+        emitRecoveryRefresh(for: run.id)
         return run
     }
 
@@ -73,6 +84,7 @@ final class BackgroundTaskObservationService {
         reason: String?
     ) {
         append(.backgroundTaskSkipped, to: run)
+        emitRecoveryRefresh(for: run.id)
         emit(
             .backgroundTaskSkipped,
             task: task,
@@ -90,6 +102,7 @@ final class BackgroundTaskObservationService {
         reason: String?
     ) {
         append(.backgroundTaskDeferred, to: run)
+        emitRecoveryRefresh(for: run.id)
         emit(
             .backgroundTaskDeferred,
             task: task,
@@ -106,6 +119,7 @@ final class BackgroundTaskObservationService {
         run: BackgroundAgentTaskRun
     ) {
         append(.backgroundTaskStarted, to: run)
+        emitRecoveryRefresh(for: run.id)
         emit(
             .backgroundTaskStarted,
             task: task,
@@ -121,6 +135,7 @@ final class BackgroundTaskObservationService {
     ) {
         append(.backgroundTaskCompleted, to: run)
         updateAgentSummary(status: "completed", summary: summary, run: run)
+        emitRecoveryRefresh(for: run.id)
         emit(
             .backgroundTaskCompleted,
             task: task,
@@ -139,6 +154,7 @@ final class BackgroundTaskObservationService {
     ) {
         append(.backgroundTaskFailed, to: run)
         updateAgentSummary(status: "failed", summary: summary, run: run)
+        emitRecoveryRefresh(for: run.id)
         emit(
             .backgroundTaskFailed,
             task: task,
@@ -205,5 +221,11 @@ final class BackgroundTaskObservationService {
             metadata: metadata,
             sink: sink
         )
+    }
+
+    private func emitRecoveryRefresh(for runID: UUID) {
+        Task { @MainActor in
+            await recoveryRefreshSink?.enqueue(.backgroundTaskChanged(runIDs: [runID]))
+        }
     }
 }

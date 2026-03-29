@@ -10,13 +10,16 @@ final class ExecutionPersistenceStore {
 
     private let modelContext: ModelContext
     private let persistenceCoordinator: PersistenceCoordinator
+    private let recoveryRefreshSink: (any RuntimeRecoveryRefreshSink)?
 
     init(
         modelContext: ModelContext,
-        persistenceCoordinator: PersistenceCoordinator
+        persistenceCoordinator: PersistenceCoordinator,
+        recoveryRefreshSink: (any RuntimeRecoveryRefreshSink)? = nil
     ) {
         self.modelContext = modelContext
         self.persistenceCoordinator = persistenceCoordinator
+        self.recoveryRefreshSink = recoveryRefreshSink
     }
 
     func enqueue(
@@ -63,6 +66,12 @@ final class ExecutionPersistenceStore {
                 "sourceUserMessageId": sourceUserMessageID.uuidString
             ]
         )
+
+        if let agentMessageID = agentMessage.id as UUID? {
+            Task { @MainActor in
+                await recoveryRefreshSink?.enqueue(.messageChanged(messageIDs: [agentMessageID]))
+            }
+        }
 
         return EnqueueResult(job: job, agentMessageID: agentMessage.id)
     }
@@ -159,6 +168,12 @@ final class ExecutionPersistenceStore {
                 "outcome": outcome.rawValue
             ]
         )
+
+        if let agentMessageID = job.targetAgentMessageID {
+            Task { @MainActor in
+                await recoveryRefreshSink?.enqueue(.messageChanged(messageIDs: [agentMessageID]))
+            }
+        }
     }
 
     func recoverableJobs() throws -> [ExecutionJob] {
@@ -204,6 +219,13 @@ final class ExecutionPersistenceStore {
                     "recoveredJobs": String(jobs.count)
                 ]
             )
+
+            let recoveredMessageIDs = jobs.compactMap(\.targetAgentMessageID)
+            if recoveredMessageIDs.isEmpty == false {
+                Task { @MainActor in
+                    await recoveryRefreshSink?.enqueue(.messageChanged(messageIDs: recoveredMessageIDs))
+                }
+            }
         }
 
         return jobs

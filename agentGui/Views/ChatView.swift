@@ -91,18 +91,24 @@ struct ChatView: View {
                     ChatReadableWidthContainer {
                         RecoveryBannerView(runtimeItem: runtimeRecoveryItem)
                     }
-                } else if let recoverySnapshot = runtimeRecoveryService.recoveryItems(for: session.sessionId).first {
+                } else if let recoveryItem = runtimeRecoveryService.recoveryItems(for: session.sessionId).first {
                     ChatReadableWidthContainer {
                         RecoveryBannerView(
-                            snapshot: recoverySnapshot,
+                            item: recoveryItem,
                             onView: {
-                                try? runtimeRecoveryService.markViewed(recoverySnapshot, in: modelContext)
+                                Task {
+                                    try? await runtimeRecoveryService.markViewed(recoveryItem)
+                                }
                             },
                             onInterrupt: {
-                                try? runtimeRecoveryService.markInterrupted(recoverySnapshot, in: modelContext)
+                                Task {
+                                    try? await runtimeRecoveryService.markInterrupted(recoveryItem)
+                                }
                             },
                             onClear: {
-                                try? runtimeRecoveryService.clear(recoverySnapshot, in: modelContext)
+                                Task {
+                                    try? await runtimeRecoveryService.clear(recoveryItem)
+                                }
                             }
                         )
                     }
@@ -219,8 +225,7 @@ extension ChatView {
     }
 
     private func refreshRecoverySummary() async {
-        await Task.yield()
-        try? runtimeRecoveryService.refresh(from: modelContext)
+        await runtimeRecoveryService.scheduleBootstrapRefresh()
     }
 
     private func warmExecutionRuntimeIfNeeded() async {
