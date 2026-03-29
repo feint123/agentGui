@@ -195,18 +195,20 @@ struct FileEditorView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    BlockDocumentEditor(
+                    CodeEditorView(
                         text: Binding(
                             get: { sessionController.document.textContent },
                             set: { newValue in
                                 sessionController.updateText(newValue)
-                                syncOpenDocumentToLSPIfNeeded(text: newValue)
                             }
                         ),
-                        fileURL: url,
                         persistedText: sessionController.document.persistedText,
+                        fileURL: url,
                         onSelectionChange: { snapshot in
                             workspaceState.editorSelection = snapshot
+                        },
+                        onTextChange: { newValue, _ in
+                            syncOpenDocumentToLSPIfNeeded(text: newValue)
                         }
                     )
                 }
