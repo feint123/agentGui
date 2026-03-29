@@ -46,6 +46,69 @@ struct CodeEditorTextViewIntegrationTests {
     }
 
     @Test
+    func selectionChangePublishesCurrentCursorLocation() {
+        let harness = CodeEditorTextViewHarness(text: "alpha\nbeta\ngamma")
+
+        harness.select(range: NSRange(location: 7, length: 0))
+
+        #expect(harness.lastCursorLocation == CodeEditorTextLocation(line: 2, column: 2))
+        #expect(harness.highlightedLine == 2)
+    }
+
+    @Test
+    func viewportPublishesVisibleLineRange() {
+        let text = (1...60).map { "line \($0)" }.joined(separator: "\n")
+        let harness = CodeEditorTextViewHarness(text: text)
+
+        #expect(harness.lastVisibleLineRange?.contains(1) == true)
+
+        harness.scrollToLine(30)
+
+        #expect(harness.lastVisibleLineRange?.contains(30) == true)
+    }
+
+    @Test
+    func textViewInstallsCodeEditorGutter() {
+        let harness = CodeEditorTextViewHarness(text: "one\ntwo\nthree")
+
+        #expect(harness.scrollView.hasVerticalRuler)
+        #expect(harness.scrollView.rulersVisible)
+        #expect(harness.gutterView != nil)
+    }
+
+    @Test
+    func diagnosticsUpdateReachesGutterWhileCurrentLineRemainsHighlighted() {
+        let harness = CodeEditorTextViewHarness(text: "one\ntwo\nthree")
+
+        harness.select(range: NSRange(location: 5, length: 0))
+        harness.updateDiagnosticsByLine([
+            3: CodeEditorLineDiagnosticSummary(highestSeverity: .warning, messageCount: 1)
+        ])
+
+        #expect(harness.highlightedLine == 2)
+        #expect(harness.gutterView?.currentLine == 2)
+        #expect(harness.gutterView?.diagnosticsByLine[3]?.highestSeverity == .warning)
+    }
+
+    @Test
+    func scrollingAndDiagnosticsUpdateDoNotResetCursorOrText() {
+        let text = (1...80).map { "line \($0)" }.joined(separator: "\n")
+        let harness = CodeEditorTextViewHarness(text: text)
+        let cursorOffset = harness.document.utf16Offset(line: 40, column: 2)
+
+        harness.select(range: NSRange(location: cursorOffset, length: 0))
+        harness.scrollToLine(60)
+        harness.updateDiagnosticsByLine([
+            60: CodeEditorLineDiagnosticSummary(highestSeverity: .error, messageCount: 2)
+        ])
+
+        #expect(harness.boundText == text)
+        #expect(harness.highlightedLine == 40)
+        #expect(harness.lastCursorLocation == CodeEditorTextLocation(line: 40, column: 2))
+        #expect(harness.gutterView?.diagnosticsByLine[60]?.highestSeverity == .error)
+    }
+
+    @Test
     func programmaticTextUpdateDoesNotEmitUserChange() {
         let harness = CodeEditorTextViewHarness(text: "old")
         harness.clearRecordedCallbacks()
@@ -89,6 +152,16 @@ struct CodeEditorTextViewIntegrationTests {
         harness.forceApplyHighlightResult()
 
         #expect(NSDictionary(dictionary: harness.textView.typingAttributes).isEqual(to: before))
+    }
+
+    @Test
+    func applyingHighlightPreservesCurrentLineHighlight() {
+        let harness = CodeEditorTextViewHarness(text: "alpha\nbeta\ngamma", language: "swift")
+
+        harness.select(range: NSRange(location: 7, length: 0))
+        harness.forceApplyHighlightResult()
+
+        #expect(harness.highlightedLine == 2)
     }
 
     @Test

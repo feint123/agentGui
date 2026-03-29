@@ -204,6 +204,8 @@ struct FileEditorView: View {
                         ),
                         persistedText: sessionController.document.persistedText,
                         fileURL: url,
+                        diagnostics: currentFileDiagnosticsSnapshot(for: url),
+                        lspStatus: currentLSPStatus(for: url),
                         onSelectionChange: { snapshot in
                             workspaceState.editorSelection = snapshot
                         },
@@ -279,6 +281,33 @@ struct FileEditorView: View {
             uri: loadedFileURL.standardizedFileURL.absoluteString,
             languageID: languageID,
             text: text
+        )
+    }
+
+    private func currentLSPStatus(for url: URL) -> WorkspacePanelLSPStatusPresentation? {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let workingDirectory = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
+        guard !workingDirectory.isEmpty else {
+            return nil
+        }
+
+        return claudeService.makeWorkspacePanelLSPStatus(
+            workingDirectory: workingDirectory,
+            selectedFilePath: url.standardizedFileURL.path,
+            settings: settings
+        )
+    }
+
+    private func currentFileDiagnosticsSnapshot(for url: URL) -> LSPDiagnosticsSnapshot? {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        let workingDirectory = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
+        guard !workingDirectory.isEmpty else {
+            return nil
+        }
+
+        return claudeService.lspServerManager?.diagnosticsStore.snapshot(
+            for: workingDirectory,
+            uri: url.standardizedFileURL.absoluteString
         )
     }
 }

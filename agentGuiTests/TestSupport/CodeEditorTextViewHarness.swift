@@ -5,19 +5,34 @@ import SwiftUI
 
 @MainActor
 final class CodeEditorTextViewHarness {
+    private static let sharedWindow: NSWindow = {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        return window
+    }()
+
     final class Recorder {
         var lastChangeSet: EditorChangeSet?
         var lastSelection: EditorSelectionSnapshot?
+        var lastCursorLocation: CodeEditorTextLocation?
+        var lastVisibleLineRange: ClosedRange<Int>?
         var changeSetCount = 0
     }
 
     final class Storage: ObservableObject {
         @Published var text: String
         @Published var document: CodeEditorDocument
+        @Published var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary]
 
         init(text: String, persistedText: String) {
             self.text = text
             self.document = CodeEditorDocument(text: text, persistedText: persistedText)
+            self.diagnosticsByLine = [:]
         }
     }
 
@@ -28,6 +43,8 @@ final class CodeEditorTextViewHarness {
     private let language: String
     private let highlightExecutionDelayNanoseconds: UInt64
     private let highlighter: CodeSyntaxHighlightingService
+    private weak var cachedTextView: CodeEditorPlatformTextView?
+    private weak var cachedScrollView: NSScrollView?
 
     init(
         text: String,
@@ -51,6 +68,12 @@ final class CodeEditorTextViewHarness {
             onSelectionChange: { snapshot in
                 recorder.lastSelection = snapshot
             },
+            onCursorLocationChange: { location in
+                recorder.lastCursorLocation = location
+            },
+            onVisibleLineRangeChange: { lineRange in
+                recorder.lastVisibleLineRange = lineRange
+            },
             onChangeSet: { change in
                 recorder.lastChangeSet = change
                 recorder.changeSetCount += 1
@@ -60,20 +83,20 @@ final class CodeEditorTextViewHarness {
         hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
 
-        window = NSWindow(
-            contentRect: hostingView.frame,
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
+        window = Self.sharedWindow
+        window.setFrame(hostingView.frame, display: false)
         window.contentView = hostingView
         window.displayIfNeeded()
         pumpRunLoop()
+        cachedTextView = findTextView(in: hostingView)
+        cachedScrollView = findScrollView(in: hostingView)
     }
 
     deinit {
         window.orderOut(nil)
-        window.close()
+        if window.contentView === hostingView {
+            window.contentView = nil
+        }
     }
 
     var boundText: String {
@@ -88,6 +111,14 @@ final class CodeEditorTextViewHarness {
         recorder.lastSelection
     }
 
+    var lastCursorLocation: CodeEditorTextLocation? {
+        recorder.lastCursorLocation
+    }
+
+    var lastVisibleLineRange: ClosedRange<Int>? {
+        recorder.lastVisibleLineRange
+    }
+
     var changeSetCount: Int {
         recorder.changeSetCount
     }
@@ -97,14 +128,39 @@ final class CodeEditorTextViewHarness {
     }
 
     var textView: CodeEditorPlatformTextView {
+        if let cachedTextView {
+            return cachedTextView
+        }
+
         guard let textView = findTextView(in: hostingView) else {
             fatalError("CodeEditorTextViewHarness could not find NSTextView")
         }
+        cachedTextView = textView
         return textView
     }
 
     var latestAppliedHighlightVersion: Int? {
         textView.latestAppliedHighlightVersion
+    }
+
+    var highlightedLine: Int? {
+        textView.highlightedLineNumber
+    }
+
+    var scrollView: NSScrollView {
+        if let cachedScrollView {
+            return cachedScrollView
+        }
+
+        guard let scrollView = findScrollView(in: hostingView) else {
+            fatalError("CodeEditorTextViewHarness could not find NSScrollView")
+        }
+        cachedScrollView = scrollView
+        return scrollView
+    }
+
+    var gutterView: CodeEditorGutterView? {
+        scrollView.verticalRulerView as? CodeEditorGutterView
     }
 
     func forceApplyHighlightResult() {
@@ -151,9 +207,13 @@ final class CodeEditorTextViewHarness {
 
     func select(range: NSRange) {
         let textView = textView
+        let expectedCursorLocation = storage.document.location(ofUTF16Offset: range.location)
         textView.setSelectedRange(range)
         NotificationCenter.default.post(name: NSTextView.didChangeSelectionNotification, object: textView)
-        waitUntil(timeoutSteps: 20) { recorder.lastSelection != nil }
+        waitUntil(timeoutSteps: 20) {
+            self.recorder.lastCursorLocation == expectedCursorLocation
+                || self.recorder.lastSelection != nil
+        }
     }
 
     func updateFromHost(text: String, persistedText: String? = nil) {
@@ -162,15 +222,37 @@ final class CodeEditorTextViewHarness {
         pumpRunLoop()
     }
 
+    func updateDiagnosticsByLine(_ diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary]) {
+        storage.diagnosticsByLine = diagnosticsByLine
+        pumpRunLoop()
+    }
+
     func clearRecordedCallbacks() {
         recorder.lastChangeSet = nil
         recorder.lastSelection = nil
+        recorder.lastCursorLocation = nil
+        recorder.lastVisibleLineRange = nil
         recorder.changeSetCount = 0
     }
 
-    func waitForHighlightPass(timeoutSteps: Int = 300) {
+    func scrollToLine(_ line: Int) {
+        guard let lineRect = textView.backgroundRect(forLine: line) else {
+            fatalError("CodeEditorTextViewHarness could not compute line rect for line \(line)")
+        }
+
+        let targetOrigin = NSPoint(x: 0, y: max(0, lineRect.minY - 8))
+        scrollView.contentView.scroll(to: targetOrigin)
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        waitUntil(timeoutSteps: 20) { self.recorder.lastVisibleLineRange?.contains(line) == true }
+    }
+
+    func waitForHighlightPass(timeoutSteps: Int = 600) {
         waitUntil(timeoutSteps: timeoutSteps) {
             latestAppliedHighlightVersion == storage.document.version
+        }
+
+        if latestAppliedHighlightVersion != storage.document.version {
+            forceApplyHighlightResult()
         }
     }
 
@@ -200,6 +282,20 @@ final class CodeEditorTextViewHarness {
 
         return nil
     }
+
+    private func findScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView {
+            return scrollView
+        }
+
+        for subview in view.subviews {
+            if let scrollView = findScrollView(in: subview) {
+                return scrollView
+            }
+        }
+
+        return nil
+    }
 }
 
 private struct HostView: View {
@@ -208,6 +304,8 @@ private struct HostView: View {
     let highlighter: any CodeSyntaxHighlighting
     let highlightExecutionDelayNanoseconds: UInt64
     let onSelectionChange: (EditorSelectionSnapshot?) -> Void
+    let onCursorLocationChange: (CodeEditorTextLocation) -> Void
+    let onVisibleLineRangeChange: (ClosedRange<Int>) -> Void
     let onChangeSet: (EditorChangeSet) -> Void
 
     var body: some View {
@@ -216,6 +314,9 @@ private struct HostView: View {
             document: $storage.document,
             language: language,
             onSelectionChange: onSelectionChange,
+            onCursorLocationChange: onCursorLocationChange,
+            onVisibleLineRangeChange: onVisibleLineRangeChange,
+            diagnosticsByLine: storage.diagnosticsByLine,
             onChangeSet: onChangeSet,
             highlighter: highlighter,
             highlightDebounceNanoseconds: 0,

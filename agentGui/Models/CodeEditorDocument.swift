@@ -84,4 +84,14 @@ struct CodeEditorDocument: Equatable {
     func utf16Offset(line: Int, column: Int) -> Int {
         lineIndex.utf16Offset(line: line, column: column)
     }
+
+    func utf16LineRange(forLine line: Int) -> NSRange {
+        let safeLine = max(1, min(line, lineCount))
+        let startOffset = lineIndex.lineStartOffset(forLine: safeLine)
+        let endOffset = safeLine < lineCount
+            ? lineIndex.lineStartOffset(forLine: safeLine + 1)
+            : text.utf16.count
+
+        return NSRange(location: startOffset, length: max(0, endOffset - startOffset))
+    }
 }

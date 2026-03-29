@@ -82,6 +82,55 @@ struct CodeEditorViewIntegrationTests {
 
         #expect(keywordColor == NSColor.systemBlue)
     }
+
+    @Test
+    func codeEditorViewShowsStatusBarState() {
+        let harness = CodeEditorViewHarness(
+            initialText: "let value = 1",
+            persistedText: "let value = 1"
+        )
+
+        harness.select(range: NSRange(location: 4, length: 0))
+        harness.injectLSPStatus(
+            .init(
+                stateText: "运行中",
+                serverID: "swift",
+                selectedFileName: "Sample.swift",
+                errorCount: 1,
+                warningCount: 2,
+                projectSummary: nil
+            )
+        )
+
+        #expect(harness.statusBarText.contains("Ln 1"))
+        #expect(harness.statusBarText.contains("Col 5"))
+        #expect(harness.statusBarText.contains("运行中"))
+        #expect(harness.statusBarText.contains("E1"))
+        #expect(harness.statusBarText.contains("W2"))
+    }
+
+    @Test
+    func diagnosticsUpdateKeepsStatusBarCursorLocation() {
+        let harness = CodeEditorViewHarness(
+            initialText: "let value = 1\nprint(value)",
+            persistedText: "let value = 1\nprint(value)"
+        )
+
+        harness.select(range: NSRange(location: 18, length: 0))
+        harness.injectDiagnostics(
+            .init(
+                workspaceRoot: "/tmp",
+                uri: harness.fileURL.absoluteString,
+                diagnostics: [
+                    .init(message: "syntax", severity: .error, line: 1, character: 0)
+                ]
+            )
+        )
+
+        #expect(harness.statusBarText.contains("Ln 2"))
+        #expect(harness.statusBarText.contains("Col 5"))
+        #expect(harness.statusBarText.contains("E1"))
+    }
 }
 
 @MainActor
@@ -92,6 +141,7 @@ private final class CodeEditorViewHarness {
         var lastSelection: EditorSelectionSnapshot?
         var lastChange: EditorChangeSet?
         var lastForwardedText: String?
+        var statusBarText: String = ""
         var changeSetCount = 0
     }
 
@@ -99,16 +149,20 @@ private final class CodeEditorViewHarness {
         @Published var text: String
         @Published var persistedText: String
         @Published var focusToken: UUID?
+        @Published var lspStatus: WorkspacePanelLSPStatusPresentation?
+        @Published var diagnostics: LSPDiagnosticsSnapshot?
 
         init(text: String, persistedText: String) {
             self.text = text
             self.persistedText = persistedText
+            self.lspStatus = nil
+            self.diagnostics = nil
         }
     }
 
     private let storage: Storage
     private let recorder = Recorder()
-    private let fileURL: URL
+    let fileURL: URL
     let window: NSWindow
     private let hostingView: NSHostingView<HostView>
 
@@ -122,6 +176,9 @@ private final class CodeEditorViewHarness {
             storage: storage,
             fileURL: fileURL,
             highlighter: highlighter,
+            onStatusBarSummaryChange: { summary in
+                recorder.statusBarText = summary
+            },
             onSelectionChange: { snapshot in
                 recorder.lastSelection = snapshot
             },
@@ -148,7 +205,7 @@ private final class CodeEditorViewHarness {
 
     deinit {
         window.orderOut(nil)
-        window.close()
+        window.contentView = nil
     }
 
     var textView: CodeEditorPlatformTextView {
@@ -215,10 +272,32 @@ private final class CodeEditorViewHarness {
         pumpRunLoop()
     }
 
+    func select(range: NSRange) {
+        let textView = textView
+        textView.setSelectedRange(range)
+        NotificationCenter.default.post(name: NSTextView.didChangeSelectionNotification, object: textView)
+        pumpRunLoop()
+    }
+
+    func injectLSPStatus(_ status: WorkspacePanelLSPStatusPresentation) {
+        storage.lspStatus = status
+        pumpRunLoop()
+    }
+
+    func injectDiagnostics(_ diagnostics: LSPDiagnosticsSnapshot) {
+        storage.diagnostics = diagnostics
+        pumpRunLoop()
+    }
+
+    var statusBarText: String {
+        recorder.statusBarText
+    }
+
     func clearRecordedCallbacks() {
         recorder.lastSelection = nil
         recorder.lastChange = nil
         recorder.lastForwardedText = nil
+        recorder.statusBarText = ""
         recorder.changeSetCount = 0
     }
 
@@ -228,6 +307,29 @@ private final class CodeEditorViewHarness {
                 return
             }
             pumpRunLoop()
+        }
+
+        if latestAppliedHighlightVersion != documentVersion {
+            let attributedString = highlighter.highlightedString(
+                code: textView.string,
+                language: CodeSyntaxHighlightingService.languageIdentifier(for: fileURL),
+                appearance: .light,
+                fontSize: textView.font?.pointSize ?? NSFont.systemFontSize
+            )
+            CodeEditorHighlightApplicator.apply(
+                CodeEditorHighlightResult(
+                    version: documentVersion,
+                    lineRange: 1...max(1, (textView.string.split(whereSeparator: \ .isNewline)).count),
+                    replacementRange: NSRange(location: 0, length: (textView.string as NSString).length),
+                    attributedString: attributedString
+                ),
+                to: textView,
+                baseAttributes: [
+                    .font: textView.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+                    .foregroundColor: textView.textColor ?? NSColor.labelColor
+                ]
+            )
+            textView.latestAppliedHighlightVersion = documentVersion
         }
     }
 
@@ -248,12 +350,14 @@ private final class CodeEditorViewHarness {
 
         return nil
     }
+
 }
 
 private struct HostView: View {
     @ObservedObject var storage: CodeEditorViewHarness.Storage
     let fileURL: URL
     let highlighter: any CodeSyntaxHighlighting
+    let onStatusBarSummaryChange: (String) -> Void
     let onSelectionChange: (EditorSelectionSnapshot?) -> Void
     let onTextChange: (String, EditorChangeSet) -> Void
 
@@ -262,7 +366,10 @@ private struct HostView: View {
             text: $storage.text,
             persistedText: storage.persistedText,
             fileURL: fileURL,
+            diagnostics: storage.diagnostics,
+            lspStatus: storage.lspStatus,
             focusRequest: storage.focusToken,
+            onStatusBarSummaryChange: onStatusBarSummaryChange,
             onSelectionChange: onSelectionChange,
             onTextChange: onTextChange,
             highlighter: highlighter,

@@ -7,6 +7,9 @@ struct CodeEditorTextView: NSViewRepresentable {
     var language: String? = nil
     var focusRequest: UUID? = nil
     var onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil
+    var onCursorLocationChange: ((CodeEditorTextLocation) -> Void)? = nil
+    var onVisibleLineRangeChange: ((ClosedRange<Int>) -> Void)? = nil
+    var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary] = [:]
     var onChangeSet: ((EditorChangeSet) -> Void)? = nil
     var highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
@@ -47,16 +50,30 @@ struct CodeEditorTextView: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.string = text
         textView.setAccessibilityIdentifier("codeEditor.textView")
+        textView.lineRangeProvider = { [document] line in
+            document.utf16LineRange(forLine: line)
+        }
+        textView.highlightedLineNumber = document.location(ofUTF16Offset: document.selectedRange.location).line
 
         scrollView.documentView = textView
+        context.coordinator.installGutter(for: scrollView, textView: textView)
         context.coordinator.installSelectionObserver(for: textView)
         context.coordinator.installViewportObserver(for: scrollView, textView: textView)
+        context.coordinator.publishSelection(for: textView)
+        context.coordinator.publishVisibleLineRange(for: textView)
+        context.coordinator.updateGutterState(for: textView)
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? CodeEditorPlatformTextView else { return }
         context.coordinator.parent = self
+        textView.lineRangeProvider = { [document] line in
+            document.utf16LineRange(forLine: line)
+        }
+        textView.highlightedLineNumber = document.location(ofUTF16Offset: document.selectedRange.location).line
+        context.coordinator.installGutter(for: scrollView, textView: textView)
+        context.coordinator.updateGutterState(for: textView)
 
         if textView.string != text {
             let selectedRange = clampedRange(document.selectedRange, for: text)
@@ -64,6 +81,9 @@ struct CodeEditorTextView: NSViewRepresentable {
             textView.string = text
             textView.setSelectedRange(selectedRange)
             context.coordinator.isApplyingProgrammaticUpdate = false
+            textView.highlightedLineNumber = document.location(ofUTF16Offset: selectedRange.location).line
+            context.coordinator.publishVisibleLineRange(for: textView)
+            context.coordinator.updateGutterState(for: textView)
             context.coordinator.scheduleHighlight(
                 for: textView,
                 dirtyLineRange: context.coordinator.fullDocumentLineRange()
@@ -99,7 +119,7 @@ extension CodeEditorTextView {
         private let highlightPipeline = CodeEditorHighlightPipeline()
         private var lastScheduledHighlightVersion: Int?
         private var lastScheduledVisibleLineRange: ClosedRange<Int>?
-        private var lastObservedVisibleLineRange: ClosedRange<Int>?
+        private var lastPublishedVisibleLineRange: ClosedRange<Int>?
 
         init(_ parent: CodeEditorTextView) {
             self.parent = parent
@@ -168,6 +188,21 @@ extension CodeEditorTextView {
             }
         }
 
+        func installGutter(for scrollView: NSScrollView, textView: CodeEditorPlatformTextView) {
+            if scrollView.verticalRulerView as? CodeEditorGutterView == nil {
+                let gutterView = CodeEditorGutterView(
+                    scrollView: scrollView,
+                    textView: textView,
+                    document: parent.document
+                )
+                scrollView.verticalRulerView = gutterView
+            }
+
+            scrollView.hasVerticalRuler = true
+            scrollView.rulersVisible = true
+            scrollView.verticalRulerView?.clientView = textView
+        }
+
         func installViewportObserver(for scrollView: NSScrollView, textView: CodeEditorPlatformTextView) {
             if let viewportObserver {
                 NotificationCenter.default.removeObserver(viewportObserver)
@@ -186,11 +221,42 @@ extension CodeEditorTextView {
 
         func publishSelection(for textView: NSTextView) {
             let selectedRange = textView.selectedRange()
+            let cursorLocation = parent.document.location(ofUTF16Offset: selectedRange.location)
             let snapshot = selectionSnapshot(text: textView.string, range: selectedRange)
             parent.onSelectionChange?(snapshot)
-            DispatchQueue.main.async { [self] in
-                parent.document.markSelection(selectedRange)
+            parent.onCursorLocationChange?(cursorLocation)
+            (textView as? CodeEditorPlatformTextView)?.highlightedLineNumber = cursorLocation.line
+            updateGutterState(for: textView)
+            parent.document.markSelection(selectedRange)
+        }
+
+        func publishVisibleLineRange(for textView: NSTextView) {
+            guard let visibleLineRange = visibleLineRange(for: textView) else {
+                return
             }
+
+            guard visibleLineRange != lastPublishedVisibleLineRange else {
+                return
+            }
+
+            lastPublishedVisibleLineRange = visibleLineRange
+            parent.onVisibleLineRangeChange?(visibleLineRange)
+            updateGutterState(for: textView)
+        }
+
+        func updateGutterState(for textView: NSTextView) {
+            guard let textView = textView as? CodeEditorPlatformTextView,
+                  let gutterView = textView.enclosingScrollView?.verticalRulerView as? CodeEditorGutterView else {
+                return
+            }
+
+            let visibleRange = visibleLineRange(for: textView) ?? fullDocumentLineRange()
+            gutterView.updateLayoutState(
+                document: parent.document,
+                visibleLineRange: visibleRange,
+                currentLine: textView.highlightedLineNumber,
+                diagnosticsByLine: parent.diagnosticsByLine
+            )
         }
 
         func applyFocus(to textView: NSTextView) {
@@ -210,6 +276,7 @@ extension CodeEditorTextView {
             dirtyLineRange: ClosedRange<Int>?
         ) {
             let visibleLineRange = visibleLineRange(for: textView) ?? fullDocumentLineRange()
+            publishVisibleLineRange(for: textView)
             let effectiveDirtyLineRange = dirtyLineRange ?? visibleLineRange
             let shouldSkipDuplicateSchedule =
                 lastScheduledHighlightVersion == parent.document.version &&
@@ -220,7 +287,6 @@ extension CodeEditorTextView {
                 return
             }
 
-            lastObservedVisibleLineRange = visibleLineRange
             lastScheduledHighlightVersion = parent.document.version
             lastScheduledVisibleLineRange = visibleLineRange
 
@@ -385,6 +451,82 @@ enum CodeEditorHighlightApplicator {
 
 final class CodeEditorPlatformTextView: NSTextView {
     var latestAppliedHighlightVersion: Int?
+    var highlightedLineNumber: Int? {
+        didSet {
+            guard highlightedLineNumber != oldValue else {
+                return
+            }
+
+            invalidateLine(oldValue)
+            invalidateLine(highlightedLineNumber)
+        }
+    }
+    var lineRangeProvider: ((Int) -> NSRange)?
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+
+        guard let line = highlightedLineNumber,
+              let lineRect = backgroundRect(forLine: line),
+              lineRect.intersects(rect) else {
+            return
+        }
+
+        NSColor.selectedTextBackgroundColor.withAlphaComponent(0.10).setFill()
+        lineRect.fill()
+    }
+
+    func backgroundRect(forLine line: Int) -> NSRect? {
+        guard let lineRangeProvider,
+              let layoutManager,
+              let textContainer else {
+            return nil
+        }
+
+        let characterRange = lineRangeProvider(line)
+        let safeLength: Int
+        let safeLocation: Int
+        if characterRange.length == 0 {
+            safeLocation = max(0, min(characterRange.location, (string as NSString).length))
+            safeLength = 0
+        } else {
+            safeLocation = characterRange.location
+            safeLength = characterRange.length
+        }
+
+        layoutManager.ensureLayout(for: textContainer)
+
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: safeLocation, length: safeLength),
+            actualCharacterRange: nil
+        )
+
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        if rect.isEmpty {
+            let fallbackLocation = max(0, min(safeLocation, (string as NSString).length))
+            let fallbackGlyphIndex = layoutManager.glyphIndexForCharacter(at: fallbackLocation)
+            rect = layoutManager.lineFragmentRect(forGlyphAt: fallbackGlyphIndex, effectiveRange: nil)
+        }
+
+        guard !rect.isEmpty else {
+            return nil
+        }
+
+        let origin = textContainerOrigin
+        rect.origin.x = 0
+        rect.origin.y += origin.y
+        rect.size.width = bounds.width
+        return rect.integral
+    }
+
+    private func invalidateLine(_ line: Int?) {
+        guard let line,
+              let rect = backgroundRect(forLine: line) else {
+            return
+        }
+
+        setNeedsDisplay(rect)
+    }
 }
 
 private struct PendingEdit {

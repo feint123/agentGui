@@ -5,7 +5,10 @@ struct CodeEditorView: View {
     @Binding var text: String
     let persistedText: String
     let fileURL: URL
+    var diagnostics: LSPDiagnosticsSnapshot? = nil
+    var lspStatus: WorkspacePanelLSPStatusPresentation? = nil
     var focusRequest: UUID? = nil
+    var onStatusBarSummaryChange: ((String) -> Void)? = nil
     var onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil
     var onTextChange: ((String, EditorChangeSet) -> Void)? = nil
     var highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared
@@ -18,7 +21,10 @@ struct CodeEditorView: View {
         text: Binding<String>,
         persistedText: String,
         fileURL: URL,
+        diagnostics: LSPDiagnosticsSnapshot? = nil,
+        lspStatus: WorkspacePanelLSPStatusPresentation? = nil,
         focusRequest: UUID? = nil,
+        onStatusBarSummaryChange: ((String) -> Void)? = nil,
         onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil,
         onTextChange: ((String, EditorChangeSet) -> Void)? = nil,
         highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared,
@@ -28,7 +34,10 @@ struct CodeEditorView: View {
         self._text = text
         self.persistedText = persistedText
         self.fileURL = fileURL
+        self.diagnostics = diagnostics
+        self.lspStatus = lspStatus
         self.focusRequest = focusRequest
+        self.onStatusBarSummaryChange = onStatusBarSummaryChange
         self.onSelectionChange = onSelectionChange
         self.onTextChange = onTextChange
         self.highlighter = highlighter
@@ -38,26 +47,53 @@ struct CodeEditorView: View {
     }
 
     var body: some View {
-        CodeEditorTextView(
-            text: $text,
-            document: $document,
-            language: inferredLanguage,
-            focusRequest: focusRequest,
-            onSelectionChange: onSelectionChange,
-            onChangeSet: { change in
-                onTextChange?(text, change)
-            },
-            highlighter: highlighter,
-            highlightDebounceNanoseconds: highlightDebounceNanoseconds,
-            highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds
-        )
-        .background(Color(NSColor.textBackgroundColor))
+        VStack(spacing: 0) {
+            CodeEditorTextView(
+                text: $text,
+                document: $document,
+                language: inferredLanguage,
+                focusRequest: focusRequest,
+                onSelectionChange: onSelectionChange,
+                diagnosticsByLine: diagnosticsByLine,
+                onChangeSet: { change in
+                    onTextChange?(text, change)
+                },
+                highlighter: highlighter,
+                highlightDebounceNanoseconds: highlightDebounceNanoseconds,
+                highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds
+            )
+            .background(Color(NSColor.textBackgroundColor))
+
+            Divider()
+
+            CodeEditorStatusBar(state: statusBarState)
+        }
         .onChange(of: text) { _, newText in
             syncHostText(newText)
         }
         .onChange(of: persistedText) { _, newPersistedText in
             syncPersistedText(newPersistedText)
         }
+        .onAppear {
+            onStatusBarSummaryChange?(statusBarState.summaryText)
+        }
+        .onChange(of: statusBarState.summaryText) { _, newSummary in
+            onStatusBarSummaryChange?(newSummary)
+        }
+    }
+
+    private var statusBarState: CodeEditorStatusBarState {
+        CodeEditorViewModel.makeStatusBarState(
+            document: document,
+            selectedRange: document.selectedRange,
+            fileURL: fileURL,
+            lspStatus: lspStatus,
+            diagnostics: diagnostics
+        )
+    }
+
+    private var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary] {
+        diagnostics.map(CodeEditorViewModel.diagnosticsByLine) ?? [:]
     }
 
     private func syncHostText(_ hostText: String) {
