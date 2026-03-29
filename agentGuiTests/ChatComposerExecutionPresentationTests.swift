@@ -20,6 +20,19 @@ struct ChatComposerExecutionPresentationTests {
     }
 
     @Test
+    func runningBackgroundProjectionStillUsesProjectionUI() {
+        let projection = SessionExecutionProjection.fixture(
+            sessionID: "session-a",
+            runningJobID: UUID(),
+            activeProviderID: .builtInAgent,
+            activityState: .running,
+            presentationState: .background
+        )
+
+        #expect(ChatComposerExecutionPresentation.shouldUseExecutionProjectionUI(for: projection))
+    }
+
+    @Test
     func backgroundRunningProjectionShowsStatusBadge() {
         let projection = SessionExecutionProjection.fixture(
             sessionID: "session-a",

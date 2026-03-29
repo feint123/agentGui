@@ -73,14 +73,15 @@ final class WorkspaceState {
     @ObservationIgnored
     private var isSynchronizingDetailSelection = false
 
-    var executionRegistry = SessionExecutionRegistry()
+    @ObservationIgnored
+    private(set) var executionProjectionStore: ExecutionProjectionStore?
 
     // MARK: - State
 
     /// 当前激活的对话（nil = 无选中对话）
     var selectedSession: Session? {
         didSet {
-            executionRegistry.setForegroundSession(selectedSession?.sessionId)
+            publishForegroundExecutionSelection()
         }
     }
 
@@ -222,6 +223,15 @@ final class WorkspaceState {
         return globalDefault
     }
 
+    func bindExecutionProjectionStore(_ store: ExecutionProjectionStore) {
+        executionProjectionStore = store
+        publishForegroundExecutionSelection()
+    }
+
+    func executionProjection(for sessionID: String) -> SessionExecutionProjection {
+        executionProjectionStore?.projection(for: sessionID) ?? .empty(sessionID: sessionID)
+    }
+
     func effectiveWorkingDirectoryURL(globalDefault: String) -> URL? {
         let directory = effectiveWorkingDirectory(globalDefault: globalDefault)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -294,6 +304,22 @@ final class WorkspaceState {
         isSynchronizingDetailSelection = true
         updates()
         isSynchronizingDetailSelection = false
+    }
+
+    private func publishForegroundExecutionSelection() {
+        guard let executionProjectionStore else {
+            return
+        }
+
+        let selectedSessionID = selectedSession?.sessionId
+        for sessionID in executionProjectionStore.projections.keys {
+            executionProjectionStore.apply(
+                .presentationChanged(
+                    sessionID: sessionID,
+                    state: sessionID == selectedSessionID ? .foreground : .background
+                )
+            )
+        }
     }
 }
 

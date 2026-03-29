@@ -159,7 +159,7 @@ struct SessionListView: View {
                         SessionRowView(
                             session: item.session,
                             isSelected: workspaceState.selectedSession?.persistentModelID == item.session.persistentModelID,
-                            projection: workspaceState.executionRegistry.projection(for: item.session.sessionId),
+                            projection: workspaceState.executionProjection(for: item.session.sessionId),
                             canRename: item.canRename,
                             globalWorkingDirectory: globalWorkingDirectory,
                             isRenaming: inlineRename.isEditing(item.session.sessionId),

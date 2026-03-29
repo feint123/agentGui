@@ -6,13 +6,13 @@ import Testing
 @MainActor
 struct WorkspaceStateTests {
     @Test
-    func selectingSessionMarksSiblingProjectionAsBackground() {
+    func selectingSessionPublishesForegroundPresentationWithoutRegistry() {
         let projectionStore = ExecutionProjectionStore()
         let workspaceState = WorkspaceState()
-        workspaceState.executionRegistry = SessionExecutionRegistry(projectionStore: projectionStore)
+        workspaceState.bindExecutionProjectionStore(projectionStore)
 
-        let first = Session()
-        let second = Session()
+        let first = Session.fixture(sessionId: "session-a", title: "A")
+        let second = Session.fixture(sessionId: "session-b", title: "B")
 
         projectionStore.apply(.started(
             sessionID: first.sessionId,
@@ -25,9 +25,6 @@ struct WorkspaceStateTests {
             providerReference: .builtIn
         ))
 
-        _ = workspaceState.executionRegistry.controller(for: first.sessionId)
-        _ = workspaceState.executionRegistry.controller(for: second.sessionId)
-
         workspaceState.selectedSession = first
         workspaceState.selectedSession = second
 
@@ -36,32 +33,47 @@ struct WorkspaceStateTests {
     }
 
     @Test
-    func executionRegistryProjectionAccessInvalidatesWhenStoreChanges() {
+    func executionProjectionAccessInvalidatesWhenStoreChanges() {
         let projectionStore = ExecutionProjectionStore()
         let workspaceState = WorkspaceState()
-        workspaceState.executionRegistry = SessionExecutionRegistry(projectionStore: projectionStore)
-
-        let session = Session.fixture(sessionId: "session-observed", title: "Observed")
-        _ = workspaceState.executionRegistry.controller(for: session.sessionId)
+        workspaceState.bindExecutionProjectionStore(projectionStore)
 
         var invalidationCount = 0
         withObservationTracking {
-            _ = workspaceState.executionRegistry.projection(for: session.sessionId)
+            _ = workspaceState.executionProjection(for: "session-observed")
         } onChange: {
             invalidationCount += 1
         }
 
-        projectionStore.setProjection(
-            .fixture(
-                sessionID: session.sessionId,
-                activeProviderID: .builtInAgent,
-                activityState: .blocked,
-                presentationState: .background,
-                needsAttention: true,
-                attentionReason: .userQuestion
-            )
-        )
+        projectionStore.apply(.presentationChanged(sessionID: "session-observed", state: .background))
 
         #expect(invalidationCount == 1)
+    }
+
+    @Test
+    func bindingProjectionStoreSeedsForegroundSelectionFromCurrentSession() {
+        let projectionStore = ExecutionProjectionStore()
+        let workspaceState = WorkspaceState()
+        let selectedSession = Session.fixture(sessionId: "session-selected", title: "Selected")
+        workspaceState.selectedSession = selectedSession
+
+        projectionStore.apply(.started(
+            sessionID: selectedSession.sessionId,
+            jobID: UUID(),
+            providerReference: .builtIn
+        ))
+
+        workspaceState.bindExecutionProjectionStore(projectionStore)
+
+        #expect(workspaceState.executionProjection(for: selectedSession.sessionId).presentationState == .foreground)
+    }
+
+    @Test
+    func unboundProjectionAccessFallsBackToEmptyProjection() {
+        let workspaceState = WorkspaceState()
+
+        let projection = workspaceState.executionProjection(for: "session-a")
+
+        #expect(projection == .empty(sessionID: "session-a"))
     }
 }

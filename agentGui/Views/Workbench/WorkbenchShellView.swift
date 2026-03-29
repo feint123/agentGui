@@ -75,10 +75,7 @@ struct WorkbenchShellView: View {
 
     private func configureOnAppear() {
         claudeService.changeReviewProjectionStore = changeReviewProjectionStore
-        workspaceState.executionRegistry = SessionExecutionRegistry(
-            projectionStore: claudeService.executionProjectionStore
-        )
-        workspaceState.executionRegistry.setForegroundSession(workspaceState.selectedSession?.sessionId)
+        workspaceState.bindExecutionProjectionStore(claudeService.executionProjectionStore)
         workspaceState.contextWindowRouter = WorkbenchContextWindowRouter(
             openWindowWithValue: { windowID, value in
                 openWindow(id: windowID, value: value)
