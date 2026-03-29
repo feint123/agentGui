@@ -174,21 +174,10 @@ extension CodeEditorTextView {
             }
 
             let selectedText = source.substring(with: safeRange)
-            let textBeforeSelection = source.substring(to: safeRange.location)
-            let startLine = newlineCount(in: textBeforeSelection) + 1
-            let endLine = startLine + newlineCount(in: selectedText)
             return EditorSelectionSnapshot(
                 text: selectedText,
-                lineRange: FileLineRange(startLine: startLine, endLine: endLine)
+                lineRange: parent.document.lineRange(for: safeRange)
             )
-        }
-
-        private func newlineCount(in text: String) -> Int {
-            text.reduce(into: 0) { count, character in
-                if character == "\n" {
-                    count += 1
-                }
-            }
         }
     }
 }

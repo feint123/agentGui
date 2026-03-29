@@ -5,6 +5,20 @@ struct CodeEditorDocument: Equatable {
     var persistedText: String
     var version: Int = 0
     var selectedRange: NSRange = NSRange(location: 0, length: 0)
+    private(set) var lineIndex: CodeEditorLineIndex
+
+    init(
+        text: String,
+        persistedText: String,
+        version: Int = 0,
+        selectedRange: NSRange = NSRange(location: 0, length: 0)
+    ) {
+        self.text = text
+        self.persistedText = persistedText
+        self.version = version
+        self.selectedRange = selectedRange
+        lineIndex = CodeEditorLineIndex(text: text)
+    }
 
     mutating func applyUserEdit(
         replacing replacedRange: NSRange,
@@ -13,6 +27,7 @@ struct CodeEditorDocument: Equatable {
         selectedRange: NSRange
     ) -> EditorChangeSet {
         version += 1
+        lineIndex.applyEdit(replacedRange: replacedRange, insertedText: insertedText, in: updatedText)
         text = updatedText
         self.selectedRange = selectedRange
 
@@ -35,6 +50,7 @@ struct CodeEditorDocument: Equatable {
         self.text = text
         self.persistedText = persistedText
         self.selectedRange = selectedRange
+        lineIndex.replaceAll(with: text)
 
         return EditorChangeSet(
             version: version,
@@ -51,5 +67,17 @@ struct CodeEditorDocument: Equatable {
 
     mutating func syncPersistedText(_ text: String) {
         persistedText = text
+    }
+
+    func lineRange(for range: NSRange) -> FileLineRange {
+        lineIndex.lineRange(forUTF16Range: range)
+    }
+
+    func location(ofUTF16Offset offset: Int) -> CodeEditorTextLocation {
+        lineIndex.location(ofUTF16Offset: offset)
+    }
+
+    func utf16Offset(line: Int, column: Int) -> Int {
+        lineIndex.utf16Offset(line: line, column: column)
     }
 }

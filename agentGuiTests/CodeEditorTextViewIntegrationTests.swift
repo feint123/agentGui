@@ -29,6 +29,23 @@ struct CodeEditorTextViewIntegrationTests {
     }
 
     @Test
+    func selectionSnapshotUsesUpdatedLineIndexAfterEdit() {
+        let harness = CodeEditorTextViewHarness(text: "alpha\nbeta")
+
+        harness.replaceCharacters(in: NSRange(location: 5, length: 0), with: "\n")
+        harness.clearRecordedCallbacks()
+        harness.select(range: NSRange(location: 6, length: 0))
+
+        #expect(harness.document.lineRange(for: NSRange(location: 6, length: 0)) == FileLineRange(startLine: 2, endLine: 2))
+        #expect(harness.lastSelection == nil)
+
+        harness.select(range: NSRange(location: 7, length: 4))
+
+        #expect(harness.lastSelection?.text == "beta")
+        #expect(harness.lastSelection?.lineRange == FileLineRange(startLine: 3, endLine: 3))
+    }
+
+    @Test
     func programmaticTextUpdateDoesNotEmitUserChange() {
         let harness = CodeEditorTextViewHarness(text: "old")
         harness.clearRecordedCallbacks()

@@ -11,6 +11,7 @@ struct CodeEditorDocumentTests {
         #expect(document.text == "hello")
         #expect(document.persistedText == "hello")
         #expect(document.selectedRange == NSRange(location: 0, length: 0))
+        #expect(document.lineRange(for: NSRange(location: 0, length: 5)) == FileLineRange(startLine: 1, endLine: 1))
     }
 
     @Test
@@ -69,5 +70,36 @@ struct CodeEditorDocumentTests {
         #expect(document.text == "hello")
         #expect(document.persistedText == "hello")
         #expect(document.selectedRange == NSRange(location: 1, length: 3))
+    }
+
+    @Test
+    func applyUserEditKeepsLineIndexInSync() {
+        var document = CodeEditorDocument(text: "alpha\nbeta", persistedText: "alpha\nbeta")
+
+        _ = document.applyUserEdit(
+            replacing: NSRange(location: 5, length: 0),
+            insertedText: "\n",
+            updatedText: "alpha\n\nbeta",
+            selectedRange: NSRange(location: 6, length: 0)
+        )
+
+        #expect(document.lineRange(for: NSRange(location: 6, length: 0)) == FileLineRange(startLine: 2, endLine: 2))
+        #expect(document.location(ofUTF16Offset: 7) == CodeEditorTextLocation(line: 3, column: 1))
+        #expect(document.utf16Offset(line: 3, column: 1) == 7)
+    }
+
+    @Test
+    func replaceFromDiskRebuildsLineIndex() {
+        var document = CodeEditorDocument(text: "alpha\nbeta", persistedText: "alpha\nbeta")
+
+        _ = document.replaceFromDisk(
+            text: "one\ntwo\nthree",
+            persistedText: "one\ntwo\nthree",
+            selectedRange: NSRange(location: 4, length: 3)
+        )
+
+        #expect(document.lineRange(for: NSRange(location: 4, length: 3)) == FileLineRange(startLine: 2, endLine: 2))
+        #expect(document.location(ofUTF16Offset: 8) == CodeEditorTextLocation(line: 3, column: 1))
+        #expect(document.utf16Offset(line: 2, column: 2) == 5)
     }
 }
