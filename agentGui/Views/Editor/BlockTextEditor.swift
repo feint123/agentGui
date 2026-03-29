@@ -34,6 +34,7 @@ struct BlockTextEditor: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var kind: DocumentBlockKind
+    var language: String? = nil
     var focusRequest: BlockEditorFocusRequest?
     var isEditable: Bool = true
     var onTextChange: (String) -> Void = { _ in }
@@ -173,7 +174,7 @@ struct BlockTextEditor: NSViewRepresentable {
     }
 
     private func applyStyle(to textView: BlockEditorTextView) {
-        BlockInlineMarkdownStyler.apply(to: textView, kind: kind)
+        BlockInlineMarkdownStyler.apply(to: textView, kind: kind, language: language)
     }
 
     @MainActor

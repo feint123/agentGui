@@ -33,6 +33,41 @@ enum BlockInlineMarkdownStyler {
     }
 
     static func apply(to textView: NSTextView, kind: DocumentBlockKind, renderKind: DocumentBlockKind? = nil, hideMarkdownMarkers: Bool = true) {
+        apply(
+            to: textView,
+            kind: kind,
+            renderKind: renderKind,
+            hideMarkdownMarkers: hideMarkdownMarkers,
+            language: nil,
+            highlighter: CodeSyntaxHighlightingService.shared
+        )
+    }
+
+    static func apply(
+        to textView: NSTextView,
+        kind: DocumentBlockKind,
+        renderKind: DocumentBlockKind? = nil,
+        hideMarkdownMarkers: Bool = true,
+        language: String?
+    ) {
+        apply(
+            to: textView,
+            kind: kind,
+            renderKind: renderKind,
+            hideMarkdownMarkers: hideMarkdownMarkers,
+            language: language,
+            highlighter: CodeSyntaxHighlightingService.shared
+        )
+    }
+
+    static func apply(
+        to textView: NSTextView,
+        kind: DocumentBlockKind,
+        renderKind: DocumentBlockKind? = nil,
+        hideMarkdownMarkers: Bool = true,
+        language: String?,
+        highlighter: any CodeSyntaxHighlighting
+    ) {
         let styleKind = renderKind ?? kind
         let projection = BlockInlineMarkdownProjection(sourceText: textView.string)
         textView.font = font(for: styleKind)
@@ -50,7 +85,17 @@ enum BlockInlineMarkdownStyler {
         textStorage.beginEditing()
         textStorage.setAttributes(base, range: fullRange)
 
-        if kind != .code && kind != .source {
+        if styleKind == .code || styleKind == .source {
+            applyCodeHighlighting(
+                in: textStorage,
+                language: language,
+                highlighter: highlighter,
+                textView: textView,
+                baseAttributes: base,
+                baseFont: baseFont
+            )
+            textView.typingAttributes = base
+        } else {
             applyMarkdownRule(.bold, in: textStorage) { match in
                 textStorage.addAttributes([.font: boldFont(from: baseFont)], range: match.contentRange)
             }
@@ -111,6 +156,48 @@ enum BlockInlineMarkdownStyler {
 
     private static func italicFont(from font: NSFont) -> NSFont {
         NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+    }
+
+    private static func applyCodeHighlighting(
+        in textStorage: NSTextStorage,
+        language: String?,
+        highlighter: any CodeSyntaxHighlighting,
+        textView: NSTextView,
+        baseAttributes: [NSAttributedString.Key: Any],
+        baseFont: NSFont
+    ) {
+        guard let normalizedLanguage = CodeSyntaxHighlightingService.normalizedLanguage(language) else {
+            return
+        }
+
+        let highlighted = highlighter.highlightedString(
+            code: textStorage.string,
+            language: normalizedLanguage,
+            appearance: appearance(for: textView),
+            fontSize: baseFont.pointSize
+        )
+
+        guard highlighted.length == textStorage.length else {
+            return
+        }
+
+        highlighted.enumerateAttributes(in: NSRange(location: 0, length: highlighted.length), options: []) { attributes, range, _ in
+            var mergedAttributes = attributes
+            mergedAttributes.removeValue(forKey: .backgroundColor)
+            mergedAttributes[.paragraphStyle] = baseAttributes[.paragraphStyle]
+            if mergedAttributes[.font] == nil {
+                mergedAttributes[.font] = baseAttributes[.font]
+            }
+            if mergedAttributes[.foregroundColor] == nil {
+                mergedAttributes[.foregroundColor] = baseAttributes[.foregroundColor]
+            }
+            textStorage.addAttributes(mergedAttributes, range: range)
+        }
+    }
+
+    private static func appearance(for textView: NSTextView) -> CodeHighlightAppearance {
+        let match = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+        return match == .darkAqua ? .dark : .light
     }
 
     private static func applyHiddenMarkerGlyphs(in textView: NSTextView, projection: BlockInlineMarkdownProjection, hideMarkdownMarkers: Bool) {

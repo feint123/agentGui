@@ -705,12 +705,13 @@ struct CodeBlockView: View {
     let code: String
     let language: String?
 
+    @Environment(\.colorScheme) private var colorScheme
     @SwiftUI.State private var isCopied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(language ?? "code")
+                Text(displayLanguage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -729,13 +730,11 @@ struct CodeBlockView: View {
 
             Divider()
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code.trimmingCharacters(in: .newlines))
-                    .font(.system(.footnote, design: .monospaced))
-                    .textSelection(.enabled)
-                    .padding(12)
+            ScrollView(.horizontal) {
+                SyntaxHighlightedCodeTextView(attributedString: highlightedCode)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .scrollIndicators(.hidden)
         }
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -752,6 +751,20 @@ struct CodeBlockView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation { isCopied = false }
         }
+    }
+
+    private var highlightedCode: NSAttributedString {
+        CodeSyntaxHighlightingService.shared.highlightedString(
+            code: code.trimmingCharacters(in: .newlines),
+            language: language,
+            appearance: colorScheme == .dark ? .dark : .light,
+            fontSize: 12
+        )
+    }
+
+    private var displayLanguage: String {
+        let trimmed = language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "code" : trimmed
     }
 }
 

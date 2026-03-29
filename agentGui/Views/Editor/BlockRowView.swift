@@ -149,6 +149,7 @@ struct BlockRowView: View {
                         text: $block.text,
                         placeholder: block.placeholder,
                         kind: block.kind,
+                        language: block.metadata.language,
                         focusRequest: focusRequest,
                         onTextChange: onTextChange,
                         onCommand: onEditorCommand,
@@ -163,6 +164,7 @@ struct BlockRowView: View {
                         text: block.text,
                         placeholder: block.placeholder,
                         kind: block.kind,
+                        language: block.metadata.language,
                         isChecked: block.metadata.checked,
                         onActivate: onReadOnlyActivate
                     )
@@ -420,6 +422,7 @@ struct BlockRowView: View {
                                 text: block.text,
                                 placeholder: block.placeholder,
                                 kind: .paragraph,
+                                language: nil,
                                 isChecked: false,
                                 onActivate: onReadOnlyActivate
                             )
@@ -470,6 +473,7 @@ struct BlockRowView: View {
                             text: block.text,
                             placeholder: block.placeholder,
                             kind: .paragraph,
+                            language: nil,
                             isChecked: false,
                             onActivate: onReadOnlyActivate
                         )
@@ -665,8 +669,11 @@ private struct BlockReadOnlyTextContent: View {
     let text: String
     let placeholder: String
     let kind: DocumentBlockKind
+    let language: String?
     let isChecked: Bool
     var onActivate: ((Int) -> Void)? = nil
+
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
@@ -676,10 +683,12 @@ private struct BlockReadOnlyTextContent: View {
                     .foregroundStyle(BlockEditorTheme.subtleText)
                         .overlay(readOnlyHitTarget(sourceText: placeholder, displayText: placeholder))
             } else if kind == .code || kind == .source {
-                Text(text)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(Color.primary.opacity(0.88))
-                    .textSelection(.enabled)
+                HighlightedReadOnlyCodeText(
+                    code: text,
+                    language: language,
+                    colorScheme: colorScheme,
+                    fontSize: 12
+                )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(10)
@@ -883,6 +892,8 @@ private struct QuoteInlineBlockView: View {
     let block: DocumentBlock
     let depth: Int
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         switch block.kind {
         case .heading1:
@@ -977,10 +988,12 @@ private struct QuoteInlineBlockView: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(BlockEditorTheme.subtleText)
             }
-            Text(block.text)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(Color.primary.opacity(0.85))
-                .textSelection(.enabled)
+            HighlightedReadOnlyCodeText(
+                code: block.text,
+                language: block.metadata.language,
+                colorScheme: colorScheme,
+                fontSize: 12
+            )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -1017,6 +1030,38 @@ private struct QuoteInlineBlockView: View {
         case 1: return Color.accentColor.opacity(0.45)
         default: return Color.secondary.opacity(0.5)
         }
+    }
+}
+
+private struct HighlightedReadOnlyCodeText: View {
+    let code: String
+    let language: String?
+    let colorScheme: ColorScheme
+    let fontSize: CGFloat
+
+    var body: some View {
+        if let highlighted = highlightedAttributedString {
+            Text(highlighted)
+                .font(.system(size: fontSize, design: .monospaced))
+                .foregroundStyle(Color.primary.opacity(0.88))
+                .textSelection(.enabled)
+        } else {
+            Text(code)
+                .font(.system(size: fontSize, design: .monospaced))
+                .foregroundStyle(Color.primary.opacity(0.88))
+                .textSelection(.enabled)
+        }
+    }
+
+    private var highlightedAttributedString: AttributedString? {
+        let highlighted = CodeSyntaxHighlightingService.shared.highlightedString(
+            code: code,
+            language: language,
+            appearance: colorScheme == .dark ? .dark : .light,
+            fontSize: fontSize
+        )
+
+        return try? AttributedString(highlighted, including: \.appKit)
     }
 }
 
