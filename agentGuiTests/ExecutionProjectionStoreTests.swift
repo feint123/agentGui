@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import agentGui
 
@@ -19,16 +20,9 @@ struct ExecutionProjectionStoreTests {
     @Test
     func setProjectionPersistsAttentionAndPresentationFields() {
         let store = ExecutionProjectionStore()
-        let projection = SessionExecutionProjection(
+        let projection = SessionExecutionProjection.fixture(
             sessionID: "session-a",
-            runningJobID: nil,
-            queuedJobIDs: [],
-            queuedCount: 0,
-            isRunning: false,
-            canEditComposer: true,
-            canSubmitNewJob: true,
             activeProviderID: .builtInAgent,
-            currentPhase: nil,
             activityState: .blocked,
             presentationState: .background,
             needsAttention: true,
@@ -38,5 +32,23 @@ struct ExecutionProjectionStoreTests {
         store.setProjection(projection)
 
         #expect(store.projection(for: "session-a") == projection)
+    }
+
+    @Test
+    func applyEventReducesFromCurrentProjection() {
+        let store = ExecutionProjectionStore()
+        let jobID = UUID()
+
+        store.apply(.enqueued(
+            sessionID: "session-a",
+            jobID: jobID,
+            providerReference: .builtIn
+        ))
+
+        let projection = store.projection(for: "session-a")
+        #expect(projection.queuedJobIDs == [jobID])
+        #expect(projection.queuedCount == 1)
+        #expect(projection.activityState == .queued)
+        #expect(projection.activeProviderReference == .builtIn)
     }
 }

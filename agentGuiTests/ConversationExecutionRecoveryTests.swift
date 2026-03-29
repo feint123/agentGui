@@ -47,6 +47,87 @@ struct ConversationExecutionRecoveryTests {
     }
 
     @Test
+    func restorePendingJobsRehydratesProjectionThroughRecoveryEvent() async throws {
+        let harness = try ExecutionRecoveryHarness.make()
+        try await harness.seedRecoverableRunningJob(sessionID: "recover-a")
+
+        await harness.orchestrator.restorePendingJobs()
+        await Task.yield()
+
+        let projection = harness.projectionStore.projection(for: "recover-a")
+        #expect(projection.activityState == .running || projection.activityState == .queued)
+        #expect(projection.activeProviderReference == .builtIn)
+
+        await harness.provider.releaseAll()
+    }
+
+    @Test
+    func enqueueAndFinishEmitReducerLifecycleEventsInOrder() async throws {
+        let writer = RecordingProjectionWriter()
+        let harness = try ExecutionRecoveryHarness.make(maxConcurrentJobs: 1, projectionWriter: writer)
+        let session = try harness.makeSession(id: "ordered-session")
+
+        let handle = try await harness.enqueuePrompt(text: "ordered", in: session)
+
+        await waitUntil {
+            writer.events.contains(.started(
+                sessionID: session.sessionId,
+                jobID: handle.jobID,
+                providerReference: .builtIn
+            ))
+        }
+        await harness.provider.releaseAll()
+        await waitUntil {
+            writer.events.contains(.finished(
+                sessionID: session.sessionId,
+                jobID: handle.jobID,
+                outcome: .completed
+            ))
+        }
+
+        #expect(writer.events == [
+            .enqueued(sessionID: session.sessionId, jobID: handle.jobID, providerReference: .builtIn),
+            .started(sessionID: session.sessionId, jobID: handle.jobID, providerReference: .builtIn),
+            .finished(sessionID: session.sessionId, jobID: handle.jobID, outcome: .completed)
+        ])
+    }
+
+    @Test
+    func pruningInvalidQueuedJobEmitsPrunedReducerEvent() async throws {
+        let writer = RecordingProjectionWriter()
+        let harness = try ExecutionRecoveryHarness.make(maxConcurrentJobs: 1, projectionWriter: writer)
+        let blocker = try await harness.makeSession(id: "event-blocker")
+        let target = try await harness.makeSession(id: "event-target")
+
+        _ = try await harness.enqueuePrompt(text: "blocker", in: blocker)
+        await Task.yield()
+
+        let staleHandle = try await harness.enqueuePrompt(text: "stale", in: target)
+        let validHandle = try await harness.enqueuePrompt(text: "valid", in: target)
+        let staleMailboxJobID = UUID()
+        let mailbox = try #require(harness.mailbox(for: target.sessionId))
+        _ = await mailbox.discardQueuedJob(jobID: staleHandle.jobID)
+        _ = await mailbox.discardQueuedJob(jobID: validHandle.jobID)
+        await mailbox.enqueue(jobID: staleMailboxJobID)
+        await mailbox.enqueue(jobID: validHandle.jobID)
+        harness.projectionStore.setProjection(
+            .fixture(
+                sessionID: target.sessionId,
+                queuedJobIDs: [staleMailboxJobID, validHandle.jobID],
+                activeProviderID: .builtInAgent,
+                activityState: .queued
+            )
+        )
+
+        await harness.provider.releaseAll()
+        await waitUntil {
+            writer.events.contains(.pruned(sessionID: target.sessionId, jobID: staleMailboxJobID))
+        }
+
+        #expect(writer.events.contains(.pruned(sessionID: target.sessionId, jobID: staleMailboxJobID)))
+    }
+
+    @Test
     func finishingAnotherSessionPrunesStaleQueueHeadAndDispatchesNextValidJob() async throws {
         let harness = try ExecutionRecoveryHarness.make(maxConcurrentJobs: 1)
         let blocker = try await harness.makeSession(id: "blocker")
@@ -65,20 +146,11 @@ struct ConversationExecutionRecoveryTests {
         await mailbox.enqueue(jobID: staleMailboxJobID)
         await mailbox.enqueue(jobID: validHandle.jobID)
         harness.projectionStore.setProjection(
-            SessionExecutionProjection(
+            .fixture(
                 sessionID: target.sessionId,
-                runningJobID: nil,
                 queuedJobIDs: [staleMailboxJobID, validHandle.jobID],
-                queuedCount: 2,
-                isRunning: false,
-                canEditComposer: true,
-                canSubmitNewJob: true,
                 activeProviderID: .builtInAgent,
-                currentPhase: nil,
-                activityState: .queued,
-                presentationState: .foreground,
-                needsAttention: false,
-                attentionReason: nil
+                activityState: .queued
             )
         )
 
@@ -188,7 +260,10 @@ private struct ExecutionRecoveryHarness {
     let projectionStore: ExecutionProjectionStore
     let provider: BlockingExecutionProvider
 
-    static func make(maxConcurrentJobs: Int = 2) throws -> ExecutionRecoveryHarness {
+    static func make(
+        maxConcurrentJobs: Int = 2,
+        projectionWriter: (any SessionExecutionProjectionWriting)? = nil
+    ) throws -> ExecutionRecoveryHarness {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [configuration])
@@ -210,6 +285,7 @@ private struct ExecutionRecoveryHarness {
                 persistenceCoordinator: PersistenceCoordinator()
             ),
             projectionStore: projectionStore,
+            projectionWriter: projectionWriter,
             scheduler: ExecutionScheduler(maxConcurrentJobs: maxConcurrentJobs),
             runtimePool: ExecutionRuntimePool(),
             providerRegistry: registry,
@@ -288,6 +364,26 @@ private struct ExecutionRecoveryHarness {
             sourceUserMessageID: userMessage.id
         )
         _ = try persistenceStore.start(jobID: enqueueResult.job.id, runtimeScope: .builtIn)
+    }
+}
+
+@MainActor
+private final class RecordingProjectionWriter: SessionExecutionProjectionWriting {
+    private let store: ExecutionProjectionStore
+
+    private(set) var events: [SessionExecutionProjectionEvent] = []
+
+    init(store: ExecutionProjectionStore? = nil) {
+        self.store = store ?? ExecutionProjectionStore()
+    }
+
+    func projection(for sessionID: String) -> SessionExecutionProjection {
+        store.projection(for: sessionID)
+    }
+
+    func apply(_ event: SessionExecutionProjectionEvent) {
+        events.append(event)
+        store.apply(event)
     }
 }
 

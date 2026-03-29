@@ -1,28 +1,46 @@
+import Foundation
 import Testing
 @testable import agentGui
 
 @MainActor
 struct SessionExecutionControllerTests {
     @Test
-    func recordBlockedMarksSessionAsNeedingAttention() {
-        let controller = SessionExecutionController(sessionID: "session-a")
+    func controllerDoesNotSeedProjectionStoreOnInitialization() {
+        let store = ExecutionProjectionStore()
 
-        controller.recordBlocked(.userQuestion)
+        _ = SessionExecutionController(sessionID: "session-a", projectionStore: store)
 
-        #expect(controller.projection.activityState == .blocked)
-        #expect(controller.projection.needsAttention)
-        #expect(controller.projection.attentionReason == .userQuestion)
+        #expect(store.projections.isEmpty)
     }
 
     @Test
-    func presentationStateCanMoveToBackgroundWithoutDroppingRunningState() {
-        let controller = SessionExecutionController(sessionID: "session-a")
+    func controllerReflectsStoreProjectionWithoutWriteBack() {
+        let store = ExecutionProjectionStore()
+        store.apply(.enqueued(
+            sessionID: "session-a",
+            jobID: UUID(),
+            providerReference: .builtIn
+        ))
 
-        controller.recordRunning(jobID: nil, providerID: .builtInAgent, currentPhase: .executing)
-        controller.setPresentationState(.background)
+        let controller = SessionExecutionController(sessionID: "session-a", projectionStore: store)
 
-        #expect(controller.projection.activityState == .running)
-        #expect(controller.projection.presentationState == .background)
-        #expect(controller.projection.isRunning)
+        #expect(controller.projection.activityState == .queued)
+        #expect(controller.projection.queuedCount == 1)
+    }
+
+    @Test
+    func syncFromStoreRefreshesControllerProjection() {
+        let store = ExecutionProjectionStore()
+        let controller = SessionExecutionController(sessionID: "session-a", projectionStore: store)
+
+        store.apply(.enqueued(
+            sessionID: "session-a",
+            jobID: UUID(),
+            providerReference: .builtIn
+        ))
+        controller.syncFromStore()
+
+        #expect(controller.projection.activityState == .queued)
+        #expect(controller.projection.activeProviderReference == .builtIn)
     }
 }

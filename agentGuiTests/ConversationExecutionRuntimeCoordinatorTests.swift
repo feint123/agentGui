@@ -230,20 +230,12 @@ struct ConversationExecutionRuntimeCoordinatorTests {
         )
 
         projectionStore.setProjection(
-            SessionExecutionProjection(
+            .fixture(
                 sessionID: harness.firstSession.sessionId,
                 runningJobID: UUID(),
-                queuedJobIDs: [],
-                queuedCount: 0,
-                isRunning: true,
-                canEditComposer: true,
-                canSubmitNewJob: true,
                 activeProviderID: .githubCopilotCLI,
                 currentPhase: .executing,
-                activityState: .running,
-                presentationState: .foreground,
-                needsAttention: false,
-                attentionReason: nil
+                activityState: .running
             )
         )
 
@@ -285,20 +277,12 @@ struct ConversationExecutionRuntimeCoordinatorTests {
         )
 
         projectionStore.setProjection(
-            SessionExecutionProjection(
+            .fixture(
                 sessionID: harness.firstSession.sessionId,
                 runningJobID: UUID(),
-                queuedJobIDs: [],
-                queuedCount: 0,
-                isRunning: true,
-                canEditComposer: true,
-                canSubmitNewJob: true,
                 activeProviderID: .githubCopilotCLI,
                 currentPhase: .executing,
-                activityState: .running,
-                presentationState: .foreground,
-                needsAttention: false,
-                attentionReason: nil
+                activityState: .running
             )
         )
 
@@ -311,20 +295,10 @@ struct ConversationExecutionRuntimeCoordinatorTests {
         )
 
         projectionStore.setProjection(
-            SessionExecutionProjection(
+            .fixture(
                 sessionID: harness.firstSession.sessionId,
-                runningJobID: nil,
-                queuedJobIDs: [],
-                queuedCount: 0,
-                isRunning: false,
-                canEditComposer: true,
-                canSubmitNewJob: true,
                 activeProviderID: .githubCopilotCLI,
-                currentPhase: nil,
-                activityState: .idle,
-                presentationState: .background,
-                needsAttention: false,
-                attentionReason: nil
+                presentationState: .background
             )
         )
 
@@ -363,20 +337,12 @@ struct ConversationExecutionRuntimeCoordinatorTests {
         )
 
         projectionStore.setProjection(
-            SessionExecutionProjection(
+            .fixture(
                 sessionID: harness.firstSession.sessionId,
                 runningJobID: UUID(),
-                queuedJobIDs: [],
-                queuedCount: 0,
-                isRunning: true,
-                canEditComposer: true,
-                canSubmitNewJob: true,
                 activeProviderReference: firstReference,
                 currentPhase: .executing,
-                activityState: .running,
-                presentationState: .foreground,
-                needsAttention: false,
-                attentionReason: nil
+                activityState: .running
             )
         )
 

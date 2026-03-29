@@ -6,16 +6,10 @@ import Testing
 struct ChatComposerExecutionPresentationTests {
     @Test
     func blockedAttentionOnlyProjectionStillUsesProjectionUI() {
-        let projection = SessionExecutionProjection(
+        let projection = SessionExecutionProjection.fixture(
             sessionID: "session-a",
-            runningJobID: nil,
-            queuedJobIDs: [],
-            queuedCount: 0,
-            isRunning: false,
             canEditComposer: false,
-            canSubmitNewJob: true,
             activeProviderID: .builtInAgent,
-            currentPhase: nil,
             activityState: .blocked,
             presentationState: .background,
             needsAttention: true,
@@ -27,20 +21,13 @@ struct ChatComposerExecutionPresentationTests {
 
     @Test
     func backgroundRunningProjectionShowsStatusBadge() {
-        let projection = SessionExecutionProjection(
+        let projection = SessionExecutionProjection.fixture(
             sessionID: "session-a",
             runningJobID: UUID(),
-            queuedJobIDs: [],
-            queuedCount: 0,
-            isRunning: true,
-            canEditComposer: true,
-            canSubmitNewJob: true,
             activeProviderID: .builtInAgent,
             currentPhase: .executing,
             activityState: .running,
-            presentationState: .background,
-            needsAttention: false,
-            attentionReason: nil
+            presentationState: .background
         )
 
         let presentation = ChatComposerExecutionPresentation.resolve(
@@ -56,14 +43,10 @@ struct ChatComposerExecutionPresentationTests {
 
     @Test
     func blockedProjectionShowsAttentionStatusBadge() {
-        let projection = SessionExecutionProjection(
+        let projection = SessionExecutionProjection.fixture(
             sessionID: "session-a",
             runningJobID: UUID(),
-            queuedJobIDs: [],
-            queuedCount: 0,
-            isRunning: true,
             canEditComposer: false,
-            canSubmitNewJob: true,
             activeProviderID: .builtInAgent,
             currentPhase: .executing,
             activityState: .blocked,

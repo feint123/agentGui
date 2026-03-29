@@ -38,8 +38,18 @@ final class SessionExecutionRegistry {
     }
 
     func setForegroundSession(_ sessionID: String?) {
-        for (knownSessionID, controller) in controllers {
-            controller.setPresentationState(knownSessionID == sessionID ? .foreground : .background)
+        let knownSessionIDs = Set(controllers.keys).union(projectionStore.projections.keys)
+        for knownSessionID in knownSessionIDs {
+            projectionStore.apply(
+                .presentationChanged(
+                    sessionID: knownSessionID,
+                    state: knownSessionID == sessionID ? .foreground : .background
+                )
+            )
+        }
+
+        for controller in controllers.values {
+            controller.syncFromStore()
         }
     }
 }

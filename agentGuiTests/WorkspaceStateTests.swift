@@ -14,10 +14,19 @@ struct WorkspaceStateTests {
         let first = Session()
         let second = Session()
 
-        workspaceState.executionRegistry.controller(for: first.sessionId)
-            .recordRunning(jobID: UUID(), providerID: .builtInAgent, currentPhase: .executing)
-        workspaceState.executionRegistry.controller(for: second.sessionId)
-            .recordRunning(jobID: UUID(), providerID: .builtInAgent, currentPhase: .executing)
+        projectionStore.apply(.started(
+            sessionID: first.sessionId,
+            jobID: UUID(),
+            providerReference: .builtIn
+        ))
+        projectionStore.apply(.started(
+            sessionID: second.sessionId,
+            jobID: UUID(),
+            providerReference: .builtIn
+        ))
+
+        _ = workspaceState.executionRegistry.controller(for: first.sessionId)
+        _ = workspaceState.executionRegistry.controller(for: second.sessionId)
 
         workspaceState.selectedSession = first
         workspaceState.selectedSession = second
@@ -43,16 +52,9 @@ struct WorkspaceStateTests {
         }
 
         projectionStore.setProjection(
-            SessionExecutionProjection(
+            .fixture(
                 sessionID: session.sessionId,
-                runningJobID: nil,
-                queuedJobIDs: [],
-                queuedCount: 0,
-                isRunning: false,
-                canEditComposer: true,
-                canSubmitNewJob: true,
                 activeProviderID: .builtInAgent,
-                currentPhase: nil,
                 activityState: .blocked,
                 presentationState: .background,
                 needsAttention: true,

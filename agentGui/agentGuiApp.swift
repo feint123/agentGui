@@ -478,21 +478,11 @@ struct agentGuiApp: App {
         switch mode {
         case "runningWithQueueSupport":
             session.defaultExecutionProviderID = ConversationExecutionProviderID.builtInAgent.rawValue
-            claudeService.executionProjectionStore.setProjection(
-                SessionExecutionProjection(
+            claudeService.executionProjectionStore.apply(
+                .started(
                     sessionID: session.sessionId,
-                    runningJobID: UUID(),
-                    queuedJobIDs: [],
-                    queuedCount: 0,
-                    isRunning: true,
-                    canEditComposer: true,
-                    canSubmitNewJob: true,
-                    activeProviderID: .builtInAgent,
-                    currentPhase: .executing,
-                    activityState: .running,
-                    presentationState: .foreground,
-                    needsAttention: false,
-                    attentionReason: nil
+                    jobID: UUID(),
+                    providerReference: .builtIn
                 )
             )
 

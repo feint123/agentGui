@@ -15,6 +15,7 @@ final class ConversationExecutionOrchestrator {
     private let modelContext: ModelContext
     private let persistenceStore: ExecutionPersistenceStore
     let projectionStore: ExecutionProjectionStore
+    private let projectionWriter: any SessionExecutionProjectionWriting
     private let scheduler: ExecutionScheduler
     private let runtimePool: ExecutionRuntimePool
     private let providerRegistry: ConversationExecutionProviderRegistry
@@ -31,6 +32,7 @@ final class ConversationExecutionOrchestrator {
         modelContext: ModelContext,
         persistenceStore: ExecutionPersistenceStore,
         projectionStore: ExecutionProjectionStore,
+        projectionWriter: (any SessionExecutionProjectionWriting)? = nil,
         scheduler: ExecutionScheduler,
         runtimePool: ExecutionRuntimePool,
         providerRegistry: ConversationExecutionProviderRegistry,
@@ -42,6 +44,7 @@ final class ConversationExecutionOrchestrator {
         self.modelContext = modelContext
         self.persistenceStore = persistenceStore
         self.projectionStore = projectionStore
+        self.projectionWriter = projectionWriter ?? projectionStore
         self.scheduler = scheduler
         self.runtimePool = runtimePool
         self.providerRegistry = providerRegistry
@@ -64,23 +67,11 @@ final class ConversationExecutionOrchestrator {
         let mailbox = mailbox(for: command.sessionID)
         await mailbox.enqueue(jobID: result.job.id)
 
-        let currentProjection = projectionStore.projection(for: command.sessionID)
-        let queuedJobIDs = currentProjection.queuedJobIDs + [result.job.id]
-        projectionStore.setProjection(
-            SessionExecutionProjection(
+        projectionWriter.apply(
+            .enqueued(
                 sessionID: command.sessionID,
-                runningJobID: currentProjection.runningJobID,
-                queuedJobIDs: queuedJobIDs,
-                queuedCount: queuedJobIDs.count,
-                isRunning: currentProjection.isRunning,
-                canEditComposer: true,
-                canSubmitNewJob: true,
-                activeProviderReference: command.providerReference,
-                currentPhase: currentProjection.currentPhase,
-                activityState: currentProjection.isRunning ? .running : .queued,
-                presentationState: currentProjection.presentationState,
-                needsAttention: currentProjection.needsAttention,
-                attentionReason: currentProjection.attentionReason
+                jobID: result.job.id,
+                providerReference: command.providerReference
             )
         )
 
@@ -122,21 +113,12 @@ final class ConversationExecutionOrchestrator {
         }
 
         for (sessionID, queuedJobIDs) in queuedJobIDsBySessionID {
-            projectionStore.setProjection(
-                SessionExecutionProjection(
+            projectionWriter.apply(
+                .recovered(
                     sessionID: sessionID,
-                    runningJobID: nil,
                     queuedJobIDs: queuedJobIDs,
-                    queuedCount: queuedJobIDs.count,
-                    isRunning: false,
-                    canEditComposer: true,
-                    canSubmitNewJob: true,
-                    activeProviderReference: activeProviderReferencesBySessionID[sessionID],
-                    currentPhase: nil,
-                    activityState: .queued,
-                    presentationState: currentProjection(for: sessionID).presentationState,
-                    needsAttention: false,
-                    attentionReason: nil
+                    runningJobID: nil,
+                    providerReference: activeProviderReferencesBySessionID[sessionID]
                 )
             )
         }
@@ -432,23 +414,11 @@ final class ConversationExecutionOrchestrator {
         _ = await mailbox(for: job.sessionID).finishRunning(jobID: job.id)
         await scheduler.markFinished(jobID: job.id, sessionID: job.sessionID)
 
-        let currentProjection = projectionStore.projection(for: job.sessionID)
-        let activeProviderReference: ExecutionProviderReference? = currentProjection.queuedJobIDs.isEmpty ? nil : currentProjection.activeProviderReference
-        projectionStore.setProjection(
-            SessionExecutionProjection(
+        projectionWriter.apply(
+            .finished(
                 sessionID: job.sessionID,
-                runningJobID: nil,
-                queuedJobIDs: currentProjection.queuedJobIDs,
-                queuedCount: currentProjection.queuedJobIDs.count,
-                isRunning: false,
-                canEditComposer: true,
-                canSubmitNewJob: true,
-            activeProviderReference: activeProviderReference,
-                currentPhase: nil,
-                activityState: currentProjection.queuedJobIDs.isEmpty ? .idle : .queued,
-                presentationState: currentProjection.presentationState,
-                needsAttention: false,
-                attentionReason: nil
+                jobID: job.id,
+                outcome: outcome
             )
         )
 
@@ -465,23 +435,11 @@ final class ConversationExecutionOrchestrator {
         sessionID: String,
         providerReference: ExecutionProviderReference
     ) {
-        let currentProjection = projectionStore.projection(for: sessionID)
-        let queuedJobIDs = currentProjection.queuedJobIDs.filter { $0 != jobID }
-        projectionStore.setProjection(
-            SessionExecutionProjection(
+        projectionWriter.apply(
+            .started(
                 sessionID: sessionID,
-                runningJobID: jobID,
-                queuedJobIDs: queuedJobIDs,
-                queuedCount: queuedJobIDs.count,
-                isRunning: true,
-                canEditComposer: true,
-                canSubmitNewJob: true,
-                activeProviderReference: providerReference,
-                currentPhase: .executing,
-                activityState: .running,
-                presentationState: currentProjection.presentationState,
-                needsAttention: currentProjection.needsAttention,
-                attentionReason: currentProjection.attentionReason
+                jobID: jobID,
+                providerReference: providerReference
             )
         )
     }
@@ -502,48 +460,22 @@ final class ConversationExecutionOrchestrator {
                 return false
             }
 
-            updateProjectionAfterPruningQueuedJob(sessionID: sessionID, queuedJobIDs: queuedJobIDs)
+            updateProjectionAfterPruningQueuedJob(sessionID: sessionID, jobID: jobID)
             return true
         }
 
-        let currentProjection = currentProjection(for: sessionID)
-        let queuedJobIDs = currentProjection.queuedJobIDs.filter { $0 != jobID }
-        updateProjectionAfterPruningQueuedJob(sessionID: sessionID, queuedJobIDs: queuedJobIDs)
+        updateProjectionAfterPruningQueuedJob(sessionID: sessionID, jobID: jobID)
         return true
     }
 
     private func updateProjectionAfterPruningQueuedJob(
         sessionID: String,
-        queuedJobIDs: [UUID]
+        jobID: UUID
     ) {
-        let currentProjection = currentProjection(for: sessionID)
-        let activeProviderReference = queuedJobIDs.isEmpty && !currentProjection.isRunning
-            ? nil
-            : currentProjection.activeProviderReference
-        let activityState: SessionExecutionActivityState
-        if currentProjection.isRunning {
-            activityState = .running
-        } else if queuedJobIDs.isEmpty {
-            activityState = .idle
-        } else {
-            activityState = .queued
-        }
-
-        projectionStore.setProjection(
-            SessionExecutionProjection(
+        projectionWriter.apply(
+            .pruned(
                 sessionID: sessionID,
-                runningJobID: currentProjection.runningJobID,
-                queuedJobIDs: queuedJobIDs,
-                queuedCount: queuedJobIDs.count,
-                isRunning: currentProjection.isRunning,
-                canEditComposer: true,
-                canSubmitNewJob: true,
-                activeProviderReference: activeProviderReference,
-                currentPhase: currentProjection.currentPhase,
-                activityState: activityState,
-                presentationState: currentProjection.presentationState,
-                needsAttention: currentProjection.needsAttention,
-                attentionReason: currentProjection.attentionReason
+                jobID: jobID
             )
         )
     }

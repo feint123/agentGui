@@ -15,18 +15,38 @@ struct SessionExecutionRegistryTests {
     }
 
     @Test
-    func selectingForegroundSessionBackgroundsSiblings() {
-        let registry = SessionExecutionRegistry()
-        let first = registry.controller(for: "session-a")
-        let second = registry.controller(for: "session-b")
+    func controllerLookupDoesNotSeedEmptyProjectionIntoStore() {
+        let store = ExecutionProjectionStore()
+        let registry = SessionExecutionRegistry(projectionStore: store)
 
-        first.recordRunning(jobID: nil, providerID: .builtInAgent, currentPhase: .executing)
-        second.recordRunning(jobID: nil, providerID: .builtInAgent, currentPhase: .executing)
+        _ = registry.controller(for: "session-a")
+
+        #expect(store.projections.isEmpty)
+    }
+
+    @Test
+    func selectingForegroundSessionUpdatesStorePresentationState() {
+        let store = ExecutionProjectionStore()
+        let registry = SessionExecutionRegistry(projectionStore: store)
+
+        store.apply(.started(
+            sessionID: "session-a",
+            jobID: UUID(),
+            providerReference: .builtIn
+        ))
+        store.apply(.started(
+            sessionID: "session-b",
+            jobID: UUID(),
+            providerReference: .builtIn
+        ))
+
+        _ = registry.controller(for: "session-a")
+        _ = registry.controller(for: "session-b")
 
         registry.setForegroundSession("session-b")
 
-        #expect(first.projection.presentationState == .background)
-        #expect(second.projection.presentationState == .foreground)
+        #expect(store.projection(for: "session-a").presentationState == .background)
+        #expect(store.projection(for: "session-b").presentationState == .foreground)
     }
 
     @Test
@@ -36,20 +56,15 @@ struct SessionExecutionRegistryTests {
 
         _ = registry.controller(for: "session-a")
 
-        let updatedProjection = SessionExecutionProjection(
+        let updatedProjection = SessionExecutionProjection.fixture(
             sessionID: "session-a",
             runningJobID: UUID(),
-            queuedJobIDs: [],
-            queuedCount: 0,
-            isRunning: true,
             canEditComposer: false,
             canSubmitNewJob: false,
             activeProviderID: .builtInAgent,
             currentPhase: .executing,
             activityState: .running,
-            presentationState: .background,
-            needsAttention: false,
-            attentionReason: nil
+            presentationState: .background
         )
 
         store.setProjection(updatedProjection)
