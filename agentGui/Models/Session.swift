@@ -70,6 +70,10 @@ final class Session {
     @Relationship(deleteRule: .cascade, inverse: \ChannelProjectionDelivery.session)
     var projectionDeliveries: [ChannelProjectionDelivery] = []
 
+    /// Agent Team 会话的轻量壳层状态。
+    @Relationship(deleteRule: .cascade, inverse: \AgentTeamSessionState.session)
+    var agentTeamState: AgentTeamSessionState?
+
     init(
         sessionId: String = UUID().uuidString,
         title: String = "新对话",
@@ -87,6 +91,7 @@ final class Session {
         self.sourceIdentifier = sourceIdentifier
         self.sourceDisplayName = sourceDisplayName
         self.readOnlyReasonOverride = readOnlyReasonOverride
+        self.agentTeamState = nil
     }
 }
 

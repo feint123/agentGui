@@ -34,8 +34,9 @@ extension ChatView {
 
         ToolbarItem(placement: .primaryAction) {
             NewSessionExecutionProviderMenu(
+                sourceSession: session,
                 accessibilityIdentifier: "chat.newSessionButton",
-                onSelect: createNewSession(providerReference:)
+                onSelect: createNewSession(action:)
             ) {
                 Image(systemName: "plus")
             }
@@ -82,12 +83,26 @@ extension ChatView {
         }
     }
 
-    func createNewSession(providerReference: ExecutionProviderReference) {
-        let newSession = Session()
-        newSession.defaultExecutionProviderReference = providerReference
-        modelContext.insert(newSession)
-        try? modelContext.save()
-        workspaceState.selectedSession = newSession
+    func createNewSession(action: NewSessionMenuAction) {
+        do {
+            let createdSession: Session
+            switch action {
+            case .localChat(let providerReference, _):
+                let newSession = Session()
+                newSession.defaultExecutionProviderReference = providerReference
+                modelContext.insert(newSession)
+                try modelContext.save()
+                createdSession = newSession
+            case .agentTeam(let source):
+                createdSession = try AgentTeamSessionFactory()
+                    .create(fromSourceContext: source, modelContext: modelContext)
+                    .session
+            }
+
+            workspaceState.selectedSession = createdSession
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func deleteCurrentSession() {

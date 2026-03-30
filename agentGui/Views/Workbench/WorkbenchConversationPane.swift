@@ -2,6 +2,11 @@ import SwiftUI
 import SwiftData
 
 struct WorkbenchConversationPane: View {
+    enum Surface: Equatable {
+        case chat
+        case agentTeam
+    }
+
     @Environment(WorkspaceState.self) private var workspaceState
     @Environment(WorkbenchState.self) private var workbenchState
     @Environment(\.modelContext) private var modelContext
@@ -9,9 +14,8 @@ struct WorkbenchConversationPane: View {
     var body: some View {
         ZStack {
             if let session = workspaceState.selectedSession {
-                ChatView(session: session, showsNavigationChrome: false)
+                contentView(for: session)
                     .id(session.sessionId)
-                    .accessibilityIdentifier("panel.chat")
             } else {
                 emptyState
                     .id("chat-empty-state")
@@ -30,6 +34,17 @@ struct WorkbenchConversationPane: View {
         }
     }
 
+    @ViewBuilder
+    private func contentView(for session: Session) -> some View {
+        switch Self.surface(for: session) {
+        case .chat:
+            ChatView(session: session, showsNavigationChrome: false)
+                .accessibilityIdentifier("panel.chat")
+        case .agentTeam:
+            AgentTeamSessionView(session: session)
+        }
+    }
+
     private var contextWindowSystemImage: String {
         "macwindow.on.rectangle"
     }
@@ -45,7 +60,10 @@ struct WorkbenchConversationPane: View {
             WorkbenchConversationEmptyStateCard(
                 buttonAccessibilityIdentifier: "chat.newSessionButton"
             ) {
-                NewSessionExecutionProviderMenu(onSelect: createNewSession(providerReference:)) {
+                NewSessionExecutionProviderMenu(
+                    sourceSession: workspaceState.selectedSession,
+                    onSelect: createNewSession(action:)
+                ) {
                     Label("新建对话", systemImage: "plus")
                         .frame(maxWidth: .infinity)
                 }
@@ -63,14 +81,27 @@ struct WorkbenchConversationPane: View {
         workspaceState.openContextWindow()
     }
 
-    private func createNewSession(providerReference: ExecutionProviderReference) {
-        let newSession = Session()
-        newSession.defaultExecutionProviderReference = providerReference
-        modelContext.insert(newSession)
-        try? modelContext.save()
-        withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
-            workspaceState.selectedSession = newSession
-            workbenchState.selectedItem = .sessions
+    private func createNewSession(action: NewSessionMenuAction) {
+        do {
+            let createdSession: Session
+            switch action {
+            case .localChat(let providerReference, _):
+                let newSession = Session()
+                newSession.defaultExecutionProviderReference = providerReference
+                modelContext.insert(newSession)
+                try modelContext.save()
+                createdSession = newSession
+            case .agentTeam(let source):
+                createdSession = try AgentTeamSessionFactory()
+                    .create(fromSourceContext: source, modelContext: modelContext)
+                    .session
+            }
+
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
+                workspaceState.selectedSession = createdSession
+                workbenchState.selectedItem = .sessions
+            }
+        } catch {
         }
     }
 
@@ -79,5 +110,14 @@ struct WorkbenchConversationPane: View {
             insertion: .opacity.combined(with: .scale(scale: 0.985, anchor: .center)),
             removal: .opacity.combined(with: .move(edge: .bottom))
         )
+    }
+
+    static func surface(for session: Session) -> Surface {
+        switch session.kind {
+        case .agentTeam:
+            return .agentTeam
+        case .local, .channel, .backgroundTask:
+            return .chat
+        }
     }
 }

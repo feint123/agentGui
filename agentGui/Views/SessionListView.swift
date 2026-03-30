@@ -90,8 +90,9 @@ struct SessionListView: View {
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 NewSessionExecutionProviderMenu(
+                    sourceSession: workspaceState.selectedSession,
                     accessibilityIdentifier: "sessionList.createButton",
-                    onSelect: createNewSession(providerReference:)
+                    onSelect: createNewSession(action:)
                 ) {
                     Image(systemName: "plus")
                         .font(.system(size: 12, weight: .semibold))
@@ -112,8 +113,9 @@ struct SessionListView: View {
             message: "点击右上角的 + 开始新对话"
         ) {
             NewSessionExecutionProviderMenu(
+                sourceSession: workspaceState.selectedSession,
                 accessibilityIdentifier: "sessionList.createButton",
-                onSelect: createNewSession(providerReference:)
+                onSelect: createNewSession(action:)
             ) {
                 Text("新建对话")
             }
@@ -139,8 +141,9 @@ struct SessionListView: View {
                 .controlSize(.small)
 
                 NewSessionExecutionProviderMenu(
+                    sourceSession: workspaceState.selectedSession,
                     accessibilityIdentifier: "sessionList.createButton",
-                    onSelect: createNewSession(providerReference:)
+                    onSelect: createNewSession(action:)
                 ) {
                     Text("新建对话")
                 }
@@ -210,15 +213,25 @@ struct SessionListView: View {
 
     // MARK: - Actions
 
-    private func createNewSession(providerReference: ExecutionProviderReference) {
-        let newSession = Session()
-        newSession.defaultExecutionProviderReference = providerReference
-        modelContext.insert(newSession)
+    private func createNewSession(action: NewSessionMenuAction) {
         do {
-            try modelContext.save()
+            let createdSession: Session
+            switch action {
+            case .localChat(let providerReference, _):
+                let newSession = Session()
+                newSession.defaultExecutionProviderReference = providerReference
+                modelContext.insert(newSession)
+                try modelContext.save()
+                createdSession = newSession
+            case .agentTeam(let source):
+                createdSession = try AgentTeamSessionFactory()
+                    .create(fromSourceContext: source, modelContext: modelContext)
+                    .session
+            }
+
             viewModel.reload()
             withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
-                onSessionSelected(newSession)
+                onSessionSelected(createdSession)
             }
         } catch {
             errorMessage = "创建对话失败: \(error.localizedDescription)"

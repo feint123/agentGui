@@ -17,6 +17,7 @@ enum PersistenceSchema {
         AppSettings.self,
         ACPProviderProfile.self,
         Session.self,
+        AgentTeamSessionState.self,
         ChangeProposal.self,
         ProposedFileChange.self,
         ChangeReviewDecision.self,

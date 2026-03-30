@@ -8,11 +8,21 @@ struct SessionInteractionPolicy {
     }
 
     var canRename: Bool {
-        session.kind == .local
+        switch session.kind {
+        case .local, .agentTeam:
+            return true
+        case .channel, .backgroundTask:
+            return false
+        }
     }
 
     var canDelete: Bool {
-        session.kind == .local
+        switch session.kind {
+        case .local, .agentTeam:
+            return true
+        case .channel, .backgroundTask:
+            return false
+        }
     }
 
     var canClearMessages: Bool {

@@ -39,7 +39,7 @@ final class SessionCatalogViewModel {
         var errorDescription: String? {
             switch self {
             case .readOnlySession:
-                return "只允许重命名本地会话。"
+                return "当前会话不支持重命名。"
             case .emptyTitle:
                 return "会话名称不能为空。"
             case .missingModelContext:

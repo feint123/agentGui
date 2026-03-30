@@ -4,7 +4,7 @@ import SwiftData
 @MainActor
 struct SessionDeletionCoordinator {
     func delete(_ session: Session, modelContext: ModelContext) throws {
-        guard session.isReadOnly == false else {
+        guard SessionInteractionPolicy(session: session).canDelete else {
             throw SessionDeletionCoordinatorError.readOnlySession(session.sessionId)
         }
         pruneChannelResources(for: session, modelContext: modelContext)
@@ -22,7 +22,7 @@ struct SessionDeletionCoordinator {
         var pendingDeletes = 0
 
         for session in sessions {
-            guard session.isReadOnly == false else { continue }
+            guard SessionInteractionPolicy(session: session).canDelete else { continue }
             pruneChannelResources(for: session, modelContext: modelContext)
             modelContext.delete(session)
             pendingDeletes += 1
