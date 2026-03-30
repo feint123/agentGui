@@ -49,6 +49,7 @@ final class CodeEditorTextViewHarness {
     private let highlighter: CodeSyntaxHighlightingService
     private weak var cachedTextView: CodeEditorPlatformTextView?
     private weak var cachedScrollView: NSScrollView?
+    private weak var cachedContainerView: NSView?
 
     init(
         text: String,
@@ -100,6 +101,7 @@ final class CodeEditorTextViewHarness {
         pumpRunLoop()
         cachedTextView = findTextView(in: hostingView)
         cachedScrollView = findScrollView(in: hostingView)
+        cachedContainerView = findContainerView(in: hostingView)
     }
 
     deinit {
@@ -181,8 +183,18 @@ final class CodeEditorTextViewHarness {
         return scrollView
     }
 
+    var containerView: NSView? {
+        if let cachedContainerView {
+            return cachedContainerView
+        }
+
+        let containerView = findContainerView(in: hostingView)
+        cachedContainerView = containerView
+        return containerView
+    }
+
     var gutterView: CodeEditorGutterView? {
-        scrollView.verticalRulerView as? CodeEditorGutterView
+        findGutterView(in: hostingView)
     }
 
     func forceApplyHighlightResult() {
@@ -381,6 +393,36 @@ final class CodeEditorTextViewHarness {
         for subview in view.subviews {
             if let scrollView = findScrollView(in: subview) {
                 return scrollView
+            }
+        }
+
+        return nil
+    }
+
+    private func findGutterView(in view: NSView) -> CodeEditorGutterView? {
+        if let gutterView = view as? CodeEditorGutterView {
+            return gutterView
+        }
+
+        for subview in view.subviews {
+            if let gutterView = findGutterView(in: subview) {
+                return gutterView
+            }
+        }
+
+        return nil
+    }
+
+    private func findContainerView(in view: NSView) -> NSView? {
+        let hasDirectScrollViewChild = view.subviews.contains { $0 is NSScrollView }
+        let hasDirectGutterChild = view.subviews.contains { $0 is CodeEditorGutterView }
+        if hasDirectScrollViewChild, hasDirectGutterChild {
+            return view
+        }
+
+        for subview in view.subviews {
+            if let containerView = findContainerView(in: subview) {
+                return containerView
             }
         }
 

@@ -24,7 +24,7 @@ struct CodeEditorTextView: NSViewRepresentable {
         Coordinator(self)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> CodeEditorViewportContainerView {
         let scrollView = NSScrollView()
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
@@ -67,19 +67,21 @@ struct CodeEditorTextView: NSViewRepresentable {
         }
 
         scrollView.documentView = textView
-        context.coordinator.installGutter(for: scrollView, textView: textView)
+        let containerView = CodeEditorViewportContainerView(scrollView: scrollView, textView: textView)
+        context.coordinator.installGutter(for: containerView)
         context.coordinator.installSelectionObserver(for: textView)
         context.coordinator.installViewportObserver(for: scrollView, textView: textView)
         context.coordinator.publishSelection(for: textView)
         context.coordinator.publishVisibleLineRange(for: textView)
         context.coordinator.updateGutterState(for: textView)
-        return scrollView
+        return containerView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? CodeEditorPlatformTextView else { return }
+    func updateNSView(_ containerView: CodeEditorViewportContainerView, context: Context) {
+        let scrollView = containerView.scrollView
+        let textView = containerView.textView
         context.coordinator.parent = self
-        context.coordinator.installGutter(for: scrollView, textView: textView)
+        context.coordinator.installGutter(for: containerView)
         textView.semanticIntentHandler = onSemanticIntent
         textView.findIntentHandler = onFindIntent
         textView.currentDocumentVersion = document.version
@@ -236,19 +238,10 @@ extension CodeEditorTextView {
             }
         }
 
-        func installGutter(for scrollView: NSScrollView, textView: CodeEditorPlatformTextView) {
-            if scrollView.verticalRulerView as? CodeEditorGutterView == nil {
-                let gutterView = CodeEditorGutterView(
-                    scrollView: scrollView,
-                    textView: textView,
-                    lineCount: textView.displayedLineCount
-                )
-                scrollView.verticalRulerView = gutterView
+        func installGutter(for containerView: CodeEditorViewportContainerView) {
+            containerView.gutterView.onRequiredWidthChange = { [weak containerView] in
+                containerView?.needsLayout = true
             }
-
-            scrollView.hasVerticalRuler = true
-            scrollView.rulersVisible = true
-            scrollView.verticalRulerView?.clientView = textView
         }
 
         func installViewportObserver(for scrollView: NSScrollView, textView: CodeEditorPlatformTextView) {
@@ -300,7 +293,7 @@ extension CodeEditorTextView {
 
         func updateGutterState(for textView: NSTextView) {
             guard let textView = textView as? CodeEditorPlatformTextView,
-                  let gutterView = textView.enclosingScrollView?.verticalRulerView as? CodeEditorGutterView else {
+                                    let gutterView = gutterView(for: textView) else {
                 return
             }
 
@@ -311,6 +304,17 @@ extension CodeEditorTextView {
                 currentLine: textView.highlightedLineNumber,
                 diagnosticsByLine: parent.diagnosticsByLine
             )
+        }
+
+        private func gutterView(for textView: CodeEditorPlatformTextView) -> CodeEditorGutterView? {
+            var currentView = textView.enclosingScrollView?.superview
+            while let view = currentView {
+                if let containerView = view as? CodeEditorViewportContainerView {
+                    return containerView.gutterView
+                }
+                currentView = view.superview
+            }
+            return nil
         }
 
         func applyFocus(to textView: NSTextView) {

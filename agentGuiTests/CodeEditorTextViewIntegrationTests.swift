@@ -68,12 +68,15 @@ struct CodeEditorTextViewIntegrationTests {
     }
 
     @Test
-    func textViewInstallsCodeEditorGutter() {
+    func textViewUsesCustomGutterHostInsteadOfVerticalRuler() {
         let harness = CodeEditorTextViewHarness(text: "one\ntwo\nthree")
 
-        #expect(harness.scrollView.hasVerticalRuler)
-        #expect(harness.scrollView.rulersVisible)
+        #expect(harness.scrollView.hasVerticalRuler == false)
+        #expect(harness.scrollView.verticalRulerView == nil)
         #expect(harness.gutterView != nil)
+        #expect(harness.containerView != nil)
+        #expect(harness.gutterView?.superview === harness.containerView)
+        #expect(harness.gutterView?.superview !== harness.scrollView)
     }
 
     @Test
@@ -88,6 +91,16 @@ struct CodeEditorTextViewIntegrationTests {
         #expect(harness.highlightedLine == 2)
         #expect(harness.gutterView?.currentLine == 2)
         #expect(harness.gutterView?.diagnosticsByLine[3]?.highestSeverity == .warning)
+    }
+
+    @Test
+    func gutterWidthExpandsWhenLineCountCrossesDigitBoundary() {
+        let harness = CodeEditorTextViewHarness(text: (1...99).map { "line \($0)" }.joined(separator: "\n"))
+        let beforeWidth = harness.gutterView?.frame.width ?? 0
+
+        harness.updateFromHost(text: (1...100).map { "line \($0)" }.joined(separator: "\n"))
+
+        #expect((harness.gutterView?.frame.width ?? 0) > beforeWidth)
     }
 
     @Test
