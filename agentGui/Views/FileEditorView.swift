@@ -24,6 +24,10 @@ struct FileEditorView: View {
     @State private var lspCoordinator: CodeEditorLSPCoordinator?
     @State private var lspDocumentBinding: CodeEditorLSPDocumentBinding?
     @State private var lspDocumentVersion = 0
+    @State private var activeRevealRequest: CodeEditorRevealRequest?
+    @State private var hoverPresentation: CodeEditorHoverPresentation?
+    @State private var referencesPresentation: CodeEditorReferencePresentation?
+    @State private var documentSymbolItems: [CodeEditorDocumentSymbolItem] = []
     private let launchOptions = TestLaunchOptions.current
 
     // MARK: - Body
@@ -39,19 +43,27 @@ struct FileEditorView: View {
                     await sessionController.open(fileURL)
                 }
             }
+            consumePendingRevealRequestIfNeeded(for: fileURL)
             syncLSPCoordinator(for: fileURL)
         }
         .onDisappear {
+            lspCoordinator?.cancelHover()
             deactivateLSPCoordinator()
             sessionController.deactivate()
         }
         .onChange(of: fileURL) { _, newURL in
+            lspCoordinator?.cancelHover()
             deactivateLSPCoordinator()
             lspDocumentVersion = 0
+            activeRevealRequest = nil
+            hoverPresentation = nil
+            referencesPresentation = nil
+            documentSymbolItems = []
             workspaceState.editorSelection = nil
             Task {
                 await sessionController.open(newURL)
             }
+            consumePendingRevealRequestIfNeeded(for: newURL)
             triggerWorkspaceLSPBootstrap(for: newURL)
         }
         .onChange(of: sessionController.document.phase) { _, _ in
@@ -77,6 +89,9 @@ struct FileEditorView: View {
             Button("确定") { sessionController.clearErrorMessage() }
         } message: {
             if let msg = sessionController.document.errorMessage { Text(msg) }
+        }
+        .sheet(item: $referencesPresentation) { presentation in
+            referencesSheet(presentation)
         }
     }
 
@@ -104,6 +119,33 @@ struct FileEditorView: View {
                         .accessibilityValue(sessionController.document.textContent)
                 }
                 if sessionController.document.viewer == .text {
+                    Menu {
+                        Button("刷新符号") {
+                            refreshDocumentSymbols(for: url)
+                        }
+
+                        if documentSymbolItems.isEmpty {
+                            Text("暂无符号")
+                        } else {
+                            Divider()
+                            ForEach(documentSymbolItems) { item in
+                                Button(item.title) {
+                                    executeNavigationAction(
+                                        CodeEditorViewModel.navigationAction(
+                                            currentFileURL: url,
+                                            revealRequest: item.revealRequest
+                                        )
+                                    )
+                                }
+                                .help(item.subtitle ?? "")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "list.bullet.indent")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .help("当前文件符号")
+
                     Button {
                         Task {
                             await sessionController.save()
@@ -227,11 +269,17 @@ struct FileEditorView: View {
                         fileURL: url,
                         diagnostics: currentFileDiagnosticsSnapshot(for: url),
                         lspStatus: currentLSPStatus(for: url),
+                        revealRequest: activeRevealRequest,
+                        hoverPresentation: hoverPresentation,
                         onSelectionChange: { snapshot in
                             workspaceState.editorSelection = snapshot
                         },
+                        onSemanticIntent: { intent in
+                            handleSemanticIntent(intent, for: url)
+                        },
                         onTextChange: { newValue, change in
                             lspDocumentVersion = change.version
+                            documentSymbolItems = []
                             lspCoordinator?.handleTextChange(text: newValue, change: change)
                         }
                     )
@@ -302,6 +350,10 @@ struct FileEditorView: View {
             initialText: sessionController.document.textContent,
             version: lspDocumentVersion
         )
+
+        if documentSymbolItems.isEmpty {
+            refreshDocumentSymbols(for: url)
+        }
     }
 
     private func deactivateLSPCoordinator() {
@@ -366,6 +418,145 @@ struct FileEditorView: View {
         }
 
         return snapshot
+    }
+
+    private func handleSemanticIntent(_ intent: CodeEditorSemanticIntent, for currentFileURL: URL) {
+        switch intent {
+        case let .requestDefinition(position):
+            guard let requestCoordinator = lspCoordinator else {
+                return
+            }
+
+            Task {
+                guard let revealRequest = await requestCoordinator.requestDefinition(at: position) else {
+                    return
+                }
+
+                await MainActor.run {
+                    guard semanticResultIsCurrent(
+                        for: requestCoordinator,
+                        fileURL: currentFileURL
+                    ) else {
+                        return
+                    }
+
+                    executeNavigationAction(
+                        CodeEditorViewModel.navigationAction(
+                            currentFileURL: currentFileURL,
+                            revealRequest: revealRequest
+                        )
+                    )
+                }
+            }
+        case let .requestReferences(position):
+            guard let requestCoordinator = lspCoordinator else {
+                return
+            }
+
+            Task {
+                let presentation = await requestCoordinator.requestReferences(at: position)
+                await MainActor.run {
+                    guard semanticResultIsCurrent(
+                        for: requestCoordinator,
+                        fileURL: currentFileURL
+                    ) else {
+                        return
+                    }
+
+                    referencesPresentation = presentation
+                }
+            }
+        case let .requestHover(position):
+            lspCoordinator?.scheduleHover(at: position, debounceNanoseconds: 250_000_000) { presentation in
+                self.hoverPresentation = presentation
+            }
+        case .cancelHover:
+            lspCoordinator?.cancelHover()
+            hoverPresentation = nil
+        }
+    }
+
+    private func executeNavigationAction(_ action: CodeEditorSemanticNavigationAction) {
+        switch action {
+        case let .revealInCurrentFile(revealRequest):
+            activeRevealRequest = revealRequest
+        case let .openFileAndReveal(targetURL, revealRequest):
+            workspaceState.pendingCodeEditorRevealRequest = revealRequest
+            workspaceState.showFileDetail(targetURL)
+        case .unsupported:
+            break
+        }
+    }
+
+    private func consumePendingRevealRequestIfNeeded(for url: URL) {
+        guard let revealRequest = workspaceState.consumePendingCodeEditorRevealRequest(for: url) else {
+            return
+        }
+
+        activeRevealRequest = revealRequest
+    }
+
+    private func refreshDocumentSymbols(for url: URL) {
+        let documentVersion = lspDocumentVersion
+        guard let requestCoordinator = lspCoordinator else {
+            documentSymbolItems = []
+            return
+        }
+
+        Task {
+            let symbols = await requestCoordinator.requestDocumentSymbols(documentVersion: documentVersion)
+            let items = CodeEditorViewModel.flattenedDocumentSymbols(symbols, fileURL: url)
+            await MainActor.run {
+                guard semanticResultIsCurrent(for: requestCoordinator, fileURL: url) else {
+                    return
+                }
+
+                documentSymbolItems = items
+            }
+        }
+    }
+
+    private func semanticResultIsCurrent(
+        for coordinator: CodeEditorLSPCoordinator,
+        fileURL: URL
+    ) -> Bool {
+        guard lspCoordinator === coordinator else {
+            return false
+        }
+
+        return sessionController.document.fileURL?.standardizedFileURL == fileURL.standardizedFileURL
+    }
+
+    private func referencesSheet(_ presentation: CodeEditorReferencePresentation) -> some View {
+        NavigationStack {
+            List(presentation.items) { item in
+                Button {
+                    referencesPresentation = nil
+                    let revealRequest = CodeEditorRevealRequest(
+                        fileURL: item.fileURL,
+                        line: item.line,
+                        column: item.column,
+                        reason: .reference
+                    )
+                    executeNavigationAction(
+                        CodeEditorViewModel.navigationAction(
+                            currentFileURL: fileURL,
+                            revealRequest: revealRequest
+                        )
+                    )
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                        Text(item.subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .navigationTitle("引用")
+        }
+        .frame(minWidth: 360, minHeight: 240)
     }
 }
 

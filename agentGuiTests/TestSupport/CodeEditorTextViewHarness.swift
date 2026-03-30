@@ -21,6 +21,7 @@ final class CodeEditorTextViewHarness {
         var lastSelection: EditorSelectionSnapshot?
         var lastCursorLocation: CodeEditorTextLocation?
         var lastVisibleLineRange: ClosedRange<Int>?
+        var semanticIntents: [CodeEditorSemanticIntent] = []
         var changeSetCount = 0
     }
 
@@ -28,11 +29,13 @@ final class CodeEditorTextViewHarness {
         @Published var text: String
         @Published var document: CodeEditorDocument
         @Published var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary]
+        @Published var revealRequest: CodeEditorRevealRequest?
 
         init(text: String, persistedText: String) {
             self.text = text
             self.document = CodeEditorDocument(text: text, persistedText: persistedText)
             self.diagnosticsByLine = [:]
+            self.revealRequest = nil
         }
     }
 
@@ -73,6 +76,9 @@ final class CodeEditorTextViewHarness {
             },
             onVisibleLineRangeChange: { lineRange in
                 recorder.lastVisibleLineRange = lineRange
+            },
+            onSemanticIntent: { intent in
+                recorder.semanticIntents.append(intent)
             },
             onChangeSet: { change in
                 recorder.lastChangeSet = change
@@ -121,6 +127,10 @@ final class CodeEditorTextViewHarness {
 
     var changeSetCount: Int {
         recorder.changeSetCount
+    }
+
+    var semanticIntents: [CodeEditorSemanticIntent] {
+        recorder.semanticIntents
     }
 
     var document: CodeEditorDocument {
@@ -248,7 +258,41 @@ final class CodeEditorTextViewHarness {
         recorder.lastSelection = nil
         recorder.lastCursorLocation = nil
         recorder.lastVisibleLineRange = nil
+        recorder.semanticIntents = []
         recorder.changeSetCount = 0
+    }
+
+    func optionClick(line: Int, column: Int) {
+        textView.emitSemanticIntent(.requestDefinition(textView.semanticPosition(line: line, column: column)))
+        pumpRunLoop()
+    }
+
+    func pressDefinitionShortcut() {
+        guard let position = selectedSemanticPosition() else {
+            return
+        }
+
+        textView.emitSemanticIntent(.requestDefinition(position))
+        pumpRunLoop()
+    }
+
+    func pressReferencesShortcut() {
+        guard let position = selectedSemanticPosition() else {
+            return
+        }
+
+        textView.emitSemanticIntent(.requestReferences(position))
+        pumpRunLoop()
+    }
+
+    func moveMouse(line: Int, column: Int) {
+        textView.emitSemanticIntent(.requestHover(textView.semanticPosition(line: line, column: column)))
+        pumpRunLoop()
+    }
+
+    func applyRevealRequest(_ request: CodeEditorRevealRequest) {
+        storage.revealRequest = request
+        pumpRunLoop()
     }
 
     func scrollToLine(_ line: Int) {
@@ -312,6 +356,17 @@ final class CodeEditorTextViewHarness {
 
         return nil
     }
+
+    private func selectedSemanticPosition() -> CodeEditorSemanticPosition? {
+        let offset = textView.selectedRange().location
+        let location = storage.document.location(ofUTF16Offset: offset)
+        return CodeEditorSemanticPosition(
+            line: location.line,
+            column: location.column,
+            utf16Offset: offset,
+            version: storage.document.version
+        )
+    }
 }
 
 private struct HostView: View {
@@ -322,6 +377,7 @@ private struct HostView: View {
     let onSelectionChange: (EditorSelectionSnapshot?) -> Void
     let onCursorLocationChange: (CodeEditorTextLocation) -> Void
     let onVisibleLineRangeChange: (ClosedRange<Int>) -> Void
+    let onSemanticIntent: (CodeEditorSemanticIntent) -> Void
     let onChangeSet: (EditorChangeSet) -> Void
 
     var body: some View {
@@ -329,9 +385,11 @@ private struct HostView: View {
             text: $storage.text,
             document: $storage.document,
             language: language,
+            revealRequest: storage.revealRequest,
             onSelectionChange: onSelectionChange,
             onCursorLocationChange: onCursorLocationChange,
             onVisibleLineRangeChange: onVisibleLineRangeChange,
+            onSemanticIntent: onSemanticIntent,
             diagnosticsByLine: storage.diagnosticsByLine,
             onChangeSet: onChangeSet,
             highlighter: highlighter,

@@ -8,8 +8,11 @@ struct CodeEditorView: View {
     var diagnostics: LSPDiagnosticsSnapshot? = nil
     var lspStatus: WorkspacePanelLSPStatusPresentation? = nil
     var focusRequest: UUID? = nil
+    var revealRequest: CodeEditorRevealRequest? = nil
+    var hoverPresentation: CodeEditorHoverPresentation? = nil
     var onStatusBarSummaryChange: ((String) -> Void)? = nil
     var onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil
+    var onSemanticIntent: ((CodeEditorSemanticIntent) -> Void)? = nil
     var onTextChange: ((String, EditorChangeSet) -> Void)? = nil
     var highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
@@ -24,8 +27,11 @@ struct CodeEditorView: View {
         diagnostics: LSPDiagnosticsSnapshot? = nil,
         lspStatus: WorkspacePanelLSPStatusPresentation? = nil,
         focusRequest: UUID? = nil,
+        revealRequest: CodeEditorRevealRequest? = nil,
+        hoverPresentation: CodeEditorHoverPresentation? = nil,
         onStatusBarSummaryChange: ((String) -> Void)? = nil,
         onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil,
+        onSemanticIntent: ((CodeEditorSemanticIntent) -> Void)? = nil,
         onTextChange: ((String, EditorChangeSet) -> Void)? = nil,
         highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared,
         highlightDebounceNanoseconds: UInt64 = 75_000_000,
@@ -37,8 +43,11 @@ struct CodeEditorView: View {
         self.diagnostics = diagnostics
         self.lspStatus = lspStatus
         self.focusRequest = focusRequest
+        self.revealRequest = revealRequest
+        self.hoverPresentation = hoverPresentation
         self.onStatusBarSummaryChange = onStatusBarSummaryChange
         self.onSelectionChange = onSelectionChange
+        self.onSemanticIntent = onSemanticIntent
         self.onTextChange = onTextChange
         self.highlighter = highlighter
         self.highlightDebounceNanoseconds = highlightDebounceNanoseconds
@@ -53,7 +62,10 @@ struct CodeEditorView: View {
                 document: $document,
                 language: inferredLanguage,
                 focusRequest: focusRequest,
+                revealRequest: revealRequest,
+                hoverPresentation: hoverPresentation,
                 onSelectionChange: onSelectionChange,
+                onSemanticIntent: onSemanticIntent,
                 diagnosticsByLine: diagnosticsByLine,
                 onChangeSet: { change in
                     onTextChange?(text, change)

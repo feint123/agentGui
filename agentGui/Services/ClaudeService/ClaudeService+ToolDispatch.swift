@@ -375,7 +375,8 @@ extension ClaudeService {
             ) {
                 return startError
             }
-            return facade.documentSymbols(workspaceRoot: workspaceRoot, serverID: serverID, uri: uri)
+            return (try? await facade.documentSymbols(workspaceRoot: workspaceRoot, serverID: serverID, uri: uri))
+                ?? "Error: LSP document symbols request failed"
         case "lsp_workspace_symbols":
             guard let workspaceRoot = input["workspace_root"]?.stringValue else {
                 return "Error: missing parameter 'workspace_root'"

@@ -6,9 +6,12 @@ struct CodeEditorTextView: NSViewRepresentable {
     @Binding var document: CodeEditorDocument
     var language: String? = nil
     var focusRequest: UUID? = nil
+    var revealRequest: CodeEditorRevealRequest? = nil
+    var hoverPresentation: CodeEditorHoverPresentation? = nil
     var onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil
     var onCursorLocationChange: ((CodeEditorTextLocation) -> Void)? = nil
     var onVisibleLineRangeChange: ((ClosedRange<Int>) -> Void)? = nil
+    var onSemanticIntent: ((CodeEditorSemanticIntent) -> Void)? = nil
     var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary] = [:]
     var onChangeSet: ((EditorChangeSet) -> Void)? = nil
     var highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared
@@ -50,8 +53,11 @@ struct CodeEditorTextView: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.string = text
         textView.refreshDisplayedTextState()
+        textView.currentDocumentVersion = document.version
         textView.setAccessibilityIdentifier("codeEditor.textView")
         textView.highlightedLineNumber = document.location(ofUTF16Offset: document.selectedRange.location).line
+        textView.semanticIntentHandler = onSemanticIntent
+        textView.updateHoverPresentation(hoverPresentation)
         textView.compositionStateChangeHandler = { [weak coordinator = context.coordinator] textView in
             coordinator?.handleCompositionStateChange(in: textView)
         }
@@ -70,6 +76,9 @@ struct CodeEditorTextView: NSViewRepresentable {
         guard let textView = scrollView.documentView as? CodeEditorPlatformTextView else { return }
         context.coordinator.parent = self
         context.coordinator.installGutter(for: scrollView, textView: textView)
+        textView.semanticIntentHandler = onSemanticIntent
+        textView.currentDocumentVersion = document.version
+        textView.updateHoverPresentation(hoverPresentation)
 
         if !textView.hasMarkedText(), textView.string != text {
             let selectedRange = clampedRange(document.selectedRange, for: text)
@@ -97,6 +106,12 @@ struct CodeEditorTextView: NSViewRepresentable {
             context.coordinator.lastAppliedFocusRequest = focusRequest
             context.coordinator.applyFocus(to: textView)
         }
+
+        if let revealRequest,
+           context.coordinator.lastAppliedRevealRequestID != revealRequest.id {
+            context.coordinator.lastAppliedRevealRequestID = revealRequest.id
+            context.coordinator.applyRevealRequest(revealRequest, to: textView)
+        }
     }
 
     private func clampedRange(_ range: NSRange, for text: String) -> NSRange {
@@ -112,6 +127,7 @@ extension CodeEditorTextView {
         var parent: CodeEditorTextView
         var isApplyingProgrammaticUpdate = false
         var lastAppliedFocusRequest: UUID?
+        var lastAppliedRevealRequestID: UUID?
         private var selectionObserver: NSObjectProtocol?
         private var viewportObserver: NSObjectProtocol?
         private var pendingEdit: PendingEdit?
@@ -143,6 +159,8 @@ extension CodeEditorTextView {
                 pendingEdit = nil
                 return true
             }
+
+            (textView as? CodeEditorPlatformTextView)?.emitSemanticIntent(.cancelHover)
 
             pendingEdit = PendingEdit(
                 replacedRange: affectedCharRange,
@@ -185,6 +203,8 @@ extension CodeEditorTextView {
                 return
             }
 
+            textView.emitSemanticIntent(.cancelHover)
+
             guard textView.string != parent.document.text else {
                 scheduleHighlight(for: textView, dirtyLineRange: nil)
                 return
@@ -204,6 +224,7 @@ extension CodeEditorTextView {
                 queue: nil
             ) { [weak self, weak textView] _ in
                 guard let self, let textView, !self.isApplyingProgrammaticUpdate else { return }
+                (textView as? CodeEditorPlatformTextView)?.emitSemanticIntent(.cancelHover)
                 self.publishSelection(for: textView)
             }
         }
@@ -235,6 +256,7 @@ extension CodeEditorTextView {
                 queue: nil
             ) { [weak self, weak textView] _ in
                 guard let self, let textView else { return }
+                textView.emitSemanticIntent(.cancelHover)
                 self.scheduleHighlight(for: textView, dirtyLineRange: nil)
             }
         }
@@ -294,6 +316,15 @@ extension CodeEditorTextView {
                 guard let self, let textView else { return }
                 self.applyFocus(to: textView)
             }
+        }
+
+        func applyRevealRequest(_ request: CodeEditorRevealRequest, to textView: CodeEditorPlatformTextView) {
+            isApplyingProgrammaticUpdate = true
+            textView.applyRevealRequest(request)
+            isApplyingProgrammaticUpdate = false
+            textView.updateHoverPresentation(nil)
+            publishSelection(for: textView)
+            publishVisibleLineRange(for: textView)
         }
 
         func scheduleHighlight(
@@ -579,7 +610,9 @@ enum CodeEditorHighlightApplicator {
 
 final class CodeEditorPlatformTextView: NSTextView {
     var latestAppliedHighlightVersion: Int?
+    var currentDocumentVersion: Int = 0
     var compositionStateChangeHandler: ((CodeEditorPlatformTextView) -> Void)?
+    var semanticIntentHandler: ((CodeEditorSemanticIntent) -> Void)?
     var highlightedLineNumber: Int? {
         didSet {
             guard highlightedLineNumber != oldValue else {
@@ -591,9 +624,47 @@ final class CodeEditorPlatformTextView: NSTextView {
         }
     }
     private var displayedLineIndex = CodeEditorLineIndex(text: "")
+    private var hoverTrackingArea: NSTrackingArea?
+    private let hoverPopover = NSPopover()
+    private var currentHoverPresentation: CodeEditorHoverPresentation?
 
     var displayedLineCount: Int {
         displayedLineIndex.lineCount
+    }
+
+    var currentHoverMarkdown: String? {
+        currentHoverPresentation?.markdown
+    }
+
+    var isHoverPopoverShown: Bool {
+        hoverPopover.isShown
+    }
+
+    override var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+        hoverPopover.behavior = .semitransient
+        hoverPopover.animates = false
     }
 
     override func drawBackground(in rect: NSRect) {
@@ -624,6 +695,48 @@ final class CodeEditorPlatformTextView: NSTextView {
 
         refreshDisplayedTextState()
         compositionStateChangeHandler?(self)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.option),
+           let position = semanticPosition(at: convert(event.locationInWindow, from: nil)) {
+            emitSemanticIntent(.requestDefinition(position))
+            return
+        }
+
+        super.mouseDown(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+
+        guard let position = semanticPosition(at: convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+
+        emitSemanticIntent(.requestHover(position))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        emitSemanticIntent(.cancelHover)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 111 {
+            if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift),
+               let position = semanticPositionForSelection() {
+                emitSemanticIntent(.requestReferences(position))
+                return
+            }
+
+            if let position = semanticPositionForSelection() {
+                emitSemanticIntent(.requestDefinition(position))
+                return
+            }
+        }
+
+        super.keyDown(with: event)
     }
 
     func refreshDisplayedTextState() {
@@ -686,6 +799,60 @@ final class CodeEditorPlatformTextView: NSTextView {
         return rect.integral
     }
 
+    func emitSemanticIntent(_ intent: CodeEditorSemanticIntent) {
+        guard !hasMarkedText() else {
+            return
+        }
+
+        semanticIntentHandler?(intent)
+    }
+
+    func semanticPosition(line: Int, column: Int) -> CodeEditorSemanticPosition {
+        let utf16Offset = displayedLineIndex.utf16Offset(line: line, column: column)
+        let location = displayedLineIndex.location(ofUTF16Offset: utf16Offset)
+        return CodeEditorSemanticPosition(
+            line: location.line,
+            column: location.column,
+            utf16Offset: utf16Offset,
+            version: currentDocumentVersion
+        )
+    }
+
+    func applyRevealRequest(_ request: CodeEditorRevealRequest) {
+        let offset = displayedLineIndex.utf16Offset(line: request.line, column: request.column)
+        let selectedRange = NSRange(location: offset, length: 0)
+        setSelectedRange(selectedRange)
+        scrollRangeToVisible(selectedRange)
+    }
+
+    func updateHoverPresentation(_ presentation: CodeEditorHoverPresentation?) {
+        currentHoverPresentation = presentation
+
+        guard let presentation else {
+            if hoverPopover.isShown {
+                hoverPopover.performClose(nil)
+            }
+            return
+        }
+
+        guard let anchorRect = hoverAnchorRect(forUTF16Offset: presentation.position.utf16Offset) else {
+            return
+        }
+
+        let content = Text(presentation.markdown)
+            .font(.system(size: 12))
+            .multilineTextAlignment(.leading)
+            .padding(8)
+            .frame(maxWidth: 320, alignment: .leading)
+        hoverPopover.contentViewController = NSHostingController(rootView: content)
+
+        if hoverPopover.isShown {
+            hoverPopover.performClose(nil)
+        }
+
+        hoverPopover.show(relativeTo: anchorRect, of: self, preferredEdge: .maxY)
+    }
+
     private func displayedUTF16LineRange(forLine line: Int) -> NSRange {
         let safeLine = max(1, min(line, displayedLineIndex.lineCount))
         let startOffset = displayedLineIndex.lineStartOffset(forLine: safeLine)
@@ -703,6 +870,66 @@ final class CodeEditorPlatformTextView: NSTextView {
         }
 
         setNeedsDisplay(rect)
+    }
+
+    private func semanticPosition(at point: NSPoint) -> CodeEditorSemanticPosition? {
+        guard let layoutManager,
+              let textContainer else {
+            return nil
+        }
+
+        let containerPoint = NSPoint(
+            x: point.x - textContainerOrigin.x,
+            y: point.y - textContainerOrigin.y
+        )
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        let safeOffset = max(0, min(characterIndex, (string as NSString).length))
+        let location = displayedLineIndex.location(ofUTF16Offset: safeOffset)
+        return CodeEditorSemanticPosition(
+            line: location.line,
+            column: location.column,
+            utf16Offset: safeOffset,
+            version: currentDocumentVersion
+        )
+    }
+
+    private func semanticPositionForSelection() -> CodeEditorSemanticPosition? {
+        let offset = max(0, min(selectedRange().location, (string as NSString).length))
+        let location = displayedLineIndex.location(ofUTF16Offset: offset)
+        return CodeEditorSemanticPosition(
+            line: location.line,
+            column: location.column,
+            utf16Offset: offset,
+            version: currentDocumentVersion
+        )
+    }
+
+    private func hoverAnchorRect(forUTF16Offset offset: Int) -> NSRect? {
+        guard let layoutManager,
+              let textContainer else {
+            return nil
+        }
+
+        let safeOffset = max(0, min(offset, (string as NSString).length))
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: safeOffset, length: 0),
+            actualCharacterRange: nil
+        )
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        if rect.isEmpty {
+            rect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+        }
+        guard rect.isEmpty == false else {
+            return nil
+        }
+
+        let origin = textContainerOrigin
+        rect.origin.x += origin.x
+        rect.origin.y += origin.y
+        rect.size.width = max(rect.width, 1)
+        rect.size.height = max(rect.height, font?.pointSize ?? NSFont.systemFontSize)
+        return rect.integral
     }
 }
 

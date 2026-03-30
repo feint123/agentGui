@@ -187,6 +187,11 @@ final class LSPServerManager {
         return try await session.client.hover(uri: uri, line: line, character: character)
     }
 
+    func documentSymbols(workspaceRoot: String, serverID: String, uri: String) async throws -> [LSPDocumentSymbol] {
+        let session = try sessionRecord(for: workspaceRoot, serverID: serverID)
+        return try await session.client.documentSymbols(uri: uri)
+    }
+
     private func sessionRecord(for workspaceRoot: String, serverID: String) throws -> SessionRecord {
         let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
         guard let session = sessions[key] else {

@@ -143,7 +143,17 @@ final class LSPClient {
         return parseHoverText(from: result)
     }
 
-    func documentSymbols(uri: String) -> [String] { [] }
+    func documentSymbols(uri: String) async throws -> [LSPDocumentSymbol] {
+        let result = try await transport.sendRequest(
+            method: "textDocument/documentSymbol",
+            params: [
+                "textDocument": [
+                    "uri": uri
+                ]
+            ]
+        )
+        return parseDocumentSymbols(from: result)
+    }
 
     func workspaceSymbols(query: String) -> [String] { [] }
 
@@ -284,6 +294,67 @@ final class LSPClient {
         }
 
         return nil
+    }
+
+    private func parseDocumentSymbols(from rawResult: Any?) -> [LSPDocumentSymbol] {
+        guard let array = rawResult as? [[String: Any]] else {
+            return []
+        }
+
+        let documentSymbols = array.compactMap { parseDocumentSymbol(from: $0) }
+        if !documentSymbols.isEmpty {
+            return documentSymbols
+        }
+
+        return array.compactMap { parseSymbolInformation(from: $0) }
+    }
+
+    private func parseDocumentSymbol(from object: [String: Any]) -> LSPDocumentSymbol? {
+        guard let name = object["name"] as? String,
+              let kind = number(from: object["kind"]),
+              let selectionRange = object["selectionRange"] as? [String: Any],
+              let start = selectionRange["start"] as? [String: Any],
+              let line = number(from: start["line"]),
+              let character = number(from: start["character"]) else {
+            return nil
+        }
+
+        let end = (selectionRange["end"] as? [String: Any])
+        let children = (object["children"] as? [[String: Any]] ?? []).compactMap { parseDocumentSymbol(from: $0) }
+
+        return LSPDocumentSymbol(
+            name: name,
+            detail: object["detail"] as? String,
+            kind: kind,
+            line: line,
+            character: character,
+            endLine: number(from: end?["line"]),
+            endCharacter: number(from: end?["character"]),
+            children: children
+        )
+    }
+
+    private func parseSymbolInformation(from object: [String: Any]) -> LSPDocumentSymbol? {
+        guard let name = object["name"] as? String,
+              let kind = number(from: object["kind"]),
+              let location = object["location"] as? [String: Any],
+              let range = location["range"] as? [String: Any],
+              let start = range["start"] as? [String: Any],
+              let line = number(from: start["line"]),
+              let character = number(from: start["character"]) else {
+            return nil
+        }
+
+        let end = range["end"] as? [String: Any]
+        return LSPDocumentSymbol(
+            name: name,
+            detail: object["containerName"] as? String,
+            kind: kind,
+            line: line,
+            character: character,
+            endLine: number(from: end?["line"]),
+            endCharacter: number(from: end?["character"])
+        )
     }
 
     private func number(from value: Any?) -> Int? {

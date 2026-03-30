@@ -30,6 +30,31 @@ struct CodeEditorStatusBarState: Equatable, Sendable {
     let warningCount: Int
 }
 
+enum CodeEditorSemanticNavigationAction: Equatable, Sendable {
+    case revealInCurrentFile(CodeEditorRevealRequest)
+    case openFileAndReveal(URL, CodeEditorRevealRequest)
+    case unsupported
+}
+
+struct CodeEditorDocumentSymbolItem: Equatable, Sendable, Identifiable {
+    let id: UUID
+    let title: String
+    let subtitle: String?
+    let revealRequest: CodeEditorRevealRequest
+
+    init(
+        id: UUID = UUID(),
+        title: String,
+        subtitle: String?,
+        revealRequest: CodeEditorRevealRequest
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.revealRequest = revealRequest
+    }
+}
+
 enum CodeEditorViewModel {
     static func makeStatusBarState(
         document: CodeEditorDocument,
@@ -124,6 +149,31 @@ enum CodeEditorViewModel {
         return CodeEditorIndentationStatus(kind: .unknown, width: 0)
     }
 
+    static func navigationAction(
+        currentFileURL: URL,
+        revealRequest: CodeEditorRevealRequest
+    ) -> CodeEditorSemanticNavigationAction {
+        let currentFileURL = currentFileURL.standardizedFileURL
+        let targetFileURL = revealRequest.fileURL.standardizedFileURL
+
+        if targetFileURL == currentFileURL {
+            return .revealInCurrentFile(revealRequest)
+        }
+
+        if targetFileURL.isFileURL, targetFileURL.path.isEmpty == false {
+            return .openFileAndReveal(targetFileURL, revealRequest)
+        }
+
+        return .unsupported
+    }
+
+    static func flattenedDocumentSymbols(
+        _ symbols: [LSPDocumentSymbol],
+        fileURL: URL
+    ) -> [CodeEditorDocumentSymbolItem] {
+        flatten(symbols, depth: 0, fileURL: fileURL.standardizedFileURL)
+    }
+
     private static func preferredWidth(from widths: [Int]) -> Int? {
         guard !widths.isEmpty else {
             return nil
@@ -158,6 +208,31 @@ enum CodeEditorViewModel {
             return 2
         case .hint:
             return 3
+        }
+    }
+
+    private static func flatten(
+        _ symbols: [LSPDocumentSymbol],
+        depth: Int,
+        fileURL: URL
+    ) -> [CodeEditorDocumentSymbolItem] {
+        symbols.flatMap { symbol in
+            let title = String(repeating: "  ", count: depth) + symbol.name
+            let subtitle = symbol.detail?.isEmpty == false ? symbol.detail : nil
+            let revealRequest = CodeEditorRevealRequest(
+                fileURL: fileURL,
+                line: symbol.line + 1,
+                column: symbol.character + 1,
+                reason: .documentSymbol
+            )
+
+            return [
+                CodeEditorDocumentSymbolItem(
+                    title: title,
+                    subtitle: subtitle,
+                    revealRequest: revealRequest
+                )
+            ] + flatten(symbol.children, depth: depth + 1, fileURL: fileURL)
         }
     }
 }

@@ -19,6 +19,8 @@ final class CodeEditorLSPCoordinator {
     private var pendingText: String?
     private var pendingVersion: Int?
     private var pendingChangeTask: Task<Void, Never>?
+    private var latestHoverGeneration = 0
+    private var pendingHoverTask: Task<Void, Never>?
 
     init(
         manager: LSPServerManager,
@@ -32,6 +34,7 @@ final class CodeEditorLSPCoordinator {
 
     deinit {
         pendingChangeTask?.cancel()
+        pendingHoverTask?.cancel()
     }
 
     func activate(initialText: String, version: Int) {
@@ -71,6 +74,7 @@ final class CodeEditorLSPCoordinator {
         pendingChangeTask = nil
         pendingText = nil
         pendingVersion = nil
+        cancelHover()
 
         if !isOpen {
             activate(initialText: text, version: version)
@@ -92,6 +96,7 @@ final class CodeEditorLSPCoordinator {
         pendingChangeTask = nil
         pendingText = nil
         pendingVersion = nil
+        cancelHover()
 
         guard isOpen else {
             return
@@ -128,13 +133,185 @@ final class CodeEditorLSPCoordinator {
         return true
     }
 
+    func requestDefinition(at position: CodeEditorSemanticPosition) async -> CodeEditorRevealRequest? {
+        guard canServeSemanticRequest(
+            supports: \LSPServerCapabilityHints.supportsDefinition,
+            requestVersion: position.version
+        ) else {
+            return nil
+        }
+
+        do {
+            guard let location = try await manager.definition(
+                workspaceRoot: binding.workspaceRoot,
+                serverID: binding.serverID,
+                uri: binding.uri,
+                line: max(position.line - 1, 0),
+                character: max(position.column - 1, 0)
+            ) else {
+                return nil
+            }
+
+            guard position.version == latestLocalVersion,
+                  let fileURL = localFileURL(for: location.uri) else {
+                return nil
+            }
+
+            return CodeEditorRevealRequest(
+                fileURL: fileURL,
+                line: location.line + 1,
+                column: location.character + 1,
+                reason: .definition
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    func requestReferences(at position: CodeEditorSemanticPosition) async -> CodeEditorReferencePresentation? {
+        guard canServeSemanticRequest(
+            supports: \LSPServerCapabilityHints.supportsReferences,
+            requestVersion: position.version
+        ) else {
+            return nil
+        }
+
+        do {
+            let locations = try await manager.references(
+                workspaceRoot: binding.workspaceRoot,
+                serverID: binding.serverID,
+                uri: binding.uri,
+                line: max(position.line - 1, 0),
+                character: max(position.column - 1, 0)
+            )
+
+            guard position.version == latestLocalVersion else {
+                return nil
+            }
+
+            let items = locations.compactMap { location -> CodeEditorReferencePresentation.Item? in
+                guard let fileURL = localFileURL(for: location.uri) else {
+                    return nil
+                }
+
+                let line = location.line + 1
+                let column = location.character + 1
+                return CodeEditorReferencePresentation.Item(
+                    fileURL: fileURL,
+                    line: line,
+                    column: column,
+                    title: fileURL.lastPathComponent,
+                    subtitle: "Ln \(line), Col \(column)"
+                )
+            }
+
+            guard !items.isEmpty else {
+                return nil
+            }
+
+            return CodeEditorReferencePresentation(queryPosition: position, items: items)
+        } catch {
+            return nil
+        }
+    }
+
+    func requestDocumentSymbols(documentVersion: Int) async -> [LSPDocumentSymbol] {
+        guard canServeSemanticRequest(
+            supports: \LSPServerCapabilityHints.supportsDocumentSymbols,
+            requestVersion: documentVersion
+        ) else {
+            return []
+        }
+
+        do {
+            let symbols = try await manager.documentSymbols(
+                workspaceRoot: binding.workspaceRoot,
+                serverID: binding.serverID,
+                uri: binding.uri
+            )
+            guard documentVersion == latestLocalVersion, isOpen else {
+                return []
+            }
+            return symbols
+        } catch {
+            return []
+        }
+    }
+
+    func scheduleHover(
+        at position: CodeEditorSemanticPosition,
+        debounceNanoseconds: UInt64,
+        deliver: @escaping @MainActor (CodeEditorHoverPresentation?) -> Void
+    ) {
+        guard canServeSemanticRequest(
+            supports: \LSPServerCapabilityHints.supportsHover,
+            requestVersion: position.version
+        ) else {
+            deliver(nil)
+            return
+        }
+
+        latestHoverGeneration += 1
+        let generation = latestHoverGeneration
+        pendingHoverTask?.cancel()
+        pendingHoverTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: debounceNanoseconds)
+            guard !Task.isCancelled else { return }
+
+            let hoverText: String?
+            do {
+                hoverText = try await self.manager.hover(
+                    workspaceRoot: self.binding.workspaceRoot,
+                    serverID: self.binding.serverID,
+                    uri: self.binding.uri,
+                    line: max(position.line - 1, 0),
+                    character: max(position.column - 1, 0)
+                )
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard self.latestHoverGeneration == generation,
+                          self.isOpen else {
+                        return
+                    }
+
+                    self.pendingHoverTask = nil
+                    deliver(nil)
+                }
+                return
+            }
+
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self.latestHoverGeneration == generation,
+                      self.isOpen,
+                      position.version == self.latestLocalVersion,
+                      let hoverText,
+                      hoverText.isEmpty == false else {
+                    deliver(nil)
+                    return
+                }
+
+                self.pendingHoverTask = nil
+                deliver(CodeEditorHoverPresentation(position: position, markdown: hoverText))
+            }
+        }
+    }
+
+    func cancelHover() {
+        latestHoverGeneration += 1
+        pendingHoverTask?.cancel()
+        pendingHoverTask = nil
+    }
+
     private func schedulePendingChange(expectedVersion: Int) {
         pendingChangeTask?.cancel()
         pendingChangeTask = Task { [weak self] in
             guard let self else { return }
             try? await Task.sleep(nanoseconds: debounceNanoseconds)
             guard !Task.isCancelled else { return }
-            await self.flushPendingChange(expectedVersion: expectedVersion)
+            self.flushPendingChange(expectedVersion: expectedVersion)
         }
     }
 
@@ -161,5 +338,25 @@ final class CodeEditorLSPCoordinator {
         self.pendingText = nil
         self.pendingVersion = nil
         pendingChangeTask = nil
+    }
+
+    private func canServeSemanticRequest(
+        supports capability: KeyPath<LSPServerCapabilityHints, Bool>,
+        requestVersion: Int
+    ) -> Bool {
+        guard isOpen,
+              requestVersion == latestLocalVersion,
+              let capabilities = manager.capabilities(for: binding.workspaceRoot, serverID: binding.serverID) else {
+            return false
+        }
+
+        return capabilities[keyPath: capability]
+    }
+
+    private func localFileURL(for uri: String) -> URL? {
+        guard let url = URL(string: uri), url.isFileURL else {
+            return nil
+        }
+        return url.standardizedFileURL
     }
 }

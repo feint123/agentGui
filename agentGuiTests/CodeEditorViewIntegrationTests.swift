@@ -132,6 +132,62 @@ struct CodeEditorViewIntegrationTests {
         #expect(harness.statusBarText.contains("Col 5"))
         #expect(harness.statusBarText.contains("E1"))
     }
+
+    @Test
+    func revealRequestPropagatesThroughCodeEditorView() {
+        let harness = CodeEditorViewHarness(
+            initialText: "alpha\nbeta\ngamma",
+            persistedText: "alpha\nbeta\ngamma"
+        )
+
+        harness.applyRevealRequest(
+            CodeEditorRevealRequest(
+                fileURL: harness.fileURL,
+                line: 3,
+                column: 2,
+                reason: .definition
+            )
+        )
+
+        #expect(harness.textView.selectedRange().location == 12)
+    }
+
+    @Test
+    func hoverPresentationPropagatesThroughCodeEditorView() {
+        let harness = CodeEditorViewHarness(
+            initialText: "alpha\nbeta",
+            persistedText: "alpha\nbeta"
+        )
+
+        harness.applyHoverPresentation(
+            CodeEditorHoverPresentation(
+                position: CodeEditorSemanticPosition(line: 1, column: 3, utf16Offset: 2, version: 0),
+                markdown: "Demo hover"
+            )
+        )
+
+        #expect(harness.textView.currentHoverMarkdown == "Demo hover")
+
+        harness.applyHoverPresentation(nil)
+
+        #expect(harness.textView.currentHoverMarkdown == nil)
+    }
+
+    @Test
+    func semanticPositionUsesDocumentVersionBeforeHighlightFinishes() {
+        let harness = CodeEditorViewHarness(
+            initialText: "alpha",
+            persistedText: "alpha",
+            highlightExecutionDelayNanoseconds: 500_000_000
+        )
+
+        harness.replaceCharacters(in: NSRange(location: 5, length: 0), with: "!")
+
+        let position = harness.textView.semanticPosition(line: 1, column: 6)
+
+        #expect(harness.documentVersion == 1)
+        #expect(position == .init(line: 1, column: 6, utf16Offset: 5, version: 1))
+    }
 }
 
 @MainActor
@@ -150,12 +206,16 @@ private final class CodeEditorViewHarness {
         @Published var text: String
         @Published var persistedText: String
         @Published var focusToken: UUID?
+        @Published var revealRequest: CodeEditorRevealRequest?
+        @Published var hoverPresentation: CodeEditorHoverPresentation?
         @Published var lspStatus: WorkspacePanelLSPStatusPresentation?
         @Published var diagnostics: LSPDiagnosticsSnapshot?
 
         init(text: String, persistedText: String) {
             self.text = text
             self.persistedText = persistedText
+            self.revealRequest = nil
+            self.hoverPresentation = nil
             self.lspStatus = nil
             self.diagnostics = nil
         }
@@ -166,17 +226,25 @@ private final class CodeEditorViewHarness {
     let fileURL: URL
     let window: NSWindow
     private let hostingView: NSHostingView<HostView>
+    private let highlightExecutionDelayNanoseconds: UInt64
 
-    init(initialText: String, persistedText: String, fileURL: URL = URL(fileURLWithPath: "/tmp/CodeEditorViewHarness.swift")) {
+    init(
+        initialText: String,
+        persistedText: String,
+        fileURL: URL = URL(fileURLWithPath: "/tmp/CodeEditorViewHarness.swift"),
+        highlightExecutionDelayNanoseconds: UInt64 = 0
+    ) {
         let storage = Storage(text: initialText, persistedText: persistedText)
         self.storage = storage
         self.fileURL = fileURL
+        self.highlightExecutionDelayNanoseconds = highlightExecutionDelayNanoseconds
         let recorder = self.recorder
 
         let rootView = HostView(
             storage: storage,
             fileURL: fileURL,
             highlighter: highlighter,
+            highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds,
             onStatusBarSummaryChange: { summary in
                 recorder.statusBarText = summary
             },
@@ -273,6 +341,16 @@ private final class CodeEditorViewHarness {
         pumpRunLoop()
     }
 
+    func applyRevealRequest(_ request: CodeEditorRevealRequest?) {
+        storage.revealRequest = request
+        pumpRunLoop()
+    }
+
+    func applyHoverPresentation(_ presentation: CodeEditorHoverPresentation?) {
+        storage.hoverPresentation = presentation
+        pumpRunLoop()
+    }
+
     func select(range: NSRange) {
         let textView = textView
         textView.setSelectedRange(range)
@@ -358,6 +436,7 @@ private struct HostView: View {
     @ObservedObject var storage: CodeEditorViewHarness.Storage
     let fileURL: URL
     let highlighter: any CodeSyntaxHighlighting
+    let highlightExecutionDelayNanoseconds: UInt64
     let onStatusBarSummaryChange: (String) -> Void
     let onSelectionChange: (EditorSelectionSnapshot?) -> Void
     let onTextChange: (String, EditorChangeSet) -> Void
@@ -370,11 +449,14 @@ private struct HostView: View {
             diagnostics: storage.diagnostics,
             lspStatus: storage.lspStatus,
             focusRequest: storage.focusToken,
+            revealRequest: storage.revealRequest,
+            hoverPresentation: storage.hoverPresentation,
             onStatusBarSummaryChange: onStatusBarSummaryChange,
             onSelectionChange: onSelectionChange,
             onTextChange: onTextChange,
             highlighter: highlighter,
-            highlightDebounceNanoseconds: 0
+            highlightDebounceNanoseconds: 0,
+            highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds
         )
         .frame(width: 480, height: 320)
     }

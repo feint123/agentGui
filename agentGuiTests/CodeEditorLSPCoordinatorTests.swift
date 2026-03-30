@@ -188,6 +188,143 @@ struct CodeEditorLSPCoordinatorTests {
         #expect(coordinator.acceptsDiagnostics(stale) == false)
         #expect(coordinator.acceptsDiagnostics(current))
     }
+
+    @Test
+    func staleHoverResultIsDiscardedAfterNewerVersionArrives() async throws {
+        let harness = SharedLSPServerManagerHarness(settings: .lspFixture(installedProviderIDs: ["python-lsp"]))
+        let manager = harness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: .fixtureSourceFile(),
+            debounceNanoseconds: 10_000_000
+        )
+
+        coordinator.activate(initialText: "value", version: 1)
+
+        var delivered: [CodeEditorHoverPresentation?] = []
+        coordinator.scheduleHover(
+            at: .init(line: 1, column: 1, utf16Offset: 0, version: 1),
+            debounceNanoseconds: 5_000_000
+        ) {
+            delivered.append($0)
+        }
+
+        coordinator.handleTextChange(
+            text: "value2",
+            change: EditorChangeSet(
+                version: 2,
+                replacedRange: NSRange(location: 5, length: 0),
+                insertedText: "2",
+                selectedRange: NSRange(location: 6, length: 0),
+                origin: .userEdit
+            )
+        )
+
+        try? await Task.sleep(nanoseconds: 80_000_000)
+
+        #expect(delivered.allSatisfy { $0 == nil })
+    }
+
+    @Test
+    func latestHoverRequestCancelsOlderPendingHoverTask() async throws {
+        let harness = SharedLSPServerManagerHarness(settings: .lspFixture(installedProviderIDs: ["python-lsp"]))
+        let manager = harness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: .fixtureSourceFile(),
+            debounceNanoseconds: 10_000_000
+        )
+
+        coordinator.activate(initialText: "value", version: 1)
+
+        var delivered: [CodeEditorHoverPresentation?] = []
+        coordinator.scheduleHover(
+            at: .init(line: 1, column: 1, utf16Offset: 0, version: 1),
+            debounceNanoseconds: 200_000_000
+        ) {
+            delivered.append($0)
+        }
+        coordinator.scheduleHover(
+            at: .init(line: 1, column: 2, utf16Offset: 1, version: 1),
+            debounceNanoseconds: 5_000_000
+        ) {
+            delivered.append($0)
+        }
+
+        try? await Task.sleep(nanoseconds: 80_000_000)
+
+        #expect(delivered.count == 1)
+        #expect(delivered.first??.markdown == "Demo hover")
+        #expect(delivered.first??.position == .init(line: 1, column: 2, utf16Offset: 1, version: 1))
+    }
+
+    @Test
+    func definitionRequestMapsLocalLocationToRevealRequest() async throws {
+        let harness = SharedLSPServerManagerHarness(settings: .lspFixture(installedProviderIDs: ["python-lsp"]))
+        let manager = harness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: .fixtureSourceFile(),
+            debounceNanoseconds: 10_000_000
+        )
+
+        coordinator.activate(initialText: "value", version: 1)
+
+        let revealRequest = await coordinator.requestDefinition(
+            at: .init(line: 1, column: 1, utf16Offset: 0, version: 1)
+        )
+
+        #expect(revealRequest?.fileURL == URL(fileURLWithPath: "/tmp/Sample.py"))
+        #expect(revealRequest?.line == 1)
+        #expect(revealRequest?.column == 1)
+        #expect(revealRequest?.reason == .definition)
+    }
+
+    @Test
+    func referencesRequestMapsLocationsIntoPresentation() async throws {
+        let harness = SharedLSPServerManagerHarness(settings: .lspFixture(installedProviderIDs: ["python-lsp"]))
+        let manager = harness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: .fixtureSourceFile(),
+            debounceNanoseconds: 10_000_000
+        )
+
+        coordinator.activate(initialText: "value", version: 1)
+
+        let presentation = await coordinator.requestReferences(
+            at: .init(line: 1, column: 1, utf16Offset: 0, version: 1)
+        )
+
+        #expect(presentation?.queryPosition == .init(line: 1, column: 1, utf16Offset: 0, version: 1))
+        #expect(presentation?.items.count == 2)
+        #expect(presentation?.items.first?.fileURL == URL(fileURLWithPath: "/tmp/Sample.py"))
+        #expect(presentation?.items.last?.line == 5)
+        #expect(presentation?.items.last?.column == 3)
+    }
+
+    @Test
+    func documentSymbolsReturnEmptyAfterCoordinatorDeactivation() async throws {
+        let harness = SharedLSPServerManagerHarness(settings: .lspFixture(installedProviderIDs: ["python-lsp"]))
+        let manager = harness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: .fixtureSourceFile(),
+            debounceNanoseconds: 10_000_000
+        )
+
+        coordinator.activate(initialText: "value", version: 1)
+        coordinator.deactivate()
+
+        let symbols = await coordinator.requestDocumentSymbols(documentVersion: 1)
+
+        #expect(symbols.isEmpty)
+    }
 }
 
 private extension CodeEditorLSPDocumentBinding {

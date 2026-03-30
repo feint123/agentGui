@@ -87,7 +87,17 @@ private final class SharedHarnessManagedProcess: LSPManagedProcess {
         let responseBody = try JSONSerialization.data(withJSONObject: [
             "jsonrpc": "2.0",
             "id": id,
-            "result": [
+            "result": responseResult(for: payload)
+        ])
+        var framed = Data("Content-Length: \(responseBody.count)\r\n\r\n".utf8)
+        framed.append(responseBody)
+        standardOutputHandler?(framed)
+    }
+
+    private func responseResult(for payload: [String: Any]) -> Any {
+        switch payload["method"] as? String {
+        case "initialize":
+            return [
                 "capabilities": [
                     "definitionProvider": true,
                     "referencesProvider": true,
@@ -96,10 +106,99 @@ private final class SharedHarnessManagedProcess: LSPManagedProcess {
                     "workspaceSymbolProvider": true
                 ]
             ]
-        ])
-        var framed = Data("Content-Length: \(responseBody.count)\r\n\r\n".utf8)
-        framed.append(responseBody)
-        standardOutputHandler?(framed)
+        case "textDocument/documentSymbol":
+            let uri = ((payload["params"] as? [String: Any])?["textDocument"] as? [String: Any])?["uri"] as? String ?? ""
+            return documentSymbolsResult(for: uri)
+        case "textDocument/definition":
+            return [
+                "uri": "file:///tmp/Sample.py",
+                "range": [
+                    "start": ["line": 0, "character": 0],
+                    "end": ["line": 0, "character": 4]
+                ]
+            ]
+        case "textDocument/references":
+            return [
+                [
+                    "uri": "file:///tmp/Sample.py",
+                    "range": [
+                        "start": ["line": 0, "character": 0],
+                        "end": ["line": 0, "character": 4]
+                    ]
+                ],
+                [
+                    "uri": "file:///tmp/Other.py",
+                    "range": [
+                        "start": ["line": 4, "character": 2],
+                        "end": ["line": 4, "character": 6]
+                    ]
+                ]
+            ]
+        case "textDocument/hover":
+            return [
+                "contents": [
+                    "kind": "markdown",
+                    "value": "Demo hover"
+                ]
+            ]
+        default:
+            return NSNull()
+        }
+    }
+
+    private func documentSymbolsResult(for uri: String) -> Any {
+        if uri.hasSuffix("FlatSample.py") {
+            return [
+                [
+                    "name": "FlatDemo",
+                    "kind": 5,
+                    "location": [
+                        "uri": uri,
+                        "range": [
+                            "start": ["line": 2, "character": 0],
+                            "end": ["line": 6, "character": 0]
+                        ]
+                    ],
+                    "containerName": "Module"
+                ],
+                [
+                    "name": "helper",
+                    "kind": 12,
+                    "location": [
+                        "uri": uri,
+                        "range": [
+                            "start": ["line": 8, "character": 4],
+                            "end": ["line": 9, "character": 1]
+                        ]
+                    ],
+                    "containerName": "FlatDemo"
+                ]
+            ]
+        }
+
+        return [
+            [
+                "name": "Demo",
+                "detail": "class",
+                "kind": 5,
+                "selectionRange": [
+                    "start": ["line": 0, "character": 0],
+                    "end": ["line": 4, "character": 0]
+                ],
+                "children": [
+                    [
+                        "name": "inner",
+                        "detail": "func",
+                        "kind": 12,
+                        "selectionRange": [
+                            "start": ["line": 1, "character": 4],
+                            "end": ["line": 2, "character": 0]
+                        ],
+                        "children": []
+                    ]
+                ]
+            ]
+        ]
     }
 
     func stop() {

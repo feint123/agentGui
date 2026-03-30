@@ -151,6 +151,9 @@ final class WorkspaceState {
     /// 消费后应置回 nil。
     var externallyModifiedFile: URL?
 
+    /// 文件切换后供新编辑器实例单次消费的 reveal 请求。
+    var pendingCodeEditorRevealRequest: CodeEditorRevealRequest?
+
     /// 当前在编辑区预览的 Git diff 对应文件。
     var selectedGitDiffPath: URL? {
         didSet {
@@ -256,6 +259,7 @@ final class WorkspaceState {
     func showFileDetail(_ fileURL: URL?) {
         guard let fileURL else {
             selectedFile = nil
+            pendingCodeEditorRevealRequest = nil
             clearGitDiffSelection()
             clearChangeProposalSelection()
             return
@@ -265,6 +269,16 @@ final class WorkspaceState {
         clearGitDiffSelection()
         clearChangeProposalSelection()
         contextWindowRouter?.open(selection: .file(fileURL.standardizedFileURL))
+    }
+
+    func consumePendingCodeEditorRevealRequest(for fileURL: URL) -> CodeEditorRevealRequest? {
+        guard let pendingCodeEditorRevealRequest,
+              pendingCodeEditorRevealRequest.fileURL.standardizedFileURL == fileURL.standardizedFileURL else {
+            return nil
+        }
+
+        self.pendingCodeEditorRevealRequest = nil
+        return pendingCodeEditorRevealRequest
     }
 
     func showGitDiffDetail(path: URL?, title: String, diffText: String) {

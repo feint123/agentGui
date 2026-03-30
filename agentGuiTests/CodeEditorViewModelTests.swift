@@ -70,4 +70,81 @@ struct CodeEditorViewModelTests {
         #expect(tabs == CodeEditorIndentationStatus(kind: .tabs, width: 1))
         #expect(unknown == CodeEditorIndentationStatus(kind: .unknown, width: 0))
     }
+
+    @Test
+    func navigationActionUsesRevealInCurrentFileForSameFile() {
+        let currentFile = URL(fileURLWithPath: "/tmp/A.swift")
+        let reveal = CodeEditorRevealRequest(
+            fileURL: currentFile,
+            line: 3,
+            column: 2,
+            reason: .definition
+        )
+
+        let action = CodeEditorViewModel.navigationAction(
+            currentFileURL: currentFile,
+            revealRequest: reveal
+        )
+
+        #expect(action == .revealInCurrentFile(reveal))
+    }
+
+    @Test
+    func navigationActionUsesOpenFileAndRevealForDifferentLocalFile() {
+        let currentFile = URL(fileURLWithPath: "/tmp/A.swift")
+        let reveal = CodeEditorRevealRequest(
+            fileURL: URL(fileURLWithPath: "/tmp/B.swift"),
+            line: 8,
+            column: 3,
+            reason: .definition
+        )
+
+        let action = CodeEditorViewModel.navigationAction(
+            currentFileURL: currentFile,
+            revealRequest: reveal
+        )
+
+        #expect(action == .openFileAndReveal(reveal.fileURL, reveal))
+    }
+
+    @Test
+    func flattenedDocumentSymbolsProduceIndentedRevealItems() throws {
+        let symbols = [
+            LSPDocumentSymbol(
+                name: "Demo",
+                detail: nil,
+                kind: 12,
+                line: 4,
+                character: 0,
+                endLine: 8,
+                endCharacter: 1,
+                children: [
+                    LSPDocumentSymbol(
+                        name: "inner",
+                        detail: "func",
+                        kind: 6,
+                        line: 5,
+                        character: 4,
+                        endLine: 6,
+                        endCharacter: 1,
+                        children: []
+                    )
+                ]
+            )
+        ]
+
+        let items = CodeEditorViewModel.flattenedDocumentSymbols(
+            symbols,
+            fileURL: URL(fileURLWithPath: "/tmp/A.swift")
+        )
+
+        let parent = try #require(items.first)
+        let child = try #require(items.last)
+        #expect(parent.title == "Demo")
+        #expect(parent.revealRequest.line == 5)
+        #expect(parent.revealRequest.reason == .documentSymbol)
+        #expect(child.title == "  inner")
+        #expect(child.subtitle == "func")
+        #expect(child.revealRequest.line == 6)
+    }
 }

@@ -220,4 +220,84 @@ struct CodeEditorTextViewIntegrationTests {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         #expect(Bool(true))
     }
+
+    @Test
+    func optionClickPublishesDefinitionSemanticIntent() {
+        let harness = CodeEditorTextViewHarness(text: "alpha\nbeta\ngamma")
+
+        harness.optionClick(line: 2, column: 2)
+
+        #expect(harness.semanticIntents.last == .requestDefinition(.init(line: 2, column: 2, utf16Offset: 7, version: 0)))
+    }
+
+    @Test
+    func semanticIntentUsesCurrentDocumentVersionBeforeHighlightFinishes() {
+        let harness = CodeEditorTextViewHarness(
+            text: "alpha",
+            highlightExecutionDelayNanoseconds: 500_000_000
+        )
+
+        harness.replaceCharacters(in: NSRange(location: 5, length: 0), with: "!")
+        harness.clearRecordedCallbacks()
+        harness.optionClick(line: 1, column: 6)
+
+        #expect(harness.document.version == 1)
+        #expect(harness.semanticIntents.last == .requestDefinition(.init(line: 1, column: 6, utf16Offset: 5, version: 1)))
+    }
+
+    @Test
+    func shiftF12PublishesReferencesSemanticIntent() {
+        let harness = CodeEditorTextViewHarness(text: "alpha\nbeta")
+        harness.select(range: NSRange(location: 6, length: 0))
+
+        harness.pressReferencesShortcut()
+
+        #expect(harness.semanticIntents.last == .requestReferences(.init(line: 2, column: 1, utf16Offset: 6, version: 0)))
+    }
+
+    @Test
+    func hoverAndSubsequentInputEmitHoverThenCancelIntent() {
+        let harness = CodeEditorTextViewHarness(text: "alpha\nbeta")
+
+        harness.moveMouse(line: 1, column: 3)
+        harness.replaceCharacters(in: NSRange(location: 0, length: 0), with: "X")
+
+        #expect(harness.semanticIntents.contains(.requestHover(.init(line: 1, column: 3, utf16Offset: 2, version: 0))))
+        #expect(harness.semanticIntents.last == .cancelHover)
+    }
+
+    @Test
+    func revealRequestSelectsRequestedLocationWithoutEmittingUserEdit() {
+        let harness = CodeEditorTextViewHarness(text: "alpha\nbeta\ngamma")
+
+        harness.applyRevealRequest(
+            .init(
+                fileURL: URL(fileURLWithPath: "/tmp/Demo.swift"),
+                line: 3,
+                column: 2,
+                reason: .definition
+            )
+        )
+
+        #expect(harness.textView.selectedRange().location == harness.document.utf16Offset(line: 3, column: 2))
+        #expect(harness.changeSetCount == 0)
+        #expect(harness.lastCursorLocation == CodeEditorTextLocation(line: 3, column: 2))
+    }
+
+    @Test
+    func markedTextBlocksSemanticIntentEmission() {
+        let harness = CodeEditorTextViewHarness(text: "alpha")
+
+        harness.setMarkedText(
+            "输入",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: 0, length: 0)
+        )
+        harness.clearRecordedCallbacks()
+        harness.optionClick(line: 1, column: 1)
+        harness.moveMouse(line: 1, column: 1)
+        harness.pressDefinitionShortcut()
+
+        #expect(harness.semanticIntents.isEmpty)
+    }
 }

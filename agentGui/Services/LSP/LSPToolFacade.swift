@@ -90,12 +90,22 @@ struct LSPToolFacade {
         ) ?? "No hover found for \(uri):\(line):\(character)"
     }
 
-    func documentSymbols(workspaceRoot: String, serverID: String, uri: String) -> String {
+    func documentSymbols(workspaceRoot: String, serverID: String, uri: String) async throws -> String {
         guard serverManager?.state(for: workspaceRoot, serverID: serverID) != nil else {
             return "Error: no active LSP session for \(serverID) in \(workspaceRoot)"
         }
 
-        return "Document symbols are not implemented yet for \(uri)"
+        let symbols = try await serverManager?.documentSymbols(
+            workspaceRoot: workspaceRoot,
+            serverID: serverID,
+            uri: uri
+        ) ?? []
+
+        guard !symbols.isEmpty else {
+            return "No document symbols found for \(uri)"
+        }
+
+        return formatDocumentSymbols(symbols)
     }
 
     func workspaceSymbols(workspaceRoot: String, serverID: String, query: String) -> String {
@@ -104,6 +114,26 @@ struct LSPToolFacade {
         }
 
         return "Workspace symbol search is not implemented yet for '\(query)'"
+    }
+}
+
+private extension LSPToolFacade {
+    func formatDocumentSymbols(_ symbols: [LSPDocumentSymbol], depth: Int = 0) -> String {
+        symbols
+            .flatMap { symbol -> [String] in
+                let indent = String(repeating: "  ", count: depth)
+                let location = "@ \(symbol.line + 1):\(symbol.character + 1)"
+                let detail = symbol.detail.flatMap { $0.isEmpty ? nil : $0 }
+                let line = ["\(indent)\(symbol.name)", detail, location]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
+                let childLines = formatDocumentSymbols(symbol.children, depth: depth + 1)
+                if childLines.isEmpty {
+                    return [line]
+                }
+                return [line, childLines]
+            }
+            .joined(separator: "\n")
     }
 }
 
