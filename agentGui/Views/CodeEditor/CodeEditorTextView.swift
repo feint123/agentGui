@@ -49,11 +49,12 @@ struct CodeEditorTextView: NSViewRepresentable {
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.string = text
+        textView.refreshDisplayedTextState()
         textView.setAccessibilityIdentifier("codeEditor.textView")
-        textView.lineRangeProvider = { [document] line in
-            document.utf16LineRange(forLine: line)
-        }
         textView.highlightedLineNumber = document.location(ofUTF16Offset: document.selectedRange.location).line
+        textView.compositionStateChangeHandler = { [weak coordinator = context.coordinator] textView in
+            coordinator?.handleCompositionStateChange(in: textView)
+        }
 
         scrollView.documentView = textView
         context.coordinator.installGutter(for: scrollView, textView: textView)
@@ -68,20 +69,16 @@ struct CodeEditorTextView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? CodeEditorPlatformTextView else { return }
         context.coordinator.parent = self
-        textView.lineRangeProvider = { [document] line in
-            document.utf16LineRange(forLine: line)
-        }
-        textView.highlightedLineNumber = document.location(ofUTF16Offset: document.selectedRange.location).line
         context.coordinator.installGutter(for: scrollView, textView: textView)
-        context.coordinator.updateGutterState(for: textView)
 
-        if textView.string != text {
+        if !textView.hasMarkedText(), textView.string != text {
             let selectedRange = clampedRange(document.selectedRange, for: text)
             context.coordinator.isApplyingProgrammaticUpdate = true
             textView.string = text
+            textView.refreshDisplayedTextState()
             textView.setSelectedRange(selectedRange)
             context.coordinator.isApplyingProgrammaticUpdate = false
-            textView.highlightedLineNumber = document.location(ofUTF16Offset: selectedRange.location).line
+            textView.highlightedLineNumber = textView.displayedLocation(ofUTF16Offset: selectedRange.location).line
             context.coordinator.publishVisibleLineRange(for: textView)
             context.coordinator.updateGutterState(for: textView)
             context.coordinator.scheduleHighlight(
@@ -89,6 +86,9 @@ struct CodeEditorTextView: NSViewRepresentable {
                 dirtyLineRange: context.coordinator.fullDocumentLineRange()
             )
         }
+
+        textView.highlightedLineNumber = textView.displayedLocation(ofUTF16Offset: textView.selectedRange().location).line
+        context.coordinator.updateGutterState(for: textView)
 
         context.coordinator.scheduleHighlight(for: textView, dirtyLineRange: nil)
 
@@ -158,19 +158,39 @@ extension CodeEditorTextView {
                 return
             }
 
-            let currentText = textView.string
-            let selectedRange = textView.selectedRange()
-            let change = parent.document.applyUserEdit(
-                replacing: pendingEdit?.replacedRange ?? NSRange(location: 0, length: parent.document.text.utf16.count),
-                insertedText: pendingEdit?.insertedText ?? currentText,
-                updatedText: currentText,
-                selectedRange: selectedRange
-            )
-            pendingEdit = nil
-            parent.text = currentText
-            parent.onChangeSet?(change)
+            textView.refreshDisplayedTextState()
+
+            if textView.hasMarkedText() {
+                publishSelection(for: textView)
+                publishVisibleLineRange(for: textView)
+                updateGutterState(for: textView)
+                cancelHighlight()
+                return
+            }
+
+            commitDisplayedText(from: textView, preferPendingEdit: true)
+        }
+
+        func handleCompositionStateChange(in textView: CodeEditorPlatformTextView) {
+            guard !isApplyingProgrammaticUpdate else {
+                return
+            }
+
             publishSelection(for: textView)
-            scheduleHighlight(for: textView, dirtyLineRange: dirtyLineRange(for: change))
+            publishVisibleLineRange(for: textView)
+            updateGutterState(for: textView)
+
+            if textView.hasMarkedText() {
+                cancelHighlight()
+                return
+            }
+
+            guard textView.string != parent.document.text else {
+                scheduleHighlight(for: textView, dirtyLineRange: nil)
+                return
+            }
+
+            commitDisplayedText(from: textView, preferPendingEdit: false)
         }
 
         func installSelectionObserver(for textView: NSTextView) {
@@ -193,7 +213,7 @@ extension CodeEditorTextView {
                 let gutterView = CodeEditorGutterView(
                     scrollView: scrollView,
                     textView: textView,
-                    document: parent.document
+                    lineCount: textView.displayedLineCount
                 )
                 scrollView.verticalRulerView = gutterView
             }
@@ -221,8 +241,13 @@ extension CodeEditorTextView {
 
         func publishSelection(for textView: NSTextView) {
             let selectedRange = textView.selectedRange()
-            let cursorLocation = parent.document.location(ofUTF16Offset: selectedRange.location)
-            let snapshot = selectionSnapshot(text: textView.string, range: selectedRange)
+            let cursorLocation: CodeEditorTextLocation
+            if let textView = textView as? CodeEditorPlatformTextView {
+                cursorLocation = textView.displayedLocation(ofUTF16Offset: selectedRange.location)
+            } else {
+                cursorLocation = parent.document.location(ofUTF16Offset: selectedRange.location)
+            }
+            let snapshot = selectionSnapshot(for: textView, text: textView.string, range: selectedRange)
             parent.onSelectionChange?(snapshot)
             parent.onCursorLocationChange?(cursorLocation)
             (textView as? CodeEditorPlatformTextView)?.highlightedLineNumber = cursorLocation.line
@@ -252,7 +277,7 @@ extension CodeEditorTextView {
 
             let visibleRange = visibleLineRange(for: textView) ?? fullDocumentLineRange()
             gutterView.updateLayoutState(
-                document: parent.document,
+                lineCount: textView.displayedLineCount,
                 visibleLineRange: visibleRange,
                 currentLine: textView.highlightedLineNumber,
                 diagnosticsByLine: parent.diagnosticsByLine
@@ -275,6 +300,13 @@ extension CodeEditorTextView {
             for textView: CodeEditorPlatformTextView,
             dirtyLineRange: ClosedRange<Int>?
         ) {
+            if textView.hasMarkedText() {
+                publishVisibleLineRange(for: textView)
+                updateGutterState(for: textView)
+                cancelHighlight()
+                return
+            }
+
             let visibleLineRange = visibleLineRange(for: textView) ?? fullDocumentLineRange()
             publishVisibleLineRange(for: textView)
             let effectiveDirtyLineRange = dirtyLineRange ?? visibleLineRange
@@ -341,11 +373,96 @@ extension CodeEditorTextView {
             1...max(parent.document.lineCount, 1)
         }
 
+        private func cancelHighlight() {
+            Task {
+                await highlightScheduler.cancel()
+            }
+        }
+
+        private func commitDisplayedText(
+            from textView: CodeEditorPlatformTextView,
+            preferPendingEdit: Bool
+        ) {
+            let currentText = textView.string
+            let selectedRange = textView.selectedRange()
+            let committedEdit = resolvedCommittedEdit(
+                from: parent.document.text,
+                to: currentText,
+                preferredEdit: preferPendingEdit ? pendingEdit : nil
+            )
+            let change = parent.document.applyUserEdit(
+                replacing: committedEdit.replacedRange,
+                insertedText: committedEdit.insertedText,
+                updatedText: currentText,
+                selectedRange: selectedRange
+            )
+            pendingEdit = nil
+            parent.text = currentText
+            parent.onChangeSet?(change)
+            publishSelection(for: textView)
+            scheduleHighlight(for: textView, dirtyLineRange: dirtyLineRange(for: change))
+        }
+
+        private func resolvedCommittedEdit(
+            from oldText: String,
+            to newText: String,
+            preferredEdit: PendingEdit?
+        ) -> PendingEdit {
+            if let preferredEdit,
+               editMatchesTexts(preferredEdit, oldText: oldText, newText: newText) {
+                return preferredEdit
+            }
+
+            return computeEditDelta(from: oldText, to: newText)
+        }
+
+        private func editMatchesTexts(_ edit: PendingEdit, oldText: String, newText: String) -> Bool {
+            let oldNSString = oldText as NSString
+            guard edit.replacedRange.location >= 0,
+                  edit.replacedRange.upperBound <= oldNSString.length else {
+                return false
+            }
+
+            let candidate = oldNSString.replacingCharacters(in: edit.replacedRange, with: edit.insertedText)
+            return candidate == newText
+        }
+
+        private func computeEditDelta(from oldText: String, to newText: String) -> PendingEdit {
+            let oldNSString = oldText as NSString
+            let newNSString = newText as NSString
+            let oldLength = oldNSString.length
+            let newLength = newNSString.length
+
+            var prefixLength = 0
+            while prefixLength < oldLength,
+                  prefixLength < newLength,
+                  oldNSString.character(at: prefixLength) == newNSString.character(at: prefixLength) {
+                prefixLength += 1
+            }
+
+            var oldSuffixLength = 0
+            let maxSuffixLength = min(oldLength - prefixLength, newLength - prefixLength)
+            while oldSuffixLength < maxSuffixLength,
+                  oldNSString.character(at: oldLength - oldSuffixLength - 1) == newNSString.character(at: newLength - oldSuffixLength - 1) {
+                oldSuffixLength += 1
+            }
+
+            let replacedRange = NSRange(
+                location: prefixLength,
+                length: oldLength - prefixLength - oldSuffixLength
+            )
+            let insertedText = newNSString.substring(with: NSRange(
+                location: prefixLength,
+                length: newLength - prefixLength - oldSuffixLength
+            ))
+            return PendingEdit(replacedRange: replacedRange, insertedText: insertedText)
+        }
+
         private func applyHighlightResult(
             _ result: CodeEditorHighlightResult,
             to textView: CodeEditorPlatformTextView
         ) {
-            guard result.version == parent.document.version else {
+            guard result.version == parent.document.version, !textView.hasMarkedText() else {
                 return
             }
 
@@ -384,7 +501,12 @@ extension CodeEditorTextView {
             let visibleRect = textView.enclosingScrollView?.contentView.bounds ?? textView.visibleRect
             let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
             let characterRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-            let lineRange = parent.document.lineRange(for: characterRange)
+            let lineRange: FileLineRange
+            if let textView = textView as? CodeEditorPlatformTextView {
+                lineRange = textView.displayedLineRange(for: characterRange)
+            } else {
+                lineRange = parent.document.lineRange(for: characterRange)
+            }
             return lineRange.startLine...max(lineRange.endLine, lineRange.startLine)
         }
 
@@ -398,7 +520,7 @@ extension CodeEditorTextView {
             return fileLineRange.startLine...max(fileLineRange.endLine, fileLineRange.startLine)
         }
 
-        private func selectionSnapshot(text: String, range: NSRange) -> EditorSelectionSnapshot? {
+        private func selectionSnapshot(for textView: NSTextView, text: String, range: NSRange) -> EditorSelectionSnapshot? {
             let source = text as NSString
             let safeLocation = max(0, min(range.location, source.length))
             let safeLength = max(0, min(range.length, source.length - safeLocation))
@@ -408,9 +530,15 @@ extension CodeEditorTextView {
             }
 
             let selectedText = source.substring(with: safeRange)
+            let lineRange: FileLineRange
+            if let displayedTextView = textView as? CodeEditorPlatformTextView {
+                lineRange = displayedTextView.displayedLineRange(for: safeRange)
+            } else {
+                lineRange = parent.document.lineRange(for: safeRange)
+            }
             return EditorSelectionSnapshot(
                 text: selectedText,
-                lineRange: parent.document.lineRange(for: safeRange)
+                lineRange: lineRange
             )
         }
     }
@@ -451,6 +579,7 @@ enum CodeEditorHighlightApplicator {
 
 final class CodeEditorPlatformTextView: NSTextView {
     var latestAppliedHighlightVersion: Int?
+    var compositionStateChangeHandler: ((CodeEditorPlatformTextView) -> Void)?
     var highlightedLineNumber: Int? {
         didSet {
             guard highlightedLineNumber != oldValue else {
@@ -461,7 +590,11 @@ final class CodeEditorPlatformTextView: NSTextView {
             invalidateLine(highlightedLineNumber)
         }
     }
-    var lineRangeProvider: ((Int) -> NSRange)?
+    private var displayedLineIndex = CodeEditorLineIndex(text: "")
+
+    var displayedLineCount: Int {
+        displayedLineIndex.lineCount
+    }
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
@@ -476,14 +609,48 @@ final class CodeEditorPlatformTextView: NSTextView {
         lineRect.fill()
     }
 
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        refreshDisplayedTextState()
+        compositionStateChangeHandler?(self)
+    }
+
+    override func unmarkText() {
+        let hadMarkedText = hasMarkedText()
+        super.unmarkText()
+        guard hadMarkedText else {
+            return
+        }
+
+        refreshDisplayedTextState()
+        compositionStateChangeHandler?(self)
+    }
+
+    func refreshDisplayedTextState() {
+        displayedLineIndex.replaceAll(with: string)
+    }
+
+    func displayedLocation(ofUTF16Offset offset: Int) -> CodeEditorTextLocation {
+        displayedLineIndex.location(ofUTF16Offset: offset)
+    }
+
+    func displayedLineRange(for characterRange: NSRange) -> FileLineRange {
+        displayedLineIndex.lineRange(forUTF16Range: characterRange)
+    }
+
     func backgroundRect(forLine line: Int) -> NSRect? {
-        guard let lineRangeProvider,
-              let layoutManager,
+        guard let layoutManager,
               let textContainer else {
             return nil
         }
 
-        let characterRange = lineRangeProvider(line)
+        if layoutManager.numberOfGlyphs == 0 {
+            let origin = textContainerOrigin
+            let height = layoutManager.defaultLineHeight(for: font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular))
+            return NSRect(x: 0, y: origin.y, width: bounds.width, height: height).integral
+        }
+
+        let characterRange = displayedUTF16LineRange(forLine: line)
         let safeLength: Int
         let safeLocation: Int
         if characterRange.length == 0 {
@@ -517,6 +684,16 @@ final class CodeEditorPlatformTextView: NSTextView {
         rect.origin.y += origin.y
         rect.size.width = bounds.width
         return rect.integral
+    }
+
+    private func displayedUTF16LineRange(forLine line: Int) -> NSRange {
+        let safeLine = max(1, min(line, displayedLineIndex.lineCount))
+        let startOffset = displayedLineIndex.lineStartOffset(forLine: safeLine)
+        let endOffset = safeLine < displayedLineIndex.lineCount
+            ? displayedLineIndex.lineStartOffset(forLine: safeLine + 1)
+            : (string as NSString).length
+
+        return NSRange(location: startOffset, length: max(0, endOffset - startOffset))
     }
 
     private func invalidateLine(_ line: Int?) {

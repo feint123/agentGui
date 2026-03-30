@@ -122,6 +122,48 @@ struct CodeEditorTextViewIntegrationTests {
     }
 
     @Test
+    func markedTextDoesNotSyncTransientCompositionIntoHostDocument() {
+        let harness = CodeEditorTextViewHarness(text: "")
+
+        harness.setMarkedText(
+            "输入中文",
+            selectedRange: NSRange(location: 4, length: 0),
+            replacementRange: NSRange(location: 0, length: 0)
+        )
+
+        #expect(harness.textView.hasMarkedText())
+        #expect(harness.textView.string == "输入中文")
+        #expect(harness.boundText.isEmpty)
+        #expect(harness.document.text.isEmpty)
+
+        harness.updateFromHost(text: "", persistedText: "")
+
+        #expect(harness.textView.hasMarkedText())
+        #expect(harness.textView.string == "输入中文")
+
+        harness.commitMarkedText()
+
+        #expect(harness.boundText == "输入中文")
+        #expect(harness.document.text == "输入中文")
+    }
+
+    @Test
+    func gutterGeometryTracksDisplayedTextWhileMarkedTextAddsLineBreak() {
+        let harness = CodeEditorTextViewHarness(text: "one\ntwo")
+
+        harness.setMarkedText(
+            "\n三",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: harness.textView.string.utf16.count, length: 0)
+        )
+
+        #expect(harness.textView.hasMarkedText())
+        #expect(harness.displayedLineCount == 3)
+        #expect(harness.textView.backgroundRect(forLine: 3) != nil)
+        #expect(harness.lastVisibleLineRange?.contains(3) == true)
+    }
+
+    @Test
     func staleHighlightResultDoesNotOverwriteNewerVersionAttributes() {
         let harness = CodeEditorTextViewHarness(
             text: "let a = 1",

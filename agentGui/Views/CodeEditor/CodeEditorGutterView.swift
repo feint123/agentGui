@@ -1,18 +1,18 @@
 import AppKit
 
 final class CodeEditorGutterView: NSRulerView {
-    private(set) var document: CodeEditorDocument
+    private(set) var lineCount: Int
     private(set) var visibleLineRange: ClosedRange<Int>
     private(set) var currentLine: Int?
     private(set) var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary]
 
-    init(scrollView: NSScrollView, textView: NSTextView, document: CodeEditorDocument) {
-        self.document = document
-        self.visibleLineRange = 1...max(document.lineCount, 1)
+    init(scrollView: NSScrollView, textView: NSTextView, lineCount: Int) {
+        self.lineCount = max(lineCount, 1)
+        self.visibleLineRange = 1...max(lineCount, 1)
         self.diagnosticsByLine = [:]
         super.init(scrollView: scrollView, orientation: .verticalRuler)
         clientView = textView
-        ruleThickness = Self.requiredThickness(for: document.lineCount)
+        ruleThickness = Self.requiredThickness(for: self.lineCount)
     }
 
     @available(*, unavailable)
@@ -21,7 +21,7 @@ final class CodeEditorGutterView: NSRulerView {
     }
 
     func updateLayoutState(
-        document: CodeEditorDocument,
+        lineCount: Int,
         visibleLineRange: ClosedRange<Int>,
         currentLine: Int?,
         diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary]
@@ -30,12 +30,12 @@ final class CodeEditorGutterView: NSRulerView {
         let previousCurrentLine = self.currentLine
         let previousDiagnostics = self.diagnosticsByLine
 
-        self.document = document
+        self.lineCount = max(lineCount, 1)
         self.visibleLineRange = visibleLineRange
         self.currentLine = currentLine
         self.diagnosticsByLine = diagnosticsByLine
 
-        let thickness = Self.requiredThickness(for: document.lineCount)
+        let thickness = Self.requiredThickness(for: self.lineCount)
         if ruleThickness != thickness {
             ruleThickness = thickness
         }

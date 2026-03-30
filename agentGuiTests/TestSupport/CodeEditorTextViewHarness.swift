@@ -147,6 +147,10 @@ final class CodeEditorTextViewHarness {
         textView.highlightedLineNumber
     }
 
+    var displayedLineCount: Int {
+        textView.displayedLineCount
+    }
+
     var scrollView: NSScrollView {
         if let cachedScrollView {
             return cachedScrollView
@@ -202,6 +206,18 @@ final class CodeEditorTextViewHarness {
         storage.endEditing()
         textView.setSelectedRange(selectedRange)
         textView.didChangeText()
+        pumpRunLoop()
+    }
+
+    func setMarkedText(_ markedText: String, selectedRange: NSRange, replacementRange: NSRange) {
+        let textView = textView
+        textView.setMarkedText(markedText, selectedRange: selectedRange, replacementRange: replacementRange)
+        pumpRunLoop()
+    }
+
+    func commitMarkedText() {
+        let textView = textView
+        textView.unmarkText()
         pumpRunLoop()
     }
 
