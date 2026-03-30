@@ -171,6 +171,10 @@ final class CodeEditorTextViewHarness {
         textView.displayedLineCount
     }
 
+    var gutterLineMetrics: [CodeEditorVisibleLineMetric] {
+        gutterView?.lineMetrics ?? []
+    }
+
     var scrollView: NSScrollView {
         if let cachedScrollView {
             return cachedScrollView
@@ -195,6 +199,26 @@ final class CodeEditorTextViewHarness {
 
     var gutterView: CodeEditorGutterView? {
         findGutterView(in: hostingView)
+    }
+
+    func visibleLineMetricsForCurrentViewport() -> [CodeEditorVisibleLineMetric] {
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        pumpRunLoop()
+        return textView.visibleLineMetrics(in: scrollView.contentView.bounds)
+    }
+
+    func convertedVisibleLineMetricForCurrentViewport(line: Int) -> CodeEditorVisibleLineMetric? {
+        guard let metric = visibleLineMetricsForCurrentViewport().first(where: { $0.line == line }),
+              let gutterView else {
+            return nil
+        }
+
+        let convertedRect = gutterView.convert(metric.rect, from: textView)
+        return CodeEditorVisibleLineMetric(
+            line: metric.line,
+            rect: NSRect(x: 0, y: convertedRect.minY, width: gutterView.requiredWidth, height: convertedRect.height).integral,
+            baselineY: gutterView.convert(NSPoint(x: 0, y: metric.baselineY), from: textView).y
+        )
     }
 
     func forceApplyHighlightResult() {

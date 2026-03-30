@@ -68,6 +68,19 @@ struct CodeEditorTextViewIntegrationTests {
     }
 
     @Test
+    func textViewExportsVisibleLineMetricsForViewport() {
+        let text = (1...80).map { "line \($0)" }.joined(separator: "\n")
+        let harness = CodeEditorTextViewHarness(text: text)
+
+        let metrics = harness.visibleLineMetricsForCurrentViewport()
+
+        #expect(metrics.isEmpty == false)
+        #expect(metrics.allSatisfy { harness.lastVisibleLineRange?.contains($0.line) == true })
+        #expect(metrics.allSatisfy { $0.rect.height > 0 })
+        #expect(metrics == metrics.sorted { $0.line < $1.line })
+    }
+
+    @Test
     func textViewUsesCustomGutterHostInsteadOfVerticalRuler() {
         let harness = CodeEditorTextViewHarness(text: "one\ntwo\nthree")
 
@@ -101,6 +114,18 @@ struct CodeEditorTextViewIntegrationTests {
         harness.updateFromHost(text: (1...100).map { "line \($0)" }.joined(separator: "\n"))
 
         #expect((harness.gutterView?.frame.width ?? 0) > beforeWidth)
+    }
+
+    @Test
+    func gutterConsumesViewportLineMetricsSnapshot() {
+        let text = (1...80).map { "line \($0)" }.joined(separator: "\n")
+        let harness = CodeEditorTextViewHarness(text: text)
+
+        harness.scrollToLine(40)
+
+        #expect(harness.gutterLineMetrics.contains { $0.line == 40 })
+        #expect(harness.gutterLineMetrics.first(where: { $0.line == 40 })?.rect.height ?? 0 > 0)
+        #expect(harness.gutterLineMetrics.first(where: { $0.line == 40 })?.rect == harness.convertedVisibleLineMetricForCurrentViewport(line: 40)?.rect)
     }
 
     @Test
@@ -172,8 +197,21 @@ struct CodeEditorTextViewIntegrationTests {
 
         #expect(harness.textView.hasMarkedText())
         #expect(harness.displayedLineCount == 3)
-        #expect(harness.textView.backgroundRect(forLine: 3) != nil)
         #expect(harness.lastVisibleLineRange?.contains(3) == true)
+        #expect(harness.visibleLineMetricsForCurrentViewport().contains { $0.line == 3 })
+        #expect(harness.gutterLineMetrics.contains { $0.line == 3 })
+        #expect(harness.gutterLineMetrics.first(where: { $0.line == 3 })?.rect == harness.convertedVisibleLineMetricForCurrentViewport(line: 3)?.rect)
+    }
+
+    @Test
+    func emptyDocumentExportsViewportMetricsFallbackLine() {
+        let harness = CodeEditorTextViewHarness(text: "")
+
+        let metrics = harness.visibleLineMetricsForCurrentViewport()
+
+        #expect(metrics.isEmpty == false)
+        #expect(metrics.first?.line == 1)
+        #expect(metrics.first?.rect.height ?? 0 > 0)
     }
 
     @Test

@@ -293,17 +293,28 @@ extension CodeEditorTextView {
 
         func updateGutterState(for textView: NSTextView) {
             guard let textView = textView as? CodeEditorPlatformTextView,
-                                    let gutterView = gutterView(for: textView) else {
+                  let gutterView = gutterView(for: textView),
+                  let scrollView = textView.enclosingScrollView else {
                 return
             }
 
             let visibleRange = visibleLineRange(for: textView) ?? fullDocumentLineRange()
-            gutterView.updateLayoutState(
+            let lineMetrics = textView.visibleLineMetrics(in: scrollView.contentView.bounds).map { metric in
+                let convertedRect = gutterView.convert(metric.rect, from: textView)
+                return CodeEditorVisibleLineMetric(
+                    line: metric.line,
+                    rect: NSRect(x: 0, y: convertedRect.minY, width: gutterView.requiredWidth, height: convertedRect.height).integral,
+                    baselineY: gutterView.convert(NSPoint(x: 0, y: metric.baselineY), from: textView).y
+                )
+            }
+            let snapshot = CodeEditorGutterLineMetricsSnapshot(
                 lineCount: textView.displayedLineCount,
                 visibleLineRange: visibleRange,
                 currentLine: textView.highlightedLineNumber,
+                lineMetrics: lineMetrics,
                 diagnosticsByLine: parent.diagnosticsByLine
             )
+            gutterView.updateLayoutState(snapshot)
         }
 
         private func gutterView(for textView: CodeEditorPlatformTextView) -> CodeEditorGutterView? {
@@ -934,52 +945,37 @@ final class CodeEditorPlatformTextView: NSTextView {
         displayedLineIndex.lineRange(forUTF16Range: characterRange)
     }
 
+    func visibleLineMetrics(in visibleRect: NSRect) -> [CodeEditorVisibleLineMetric] {
+        guard let layoutManager,
+              let textContainer,
+              let visibleLineRange = displayedVisibleLineRange(in: visibleRect, layoutManager: layoutManager, textContainer: textContainer) else {
+            return []
+        }
+
+        layoutManager.ensureLayout(for: textContainer)
+        let baselineOffset = font?.ascender ?? 0
+
+        return visibleLineRange.compactMap { line in
+            guard let rect = displayedLineRect(for: line, layoutManager: layoutManager, textContainer: textContainer) else {
+                return nil
+            }
+
+            return CodeEditorVisibleLineMetric(
+                line: line,
+                rect: rect,
+                baselineY: rect.minY + baselineOffset
+            )
+        }
+    }
+
     func backgroundRect(forLine line: Int) -> NSRect? {
         guard let layoutManager,
               let textContainer else {
             return nil
         }
 
-        if layoutManager.numberOfGlyphs == 0 {
-            let origin = textContainerOrigin
-            let height = layoutManager.defaultLineHeight(for: font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular))
-            return NSRect(x: 0, y: origin.y, width: bounds.width, height: height).integral
-        }
-
-        let characterRange = displayedUTF16LineRange(forLine: line)
-        let safeLength: Int
-        let safeLocation: Int
-        if characterRange.length == 0 {
-            safeLocation = max(0, min(characterRange.location, (string as NSString).length))
-            safeLength = 0
-        } else {
-            safeLocation = characterRange.location
-            safeLength = characterRange.length
-        }
-
         layoutManager.ensureLayout(for: textContainer)
-
-        let glyphRange = layoutManager.glyphRange(
-            forCharacterRange: NSRange(location: safeLocation, length: safeLength),
-            actualCharacterRange: nil
-        )
-
-        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-        if rect.isEmpty {
-            let fallbackLocation = max(0, min(safeLocation, (string as NSString).length))
-            let fallbackGlyphIndex = layoutManager.glyphIndexForCharacter(at: fallbackLocation)
-            rect = layoutManager.lineFragmentRect(forGlyphAt: fallbackGlyphIndex, effectiveRange: nil)
-        }
-
-        guard !rect.isEmpty else {
-            return nil
-        }
-
-        let origin = textContainerOrigin
-        rect.origin.x = 0
-        rect.origin.y += origin.y
-        rect.size.width = bounds.width
-        return rect.integral
+        return displayedLineRect(for: line, layoutManager: layoutManager, textContainer: textContainer)
     }
 
     func emitSemanticIntent(_ intent: CodeEditorSemanticIntent) {
@@ -1044,6 +1040,62 @@ final class CodeEditorPlatformTextView: NSTextView {
             : (string as NSString).length
 
         return NSRange(location: startOffset, length: max(0, endOffset - startOffset))
+    }
+
+    private func displayedVisibleLineRange(
+        in visibleRect: NSRect,
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer
+    ) -> ClosedRange<Int>? {
+        let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+        let characterRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+        let lineRange = displayedLineRange(for: characterRange)
+        return lineRange.startLine...max(lineRange.endLine, lineRange.startLine)
+    }
+
+    private func displayedLineRect(
+        for line: Int,
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer
+    ) -> NSRect? {
+        if layoutManager.numberOfGlyphs == 0 {
+            let origin = textContainerOrigin
+            let height = layoutManager.defaultLineHeight(for: font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular))
+            return NSRect(x: 0, y: origin.y, width: bounds.width, height: height).integral
+        }
+
+        let characterRange = displayedUTF16LineRange(forLine: line)
+        let safeLength: Int
+        let safeLocation: Int
+        if characterRange.length == 0 {
+            safeLocation = max(0, min(characterRange.location, (string as NSString).length))
+            safeLength = 0
+        } else {
+            safeLocation = characterRange.location
+            safeLength = characterRange.length
+        }
+
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: safeLocation, length: safeLength),
+            actualCharacterRange: nil
+        )
+
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        if rect.isEmpty {
+            let fallbackLocation = max(0, min(safeLocation, (string as NSString).length))
+            let fallbackGlyphIndex = layoutManager.glyphIndexForCharacter(at: fallbackLocation)
+            rect = layoutManager.lineFragmentRect(forGlyphAt: fallbackGlyphIndex, effectiveRange: nil)
+        }
+
+        guard !rect.isEmpty else {
+            return nil
+        }
+
+        let origin = textContainerOrigin
+        rect.origin.x = 0
+        rect.origin.y += origin.y
+        rect.size.width = bounds.width
+        return rect.integral
     }
 
     private func invalidateLine(_ line: Int?) {

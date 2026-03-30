@@ -12,7 +12,7 @@ final class CodeEditorViewportContainerView: NSView {
     init(scrollView: NSScrollView, textView: CodeEditorPlatformTextView) {
         self.scrollView = scrollView
         self.textView = textView
-        self.gutterView = CodeEditorGutterView(textView: textView, lineCount: textView.displayedLineCount)
+        self.gutterView = CodeEditorGutterView(lineCount: textView.displayedLineCount)
         super.init(frame: .zero)
         addSubview(gutterView)
         addSubview(scrollView)

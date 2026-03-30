@@ -1,11 +1,12 @@
 import AppKit
 
 final class CodeEditorGutterView: NSView {
-    private weak var textView: CodeEditorPlatformTextView?
     private(set) var lineCount: Int
     private(set) var visibleLineRange: ClosedRange<Int>
     private(set) var currentLine: Int?
     private(set) var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary]
+    private(set) var lineMetrics: [CodeEditorVisibleLineMetric]
+    private var lineMetricsByLine: [Int: CodeEditorVisibleLineMetric]
     var onRequiredWidthChange: (() -> Void)?
 
     var requiredWidth: CGFloat {
@@ -16,12 +17,13 @@ final class CodeEditorGutterView: NSView {
         true
     }
 
-    init(textView: CodeEditorPlatformTextView, lineCount: Int) {
-        self.textView = textView
+    init(lineCount: Int) {
         self.lineCount = max(lineCount, 1)
         self.visibleLineRange = 1...max(lineCount, 1)
         self.currentLine = nil
         self.diagnosticsByLine = [:]
+        self.lineMetrics = []
+        self.lineMetricsByLine = [:]
         super.init(frame: .zero)
     }
 
@@ -30,21 +32,19 @@ final class CodeEditorGutterView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func updateLayoutState(
-        lineCount: Int,
-        visibleLineRange: ClosedRange<Int>,
-        currentLine: Int?,
-        diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary]
-    ) {
+    func updateLayoutState(_ snapshot: CodeEditorGutterLineMetricsSnapshot) {
         let previousWidth = requiredWidth
         let previousVisible = self.visibleLineRange
         let previousCurrentLine = self.currentLine
         let previousDiagnostics = self.diagnosticsByLine
+        let previousMetricsByLine = lineMetricsByLine
 
-        self.lineCount = max(lineCount, 1)
-        self.visibleLineRange = visibleLineRange
-        self.currentLine = currentLine
-        self.diagnosticsByLine = diagnosticsByLine
+        self.lineCount = max(snapshot.lineCount, 1)
+        self.visibleLineRange = snapshot.visibleLineRange
+        self.currentLine = snapshot.currentLine
+        self.diagnosticsByLine = snapshot.diagnosticsByLine
+        self.lineMetrics = snapshot.lineMetrics
+        self.lineMetricsByLine = Dictionary(uniqueKeysWithValues: snapshot.lineMetrics.map { ($0.line, $0) })
 
         if previousWidth != requiredWidth {
             invalidateIntrinsicContentSize()
@@ -55,11 +55,19 @@ final class CodeEditorGutterView: NSView {
         invalidateLine(previousCurrentLine)
         invalidateLine(currentLine)
         invalidateLineRange(previousVisible)
-        invalidateLineRange(visibleLineRange)
+        invalidateLineRange(snapshot.visibleLineRange)
 
-        let changedDiagnosticLines = Set(previousDiagnostics.keys).symmetricDifference(diagnosticsByLine.keys)
+        let changedMetricLines = Set(previousMetricsByLine.keys).symmetricDifference(Set(lineMetricsByLine.keys))
+            .union(previousMetricsByLine.compactMap { line, metric in
+                lineMetricsByLine[line] == metric ? nil : line
+            })
+        for line in changedMetricLines {
+            invalidateLine(line)
+        }
+
+        let changedDiagnosticLines = Set(previousDiagnostics.keys).symmetricDifference(snapshot.diagnosticsByLine.keys)
             .union(previousDiagnostics.compactMap { key, value in
-                diagnosticsByLine[key] == value ? nil : key
+                snapshot.diagnosticsByLine[key] == value ? nil : key
             })
         for line in changedDiagnosticLines {
             invalidateLine(line)
@@ -70,7 +78,8 @@ final class CodeEditorGutterView: NSView {
         // NSColor.windowBackgroundColor.setFill()
         // dirtyRect.fill()
 
-        guard let firstLineRect = lineRect(forLine: visibleLineRange.lowerBound), firstLineRect.intersects(dirtyRect) else {
+        guard let firstLineRect = visibleLineRange.compactMap({ lineRect(forLine: $0) }).first,
+              firstLineRect.intersects(dirtyRect) else {
             return
         }
         let separatorRect = NSRect(x: bounds.width - 1, y: firstLineRect.minY, width: 1, height: dirtyRect.height)
@@ -124,13 +133,11 @@ final class CodeEditorGutterView: NSView {
     }
 
     private func lineRect(forLine line: Int) -> NSRect? {
-        guard let textView,
-              let textRect = textView.backgroundRect(forLine: line) else {
+        guard let metric = lineMetricsByLine[line] else {
             return nil
         }
 
-        let converted = convert(textRect, from: textView)
-        return NSRect(x: 0, y: converted.minY, width: requiredWidth, height: converted.height).integral
+        return NSRect(x: 0, y: metric.rect.minY, width: requiredWidth, height: metric.rect.height).integral
     }
 
     private func color(for severity: LSPDiagnosticSeverity) -> NSColor {
