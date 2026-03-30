@@ -20,7 +20,9 @@ struct WorkbenchConversationPaneTests {
     @Test
     func agentTeamSurfacePublishesStableAccessibilityIdentifiers() {
         #expect(AgentTeamSessionView.panelAccessibilityIdentifier == "panel.agentTeam")
-        #expect(AgentTeamSessionView.placeholderAccessibilityIdentifier == "agentTeam.placeholder")
-        #expect(AgentTeamSessionView.titleAccessibilityIdentifier == "agentTeam.title")
+        #expect(AgentTeamSessionView.missionHeaderAccessibilityIdentifier == "agentTeam.missionHeader")
+        #expect(AgentTeamSessionView.rosterAccessibilityIdentifier == "agentTeam.roster")
+        #expect(AgentTeamSessionView.boardAccessibilityIdentifier == "agentTeam.board")
+        #expect(AgentTeamSessionView.inspectorAccessibilityIdentifier == "agentTeam.inspector")
     }
 }

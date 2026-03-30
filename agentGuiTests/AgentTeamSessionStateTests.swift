@@ -1,3 +1,4 @@
+import Foundation
 import SwiftData
 import Testing
 @testable import agentGui
@@ -26,5 +27,22 @@ struct AgentTeamSessionStateTests {
         #expect(state.mode == .executionDelivery)
         #expect(state.sourceSessionID == "chat-1")
         #expect(state.sourceSessionTitle == "修复 ACP")
+    }
+
+    @Test
+    func updatingStatusRefreshesUpdatedAt() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let originalUpdatedAt = Date(timeIntervalSince1970: 2)
+        let state = AgentTeamSessionState(
+            session: session,
+            status: .created,
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: originalUpdatedAt
+        )
+
+        state.status = AgentTeamRunStatus.failed
+
+        #expect(state.status == AgentTeamRunStatus.failed)
+        #expect(state.updatedAt > originalUpdatedAt)
     }
 }

@@ -279,6 +279,27 @@ struct agentGuiApp: App {
             settingsChanged = true
         }
 
+        if let agentTeamFixtureMode = launchOptions.agentTeamFixtureMode {
+            let sessionId = launchOptions.sessionID ?? "ui-agent-team"
+            let session = ensureAgentTeamSession(sessionId: sessionId, mode: agentTeamFixtureMode, in: context)
+
+            if let workingDirectoryPath = launchOptions.workingDirectoryPath,
+               session.workingDirectory != workingDirectoryPath {
+                session.workingDirectory = workingDirectoryPath
+                settings.workingDirectory = workingDirectoryPath
+                settingsChanged = true
+            }
+
+            if settingsChanged {
+                try? persistenceCoordinator.save(
+                    context,
+                    domain: .settings,
+                    userMessage: "UI 测试设置初始化未成功保存"
+                )
+            }
+            return
+        }
+
         let sessionId = launchOptions.sessionID ?? "ui-test-session"
         let session = ensureSession(sessionId: sessionId, in: context)
 
@@ -345,6 +366,44 @@ struct agentGuiApp: App {
     }
 
     @MainActor
+    private func ensureAgentTeamSession(sessionId: String, mode: String, in context: ModelContext) -> Session {
+        if let existing = (try? context.fetch(FetchDescriptor<Session>()))?.first(where: { $0.sessionId == sessionId }) {
+            if existing.kind != .agentTeam {
+                existing.kind = .agentTeam
+            }
+
+            if let state = existing.agentTeamState {
+                applyAgentTeamFixture(mode: mode, to: state)
+            } else {
+                let state = AgentTeamSessionState(session: existing)
+                applyAgentTeamFixture(mode: mode, to: state)
+                existing.agentTeamState = state
+                context.insert(state)
+            }
+
+            try? PersistenceCoordinator.shared.save(
+                context,
+                domain: .sessionMessages,
+                userMessage: "UI 测试 Team 会话初始化未成功保存"
+            )
+            return existing
+        }
+
+        let session = Session.fixture(sessionId: sessionId, title: "ACP Agent Team", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        applyAgentTeamFixture(mode: mode, to: state)
+        session.agentTeamState = state
+        context.insert(session)
+        context.insert(state)
+        try? PersistenceCoordinator.shared.save(
+            context,
+            domain: .sessionMessages,
+            userMessage: "UI 测试 Team 会话初始化未成功保存"
+        )
+        return session
+    }
+
+    @MainActor
     private func ensureCompletedMessages(for session: Session, in context: ModelContext) {
         guard session.messages.isEmpty else { return }
         let userMessage = Message.userFixture(text: "Run the release checks", session: session)
@@ -399,6 +458,19 @@ struct agentGuiApp: App {
             domain: .toolCalls,
             userMessage: "UI 测试工具调用初始化未成功保存"
         )
+    }
+
+    @MainActor
+    private func applyAgentTeamFixture(mode: String, to state: AgentTeamSessionState) {
+        switch mode {
+        case "shell":
+            state.sourceSessionID = "chat-source-1"
+            state.sourceSessionTitle = "修复 ACP"
+            state.mode = .executionDelivery
+            state.status = .active
+        default:
+            break
+        }
     }
 
     @MainActor
