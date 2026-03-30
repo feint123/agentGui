@@ -21,11 +21,16 @@ struct FileEditorView: View {
     // MARK: - State
 
     @State private var sessionController = FileEditorSessionController()
+    @State private var lspCoordinator: CodeEditorLSPCoordinator?
+    @State private var lspDocumentBinding: CodeEditorLSPDocumentBinding?
+    @State private var lspDocumentVersion = 0
     private let launchOptions = TestLaunchOptions.current
 
     // MARK: - Body
 
     var body: some View {
+        let _ = claudeService.lspPresentationRevision
+
         editorView(for: fileURL)
         .onAppear {
             sessionController.activate()
@@ -34,16 +39,32 @@ struct FileEditorView: View {
                     await sessionController.open(fileURL)
                 }
             }
+            syncLSPCoordinator(for: fileURL)
         }
         .onDisappear {
+            deactivateLSPCoordinator()
             sessionController.deactivate()
         }
         .onChange(of: fileURL) { _, newURL in
+            deactivateLSPCoordinator()
+            lspDocumentVersion = 0
             workspaceState.editorSelection = nil
             Task {
                 await sessionController.open(newURL)
             }
             triggerWorkspaceLSPBootstrap(for: newURL)
+        }
+        .onChange(of: sessionController.document.phase) { _, _ in
+            syncLSPCoordinator(for: fileURL)
+        }
+        .onChange(of: sessionController.document.viewer) { _, _ in
+            syncLSPCoordinator(for: fileURL)
+        }
+        .onChange(of: sessionController.document.fileURL) { _, _ in
+            syncLSPCoordinator(for: fileURL)
+        }
+        .onChange(of: claudeService.lspPresentationRevision) { _, _ in
+            syncLSPCoordinator(for: fileURL)
         }
         .alert("错误", isPresented: Binding(
             get: { sessionController.document.errorMessage != nil },
@@ -209,8 +230,9 @@ struct FileEditorView: View {
                         onSelectionChange: { snapshot in
                             workspaceState.editorSelection = snapshot
                         },
-                        onTextChange: { newValue, _ in
-                            syncOpenDocumentToLSPIfNeeded(text: newValue)
+                        onTextChange: { newValue, change in
+                            lspDocumentVersion = change.version
+                            lspCoordinator?.handleTextChange(text: newValue, change: change)
                         }
                     )
                 }
@@ -247,40 +269,69 @@ struct FileEditorView: View {
                 selectedFilePath: url.standardizedFileURL.path,
                 settings: settings
             )
+            await MainActor.run {
+                syncLSPCoordinator(for: url)
+            }
         }
     }
 
-    private func syncOpenDocumentToLSPIfNeeded(text: String) {
-        guard sessionController.document.viewer == .text,
-              let loadedFileURL = sessionController.document.fileURL,
-              text != sessionController.document.persistedText else {
+    private func syncLSPCoordinator(for url: URL) {
+        let targetURL = url.standardizedFileURL
+
+        guard let loadedFileURL = sessionController.document.fileURL?.standardizedFileURL,
+              loadedFileURL == targetURL,
+              sessionController.document.viewer == .text,
+              sessionController.document.phase != .loading else {
+            deactivateLSPCoordinator()
             return
         }
 
+        guard let binding = resolveLSPDocumentBinding(for: targetURL),
+              let manager = claudeService.lspServerManager else {
+            deactivateLSPCoordinator()
+            return
+        }
+
+        if lspDocumentBinding != binding || lspCoordinator == nil {
+            deactivateLSPCoordinator()
+            lspDocumentBinding = binding
+            lspCoordinator = CodeEditorLSPCoordinator(manager: manager, binding: binding)
+        }
+
+        lspCoordinator?.activate(
+            initialText: sessionController.document.textContent,
+            version: lspDocumentVersion
+        )
+    }
+
+    private func deactivateLSPCoordinator() {
+        lspCoordinator?.deactivate()
+        lspCoordinator = nil
+        lspDocumentBinding = nil
+    }
+
+    private func resolveLSPDocumentBinding(for url: URL) -> CodeEditorLSPDocumentBinding? {
         let settings = AppSettings.getOrCreate(in: modelContext)
         guard settings.enableLSPTools,
-              let registry = try? LSPServerRegistry(settings: settings),
-              let manager = claudeService.lspServerManager else {
-            return
+              let registry = try? LSPServerRegistry(settings: settings) else {
+            return nil
         }
 
         let workingDirectory = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
         guard let binding = LSPWorkspaceResolver().resolve(
-            filePath: loadedFileURL.standardizedFileURL.path,
+            filePath: url.path,
             workingDirectory: workingDirectory,
             registry: registry,
             settings: settings
         ) else {
-            return
+            return nil
         }
 
-        let languageID = binding.languageID ?? "plaintext"
-        manager.syncDocument(
+        return CodeEditorLSPDocumentBinding(
             workspaceRoot: binding.workspaceRoot,
             serverID: binding.serverID,
-            uri: loadedFileURL.standardizedFileURL.absoluteString,
-            languageID: languageID,
-            text: text
+            uri: url.absoluteString,
+            languageID: binding.languageID ?? "plaintext"
         )
     }
 
@@ -305,10 +356,16 @@ struct FileEditorView: View {
             return nil
         }
 
-        return claudeService.lspServerManager?.diagnosticsStore.snapshot(
+        let snapshot = claudeService.lspServerManager?.diagnosticsStore.snapshot(
             for: workingDirectory,
             uri: url.standardizedFileURL.absoluteString
         )
+
+        guard lspCoordinator?.acceptsDiagnostics(snapshot) ?? true else {
+            return nil
+        }
+
+        return snapshot
     }
 }
 

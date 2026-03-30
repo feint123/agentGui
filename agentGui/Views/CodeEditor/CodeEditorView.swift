@@ -99,11 +99,12 @@ struct CodeEditorView: View {
     private func syncHostText(_ hostText: String) {
         guard hostText != document.text else { return }
         let selectedRange = clampedSelection(for: hostText)
-        _ = document.replaceFromDisk(
+        let change = document.replaceFromDisk(
             text: hostText,
             persistedText: persistedText,
             selectedRange: selectedRange
         )
+        onTextChange?(hostText, change)
     }
 
     private func syncPersistedText(_ hostPersistedText: String) {

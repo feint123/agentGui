@@ -128,10 +128,21 @@ final class LSPServerManager {
         sessions[SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)]?.supervisor.recentLogs ?? []
     }
 
-    func publishDiagnostics(workspaceRoot: String, serverID: String, uri: String, diagnostics: [LSPDiagnostic]) {
+    func publishDiagnostics(
+        workspaceRoot: String,
+        serverID: String,
+        uri: String,
+        diagnostics: [LSPDiagnostic],
+        documentVersion: Int? = nil
+    ) {
         let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
         guard let session = sessions[key] else { return }
-        session.client.publishDiagnostics(workspaceRoot: workspaceRoot, uri: uri, diagnostics: diagnostics)
+        session.client.publishDiagnostics(
+            workspaceRoot: workspaceRoot,
+            uri: uri,
+            diagnostics: diagnostics,
+            documentVersion: documentVersion
+        )
     }
 
     func syncDocument(

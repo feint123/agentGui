@@ -19,15 +19,16 @@ struct CodeEditorViewIntegrationTests {
     }
 
     @Test
-    func reloadFromDiskReplacesEditorContentWithoutEchoingUserChange() {
+    func reloadFromDiskReplacesEditorContentAndEmitsExternalReloadChange() {
         let harness = CodeEditorViewHarness(initialText: "old", persistedText: "old")
         harness.clearRecordedCallbacks()
 
         harness.updateFromHost(text: "fresh", persistedText: "fresh")
 
         #expect(harness.visibleText == "fresh")
-        #expect(harness.changeSetCount == 0)
-        #expect(harness.lastChange == nil)
+        #expect(harness.changeSetCount == 1)
+        #expect(harness.lastChange?.origin == .externalReload)
+        #expect(harness.lastForwardedText == "fresh")
     }
 
     @Test

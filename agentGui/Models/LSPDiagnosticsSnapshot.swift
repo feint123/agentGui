@@ -33,12 +33,20 @@ struct LSPDiagnosticsSnapshot: Codable, Equatable, Sendable {
     let workspaceRoot: String
     let uri: String
     let diagnostics: [LSPDiagnostic]
+    let documentVersion: Int?
     let updatedAt: Date
 
-    init(workspaceRoot: String, uri: String, diagnostics: [LSPDiagnostic], updatedAt: Date = Date()) {
+    init(
+        workspaceRoot: String,
+        uri: String,
+        diagnostics: [LSPDiagnostic],
+        documentVersion: Int? = nil,
+        updatedAt: Date = Date()
+    ) {
         self.workspaceRoot = workspaceRoot
         self.uri = uri
         self.diagnostics = diagnostics
+        self.documentVersion = documentVersion
         self.updatedAt = updatedAt
     }
 }

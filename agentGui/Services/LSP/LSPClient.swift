@@ -147,12 +147,18 @@ final class LSPClient {
 
     func workspaceSymbols(query: String) -> [String] { [] }
 
-    func publishDiagnostics(workspaceRoot: String, uri: String, diagnostics: [LSPDiagnostic]) {
+    func publishDiagnostics(
+        workspaceRoot: String,
+        uri: String,
+        diagnostics: [LSPDiagnostic],
+        documentVersion: Int? = nil
+    ) {
         diagnosticsStore.publish(
             LSPDiagnosticsSnapshot(
                 workspaceRoot: workspaceRoot,
                 uri: uri,
-                diagnostics: diagnostics
+                diagnostics: diagnostics,
+                documentVersion: documentVersion
             )
         )
     }
@@ -299,7 +305,12 @@ final class LSPClient {
         }
 
         let diagnostics = (params["diagnostics"] as? [[String: Any]] ?? []).compactMap(parseDiagnostic(from:))
-        publishDiagnostics(workspaceRoot: workspaceRoot, uri: uri, diagnostics: diagnostics)
+        publishDiagnostics(
+            workspaceRoot: workspaceRoot,
+            uri: uri,
+            diagnostics: diagnostics,
+            documentVersion: number(from: params["version"])
+        )
     }
 
     private func parseDiagnostic(from object: [String: Any]) -> LSPDiagnostic? {
