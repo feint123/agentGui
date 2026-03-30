@@ -14,12 +14,14 @@ final class DynamicACPExternalExecutionProvider: ACPExternalExecutionProviderBas
     let profile: ACPProviderProfile
 
     private let runtimeClientFactory: DynamicACPRuntimeClientFactory
+    private let sessionActorProbe: (any ACPProviderSessionActorStepSink)?
 
     init(
         profile: ACPProviderProfile,
         terminalRuntimeFactory: @escaping ACPExternalTerminalRuntimeFactory,
         sessionRuntimeResetter: @escaping ACPExternalSessionRuntimeResetter = { _ in },
         permissionCenter: ACPPermissionCenter,
+        sessionActorProbe: (any ACPProviderSessionActorStepSink)? = nil,
         runtimeClientFactory: @escaping DynamicACPRuntimeClientFactory = { launchConfiguration, terminalRuntime, authorizationPolicy, permissionResolver, updateSink in
             try ACPExternalAgentRuntimeClient(
                 launchConfiguration: launchConfiguration,
@@ -31,6 +33,7 @@ final class DynamicACPExternalExecutionProvider: ACPExternalExecutionProviderBas
         }
     ) {
         self.profile = profile
+        self.sessionActorProbe = sessionActorProbe
         self.runtimeClientFactory = runtimeClientFactory
         super.init(
             providerReference: .externalACP(profileID: profile.id),
@@ -39,6 +42,7 @@ final class DynamicACPExternalExecutionProvider: ACPExternalExecutionProviderBas
             sessionRuntimeResetter: sessionRuntimeResetter,
             permissionCenter: permissionCenter,
             authorizationPolicyFactory: ConversationAuthorizationPolicyFactory(),
+            sessionActorStepSink: sessionActorProbe,
             featureAdapter: ACPExternalProviderFeatureAdapter()
         )
     }

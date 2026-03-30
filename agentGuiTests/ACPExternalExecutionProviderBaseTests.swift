@@ -4,6 +4,26 @@ import Testing
 @MainActor
 struct ACPExternalExecutionProviderBaseTests {
     @Test
+    func sendCharacterizationUsesInjectedSessionActorSurface() async throws {
+        let harness = try MultiSessionExecutionFixtureFactory.makeProviderActivationHarness()
+        let provider = UnavailableACPTestExecutionProvider()
+
+        await #expect(throws: TestProviderError.self) {
+            try await provider.send(
+                ConversationExecutionRequest(
+                    text: "characterization",
+                    session: harness.firstSession,
+                    modelID: "test-model",
+                    selectedFilePath: nil,
+                    selectedText: nil,
+                    directives: [],
+                    modelContext: harness.context
+                )
+            )
+        }
+    }
+
+    @Test
     func releasePreparedRuntimeClosesSessionRuntimeWithoutRemovingBinding() async throws {
         let resetTracker = SessionRuntimeResetTracker()
         let provider = UnavailableACPTestExecutionProvider(sessionRuntimeResetter: { sessionID in
