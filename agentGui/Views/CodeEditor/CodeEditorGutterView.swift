@@ -1,16 +1,42 @@
 import AppKit
 
+struct CodeEditorGutterInvalidationSummary: Equatable {
+    let redrawnLines: [Int]
+    let usedFullRedraw: Bool
+    let scrollDeltaY: CGFloat?
+}
+
 final class CodeEditorGutterView: NSView {
-    private(set) var lineCount: Int
-    private(set) var visibleLineRange: ClosedRange<Int>
-    private(set) var currentLine: Int?
-    private(set) var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary]
-    private(set) var lineMetrics: [CodeEditorVisibleLineMetric]
+    private var renderer = CodeEditorGutterRenderer()
+    private var snapshot: CodeEditorGutterViewportSnapshot
     private var lineMetricsByLine: [Int: CodeEditorVisibleLineMetric]
+    private var cachedRequiredWidth: CGFloat
     var onRequiredWidthChange: (() -> Void)?
 
+    private(set) var lastInvalidationSummary: CodeEditorGutterInvalidationSummary?
+
+    var lineCount: Int {
+        snapshot.lineCount
+    }
+
+    var visibleLineRange: ClosedRange<Int> {
+        snapshot.visibleLineRange
+    }
+
+    var currentLine: Int? {
+        snapshot.currentLine
+    }
+
+    var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary] {
+        snapshot.diagnosticsByLine
+    }
+
+    var lineMetrics: [CodeEditorVisibleLineMetric] {
+        snapshot.lineMetrics
+    }
+
     var requiredWidth: CGFloat {
-        Self.requiredWidth(for: lineCount)
+        cachedRequiredWidth
     }
 
     override var isFlipped: Bool {
@@ -18,13 +44,18 @@ final class CodeEditorGutterView: NSView {
     }
 
     init(lineCount: Int) {
-        self.lineCount = max(lineCount, 1)
-        self.visibleLineRange = 1...max(lineCount, 1)
-        self.currentLine = nil
-        self.diagnosticsByLine = [:]
-        self.lineMetrics = []
+        let initialLineCount = max(lineCount, 1)
+        self.snapshot = CodeEditorGutterViewportSnapshot(
+            lineCount: initialLineCount,
+            visibleLineRange: 1...initialLineCount,
+            currentLine: nil,
+            lineMetrics: [],
+            diagnosticsByLine: [:]
+        )
         self.lineMetricsByLine = [:]
+        self.cachedRequiredWidth = 36
         super.init(frame: .zero)
+        self.cachedRequiredWidth = renderer.requiredWidth(for: snapshot, appearance: nil)
     }
 
     @available(*, unavailable)
@@ -33,102 +64,108 @@ final class CodeEditorGutterView: NSView {
     }
 
     func updateLayoutState(_ snapshot: CodeEditorGutterLineMetricsSnapshot) {
+        if snapshot.lineMetrics.isEmpty, self.snapshot.lineMetrics.isEmpty == false {
+            return
+        }
+
+        let previousSnapshot = self.snapshot
         let previousWidth = requiredWidth
-        let previousVisible = self.visibleLineRange
-        let previousCurrentLine = self.currentLine
-        let previousDiagnostics = self.diagnosticsByLine
-        let previousMetricsByLine = lineMetricsByLine
 
-        self.lineCount = max(snapshot.lineCount, 1)
-        self.visibleLineRange = snapshot.visibleLineRange
-        self.currentLine = snapshot.currentLine
-        self.diagnosticsByLine = snapshot.diagnosticsByLine
-        self.lineMetrics = snapshot.lineMetrics
+        self.snapshot = snapshot
         self.lineMetricsByLine = Dictionary(uniqueKeysWithValues: snapshot.lineMetrics.map { ($0.line, $0) })
+        let nextWidth = renderer.requiredWidth(for: snapshot, appearance: effectiveAppearance)
+        cachedRequiredWidth = nextWidth
 
-        if previousWidth != requiredWidth {
+        if previousWidth != nextWidth {
             invalidateIntrinsicContentSize()
             onRequiredWidthChange?()
         }
 
-        needsDisplay = true
-        invalidateLine(previousCurrentLine)
-        invalidateLine(currentLine)
-        invalidateLineRange(previousVisible)
-        invalidateLineRange(snapshot.visibleLineRange)
-
-        let changedMetricLines = Set(previousMetricsByLine.keys).symmetricDifference(Set(lineMetricsByLine.keys))
-            .union(previousMetricsByLine.compactMap { line, metric in
-                lineMetricsByLine[line] == metric ? nil : line
-            })
-        for line in changedMetricLines {
-            invalidateLine(line)
-        }
-
-        let changedDiagnosticLines = Set(previousDiagnostics.keys).symmetricDifference(snapshot.diagnosticsByLine.keys)
-            .union(previousDiagnostics.compactMap { key, value in
-                snapshot.diagnosticsByLine[key] == value ? nil : key
-            })
-        for line in changedDiagnosticLines {
-            invalidateLine(line)
-        }
+        let plan = renderer.invalidationPlan(from: previousSnapshot, to: snapshot)
+        apply(plan)
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        // NSColor.windowBackgroundColor.setFill()
-        // dirtyRect.fill()
+        renderer.draw(snapshot: snapshot, in: dirtyRect, bounds: bounds, appearance: effectiveAppearance)
+    }
 
-        guard let firstLineRect = visibleLineRange.compactMap({ lineRect(forLine: $0) }).first,
-              firstLineRect.intersects(dirtyRect) else {
-            return
-        }
-        let separatorRect = NSRect(x: bounds.width - 1, y: firstLineRect.minY, width: 1, height: dirtyRect.height)
-        NSColor.separatorColor.setFill()
-        separatorRect.fill()
+    func clearLastInvalidationSummary() {
+        lastInvalidationSummary = nil
+    }
 
-        for line in visibleLineRange {
-            guard let lineRect = lineRect(forLine: line), lineRect.intersects(dirtyRect) else {
-                continue
+    private func apply(_ plan: CodeEditorGutterInvalidationPlan) {
+        switch plan {
+        case .full:
+            needsDisplay = true
+            recordInvalidationSummary(CodeEditorGutterInvalidationSummary(
+                redrawnLines: Array(visibleLineRange),
+                usedFullRedraw: true,
+                scrollDeltaY: nil
+            ))
+        case let .redraw(lines, redrawSeparator):
+            let redrawnLines = lines.sorted()
+            for line in redrawnLines {
+                invalidateLine(line)
             }
-
-            let isCurrentLine = currentLine == line
-            if isCurrentLine {
-                NSColor.selectedTextBackgroundColor.withAlphaComponent(0.08).setFill()
-                lineRect.fill()
+            if redrawSeparator {
+                invalidateSeparator()
             }
-
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.alignment = .right
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: isCurrentLine ? .semibold : .regular),
-                .foregroundColor: isCurrentLine ? NSColor.labelColor : NSColor.secondaryLabelColor,
-                .paragraphStyle: paragraphStyle
-            ]
-
-            let labelRect = NSRect(x: 0, y: lineRect.minY, width: requiredWidth - 10, height: lineRect.height)
-            NSString(string: "\(line)").draw(in: labelRect, withAttributes: attributes)
-
-            if let summary = diagnosticsByLine[line] {
-                let markerRect = NSRect(x: requiredWidth - 8, y: lineRect.midY - 2.5, width: 5, height: 5)
-                let path = NSBezierPath(ovalIn: markerRect)
-                color(for: summary.highestSeverity).setFill()
-                path.fill()
+            recordInvalidationSummary(CodeEditorGutterInvalidationSummary(
+                redrawnLines: redrawnLines,
+                usedFullRedraw: false,
+                scrollDeltaY: nil
+            ))
+        case let .scroll(deltaY, exposedLines, redrawLines, redrawSeparator):
+            scroll(bounds, by: NSSize(width: 0, height: deltaY))
+            translateRectsNeedingDisplay(in: bounds, by: NSSize(width: 0, height: deltaY))
+            let lines = exposedLines.union(redrawLines).sorted()
+            for line in lines {
+                invalidateLine(line)
             }
+            if redrawSeparator {
+                invalidateSeparator()
+            }
+            recordInvalidationSummary(CodeEditorGutterInvalidationSummary(
+                redrawnLines: lines,
+                usedFullRedraw: false,
+                scrollDeltaY: deltaY
+            ))
         }
     }
 
-    private func invalidateLineRange(_ lineRange: ClosedRange<Int>) {
-        for line in lineRange {
-            invalidateLine(line)
-        }
-    }
-
-    private func invalidateLine(_ line: Int?) {
-        guard let line,
-              let rect = lineRect(forLine: line) else {
+    private func recordInvalidationSummary(_ summary: CodeEditorGutterInvalidationSummary) {
+        guard let previous = lastInvalidationSummary else {
+            lastInvalidationSummary = summary
             return
         }
 
+        if summary.usedFullRedraw {
+            lastInvalidationSummary = summary
+            return
+        }
+
+        if summary.redrawnLines.isEmpty, summary.scrollDeltaY == nil {
+            return
+        }
+
+        let mergedLines = Array(Set(previous.redrawnLines).union(summary.redrawnLines)).sorted()
+        lastInvalidationSummary = CodeEditorGutterInvalidationSummary(
+            redrawnLines: mergedLines,
+            usedFullRedraw: previous.usedFullRedraw || summary.usedFullRedraw,
+            scrollDeltaY: summary.scrollDeltaY ?? previous.scrollDeltaY
+        )
+    }
+
+    private func invalidateLine(_ line: Int) {
+        guard let rect = lineRect(forLine: line) else {
+            return
+        }
+
+        setNeedsDisplay(rect)
+    }
+
+    private func invalidateSeparator() {
+        let rect = NSRect(x: bounds.width - 1, y: bounds.minY, width: 1, height: bounds.height).integral
         setNeedsDisplay(rect)
     }
 
@@ -138,23 +175,5 @@ final class CodeEditorGutterView: NSView {
         }
 
         return NSRect(x: 0, y: metric.rect.minY, width: requiredWidth, height: metric.rect.height).integral
-    }
-
-    private func color(for severity: LSPDiagnosticSeverity) -> NSColor {
-        switch severity {
-        case .error:
-            return .systemRed
-        case .warning:
-            return .systemOrange
-        case .information:
-            return .systemBlue
-        case .hint:
-            return .secondaryLabelColor
-        }
-    }
-
-    private static func requiredWidth(for lineCount: Int) -> CGFloat {
-        let digits = max(2, String(max(lineCount, 1)).count)
-        return CGFloat(digits * 8 + 20)
     }
 }

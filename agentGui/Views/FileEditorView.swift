@@ -272,14 +272,18 @@ struct FileEditorView: View {
                         revealRequest: activeRevealRequest,
                         hoverPresentation: hoverPresentation,
                         onSelectionChange: { snapshot in
-                            workspaceState.editorSelection = snapshot
+                            scheduleViewStateMutation {
+                                workspaceState.editorSelection = snapshot
+                            }
                         },
                         onSemanticIntent: { intent in
                             handleSemanticIntent(intent, for: url)
                         },
                         onTextChange: { newValue, change in
-                            lspDocumentVersion = change.version
-                            documentSymbolItems = []
+                            scheduleViewStateMutation {
+                                lspDocumentVersion = change.version
+                                documentSymbolItems = []
+                            }
                             lspCoordinator?.handleTextChange(text: newValue, change: change)
                         }
                     )
@@ -468,21 +472,29 @@ struct FileEditorView: View {
             }
         case let .requestHover(position):
             lspCoordinator?.scheduleHover(at: position, debounceNanoseconds: 250_000_000) { presentation in
-                self.hoverPresentation = presentation
+                self.scheduleViewStateMutation {
+                    self.hoverPresentation = presentation
+                }
             }
         case .cancelHover:
             lspCoordinator?.cancelHover()
-            hoverPresentation = nil
+            scheduleViewStateMutation {
+                hoverPresentation = nil
+            }
         }
     }
 
     private func executeNavigationAction(_ action: CodeEditorSemanticNavigationAction) {
         switch action {
         case let .revealInCurrentFile(revealRequest):
-            activeRevealRequest = revealRequest
+            scheduleViewStateMutation {
+                activeRevealRequest = revealRequest
+            }
         case let .openFileAndReveal(targetURL, revealRequest):
-            workspaceState.pendingCodeEditorRevealRequest = revealRequest
-            workspaceState.showFileDetail(targetURL)
+            scheduleViewStateMutation {
+                workspaceState.pendingCodeEditorRevealRequest = revealRequest
+                workspaceState.showFileDetail(targetURL)
+            }
         case .unsupported:
             break
         }
@@ -493,7 +505,9 @@ struct FileEditorView: View {
             return
         }
 
-        activeRevealRequest = revealRequest
+        scheduleViewStateMutation {
+            activeRevealRequest = revealRequest
+        }
     }
 
     private func refreshDocumentSymbols(for url: URL) {
@@ -511,8 +525,16 @@ struct FileEditorView: View {
                     return
                 }
 
-                documentSymbolItems = items
+                scheduleViewStateMutation {
+                    documentSymbolItems = items
+                }
             }
+        }
+    }
+
+    private func scheduleViewStateMutation(_ action: @escaping @MainActor () -> Void) {
+        Task { @MainActor in
+            action()
         }
     }
 

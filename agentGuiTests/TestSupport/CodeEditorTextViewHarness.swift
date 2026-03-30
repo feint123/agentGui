@@ -175,6 +175,10 @@ final class CodeEditorTextViewHarness {
         gutterView?.lineMetrics ?? []
     }
 
+    var gutterInvalidationSummary: CodeEditorGutterInvalidationSummary? {
+        gutterView?.lastInvalidationSummary
+    }
+
     var scrollView: NSScrollView {
         if let cachedScrollView {
             return cachedScrollView
@@ -309,6 +313,15 @@ final class CodeEditorTextViewHarness {
         pumpRunLoop()
     }
 
+    func clearGutterInvalidationSummary() {
+        gutterView?.clearLastInvalidationSummary()
+    }
+
+    func selectLine(_ line: Int, column: Int = 1) {
+        let offset = storage.document.utf16Offset(line: line, column: column)
+        select(range: NSRange(location: offset, length: 0))
+    }
+
     func clearRecordedCallbacks() {
         recorder.lastChangeSet = nil
         recorder.lastSelection = nil
@@ -370,6 +383,29 @@ final class CodeEditorTextViewHarness {
         scrollView.contentView.scroll(to: targetOrigin)
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         waitUntil(timeoutSteps: 20) { self.recorder.lastVisibleLineRange?.contains(line) == true }
+    }
+
+    func scrollViewportByOneLine() {
+        let metrics = textView.visibleLineMetrics(in: scrollView.contentView.bounds)
+        let lineHeight: CGFloat
+        if metrics.count > 1 {
+            lineHeight = metrics[1].rect.minY - metrics[0].rect.minY
+        } else {
+            lineHeight = metrics.first?.rect.height ?? 0
+        }
+
+        let targetOrigin = NSPoint(
+            x: scrollView.contentView.bounds.origin.x,
+            y: max(0, scrollView.contentView.bounds.origin.y + lineHeight)
+        )
+        scrollView.contentView.scroll(to: targetOrigin)
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        waitUntil(timeoutSteps: 20) {
+            guard let visibleRange = self.recorder.lastVisibleLineRange else {
+                return false
+            }
+            return visibleRange.lowerBound > 1
+        }
     }
 
     func waitForHighlightPass(timeoutSteps: Int = 600) {

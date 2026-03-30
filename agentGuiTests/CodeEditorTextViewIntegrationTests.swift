@@ -1,5 +1,7 @@
 import AppKit
+import Combine
 import Foundation
+import SwiftUI
 import Testing
 @testable import agentGui
 
@@ -68,6 +70,23 @@ struct CodeEditorTextViewIntegrationTests {
     }
 
     @Test
+    func initialMountDefersSelectionAndViewportCallbacksUntilNextRunLoopTurn() {
+        let harness = DeferredCodeEditorMountHarness(text: "alpha\nbeta\ngamma")
+
+        #expect(harness.selectionCallbackCount == 0)
+        #expect(harness.cursorCallbackCount == 0)
+        #expect(harness.visibleLineRangeCallbackCount == 0)
+
+        harness.pumpRunLoop()
+
+        #expect(harness.selectionCallbackCount == 1)
+        #expect(harness.cursorCallbackCount == 1)
+        #expect(harness.visibleLineRangeCallbackCount == 1)
+        #expect(harness.lastCursorLocation == CodeEditorTextLocation(line: 1, column: 1))
+        #expect(harness.lastVisibleLineRange?.contains(1) == true)
+    }
+
+    @Test
     func textViewExportsVisibleLineMetricsForViewport() {
         let text = (1...80).map { "line \($0)" }.joined(separator: "\n")
         let harness = CodeEditorTextViewHarness(text: text)
@@ -104,6 +123,48 @@ struct CodeEditorTextViewIntegrationTests {
         #expect(harness.highlightedLine == 2)
         #expect(harness.gutterView?.currentLine == 2)
         #expect(harness.gutterView?.diagnosticsByLine[3]?.highestSeverity == .warning)
+    }
+
+    @Test
+    func currentLineSwitchOnlyInvalidatesOldAndNewLines() {
+        let text = (1...40).map { "line \($0)" }.joined(separator: "\n")
+        let harness = CodeEditorTextViewHarness(text: text)
+
+        harness.selectLine(10)
+        harness.clearGutterInvalidationSummary()
+        harness.selectLine(11)
+
+        #expect(harness.gutterInvalidationSummary?.redrawnLines == [10, 11])
+        #expect(harness.gutterInvalidationSummary?.usedFullRedraw == false)
+    }
+
+    @Test
+    func diagnosticsUpdateOnlyInvalidatesChangedLines() {
+        let text = (1...40).map { "line \($0)" }.joined(separator: "\n")
+        let harness = CodeEditorTextViewHarness(text: text)
+
+        harness.selectLine(10)
+        harness.clearGutterInvalidationSummary()
+        harness.updateDiagnosticsByLine([
+            15: CodeEditorLineDiagnosticSummary(highestSeverity: .error, messageCount: 1)
+        ])
+
+        #expect(harness.gutterInvalidationSummary?.redrawnLines == [15])
+        #expect(harness.gutterInvalidationSummary?.usedFullRedraw == false)
+    }
+
+    @Test
+    func viewportScrollDoesNotFallbackToFullGutterRedraw() {
+        let text = (1...80).map { "line \($0)" }.joined(separator: "\n")
+        let harness = CodeEditorTextViewHarness(text: text)
+
+        harness.selectLine(1)
+        harness.clearGutterInvalidationSummary()
+        harness.scrollViewportByOneLine()
+
+        #expect(harness.gutterInvalidationSummary?.usedFullRedraw == false)
+        #expect(harness.gutterInvalidationSummary?.scrollDeltaY != nil)
+        #expect((harness.gutterInvalidationSummary?.redrawnLines.count ?? 0) < harness.gutterLineMetrics.count)
     }
 
     @Test
@@ -423,4 +484,117 @@ private func baseAttributes(for textView: NSTextView) -> [NSAttributedString.Key
         .font: textView.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
         .foregroundColor: textView.textColor ?? NSColor.labelColor
     ]
+}
+
+@MainActor
+private final class DeferredCodeEditorMountHarness {
+    final class Recorder {
+        var selectionCallbackCount = 0
+        var cursorCallbackCount = 0
+        var visibleLineRangeCallbackCount = 0
+        var lastCursorLocation: CodeEditorTextLocation?
+        var lastVisibleLineRange: ClosedRange<Int>?
+    }
+
+    final class Storage: ObservableObject {
+        @Published var text: String
+        @Published var document: CodeEditorDocument
+
+        init(text: String) {
+            self.text = text
+            self.document = CodeEditorDocument(text: text, persistedText: text)
+        }
+    }
+
+    private let recorder = Recorder()
+    private let storage: Storage
+    private let window: NSWindow
+    private let hostingView: NSHostingView<DeferredCodeEditorMountHostView>
+
+    init(text: String) {
+        let storage = Storage(text: text)
+        self.storage = storage
+        let recorder = self.recorder
+
+        hostingView = NSHostingView(
+            rootView: DeferredCodeEditorMountHostView(
+                storage: storage,
+                onSelectionChange: { _ in
+                    recorder.selectionCallbackCount += 1
+                },
+                onCursorLocationChange: { location in
+                    recorder.cursorCallbackCount += 1
+                    recorder.lastCursorLocation = location
+                },
+                onVisibleLineRangeChange: { lineRange in
+                    recorder.visibleLineRangeCallbackCount += 1
+                    recorder.lastVisibleLineRange = lineRange
+                }
+            )
+        )
+        hostingView.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+
+        window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.displayIfNeeded()
+    }
+
+    deinit {
+        window.orderOut(nil)
+        if window.contentView === hostingView {
+            window.contentView = nil
+        }
+    }
+
+    var selectionCallbackCount: Int {
+        recorder.selectionCallbackCount
+    }
+
+    var cursorCallbackCount: Int {
+        recorder.cursorCallbackCount
+    }
+
+    var visibleLineRangeCallbackCount: Int {
+        recorder.visibleLineRangeCallbackCount
+    }
+
+    var lastCursorLocation: CodeEditorTextLocation? {
+        recorder.lastCursorLocation
+    }
+
+    var lastVisibleLineRange: ClosedRange<Int>? {
+        recorder.lastVisibleLineRange
+    }
+
+    func pumpRunLoop() {
+        _ = storage.text
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    }
+}
+
+private struct DeferredCodeEditorMountHostView: View {
+    @ObservedObject var storage: DeferredCodeEditorMountHarness.Storage
+    let onSelectionChange: (EditorSelectionSnapshot?) -> Void
+    let onCursorLocationChange: (CodeEditorTextLocation) -> Void
+    let onVisibleLineRangeChange: (ClosedRange<Int>) -> Void
+
+    var body: some View {
+        CodeEditorTextView(
+            text: $storage.text,
+            document: $storage.document,
+            language: "swift",
+            onSelectionChange: onSelectionChange,
+            onCursorLocationChange: onCursorLocationChange,
+            onVisibleLineRangeChange: onVisibleLineRangeChange,
+            highlighter: CodeSyntaxHighlightingService.shared,
+            highlightDebounceNanoseconds: 0,
+            highlightExecutionDelayNanoseconds: 0
+        )
+        .frame(width: 480, height: 320)
+    }
 }

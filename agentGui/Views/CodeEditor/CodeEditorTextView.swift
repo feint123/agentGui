@@ -71,9 +71,7 @@ struct CodeEditorTextView: NSViewRepresentable {
         context.coordinator.installGutter(for: containerView)
         context.coordinator.installSelectionObserver(for: textView)
         context.coordinator.installViewportObserver(for: scrollView, textView: textView)
-        context.coordinator.publishSelection(for: textView)
-        context.coordinator.publishVisibleLineRange(for: textView)
-        context.coordinator.updateGutterState(for: textView)
+        context.coordinator.schedulePostUpdateRefresh(for: textView, dirtyLineRange: nil)
         return containerView
     }
 
@@ -88,6 +86,7 @@ struct CodeEditorTextView: NSViewRepresentable {
         textView.latestDecorationSnapshot = decorations
         textView.updateHoverPresentation(hoverPresentation)
 
+        var dirtyLineRange: ClosedRange<Int>?
         if !textView.hasMarkedText(), textView.string != text {
             let selectedRange = clampedRange(document.selectedRange, for: text)
             context.coordinator.isApplyingProgrammaticUpdate = true
@@ -96,19 +95,14 @@ struct CodeEditorTextView: NSViewRepresentable {
             textView.setSelectedRange(selectedRange)
             context.coordinator.isApplyingProgrammaticUpdate = false
             textView.highlightedLineNumber = textView.displayedLocation(ofUTF16Offset: selectedRange.location).line
-            context.coordinator.publishVisibleLineRange(for: textView)
-            context.coordinator.updateGutterState(for: textView)
-            context.coordinator.scheduleHighlight(
-                for: textView,
-                dirtyLineRange: context.coordinator.fullDocumentLineRange()
-            )
+            dirtyLineRange = context.coordinator.fullDocumentLineRange()
         }
 
         textView.highlightedLineNumber = textView.displayedLocation(ofUTF16Offset: textView.selectedRange().location).line
         context.coordinator.updateGutterState(for: textView)
         context.coordinator.applyCachedHighlightPresentation(to: textView)
 
-        context.coordinator.scheduleHighlight(for: textView, dirtyLineRange: nil)
+        context.coordinator.schedulePostUpdateRefresh(for: textView, dirtyLineRange: dirtyLineRange)
 
         if let focusRequest,
            context.coordinator.lastAppliedFocusRequest != focusRequest {
@@ -145,6 +139,7 @@ extension CodeEditorTextView {
         private var lastScheduledHighlightVersion: Int?
         private var lastScheduledVisibleLineRange: ClosedRange<Int>?
         private var lastPublishedVisibleLineRange: ClosedRange<Int>?
+        private var pendingPostUpdateRefreshID: UUID?
 
         init(_ parent: CodeEditorTextView) {
             self.parent = parent
@@ -234,7 +229,10 @@ extension CodeEditorTextView {
             ) { [weak self, weak textView] _ in
                 guard let self, let textView, !self.isApplyingProgrammaticUpdate else { return }
                 (textView as? CodeEditorPlatformTextView)?.emitSemanticIntent(.cancelHover)
-                self.publishSelection(for: textView)
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self, let textView, !self.isApplyingProgrammaticUpdate else { return }
+                    self.publishSelection(for: textView)
+                }
             }
         }
 
@@ -345,8 +343,22 @@ extension CodeEditorTextView {
             textView.applyRevealRequest(request)
             isApplyingProgrammaticUpdate = false
             textView.updateHoverPresentation(nil)
-            publishSelection(for: textView)
-            publishVisibleLineRange(for: textView)
+            updateGutterState(for: textView)
+        }
+
+        func schedulePostUpdateRefresh(
+            for textView: CodeEditorPlatformTextView,
+            dirtyLineRange: ClosedRange<Int>?
+        ) {
+            let refreshID = UUID()
+            pendingPostUpdateRefreshID = refreshID
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                guard self.pendingPostUpdateRefreshID == refreshID else { return }
+                self.pendingPostUpdateRefreshID = nil
+                self.publishSelection(for: textView)
+                self.scheduleHighlight(for: textView, dirtyLineRange: dirtyLineRange)
+            }
         }
 
         func scheduleHighlight(
