@@ -56,6 +56,132 @@ struct CodeEditorDocumentSymbolItem: Equatable, Sendable, Identifiable {
 }
 
 enum CodeEditorViewModel {
+    static func findMatchSnapshot(
+        document: CodeEditorDocument,
+        findState: CodeEditorFindState,
+        visibleLineRange: ClosedRange<Int>
+    ) -> CodeEditorDecorationSnapshot {
+        let query = findState.query
+        guard findState.isPresented, query.isEmpty == false else {
+            return .empty(version: document.version, lineRange: visibleLineRange)
+        }
+
+        let matches = utf16Matches(
+            of: query,
+            in: document.text,
+            caseSensitive: findState.caseSensitive
+        )
+        var spansByLine: [Int: [CodeEditorDecorationSpan]] = [:]
+
+        for (index, range) in matches.enumerated() {
+            let line = document.location(ofUTF16Offset: range.location).line
+            guard visibleLineRange.contains(line) else {
+                continue
+            }
+
+            let kind: CodeEditorDecorationKind = findState.selectedMatchIndex == index ? .activeFindMatch : .findMatch
+            spansByLine[line, default: []].append(
+                CodeEditorDecorationSpan(utf16Range: range, line: line, kind: kind)
+            )
+        }
+
+        return CodeEditorDecorationSnapshot(
+            version: document.version,
+            lineRange: visibleLineRange,
+            spansByLine: spansByLine
+        )
+    }
+
+    static func selectionMatchSnapshot(
+        document: CodeEditorDocument,
+        selectedRange: NSRange,
+        visibleLineRange: ClosedRange<Int>
+    ) -> CodeEditorDecorationSnapshot {
+        let selectionText = selectedText(in: document.text, range: selectedRange)
+        guard shouldHighlightSelection(selectionText, selectedRange: selectedRange, document: document) else {
+            return .empty(version: document.version, lineRange: visibleLineRange)
+        }
+
+        let matches = utf16Matches(
+            of: selectionText,
+            in: document.text,
+            caseSensitive: true
+        )
+        var spansByLine: [Int: [CodeEditorDecorationSpan]] = [:]
+
+        for range in matches {
+            let line = document.location(ofUTF16Offset: range.location).line
+            guard visibleLineRange.contains(line) else {
+                continue
+            }
+
+            spansByLine[line, default: []].append(
+                CodeEditorDecorationSpan(utf16Range: range, line: line, kind: .selectionMatch)
+            )
+        }
+
+        return CodeEditorDecorationSnapshot(
+            version: document.version,
+            lineRange: visibleLineRange,
+            spansByLine: spansByLine
+        )
+    }
+
+    static func diagnosticUnderlineSnapshot(
+        diagnostics: LSPDiagnosticsSnapshot?,
+        document: CodeEditorDocument,
+        visibleLineRange: ClosedRange<Int>
+    ) -> CodeEditorDecorationSnapshot {
+        guard let diagnostics else {
+            return .empty(version: document.version, lineRange: visibleLineRange)
+        }
+
+        var spansByLine: [Int: [CodeEditorDecorationSpan]] = [:]
+
+        for diagnostic in diagnostics.diagnostics {
+            guard let line = diagnostic.line, line >= 0 else {
+                continue
+            }
+
+            let displayLine = line + 1
+            guard visibleLineRange.contains(displayLine) else {
+                continue
+            }
+
+            let startColumn = max((diagnostic.character ?? 0) + 1, 1)
+            let startOffset = document.utf16Offset(line: displayLine, column: startColumn)
+            let defaultEndOffset = min(startOffset + 1, document.text.utf16.count)
+
+            let endOffset: Int
+            if let endLine = diagnostic.endLine,
+               let endCharacter = diagnostic.endCharacter,
+               endLine == line {
+                endOffset = max(
+                    document.utf16Offset(line: displayLine, column: max(endCharacter + 1, startColumn)),
+                    defaultEndOffset
+                )
+            } else {
+                endOffset = defaultEndOffset
+            }
+
+            let safeLength = max(1, endOffset - startOffset)
+            let range = NSRange(location: startOffset, length: safeLength)
+            spansByLine[displayLine, default: []].append(
+                CodeEditorDecorationSpan(
+                    utf16Range: range,
+                    line: displayLine,
+                    kind: .diagnosticUnderline(diagnostic.severity)
+                )
+            )
+        }
+
+        return CodeEditorDecorationSnapshot(
+            version: document.version,
+            lineRange: visibleLineRange,
+            spansByLine: spansByLine
+        )
+    }
+
     static func makeStatusBarState(
         document: CodeEditorDocument,
         selectedRange: NSRange,
@@ -209,6 +335,67 @@ enum CodeEditorViewModel {
         case .hint:
             return 3
         }
+    }
+
+    private static func selectedText(in text: String, range: NSRange) -> String {
+        let nsText = text as NSString
+        guard range.location >= 0,
+              range.length > 0,
+              range.upperBound <= nsText.length else {
+            return ""
+        }
+
+        return nsText.substring(with: range)
+    }
+
+    private static func shouldHighlightSelection(
+        _ selectionText: String,
+        selectedRange: NSRange,
+        document: CodeEditorDocument
+    ) -> Bool {
+        guard selectedRange.length >= 2, selectedRange.length <= 120 else {
+            return false
+        }
+
+        let lineRange = document.lineRange(for: selectedRange)
+        guard lineRange.startLine == lineRange.endLine else {
+            return false
+        }
+
+        return selectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    private static func utf16Matches(
+        of query: String,
+        in text: String,
+        caseSensitive: Bool
+    ) -> [NSRange] {
+        guard query.isEmpty == false else {
+            return []
+        }
+
+        let nsText = text as NSString
+        let nsQuery = query as NSString
+        let options: NSString.CompareOptions = caseSensitive ? [] : [.caseInsensitive]
+        var matches: [NSRange] = []
+        var searchRange = NSRange(location: 0, length: nsText.length)
+
+        while searchRange.length > 0 {
+            let foundRange = nsText.range(of: nsQuery as String, options: options, range: searchRange)
+            guard foundRange.location != NSNotFound else {
+                break
+            }
+
+            matches.append(foundRange)
+            let nextLocation = foundRange.location + max(foundRange.length, 1)
+            guard nextLocation <= nsText.length else {
+                break
+            }
+
+            searchRange = NSRange(location: nextLocation, length: nsText.length - nextLocation)
+        }
+
+        return matches
     }
 
     private static func flatten(

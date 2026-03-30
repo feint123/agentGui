@@ -22,6 +22,7 @@ final class CodeEditorTextViewHarness {
         var lastCursorLocation: CodeEditorTextLocation?
         var lastVisibleLineRange: ClosedRange<Int>?
         var semanticIntents: [CodeEditorSemanticIntent] = []
+        var findIntents: [CodeEditorFindIntent] = []
         var changeSetCount = 0
     }
 
@@ -80,6 +81,9 @@ final class CodeEditorTextViewHarness {
             onSemanticIntent: { intent in
                 recorder.semanticIntents.append(intent)
             },
+            onFindIntent: { intent in
+                recorder.findIntents.append(intent)
+            },
             onChangeSet: { change in
                 recorder.lastChangeSet = change
                 recorder.changeSetCount += 1
@@ -131,6 +135,10 @@ final class CodeEditorTextViewHarness {
 
     var semanticIntents: [CodeEditorSemanticIntent] {
         recorder.semanticIntents
+    }
+
+    var findIntents: [CodeEditorFindIntent] {
+        recorder.findIntents
     }
 
     var document: CodeEditorDocument {
@@ -185,14 +193,26 @@ final class CodeEditorTextViewHarness {
             appearance: .light,
             fontSize: textView.font?.pointSize ?? NSFont.systemFontSize
         )
+        let document = storage.document
+        let source = textView.string as NSString
+        let lineFragments = (1...max(document.lineCount, 1)).map { line in
+            let range = document.utf16LineRange(forLine: line)
+            let string = source.substring(with: range)
+            return CodeEditorStyledLineFragment(
+                line: line,
+                utf16Range: range,
+                attributedString: attributedString.attributedSubstring(from: range),
+                fingerprint: line * 1000 + range.length
+            )
+        }
 
-        CodeEditorHighlightApplicator.apply(
+        _ = CodeEditorHighlightApplicator.apply(
             CodeEditorHighlightResult(
-                version: storage.document.version,
-                lineRange: 1...max(storage.document.lineCount, 1),
-                replacementRange: NSRange(location: 0, length: (textView.string as NSString).length),
-                attributedString: attributedString
+                version: document.version,
+                lineRange: 1...max(document.lineCount, 1),
+                lineFragments: lineFragments
             ),
+            decorations: .empty(version: document.version, lineRange: 1...max(document.lineCount, 1)),
             to: textView,
             baseAttributes: [
                 .font: textView.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
@@ -285,6 +305,16 @@ final class CodeEditorTextViewHarness {
         pumpRunLoop()
     }
 
+    func sendFindShortcut() {
+        _ = textView.performKeyEquivalent(with: Self.keyEvent(characters: "f", modifierFlags: [.command]))
+        pumpRunLoop()
+    }
+
+    func sendEscape() {
+        _ = textView.performKeyEquivalent(with: Self.keyEvent(keyCode: 53, characters: "\u{1b}"))
+        pumpRunLoop()
+    }
+
     func moveMouse(line: Int, column: Int) {
         textView.emitSemanticIntent(.requestHover(textView.semanticPosition(line: line, column: column)))
         pumpRunLoop()
@@ -367,6 +397,25 @@ final class CodeEditorTextViewHarness {
             version: storage.document.version
         )
     }
+
+    private static func keyEvent(
+        keyCode: UInt16 = 3,
+        characters: String,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
+    }
 }
 
 private struct HostView: View {
@@ -378,6 +427,7 @@ private struct HostView: View {
     let onCursorLocationChange: (CodeEditorTextLocation) -> Void
     let onVisibleLineRangeChange: (ClosedRange<Int>) -> Void
     let onSemanticIntent: (CodeEditorSemanticIntent) -> Void
+    let onFindIntent: (CodeEditorFindIntent) -> Void
     let onChangeSet: (EditorChangeSet) -> Void
 
     var body: some View {
@@ -390,6 +440,7 @@ private struct HostView: View {
             onCursorLocationChange: onCursorLocationChange,
             onVisibleLineRangeChange: onVisibleLineRangeChange,
             onSemanticIntent: onSemanticIntent,
+            onFindIntent: onFindIntent,
             diagnosticsByLine: storage.diagnosticsByLine,
             onChangeSet: onChangeSet,
             highlighter: highlighter,

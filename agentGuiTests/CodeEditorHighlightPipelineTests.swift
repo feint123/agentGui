@@ -28,7 +28,7 @@ struct CodeEditorHighlightPipelineTests {
 
     @MainActor
     @Test
-    func highlightVisibleWindowReturnsReplacementRangeForRequestedLines() {
+    func highlightVisibleWindowReturnsLineFragmentsForRequestedLines() {
         let engine = RecordingHighlightEngine()
         let highlighter = CodeSyntaxHighlightingService(engine: engine)
         let document = CodeEditorDocument(
@@ -47,8 +47,10 @@ struct CodeEditorHighlightPipelineTests {
 
         let result = pipeline.highlight(request: request, document: document, highlighter: highlighter)
 
-        #expect(result?.replacementRange == NSRange(location: 4, length: 9))
-        #expect(result?.attributedString.string == "two\nthree")
+        #expect(result?.lineFragments.map(\.line) == [2, 3])
+        #expect(result?.lineFragments.map(\.utf16Range) == [NSRange(location: 4, length: 4), NSRange(location: 8, length: 5)])
+        #expect(result?.lineFragments.map(\.attributedString.string) == ["two\n", "three"])
+        #expect(result?.lineFragments.allSatisfy { $0.fingerprint != 0 } == true)
     }
 
     @Test
@@ -64,8 +66,14 @@ struct CodeEditorHighlightPipelineTests {
                 return CodeEditorHighlightResult(
                     version: work.request.version,
                     lineRange: 1...1,
-                    replacementRange: NSRange(location: 0, length: 3),
-                    attributedString: NSAttributedString(string: work.textSnapshot)
+                    lineFragments: [
+                        CodeEditorStyledLineFragment(
+                            line: 1,
+                            utf16Range: NSRange(location: 0, length: 3),
+                            attributedString: NSAttributedString(string: work.textSnapshot),
+                            fingerprint: 11
+                        )
+                    ]
                 )
             },
             onResult: { result in
@@ -80,8 +88,14 @@ struct CodeEditorHighlightPipelineTests {
                 CodeEditorHighlightResult(
                     version: work.request.version,
                     lineRange: 1...1,
-                    replacementRange: NSRange(location: 0, length: 3),
-                    attributedString: NSAttributedString(string: work.textSnapshot)
+                    lineFragments: [
+                        CodeEditorStyledLineFragment(
+                            line: 1,
+                            utf16Range: NSRange(location: 0, length: 3),
+                            attributedString: NSAttributedString(string: work.textSnapshot),
+                            fingerprint: 22
+                        )
+                    ]
                 )
             },
             onResult: { result in

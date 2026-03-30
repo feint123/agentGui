@@ -206,6 +206,54 @@ struct CodeEditorTextViewIntegrationTests {
         #expect(harness.highlightedLine == 2)
     }
 
+    @MainActor
+    @Test
+    func decorationOnlyChangeReappliesAffectedLinesOnly() {
+        let harness = CodeEditorTextViewHarness(text: "alpha beta\nalpha gamma\nomega", language: "swift")
+        let document = harness.document
+        let fragments = makeFragments(document: document, lines: 1...3)
+        let emptyDecorations = CodeEditorDecorationSnapshot.empty(version: document.version, lineRange: 1...3)
+
+        _ = CodeEditorHighlightApplicator.apply(
+            CodeEditorHighlightResult(version: document.version, lineRange: 1...3, lineFragments: fragments),
+            decorations: emptyDecorations,
+            to: harness.textView,
+            baseAttributes: baseAttributes(for: harness.textView)
+        )
+
+        let changedLines = CodeEditorHighlightApplicator.apply(
+            CodeEditorHighlightResult(version: document.version, lineRange: 1...3, lineFragments: fragments),
+            decorations: CodeEditorDecorationSnapshot(
+                version: document.version,
+                lineRange: 1...3,
+                spansByLine: [
+                    2: [CodeEditorDecorationSpan(
+                        utf16Range: NSRange(location: 11, length: 5),
+                        line: 2,
+                        kind: .findMatch
+                    )]
+                ]
+            ),
+            to: harness.textView,
+            baseAttributes: baseAttributes(for: harness.textView)
+        )
+
+        #expect(changedLines == Set([2]))
+        #expect(Set(harness.textView.lastReappliedLines) == Set([2]))
+    }
+
+    @Test
+    func findShortcutAndEscapeEmitFindIntentsWithoutEditingDocument() {
+        let harness = CodeEditorTextViewHarness(text: "alpha beta alpha")
+
+        harness.sendFindShortcut()
+        harness.sendEscape()
+
+        #expect(harness.findIntents == [.present, .dismiss])
+        #expect(harness.changeSetCount == 0)
+        #expect(harness.boundText == "alpha beta alpha")
+    }
+
     @Test
     func releasingHarnessWithPendingHighlightDoesNotCrash() {
         var harness: CodeEditorTextViewHarness? = CodeEditorTextViewHarness(
@@ -300,4 +348,28 @@ struct CodeEditorTextViewIntegrationTests {
 
         #expect(harness.semanticIntents.isEmpty)
     }
+}
+
+private func makeFragments(
+    document: CodeEditorDocument,
+    lines: ClosedRange<Int>
+) -> [CodeEditorStyledLineFragment] {
+    let source = document.text as NSString
+    return lines.map { line in
+        let range = document.utf16LineRange(forLine: line)
+        let string = source.substring(with: range)
+        return CodeEditorStyledLineFragment(
+            line: line,
+            utf16Range: range,
+            attributedString: NSAttributedString(string: string),
+            fingerprint: line * 100 + range.length
+        )
+    }
+}
+
+private func baseAttributes(for textView: NSTextView) -> [NSAttributedString.Key: Any] {
+    [
+        .font: textView.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+        .foregroundColor: textView.textColor ?? NSColor.labelColor
+    ]
 }

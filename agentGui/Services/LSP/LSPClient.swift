@@ -406,13 +406,16 @@ final class LSPClient {
         let source = object["source"] as? String
         let range = object["range"] as? [String: Any]
         let start = range?["start"] as? [String: Any]
+        let end = range?["end"] as? [String: Any]
 
         return LSPDiagnostic(
             message: message,
             severity: severity,
             source: source,
             line: number(from: start?["line"]),
-            character: number(from: start?["character"])
+            character: number(from: start?["character"]),
+            endLine: number(from: end?["line"]),
+            endCharacter: number(from: end?["character"])
         )
     }
 }

@@ -188,6 +188,133 @@ struct CodeEditorViewIntegrationTests {
         #expect(harness.documentVersion == 1)
         #expect(position == .init(line: 1, column: 6, utf16Offset: 5, version: 1))
     }
+
+    @Test
+    func commandFFromTextViewPresentsFindBarWithoutEditingDocument() {
+        let harness = CodeEditorViewHarness(initialText: "alpha beta alpha", persistedText: "alpha beta alpha")
+
+        harness.sendFindShortcut()
+
+        #expect(harness.isFindBarPresented)
+        #expect(harness.changeSetCount == 0)
+        #expect(harness.lastChange == nil)
+    }
+
+    @Test
+    func escapeClosesFindBarWhenQueryIsEmpty() {
+        let harness = CodeEditorViewHarness(initialText: "alpha", persistedText: "alpha")
+
+        harness.presentFindBar()
+        harness.setFindQuery("")
+        harness.sendEscape()
+
+        #expect(harness.isFindBarPresented == false)
+    }
+
+    @Test
+    func enterAndShiftEnterMoveSelectedFindMatch() {
+        let harness = CodeEditorViewHarness(initialText: "alpha beta alpha gamma alpha", persistedText: "alpha beta alpha gamma alpha")
+
+        harness.presentFindBar()
+        harness.setFindQuery("alpha")
+
+        #expect(harness.selectedFindMatchIndex == 0)
+
+        harness.sendFindNext()
+        #expect(harness.selectedFindMatchIndex == 1)
+
+        harness.sendFindPrevious()
+        #expect(harness.selectedFindMatchIndex == 0)
+    }
+
+    @Test
+    func findQueryAppliesVisibleMatchBackgrounds() {
+        let harness = CodeEditorViewHarness(initialText: "alpha beta alpha", persistedText: "alpha beta alpha")
+
+        harness.waitForHighlightPass()
+        harness.presentFindBar()
+        harness.setFindQuery("alpha")
+        harness.waitForDecorationUpdate {
+            harness.backgroundColor(at: 0) != nil && harness.backgroundColor(at: 11) != nil
+        }
+
+        #expect(harness.backgroundColor(at: 0) == NSColor.systemOrange.withAlphaComponent(0.35))
+        #expect(harness.backgroundColor(at: 11) == NSColor.systemYellow.withAlphaComponent(0.28))
+    }
+
+    @Test
+    func selectionAppliesSelectionMatchBackgrounds() {
+        let harness = CodeEditorViewHarness(initialText: "alpha beta alpha", persistedText: "alpha beta alpha")
+
+        harness.waitForHighlightPass()
+        harness.select(range: NSRange(location: 0, length: 5))
+        harness.waitForDecorationUpdate {
+            harness.backgroundColor(at: 11) != nil
+        }
+
+        #expect(harness.backgroundColor(at: 11) == NSColor.selectedTextBackgroundColor.withAlphaComponent(0.18))
+    }
+
+    @Test
+    func diagnosticsApplyUnderlineAttributesWithinVisibleRange() {
+        let harness = CodeEditorViewHarness(initialText: "alpha beta", persistedText: "alpha beta")
+
+        harness.waitForHighlightPass()
+        harness.injectDiagnostics(
+            .init(
+                workspaceRoot: "/tmp",
+                uri: harness.fileURL.absoluteString,
+                diagnostics: [
+                    .init(
+                        message: "problem",
+                        severity: .warning,
+                        line: 0,
+                        character: 6,
+                        endLine: 0,
+                        endCharacter: 10
+                    )
+                ]
+            )
+        )
+        harness.waitForDecorationUpdate {
+            harness.underlineStyle(at: 6) != nil && harness.underlineColor(at: 6) != nil
+        }
+
+        #expect(harness.underlineStyle(at: 6) == NSUnderlineStyle.single.rawValue)
+        #expect(harness.underlineColor(at: 6) == NSColor.systemOrange)
+    }
+    
+    @Test
+    func compositionStateSuppressesDecorationApplication() {
+        let harness = CodeEditorViewHarness(initialText: "alpha beta alpha", persistedText: "alpha beta alpha")
+
+        harness.waitForHighlightPass()
+        harness.clearReappliedLines()
+        harness.beginMarkedTextComposition("拼")
+        harness.presentFindBar()
+        harness.setFindQuery("alpha")
+        harness.injectDiagnostics(
+            .init(
+                workspaceRoot: "/tmp",
+                uri: harness.fileURL.absoluteString,
+                diagnostics: [
+                    .init(
+                        message: "problem",
+                        severity: .warning,
+                        line: 0,
+                        character: 6,
+                        endLine: 0,
+                        endCharacter: 10
+                    )
+                ]
+            )
+        )
+        harness.waitForDecorationUpdate { true }
+
+        #expect(harness.lastReappliedLines.isEmpty)
+        #expect(harness.backgroundColor(at: 0) == nil)
+        #expect(harness.underlineStyle(at: 6) == nil)
+    }
 }
 
 @MainActor
@@ -200,6 +327,12 @@ private final class CodeEditorViewHarness {
         var lastForwardedText: String?
         var statusBarText: String = ""
         var changeSetCount = 0
+        var lastFindState = CodeEditorFindState(
+            isPresented: false,
+            query: "",
+            caseSensitive: false,
+            selectedMatchIndex: nil
+        )
     }
 
     final class Storage: ObservableObject {
@@ -210,6 +343,7 @@ private final class CodeEditorViewHarness {
         @Published var hoverPresentation: CodeEditorHoverPresentation?
         @Published var lspStatus: WorkspacePanelLSPStatusPresentation?
         @Published var diagnostics: LSPDiagnosticsSnapshot?
+        @Published var findQueryOverride: String?
 
         init(text: String, persistedText: String) {
             self.text = text
@@ -218,6 +352,7 @@ private final class CodeEditorViewHarness {
             self.hoverPresentation = nil
             self.lspStatus = nil
             self.diagnostics = nil
+            self.findQueryOverride = nil
         }
     }
 
@@ -255,6 +390,9 @@ private final class CodeEditorViewHarness {
                 recorder.lastForwardedText = text
                 recorder.lastChange = change
                 recorder.changeSetCount += 1
+            },
+            onFindStateChange: { state in
+                recorder.lastFindState = state
             }
         )
 
@@ -310,6 +448,14 @@ private final class CodeEditorViewHarness {
 
     var changeSetCount: Int {
         recorder.changeSetCount
+    }
+
+    var isFindBarPresented: Bool {
+        recorder.lastFindState.isPresented
+    }
+
+    var selectedFindMatchIndex: Int? {
+        recorder.lastFindState.selectedMatchIndex
     }
 
     func updateFromHost(text: String, persistedText: String) {
@@ -368,8 +514,67 @@ private final class CodeEditorViewHarness {
         pumpRunLoop()
     }
 
+    func beginMarkedTextComposition(_ markedText: String) {
+        let replacementRange = NSRange(location: textView.string.utf16.count, length: 0)
+        textView.setMarkedText(
+            markedText,
+            selectedRange: NSRange(location: markedText.utf16.count, length: 0),
+            replacementRange: replacementRange
+        )
+        pumpRunLoop()
+    }
+
+    func presentFindBar() {
+        sendFindShortcut()
+    }
+
+    func setFindQuery(_ query: String) {
+        storage.findQueryOverride = query
+        pumpRunLoop()
+    }
+
+    func sendFindShortcut() {
+        _ = textView.performKeyEquivalent(with: Self.keyEvent(characters: "f", modifierFlags: [.command]))
+        pumpRunLoop()
+    }
+
+    func sendEscape() {
+        _ = textView.performKeyEquivalent(with: Self.keyEvent(keyCode: 53, characters: "\u{1b}"))
+        pumpRunLoop()
+    }
+
+    func sendFindNext() {
+        _ = textView.performKeyEquivalent(with: Self.keyEvent(keyCode: 36, characters: "\r"))
+        pumpRunLoop()
+    }
+
+    func sendFindPrevious() {
+        _ = textView.performKeyEquivalent(with: Self.keyEvent(keyCode: 36, characters: "\r", modifierFlags: [.shift]))
+        pumpRunLoop()
+    }
+
     var statusBarText: String {
         recorder.statusBarText
+    }
+
+    var lastReappliedLines: [Int] {
+        textView.lastReappliedLines
+    }
+
+    func backgroundColor(at location: Int) -> NSColor? {
+        textView.textStorage?.attribute(.backgroundColor, at: location, effectiveRange: nil) as? NSColor
+    }
+
+    func underlineStyle(at location: Int) -> Int? {
+        textView.textStorage?.attribute(.underlineStyle, at: location, effectiveRange: nil) as? Int
+    }
+
+    func underlineColor(at location: Int) -> NSColor? {
+        textView.textStorage?.attribute(.underlineColor, at: location, effectiveRange: nil) as? NSColor
+    }
+
+    func clearReappliedLines() {
+        textView.lastReappliedLines = []
     }
 
     func clearRecordedCallbacks() {
@@ -395,25 +600,69 @@ private final class CodeEditorViewHarness {
                 appearance: .light,
                 fontSize: textView.font?.pointSize ?? NSFont.systemFontSize
             )
-            CodeEditorHighlightApplicator.apply(
-                CodeEditorHighlightResult(
-                    version: documentVersion,
-                    lineRange: 1...max(1, (textView.string.split(whereSeparator: \ .isNewline)).count),
-                    replacementRange: NSRange(location: 0, length: (textView.string as NSString).length),
-                    attributedString: attributedString
-                ),
+            let lineCount = max((textView.string.split(whereSeparator: \ .isNewline)).count, 1)
+            let document = CodeEditorDocument(text: textView.string, persistedText: textView.string, version: documentVersion)
+            let lineFragments = (1...lineCount).map { line in
+                let range = document.utf16LineRange(forLine: line)
+                return CodeEditorStyledLineFragment(
+                    line: line,
+                    utf16Range: range,
+                    attributedString: attributedString.attributedSubstring(from: range),
+                    fingerprint: line * 1000 + range.length
+                )
+            }
+            let result = CodeEditorHighlightResult(
+                version: documentVersion,
+                lineRange: 1...lineCount,
+                lineFragments: lineFragments
+            )
+            _ = CodeEditorHighlightApplicator.apply(
+                result,
+                decorations: .empty(version: documentVersion, lineRange: 1...lineCount),
                 to: textView,
                 baseAttributes: [
                     .font: textView.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
                     .foregroundColor: textView.textColor ?? NSColor.labelColor
                 ]
             )
+            textView.latestHighlightResult = result
             textView.latestAppliedHighlightVersion = documentVersion
+        }
+    }
+
+    func waitForDecorationUpdate(
+        timeoutSteps: Int = 60,
+        condition: () -> Bool
+    ) {
+        for _ in 0..<timeoutSteps {
+            if condition() {
+                return
+            }
+            pumpRunLoop()
         }
     }
 
     private func pumpRunLoop() {
         RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+    }
+
+    private static func keyEvent(
+        keyCode: UInt16 = 3,
+        characters: String,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
     }
 
     private func findTextView(in view: NSView) -> CodeEditorPlatformTextView? {
@@ -440,6 +689,7 @@ private struct HostView: View {
     let onStatusBarSummaryChange: (String) -> Void
     let onSelectionChange: (EditorSelectionSnapshot?) -> Void
     let onTextChange: (String, EditorChangeSet) -> Void
+    let onFindStateChange: (CodeEditorFindState) -> Void
 
     var body: some View {
         CodeEditorView(
@@ -454,6 +704,8 @@ private struct HostView: View {
             onStatusBarSummaryChange: onStatusBarSummaryChange,
             onSelectionChange: onSelectionChange,
             onTextChange: onTextChange,
+            findQueryOverride: storage.findQueryOverride,
+            onFindStateChange: onFindStateChange,
             highlighter: highlighter,
             highlightDebounceNanoseconds: 0,
             highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds

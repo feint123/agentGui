@@ -147,4 +147,104 @@ struct CodeEditorViewModelTests {
         #expect(child.subtitle == "func")
         #expect(child.revealRequest.line == 6)
     }
+
+    @Test
+    func selectionMatchesIgnoreMultilineOrWhitespaceSelections() {
+        let document = CodeEditorDocument(
+            text: "token alpha token\nnext line",
+            persistedText: ""
+        )
+
+        let whitespaceOnly = CodeEditorViewModel.selectionMatchSnapshot(
+            document: document,
+            selectedRange: NSRange(location: 5, length: 1),
+            visibleLineRange: 1...2
+        )
+        let multiline = CodeEditorViewModel.selectionMatchSnapshot(
+            document: document,
+            selectedRange: NSRange(location: 6, length: 12),
+            visibleLineRange: 1...2
+        )
+
+        #expect(whitespaceOnly.spansByLine.isEmpty)
+        #expect(multiline.spansByLine.isEmpty)
+    }
+
+    @Test
+    func findMatchSnapshotProjectsVisibleMatchesAndActiveSelection() {
+        let document = CodeEditorDocument(
+            text: "alpha beta alpha\nalpha",
+            persistedText: ""
+        )
+
+        let snapshot = CodeEditorViewModel.findMatchSnapshot(
+            document: document,
+            findState: CodeEditorFindState(
+                isPresented: true,
+                query: "alpha",
+                caseSensitive: true,
+                selectedMatchIndex: 1
+            ),
+            visibleLineRange: 1...2
+        )
+
+        #expect(snapshot.lineRange == 1...2)
+        #expect(snapshot.spansByLine[1]?.count == 2)
+        #expect(snapshot.spansByLine[2]?.count == 1)
+        #expect(snapshot.spansByLine[1]?[0].kind == .findMatch)
+        #expect(snapshot.spansByLine[1]?[1].kind == .activeFindMatch)
+    }
+
+    @Test
+    func diagnosticsUnderlineUsesExplicitEndRangeWhenAvailable() {
+        let snapshot = LSPDiagnosticsSnapshot(
+            workspaceRoot: "/tmp",
+            uri: "file:///tmp/Sample.swift",
+            diagnostics: [
+                .init(
+                    message: "problem",
+                    severity: .warning,
+                    line: 0,
+                    character: 4,
+                    endLine: 0,
+                    endCharacter: 9
+                )
+            ],
+            documentVersion: 3
+        )
+
+        let decorations = CodeEditorViewModel.diagnosticUnderlineSnapshot(
+            diagnostics: snapshot,
+            document: CodeEditorDocument(text: "let value = 1", persistedText: ""),
+            visibleLineRange: 1...1
+        )
+
+        #expect(decorations.spansByLine[1]?.first?.utf16Range == NSRange(location: 4, length: 5))
+    }
+
+    @Test
+    func diagnosticsUnderlineFallsBackToSingleCharacterWhenEndRangeMissing() {
+        let snapshot = LSPDiagnosticsSnapshot(
+            workspaceRoot: "/tmp",
+            uri: "file:///tmp/Sample.swift",
+            diagnostics: [
+                .init(
+                    message: "problem",
+                    severity: .error,
+                    line: 0,
+                    character: 4
+                )
+            ],
+            documentVersion: 3
+        )
+
+        let decorations = CodeEditorViewModel.diagnosticUnderlineSnapshot(
+            diagnostics: snapshot,
+            document: CodeEditorDocument(text: "let value = 1", persistedText: ""),
+            visibleLineRange: 1...1
+        )
+
+        #expect(decorations.spansByLine[1]?.first?.utf16Range == NSRange(location: 4, length: 1))
+        #expect(decorations.spansByLine[1]?.first?.kind == .diagnosticUnderline(.error))
+    }
 }

@@ -13,19 +13,25 @@ struct LSPDiagnostic: Codable, Equatable, Sendable {
     let source: String?
     let line: Int?
     let character: Int?
+    let endLine: Int?
+    let endCharacter: Int?
 
     init(
         message: String,
         severity: LSPDiagnosticSeverity,
         source: String? = nil,
         line: Int? = nil,
-        character: Int? = nil
+        character: Int? = nil,
+        endLine: Int? = nil,
+        endCharacter: Int? = nil
     ) {
         self.message = message
         self.severity = severity
         self.source = source
         self.line = line
         self.character = character
+        self.endLine = endLine
+        self.endCharacter = endCharacter
     }
 }
 

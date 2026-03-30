@@ -14,11 +14,15 @@ struct CodeEditorView: View {
     var onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil
     var onSemanticIntent: ((CodeEditorSemanticIntent) -> Void)? = nil
     var onTextChange: ((String, EditorChangeSet) -> Void)? = nil
+    var findQueryOverride: String? = nil
+    var onFindStateChange: ((CodeEditorFindState) -> Void)? = nil
     var highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
     var highlightExecutionDelayNanoseconds: UInt64 = 0
 
     @State private var document: CodeEditorDocument
+    @State private var findState = CodeEditorFindState.inactive
+    @State private var visibleLineRange: ClosedRange<Int> = 1...1
 
     init(
         text: Binding<String>,
@@ -33,6 +37,8 @@ struct CodeEditorView: View {
         onSelectionChange: ((EditorSelectionSnapshot?) -> Void)? = nil,
         onSemanticIntent: ((CodeEditorSemanticIntent) -> Void)? = nil,
         onTextChange: ((String, EditorChangeSet) -> Void)? = nil,
+        findQueryOverride: String? = nil,
+        onFindStateChange: ((CodeEditorFindState) -> Void)? = nil,
         highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared,
         highlightDebounceNanoseconds: UInt64 = 75_000_000,
         highlightExecutionDelayNanoseconds: UInt64 = 0
@@ -49,6 +55,8 @@ struct CodeEditorView: View {
         self.onSelectionChange = onSelectionChange
         self.onSemanticIntent = onSemanticIntent
         self.onTextChange = onTextChange
+        self.findQueryOverride = findQueryOverride
+        self.onFindStateChange = onFindStateChange
         self.highlighter = highlighter
         self.highlightDebounceNanoseconds = highlightDebounceNanoseconds
         self.highlightExecutionDelayNanoseconds = highlightExecutionDelayNanoseconds
@@ -57,6 +65,19 @@ struct CodeEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if findState.isPresented {
+                CodeEditorFindBar(
+                    query: Binding(
+                        get: { findState.query },
+                        set: { updateFindQuery($0) }
+                    ),
+                    matchCount: totalFindMatchCount,
+                    onPrevious: { handleFindIntent(.previousMatch) },
+                    onNext: { handleFindIntent(.nextMatch) },
+                    onClose: { handleFindIntent(.dismiss) }
+                )
+            }
+
             CodeEditorTextView(
                 text: $text,
                 document: $document,
@@ -65,7 +86,10 @@ struct CodeEditorView: View {
                 revealRequest: revealRequest,
                 hoverPresentation: hoverPresentation,
                 onSelectionChange: onSelectionChange,
+                onVisibleLineRangeChange: { visibleLineRange = $0 },
                 onSemanticIntent: onSemanticIntent,
+                onFindIntent: handleFindIntent,
+                decorations: decorationSnapshot,
                 diagnosticsByLine: diagnosticsByLine,
                 onChangeSet: { change in
                     onTextChange?(text, change)
@@ -88,9 +112,22 @@ struct CodeEditorView: View {
         }
         .onAppear {
             onStatusBarSummaryChange?(statusBarState.summaryText)
+            onFindStateChange?(findState)
         }
         .onChange(of: statusBarState.summaryText) { _, newSummary in
             onStatusBarSummaryChange?(newSummary)
+        }
+        .onChange(of: findState) { _, newState in
+            onFindStateChange?(newState)
+        }
+        .onChange(of: findQueryOverride) { _, newQuery in
+            guard let newQuery else {
+                return
+            }
+            if findState.isPresented == false {
+                findState.isPresented = true
+            }
+            updateFindQuery(newQuery)
         }
     }
 
@@ -133,5 +170,114 @@ struct CodeEditorView: View {
 
     private var inferredLanguage: String? {
         CodeSyntaxHighlightingService.languageIdentifier(for: fileURL)
+    }
+
+    private var totalFindMatchCount: Int {
+        let snapshot = CodeEditorViewModel.findMatchSnapshot(
+            document: document,
+            findState: findState,
+            visibleLineRange: 1...max(document.lineCount, 1)
+        )
+        return snapshot.spansByLine.values.reduce(0) { partialResult, spans in
+            partialResult + spans.count
+        }
+    }
+
+    private var decorationSnapshot: CodeEditorDecorationSnapshot {
+        let lineRange = 1...max(document.lineCount, 1)
+        let effectiveVisibleLineRange = clampLineRange(visibleLineRange, to: lineRange)
+        let snapshots = [
+            CodeEditorViewModel.findMatchSnapshot(
+                document: document,
+                findState: findState,
+                visibleLineRange: effectiveVisibleLineRange
+            ),
+            CodeEditorViewModel.selectionMatchSnapshot(
+                document: document,
+                selectedRange: document.selectedRange,
+                visibleLineRange: effectiveVisibleLineRange
+            ),
+            CodeEditorViewModel.diagnosticUnderlineSnapshot(
+                diagnostics: diagnostics,
+                document: document,
+                visibleLineRange: effectiveVisibleLineRange
+            )
+        ]
+
+        return mergeDecorationSnapshots(
+            snapshots,
+            version: document.version,
+            lineRange: effectiveVisibleLineRange
+        )
+    }
+
+    private func clampLineRange(
+        _ lineRange: ClosedRange<Int>,
+        to bounds: ClosedRange<Int>
+    ) -> ClosedRange<Int> {
+        let lowerBound = max(bounds.lowerBound, min(lineRange.lowerBound, bounds.upperBound))
+        let upperBound = max(lowerBound, min(lineRange.upperBound, bounds.upperBound))
+        return lowerBound...upperBound
+    }
+
+    private func mergeDecorationSnapshots(
+        _ snapshots: [CodeEditorDecorationSnapshot],
+        version: Int,
+        lineRange: ClosedRange<Int>
+    ) -> CodeEditorDecorationSnapshot {
+        var spansByLine: [Int: [CodeEditorDecorationSpan]] = [:]
+
+        for snapshot in snapshots {
+            for (line, spans) in snapshot.spansByLine {
+                spansByLine[line, default: []].append(contentsOf: spans)
+            }
+        }
+
+        return CodeEditorDecorationSnapshot(
+            version: version,
+            lineRange: lineRange,
+            spansByLine: spansByLine
+        )
+    }
+
+    private func updateFindQuery(_ query: String) {
+        findState.query = query
+        let matchCount = totalFindMatchCount
+        findState.selectedMatchIndex = matchCount > 0 && query.isEmpty == false ? 0 : nil
+    }
+
+    private func handleFindIntent(_ intent: CodeEditorFindIntent) {
+        switch intent {
+        case .present:
+            findState.isPresented = true
+            if findState.query.isEmpty == false, totalFindMatchCount > 0, findState.selectedMatchIndex == nil {
+                findState.selectedMatchIndex = 0
+            }
+
+        case .dismiss:
+            if findState.query.isEmpty {
+                findState = .inactive
+            } else {
+                findState.query = ""
+                findState.selectedMatchIndex = nil
+            }
+
+        case .nextMatch:
+            advanceSelectedFindMatch(step: 1)
+
+        case .previousMatch:
+            advanceSelectedFindMatch(step: -1)
+        }
+    }
+
+    private func advanceSelectedFindMatch(step: Int) {
+        let matchCount = totalFindMatchCount
+        guard matchCount > 0 else {
+            findState.selectedMatchIndex = nil
+            return
+        }
+
+        let currentIndex = findState.selectedMatchIndex ?? 0
+        findState.selectedMatchIndex = (currentIndex + step + matchCount) % matchCount
     }
 }
