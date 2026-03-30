@@ -3,6 +3,15 @@
     <channel>
         <title>agentGui</title>
         <item>
+            <title>1.0.2</title>
+            <pubDate>Mon, 30 Mar 2026 22:23:52 +0800</pubDate>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>1.0.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/feint123/agentGui/releases/download/v1.0.2/agentGui-1.0.2.zip" length="18269149" type="application/octet-stream" sparkle:edSignature="fmivZSitHMVyDpbpga5de5OXlzdLHxEwq5y+63Y1K+QcUqqV9mm4xe7JtiBbxn98jgY7EBHco/W6Q7q83xuMCA=="/>
+        </item>
+        <item>
             <title>1.0.1</title>
             <pubDate>Sun, 29 Mar 2026 02:08:17 +0800</pubDate>
             <sparkle:version>2</sparkle:version>
