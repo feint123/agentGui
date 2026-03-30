@@ -10,6 +10,8 @@ struct WorkbenchConversationPane: View {
     @Environment(WorkspaceState.self) private var workspaceState
     @Environment(WorkbenchState.self) private var workbenchState
     @Environment(\.modelContext) private var modelContext
+    @State private var pendingAgentTeamComposer: AgentTeamBriefComposerRequest?
+    @State private var errorMessage: String?
 
     var body: some View {
         ZStack {
@@ -31,6 +33,23 @@ struct WorkbenchConversationPane: View {
                 .disabled(workspaceState.detailSelection == .none)
                 .accessibilityIdentifier("workbench.openContextWindow")
             }
+        }
+        .sheet(item: $pendingAgentTeamComposer) { request in
+            AgentTeamBriefComposerSheet(
+                sourceContext: request.sourceContext,
+                initialDraft: request.draft,
+                onCancel: {
+                    pendingAgentTeamComposer = nil
+                },
+                onSubmit: { draft in
+                    submitAgentTeamComposer(draft: draft, source: request.sourceContext)
+                }
+            )
+        }
+        .alert("错误", isPresented: .constant(errorMessage != nil)) {
+            Button("确定") { errorMessage = nil }
+        } message: {
+            if let errorMessage { Text(errorMessage) }
         }
     }
 
@@ -92,9 +111,8 @@ struct WorkbenchConversationPane: View {
                 try modelContext.save()
                 createdSession = newSession
             case .agentTeam(let source):
-                createdSession = try AgentTeamSessionFactory()
-                    .create(fromSourceContext: source, modelContext: modelContext)
-                    .session
+                pendingAgentTeamComposer = AgentTeamBriefComposerRequest(sourceContext: source)
+                return
             }
 
             withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
@@ -102,6 +120,25 @@ struct WorkbenchConversationPane: View {
                 workbenchState.selectedItem = .sessions
             }
         } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func submitAgentTeamComposer(
+        draft: AgentTeamMissionBriefDraft,
+        source: NewSessionMenuAction.SourceContext?
+    ) {
+        do {
+            let createdSession = try AgentTeamSessionFactory()
+                .create(fromSourceContext: source, draft: draft, modelContext: modelContext)
+                .session
+            pendingAgentTeamComposer = nil
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
+                workspaceState.selectedSession = createdSession
+                workbenchState.selectedItem = .sessions
+            }
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

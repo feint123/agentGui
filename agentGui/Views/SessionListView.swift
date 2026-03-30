@@ -28,6 +28,7 @@ struct SessionListView: View {
     @State private var errorMessage: String?
     @State private var inlineRename = InlineRenameState<String>()
     @State private var viewModel = SessionCatalogViewModel()
+    @State private var pendingAgentTeamComposer: AgentTeamBriefComposerRequest?
     @Namespace private var selectionNamespace
 
     var onSessionSelected: (Session) -> Void
@@ -63,6 +64,18 @@ struct SessionListView: View {
             Button("确定") { errorMessage = nil }
         } message: {
             if let error = errorMessage { Text(error) }
+        }
+        .sheet(item: $pendingAgentTeamComposer) { request in
+            AgentTeamBriefComposerSheet(
+                sourceContext: request.sourceContext,
+                initialDraft: request.draft,
+                onCancel: {
+                    pendingAgentTeamComposer = nil
+                },
+                onSubmit: { draft in
+                    submitAgentTeamComposer(draft: draft, source: request.sourceContext)
+                }
+            )
         }
         .onAppear {
             viewModel.bind(modelContext: modelContext)
@@ -224,9 +237,8 @@ struct SessionListView: View {
                 try modelContext.save()
                 createdSession = newSession
             case .agentTeam(let source):
-                createdSession = try AgentTeamSessionFactory()
-                    .create(fromSourceContext: source, modelContext: modelContext)
-                    .session
+                pendingAgentTeamComposer = AgentTeamBriefComposerRequest(sourceContext: source)
+                return
             }
 
             viewModel.reload()
@@ -235,6 +247,24 @@ struct SessionListView: View {
             }
         } catch {
             errorMessage = "创建对话失败: \(error.localizedDescription)"
+        }
+    }
+
+    private func submitAgentTeamComposer(
+        draft: AgentTeamMissionBriefDraft,
+        source: NewSessionMenuAction.SourceContext?
+    ) {
+        do {
+            let createdSession = try AgentTeamSessionFactory()
+                .create(fromSourceContext: source, draft: draft, modelContext: modelContext)
+                .session
+            pendingAgentTeamComposer = nil
+            viewModel.reload()
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0.03)) {
+                onSessionSelected(createdSession)
+            }
+        } catch {
+            errorMessage = "创建 Team 失败: \(error.localizedDescription)"
         }
     }
 

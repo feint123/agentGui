@@ -468,6 +468,18 @@ struct agentGuiApp: App {
             state.sourceSessionTitle = "修复 ACP"
             state.mode = .executionDelivery
             state.status = .active
+        case "brief":
+            state.sourceSessionID = "chat-source-1"
+            state.sourceSessionTitle = "修复 ACP"
+            state.status = .active
+            state.missionBrief = AgentTeamMissionBrief(
+                objective: "为 ACP team 汇总修复方案",
+                constraints: ["仅修改 Swift 文件", "保持 focused tests"],
+                acceptanceCriteria: ["Mission Header 回显真实 brief", "Team session 持久化 mission brief"],
+                mode: .executionDelivery,
+                budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+                initialContextSummary: "来源聊天包含失败测试与日志摘要。"
+            )
         default:
             break
         }

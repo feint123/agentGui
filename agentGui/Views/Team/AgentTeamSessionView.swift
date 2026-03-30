@@ -8,6 +8,9 @@ struct AgentTeamSessionView: View {
     static let inspectorAccessibilityIdentifier = "agentTeam.inspector"
     static let placeholderAccessibilityIdentifier = "agentTeam.placeholder"
     static let titleAccessibilityIdentifier = "agentTeam.title"
+    static let constraintsAccessibilityIdentifier = "agentTeam.brief.constraintsList"
+    static let acceptanceAccessibilityIdentifier = "agentTeam.brief.acceptanceList"
+    static let contextSummaryAccessibilityIdentifier = "agentTeam.brief.contextSummary"
 
     let session: Session
     let state: AgentTeamSessionState?

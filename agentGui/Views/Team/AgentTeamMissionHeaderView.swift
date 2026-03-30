@@ -22,9 +22,33 @@ struct AgentTeamMissionHeaderView: View {
 
             chipRow
 
-            Text(presentation.acceptanceSummary)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            if presentation.isFallbackBrief {
+                Text("该 Team 会话由历史壳层推导出 fallback brief，建议补充正式 mission brief。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            detailSection(
+                title: "Constraints",
+                items: presentation.constraints,
+                accessibilityIdentifier: AgentTeamSessionView.constraintsAccessibilityIdentifier
+            )
+
+            detailSection(
+                title: "Acceptance",
+                items: presentation.acceptanceCriteria,
+                accessibilityIdentifier: AgentTeamSessionView.acceptanceAccessibilityIdentifier
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Initial Context")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(presentation.contextSummary)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+            }
+            .accessibilityIdentifier(AgentTeamSessionView.contextSummaryAccessibilityIdentifier)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .workbenchSidebarCardStyle(padding: 18)
@@ -35,8 +59,7 @@ struct AgentTeamMissionHeaderView: View {
             HStack(alignment: .top, spacing: 10) {
                 chip(title: presentation.modeText)
                 chip(title: presentation.statusText)
-                chip(title: presentation.budgetText)
-                chip(title: presentation.waitingText)
+                chip(title: presentation.budgetSummary)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -45,13 +68,29 @@ struct AgentTeamMissionHeaderView: View {
                     chip(title: presentation.statusText)
                 }
 
-                HStack(spacing: 10) {
-                    chip(title: presentation.budgetText)
-                    chip(title: presentation.waitingText)
-                }
+                chip(title: presentation.budgetSummary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func detailSection(
+        title: String,
+        items: [String],
+        accessibilityIdentifier: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            ForEach(items, id: \.self) { item in
+                Text("• \(item)")
+                    .font(.body)
+                    .foregroundStyle(.primary)
+            }
+        }
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 
     private func chip(title: String) -> some View {

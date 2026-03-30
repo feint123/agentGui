@@ -45,6 +45,27 @@ xcodebuild -project agentGui.xcodeproj -scheme agentGui build
 当前推荐至少跑两组 focused gates：
 
 ```bash
+# Agent Team Mission Brief focused unit / integration
+xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=macOS' test \
+    -parallel-testing-enabled NO \
+    -only-testing:agentGuiTests/AgentTeamMissionBriefTests \
+    -only-testing:agentGuiTests/AgentTeamMissionBriefDraftTests \
+    -only-testing:agentGuiTests/AgentTeamMissionBriefResolverTests \
+    -only-testing:agentGuiTests/AgentTeamSessionStateTests \
+    -only-testing:agentGuiTests/AgentTeamSessionFactoryTests \
+    -only-testing:agentGuiTests/AgentTeamWorkbenchPresentationTests
+
+# Agent Team Workbench focused unit / integration
+xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=macOS' test \
+    -parallel-testing-enabled NO \
+    -only-testing:agentGuiTests/AgentTeamWorkbenchPresentationTests \
+    -only-testing:agentGuiTests/WorkbenchConversationPaneTests
+
+# Agent Team Workbench UI smoke
+xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=macOS' test \
+    -parallel-testing-enabled NO \
+    -only-testing:agentGuiUITests/AgentTeamWorkbenchShellUITests
+
 # 场景级单元 / 集成验证
 xcodebuild -project agentGui.xcodeproj -scheme agentGui -destination 'platform=macOS' test \
     -only-testing:agentGuiTests/QualityFixtureBuilderTests \

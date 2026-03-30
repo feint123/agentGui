@@ -94,11 +94,25 @@ extension ChatView {
                 try modelContext.save()
                 createdSession = newSession
             case .agentTeam(let source):
-                createdSession = try AgentTeamSessionFactory()
-                    .create(fromSourceContext: source, modelContext: modelContext)
-                    .session
+                pendingAgentTeamComposer = AgentTeamBriefComposerRequest(sourceContext: source)
+                return
             }
 
+            workspaceState.selectedSession = createdSession
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func submitAgentTeamComposer(
+        draft: AgentTeamMissionBriefDraft,
+        source: NewSessionMenuAction.SourceContext?
+    ) {
+        do {
+            let createdSession = try AgentTeamSessionFactory()
+                .create(fromSourceContext: source, draft: draft, modelContext: modelContext)
+                .session
+            pendingAgentTeamComposer = nil
             workspaceState.selectedSession = createdSession
         } catch {
             errorMessage = error.localizedDescription

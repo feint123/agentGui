@@ -7,9 +7,11 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let sourceSummary: String
         let modeText: String
         let statusText: String
-        let budgetText: String
-        let waitingText: String
-        let acceptanceSummary: String
+        let budgetSummary: String
+        let constraints: [String]
+        let acceptanceCriteria: [String]
+        let contextSummary: String
+        let isFallbackBrief: Bool
     }
 
     struct RosterItem: Identifiable, Equatable {
@@ -49,17 +51,21 @@ struct AgentTeamWorkbenchPresentation: Equatable {
     static func make(session: Session, state: AgentTeamSessionState?) -> Self {
         let sourceTitle = state?.sourceSessionTitle.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedSourceTitle = sourceTitle.isEmpty ? "无来源聊天" : sourceTitle
+        let resolution = AgentTeamMissionBriefResolver().resolve(session: session, state: state)
+        let brief = resolution.brief
 
         return Self(
             header: Header(
                 title: session.title,
-                objectiveSummary: objectiveSummary(for: session.title, sourceTitle: resolvedSourceTitle),
+                objectiveSummary: brief.objective,
                 sourceSummary: "来源上下文：\(resolvedSourceTitle)",
-                modeText: modeText(for: state?.mode ?? .executionDelivery),
+                modeText: modeText(for: brief.mode),
                 statusText: statusText(for: state?.status ?? .created),
-                budgetText: "预算：待配置",
-                waitingText: "用户输入：当前无需补充",
-                acceptanceSummary: "验收：待 Feature 3 接入正式 mission brief 后细化"
+                budgetSummary: budgetSummary(for: brief.budget),
+                constraints: brief.constraints,
+                acceptanceCriteria: brief.acceptanceCriteria,
+                contextSummary: brief.initialContextSummary,
+                isFallbackBrief: resolution.isFallback
             ),
             roster: [
                 RosterItem(
@@ -134,14 +140,6 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         )
     }
 
-    private static func objectiveSummary(for sessionTitle: String, sourceTitle: String) -> String {
-        if sourceTitle == "无来源聊天" {
-            return "围绕 \(sessionTitle) 建立独立 Team Workbench 壳层，并为后续 mission brief 预留承载位置。"
-        }
-
-        return "围绕 \(sourceTitle) 拆分团队协作工作面，并在 \(sessionTitle) 中持续展示 mission 与 workstream 占位信息。"
-    }
-
     private static func modeText(for mode: AgentTeamMode) -> String {
         switch mode {
         case .executionDelivery:
@@ -160,5 +158,9 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         case .failed:
             return "已失败"
         }
+    }
+
+    private static func budgetSummary(for budget: AgentTeamBudget) -> String {
+        "预算：并发 \(budget.maxActiveProviders) · Token \(budget.tokenBudgetText) · 成本 \(budget.costBudgetText)"
     }
 }

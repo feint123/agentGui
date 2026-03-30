@@ -66,6 +66,7 @@ struct ChatView: View {
     @State var didApplyUITestInitialComposerText = false
     @State var showingRMSPanel = false
     @State var voiceInputController = VoiceInputController()
+    @State var pendingAgentTeamComposer: AgentTeamBriefComposerRequest?
 
     @FocusState var isInputFocused: Bool
 
@@ -145,6 +146,18 @@ struct ChatView: View {
         }
         .sheet(item: $viewingMedia) { item in
             MediaViewerView(item: item)
+        }
+        .sheet(item: $pendingAgentTeamComposer) { request in
+            AgentTeamBriefComposerSheet(
+                sourceContext: request.sourceContext,
+                initialDraft: request.draft,
+                onCancel: {
+                    pendingAgentTeamComposer = nil
+                },
+                onSubmit: { draft in
+                    submitAgentTeamComposer(draft: draft, source: request.sourceContext)
+                }
+            )
         }
         .confirmationDialog(
             "删除此消息及之后的所有对话？",
