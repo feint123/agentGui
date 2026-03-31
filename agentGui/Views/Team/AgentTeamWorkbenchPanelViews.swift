@@ -43,6 +43,28 @@ private struct AgentTeamBoardCardView: View {
             HStack(alignment: .center, spacing: 4) {
                 Text(card.title)
                     .font(.subheadline.weight(.semibold))
+                switch card.cardKind {
+                case "creativeDraft":
+                    if let indexText = card.draftIndexText {
+                        Text("草案\(indexText)")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.purple.opacity(0.15))
+                            .foregroundStyle(.purple)
+                            .clipShape(Capsule())
+                    }
+                case "synthesis":
+                    Text("综合")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.indigo.opacity(0.15))
+                        .foregroundStyle(.indigo)
+                        .clipShape(Capsule())
+                default:
+                    EmptyView()
+                }
                 if card.isLocked {
                     Image(systemName: "lock.fill")
                         .foregroundStyle(.orange)
@@ -184,6 +206,36 @@ struct AgentTeamInspectorPanelView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(8)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                }
+                if !summary.creativeDraftItems.isEmpty {
+                    Divider()
+                    Text("草案对比")
+                        .font(.headline)
+                        .padding(.bottom, 4)
+                    ForEach(summary.creativeDraftItems) { item in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(item.title)
+                                    .font(.subheadline.weight(.medium))
+                                Spacer()
+                                Text(item.producerSummary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(item.summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if !item.contentPreview.isEmpty {
+                                Text(item.contentPreview)
+                                    .font(.caption)
+                                    .foregroundStyle(.primary.opacity(0.75))
+                                    .padding(8)
+                                    .background(Color.secondary.opacity(0.08))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+                        }
+                        .padding(.bottom, 8)
                     }
                 }
             }

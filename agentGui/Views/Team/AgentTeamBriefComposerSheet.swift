@@ -75,7 +75,9 @@ struct AgentTeamBriefComposerSheet: View {
                             Text("Mode")
                                 .font(.headline)
                             Picker("Mode", selection: $draft.mode) {
-                                Text("执行交付").tag(AgentTeamMode.executionDelivery)
+                                ForEach(AgentTeamMode.allCases, id: \.self) { mode in
+                                    Text(mode.displayName).tag(mode)
+                                }
                             }
                             .pickerStyle(.menu)
                             .accessibilityIdentifier("agentTeam.brief.mode")
