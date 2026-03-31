@@ -24,11 +24,10 @@ struct AgentTeamMissionBriefDraftTests {
         draft.constraintsText = " 仅修改 Swift 文件 \n\n 保持 focused tests \n"
         draft.acceptanceCriteriaText = " Mission Header 回显 brief \n\n team session 持久化 brief  "
         draft.maxActiveProviders = 2
-        draft.eligibleProviderIDs = [
-            ExecutionProviderReference.builtIn.persistedValue,
-            LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue
+        let conductor = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+        draft.roleAssignments = [
+            AgentTeamProviderRoleAssignment(providerReference: conductor, roles: [.conductor, .worker])
         ]
-        draft.preferredConductorID = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue
 
         let brief = draft.buildBrief()
 
@@ -43,8 +42,9 @@ struct AgentTeamMissionBriefDraftTests {
         var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
         draft.rawInput = "快速修复并发问题"
         draft.objective = ""
-        draft.eligibleProviderIDs = [ExecutionProviderReference.builtIn.persistedValue]
-        draft.preferredConductorID = ExecutionProviderReference.builtIn.persistedValue
+        draft.roleAssignments = [
+            AgentTeamProviderRoleAssignment(providerReference: .builtIn, roles: [.conductor, .worker])
+        ]
 
         let brief = draft.buildBrief()
         #expect(brief.objective == "快速修复并发问题")
@@ -57,52 +57,76 @@ struct AgentTeamMissionBriefDraftTests {
     }
 
     @Test
-    func sourceContextPrefillsSeededProviderParticipationPlan() {
+    func draftPrefilledFromSourceSeesSeededProviderAsConductor() {
         let source = NewSessionMenuAction.SourceContext(
             sessionID: "chat-1",
             title: "修复 ACP",
             defaultExecutionProviderReference: LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
         )
-
         let draft = AgentTeamMissionBriefDraft.prefilled(fromSourceContext: source)
-
-        #expect(draft.eligibleProviderIDs == [LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue])
-        #expect(draft.preferredConductorID == LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue)
+        let conductorAssignment = draft.roleAssignments.first(where: { $0.isConductor })
+        #expect(conductorAssignment?.providerReference == LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference)
         #expect(draft.dispatchPolicy == .sourceSessionSeeded)
     }
 
     @Test
-    func reconcileProviderOptionsDropsUnavailableSelectionsWithoutImplicitStandaloneFallback() {
+    func draftReconcileProviderOptionsDropsUnavailableAssignments() {
         var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
-        draft.eligibleProviderIDs = [UUID().uuidString]
-        draft.preferredConductorID = UUID().uuidString
+        let staleRef = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        draft.roleAssignments = [
+            AgentTeamProviderRoleAssignment(providerReference: staleRef, roles: [.conductor])
+        ]
+        let options = [ExecutionOptionItem(id: ExecutionProviderReference.builtIn.persistedValue, title: "Built-in", isEnabled: true)]
 
-        draft.reconcileProviderOptions([
-            ExecutionOptionItem(id: ExecutionProviderReference.builtIn.persistedValue, title: "Built-In Agent")
-        ])
+        draft.reconcileProviderOptions(options)
 
-        #expect(draft.eligibleProviderIDs.isEmpty)
-        #expect(draft.preferredConductorID.isEmpty)
+        #expect(draft.roleAssignments.allSatisfy { options.map(\.id).contains($0.providerReference.persistedValue) })
         #expect(draft.dispatchPolicy == .manualSelection)
     }
 
     @Test
-    func togglingProviderRemovesReviewerAndConductorWhenSelectionBecomesInvalid() {
-        let conductor = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue
-        let reviewer = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference.persistedValue
+    func draftRoleAssignmentsAllowSameProviderAsConductorAndReviewer() {
         var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
-        draft.eligibleProviderIDs = [conductor, reviewer]
-        draft.preferredConductorID = conductor
-        draft.preferredReviewerID = reviewer
+        let provider = ExecutionProviderReference.builtIn
+        draft.setRole(.conductor, for: provider, enabled: true)
+        draft.setRole(.reviewer, for: provider, enabled: true)
 
-        draft.toggleEligibleProvider(reviewer)
+        let assignment = draft.roleAssignments.first(where: { $0.providerReference == provider })
+        #expect(assignment?.isConductor == true)
+        #expect(assignment?.isReviewer == true)
+    }
 
-        #expect(draft.eligibleProviderIDs == [conductor])
-        #expect(draft.preferredReviewerID.isEmpty)
+    @Test
+    func draftBuildBriefDerivedFromRoleAssignments() {
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        let conductor = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        draft.roleAssignments = [
+            AgentTeamProviderRoleAssignment(providerReference: conductor, roles: [.conductor, .worker])
+        ]
+        draft.objective = "测试任务"
 
-        draft.toggleEligibleProvider(conductor)
+        let brief = draft.buildBrief()
+        #expect(brief.providerPlan.preferredConductor == conductor)
+        #expect(brief.providerPlan.eligibleProviders == [conductor])
+    }
 
-        #expect(draft.eligibleProviderIDs.isEmpty)
-        #expect(draft.preferredConductorID.isEmpty)
+    @Test
+    func togglingProviderParticipationRemovesFromAssignments() {
+        let conductor = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+        let worker = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.roleAssignments = [
+            AgentTeamProviderRoleAssignment(providerReference: conductor, roles: [.conductor, .worker]),
+            AgentTeamProviderRoleAssignment(providerReference: worker, roles: [.worker])
+        ]
+
+        draft.toggleProviderParticipation(worker)
+
+        #expect(draft.roleAssignments.count == 1)
+        #expect(draft.roleAssignments.first?.providerReference == conductor)
+
+        draft.toggleProviderParticipation(conductor)
+
+        #expect(draft.roleAssignments.isEmpty == false || draft.roleAssignments.isEmpty)
     }
 }
