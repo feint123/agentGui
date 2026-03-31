@@ -150,10 +150,7 @@ struct AgentTeamBriefComposerSheet: View {
                 .font(.headline)
             TextEditor(text: $draft.rawInput)
                 .frame(minHeight: 120)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.secondary.opacity(0.18))
-                )
+                .workbenchSidebarHeaderFieldStyle()
                 .accessibilityIdentifier("agentTeam.brief.rawInput")
                 .onChange(of: draft.rawInput) { _, _ in
                     extractionVM?.scheduleDebounceExtraction(draft: $draft)
@@ -430,11 +427,7 @@ private struct ProviderRoleRowView: View {
                 .font(.caption)
             }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.2))
-        )
+        .workbenchSidebarCardStyle(padding: 12)
     }
 
     @ViewBuilder
