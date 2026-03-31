@@ -14,7 +14,7 @@ struct AgentTeamClaimCoordinatorTests {
             constraints: ["仅修改 Swift 文件"],
             acceptanceCriteria: ["Focused tests 通过"],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: "当前聊天包含失败测试与日志。"
         )
         var board = coordinator.bootstrapBoard(from: brief, preferredProvider: preferredProvider)
@@ -68,7 +68,7 @@ struct AgentTeamClaimCoordinatorTests {
             constraints: ["仅修改 Swift 文件"],
             acceptanceCriteria: ["Focused tests 通过"],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: "当前聊天包含失败测试与日志。"
         )
         var board = coordinator.bootstrapBoard(from: brief, preferredProvider: provider)
@@ -173,7 +173,7 @@ struct AgentTeamClaimCoordinatorTests {
             constraints: ["仅修改 Swift 文件"],
             acceptanceCriteria: ["Focused tests 通过"],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: "当前聊天包含失败测试与日志。"
         )
         var claimBoard = coordinator.bootstrapBoard(from: brief, preferredProvider: preferredProvider)

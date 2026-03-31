@@ -117,7 +117,7 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                 sourceSummary: "来源上下文：\(resolvedSourceTitle)",
                 modeText: modeText(for: brief.mode),
                 statusText: statusText(for: state?.status ?? .created),
-                budgetSummary: budgetSummary(for: brief.budget),
+                budgetSummary: budgetSummary(for: brief.dispatchBudget),
                 providerSummary: "Providers：\(eligibleProviderNames.joined(separator: "、"))",
                 conductorSummary: "Conductor：\(conductorName)",
                 reviewerSummary: "Reviewer：\(reviewerName)",
@@ -177,8 +177,8 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         }
     }
 
-    private static func budgetSummary(for budget: AgentTeamBudget) -> String {
-        "预算：并发 \(budget.maxActiveProviders) · Token \(budget.tokenBudgetText) · 成本 \(budget.costBudgetText)"
+    private static func budgetSummary(for budget: AgentTeamDispatchBudget) -> String {
+        "预算：并发 \(budget.maxActiveProviders)"
     }
 
     private static func makeBoardColumns(

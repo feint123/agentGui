@@ -94,10 +94,8 @@ extension AgentTeamMissionBriefDraft {
             constraints: Self.normalizeLines(from: constraintsText),
             acceptanceCriteria: Self.normalizeLines(from: acceptanceCriteriaText),
             mode: mode,
-            budget: AgentTeamBudget(
-                maxActiveProviders: max(1, maxActiveProviders),
-                tokenBudgetText: tokenBudgetText.trimmingCharacters(in: .whitespacesAndNewlines),
-                costBudgetText: costBudgetText.trimmingCharacters(in: .whitespacesAndNewlines)
+            dispatchBudget: AgentTeamDispatchBudget(
+                maxActiveProviders: max(1, maxActiveProviders)
             ),
             initialContextSummary: resolvedContextSummary,
             providerPlan: buildProviderPlan()

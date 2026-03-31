@@ -12,7 +12,7 @@ struct AgentTeamMissionBriefResolverTests {
             constraints: ["仅修改 Swift 文件"],
             acceptanceCriteria: ["Focused tests 通过"],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: "当前聊天包含失败测试与日志。"
         )
 

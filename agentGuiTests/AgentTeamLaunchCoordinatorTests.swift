@@ -19,7 +19,7 @@ struct AgentTeamLaunchCoordinatorTests {
             constraints: ["仅修改 Swift 文件"],
             acceptanceCriteria: ["Focused tests 通过"],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: maxActiveProviders, tokenBudgetText: "20k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: maxActiveProviders),
             initialContextSummary: "当前聊天包含失败测试与日志。",
             providerPlan: .init(
                 eligibleProviders: [.builtIn],
@@ -323,8 +323,7 @@ private extension AgentTeamLaunchCoordinatorTests {
             constraints: [],
             acceptanceCriteria: [],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: maxActiveProviders,
-                          tokenBudgetText: "20k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: maxActiveProviders),
             initialContextSummary: "",
             providerPlan: .init(
                 eligibleProviders: eligibleProviders,
@@ -361,7 +360,7 @@ struct AgentTeamMissionPromptBuilderTests {
             constraints: ["仅修改 Swift 文件"],
             acceptanceCriteria: ["tests 通过"],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: "来源聊天包含日志。"
         )
         let card = AgentTeamTaskCard(
@@ -391,7 +390,7 @@ struct AgentTeamMissionPromptBuilderTests {
             constraints: [],
             acceptanceCriteria: [],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 1, tokenBudgetText: "10k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 1),
             initialContextSummary: ""
         )
         let card = AgentTeamTaskCard(
@@ -417,7 +416,7 @@ struct AgentTeamMissionPromptBuilderTests {
             constraints: [],
             acceptanceCriteria: [],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 1, tokenBudgetText: "10k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 1),
             initialContextSummary: ""
         )
         let card = AgentTeamTaskCard(
@@ -440,7 +439,7 @@ struct AgentTeamMissionPromptBuilderTests {
             constraints: [],
             acceptanceCriteria: [],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 1, tokenBudgetText: "10k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 1),
             initialContextSummary: ""
         )
         let card = AgentTeamTaskCard(
@@ -474,7 +473,7 @@ struct AgentTeamMissionPromptBuilderTests {
             constraints: [],
             acceptanceCriteria: [],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 1, tokenBudgetText: "10k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 1),
             initialContextSummary: ""
         )
         let card = AgentTeamTaskCard(

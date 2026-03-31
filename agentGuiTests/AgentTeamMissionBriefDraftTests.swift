@@ -39,7 +39,7 @@ struct AgentTeamMissionBriefDraftTests {
         #expect(brief.objective == "为 ACP team 生成修复计划")
         #expect(brief.constraints == ["仅修改 Swift 文件", "保持 focused tests"])
         #expect(brief.acceptanceCriteria == ["Mission Header 回显 brief", "team session 持久化 brief"])
-        #expect(brief.budget == AgentTeamBudget(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"))
+        #expect(brief.dispatchBudget == AgentTeamDispatchBudget(maxActiveProviders: 2))
         #expect(brief.providerPlan.eligibleProviders == [
             .builtIn,
             LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference,

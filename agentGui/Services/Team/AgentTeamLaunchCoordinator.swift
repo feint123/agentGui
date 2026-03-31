@@ -61,7 +61,7 @@ struct AgentTeamLaunchCoordinator {
             ?? taskBoardCoordinator.bootstrapBoard(from: brief, preferredProvider: conductor)
 
         let activeCount = taskBoard.cards.filter { $0.status == .working }.count
-        let maxActive = brief.budget.maxActiveProviders
+        let maxActive = brief.dispatchBudget.maxActiveProviders
         guard activeCount < maxActive else {
             throw Error.providerBudgetExceeded(max: maxActive, active: activeCount)
         }
@@ -78,7 +78,7 @@ struct AgentTeamLaunchCoordinator {
             rationaleSummary: "Conductor auto-claim on team launch.",
             requiredCapabilities: [],
             expectedArtifacts: [],
-            estimatedCostSummary: brief.budget.costBudgetText,
+            estimatedCostSummary: "",
             status: .pending,
             submittedAt: Date()
         )
@@ -168,7 +168,7 @@ struct AgentTeamLaunchCoordinator {
         let claimCoordinator = AgentTeamClaimCoordinator()
         let conductor = brief.providerPlan.preferredConductor
         let eligibleProviders = brief.providerPlan.eligibleProviders
-        let maxActive = brief.budget.maxActiveProviders
+        let maxActive = brief.dispatchBudget.maxActiveProviders
 
         var taskBoard = state.taskBoardState
             ?? taskBoardCoordinator.bootstrapBoard(from: brief, preferredProvider: conductor)
@@ -199,7 +199,7 @@ struct AgentTeamLaunchCoordinator {
                 rationaleSummary: "Batch auto-claim for execution parallelism.",
                 requiredCapabilities: [],
                 expectedArtifacts: [],
-                estimatedCostSummary: brief.budget.costBudgetText,
+                estimatedCostSummary: "",
                 status: .pending,
                 submittedAt: Date()
             )

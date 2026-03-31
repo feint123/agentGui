@@ -469,7 +469,7 @@ struct agentGuiApp: App {
                 constraints: ["仅修改 Swift 文件", "保持 focused tests"],
                 acceptanceCriteria: ["Mission Header 回显真实 brief", "Team session 持久化 mission brief"],
                 mode: .executionDelivery,
-                budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+                dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
                 initialContextSummary: "来源聊天包含失败测试与日志摘要。"
             )
         case "claim":
@@ -481,7 +481,7 @@ struct agentGuiApp: App {
                 constraints: ["仅修改 Swift 文件", "保持 focused tests"],
                 acceptanceCriteria: ["Mission Header 回显真实 brief", "Team session 持久化 mission brief"],
                 mode: .executionDelivery,
-                budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+                dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
                 initialContextSummary: "来源聊天包含失败测试与日志摘要。"
             )
             let cardID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!

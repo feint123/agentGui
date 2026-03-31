@@ -19,8 +19,6 @@ struct AgentTeamSessionFactoryTests {
         draft.constraintsText = "仅修改 Swift 文件\n保持 focused tests"
         draft.acceptanceCriteriaText = "Mission Header 回显 brief\nteam session 持久化 brief"
         draft.maxActiveProviders = 2
-        draft.tokenBudgetText = "20k"
-        draft.costBudgetText = "medium"
         draft.initialContextSummary = "来源聊天包含失败测试与日志。"
         draft.eligibleProviderIDs = [
             ExecutionProviderReference.builtIn.persistedValue,
@@ -74,8 +72,6 @@ struct AgentTeamSessionFactoryTests {
         draft.constraintsText = "仅修改 Swift 文件\n保持 focused tests"
         draft.acceptanceCriteriaText = "Mission Header 回显 brief\nteam session 持久化 brief"
         draft.maxActiveProviders = 2
-        draft.tokenBudgetText = "20k"
-        draft.costBudgetText = "medium"
         draft.initialContextSummary = "来源聊天包含失败测试与日志。"
 
         let result = try AgentTeamSessionFactory().create(from: source, draft: draft, modelContext: context)

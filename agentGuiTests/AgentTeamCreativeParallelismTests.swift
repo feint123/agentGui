@@ -90,7 +90,7 @@ struct AgentTeamBootstrapCreativeBoardTests {
             constraints: ["风格统一"],
             acceptanceCriteria: ["产出 2 份草案"],
             mode: .creativeExploration,
-            budget: .init(maxActiveProviders: maxActiveProviders, tokenBudgetText: "30k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: maxActiveProviders),
             initialContextSummary: "参考风格：极简主义",
             providerPlan: .init(
                 eligibleProviders: providers,
@@ -206,7 +206,7 @@ struct AgentTeamBootstrapCreativeBoardTests {
             constraints: [],
             acceptanceCriteria: ["Tests pass"],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: ""
         )
 
@@ -231,7 +231,7 @@ struct AgentTeamCreativePromptBuilderTests {
         constraints: ["避免使用金融图标俗套"],
         acceptanceCriteria: ["独特、易识别"],
         mode: .creativeExploration,
-        budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "low"),
+        dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
         initialContextSummary: "App 定位：极简主义, 用色纯白"
     )
 
@@ -358,7 +358,7 @@ struct AgentTeamClaimBatchCreativeRoutingTests {
             constraints: [],
             acceptanceCriteria: [],
             mode: .creativeExploration,
-            budget: .init(maxActiveProviders: 3, tokenBudgetText: "20k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 3),
             initialContextSummary: "",
             providerPlan: .init(
                 eligibleProviders: providers,

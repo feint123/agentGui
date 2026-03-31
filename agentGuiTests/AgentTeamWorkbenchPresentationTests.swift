@@ -20,7 +20,7 @@ struct AgentTeamWorkbenchPresentationTests {
             constraints: ["不改 public API"],
             acceptanceCriteria: ["Focused tests 通过"],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: "当前聊天包含失败测试与日志。"
         )
 
@@ -34,7 +34,7 @@ struct AgentTeamWorkbenchPresentationTests {
         #expect(presentation.header.constraints == ["不改 public API"])
         #expect(presentation.header.acceptanceCriteria == ["Focused tests 通过"])
         #expect(presentation.header.contextSummary.contains("失败测试"))
-        #expect(presentation.header.budgetSummary == "预算：并发 2 · Token 20k · 成本 medium")
+        #expect(presentation.header.budgetSummary == "预算：并发 2")
         #expect(presentation.header.isFallbackBrief == false)
         #expect(presentation.roster.count == 3)
         #expect(presentation.roster.map(\ .role) == ["conductor", "worker", "reviewer"])
@@ -51,7 +51,7 @@ struct AgentTeamWorkbenchPresentationTests {
             constraints: ["仅修改 Swift 文件"],
             acceptanceCriteria: ["Focused tests 通过"],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: "当前聊天包含失败测试与日志。",
             providerPlan: .init(
                 eligibleProviders: [
@@ -187,7 +187,7 @@ struct AgentTeamWorkbenchPresentationTests {
                 constraints: ["仅修改展示层"],
                 acceptanceCriteria: ["显示 profile.displayName"],
                 mode: .executionDelivery,
-                budget: .init(maxActiveProviders: 1, tokenBudgetText: "10k", costBudgetText: "low"),
+                dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 1),
                 initialContextSummary: "当前会话引用了 dynamic ACP profile。",
                 providerPlan: .init(
                     eligibleProviders: [.externalACP(profileID: profileID)],
@@ -218,7 +218,7 @@ struct AgentTeamWorkbenchPresentationTests {
             constraints: [],
             acceptanceCriteria: [],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 1, tokenBudgetText: "10k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 1),
             initialContextSummary: ""
         )
 
@@ -291,7 +291,7 @@ struct AgentTeamWorkbenchPresentationTests {
             constraints: [],
             acceptanceCriteria: [],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 1, tokenBudgetText: "5k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 1),
             initialContextSummary: ""
         )
 
@@ -311,7 +311,7 @@ struct AgentTeamWorkbenchPresentationTests {
             objective: "依赖锁定测试",
             constraints: [], acceptanceCriteria: [],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "10k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: ""
         )
 
@@ -348,7 +348,7 @@ struct AgentTeamWorkbenchPresentationTests {
             objective: "无锁定测试",
             constraints: [], acceptanceCriteria: [],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "10k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: ""
         )
 
@@ -380,7 +380,7 @@ struct AgentTeamWorkbenchPresentationTests {
             objective: "依赖已完成测试",
             constraints: [], acceptanceCriteria: [],
             mode: .executionDelivery,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "10k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: ""
         )
 
@@ -505,7 +505,7 @@ struct AgentTeamWorkbenchPresentationCreativeTests {
             constraints: [],
             acceptanceCriteria: [],
             mode: .creativeExploration,
-            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "low"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: ""
         )
         let groupID = UUID(uuidString: "60606060-6060-6060-6060-606060606060")!

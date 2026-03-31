@@ -56,7 +56,7 @@ struct AgentTeamMissionBriefResolver {
                 "确认团队目标、预算和初始上下文"
             ],
             mode: mode,
-            budget: AgentTeamBudget(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+            dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: initialContextSummary,
             providerPlan: AgentTeamProviderPlan(
                 eligibleProviders: [.builtIn],
