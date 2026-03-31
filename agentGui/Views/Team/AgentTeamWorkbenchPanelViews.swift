@@ -40,8 +40,16 @@ private struct AgentTeamBoardCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(card.title)
-                .font(.subheadline.weight(.semibold))
+            HStack(alignment: .center, spacing: 4) {
+                Text(card.title)
+                    .font(.subheadline.weight(.semibold))
+                if card.isLocked {
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                        .help("此卡有未完成的上游依赖，无法派发")
+                }
+            }
             Text(card.summary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
