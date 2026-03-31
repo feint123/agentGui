@@ -17,8 +17,56 @@ struct AgentTeamTaskCard: Codable, Equatable, Identifiable, Sendable {
     var owner: ExecutionProviderReference?
     var acceptedClaimID: UUID?
     var dependencyIDs: [UUID]
+    var artifactIDs: [UUID]
     var blockerSummary: String?
     var lastUpdatedAt: Date
+
+    // MARK: - Memberwise init
+
+    init(
+        id: UUID,
+        title: String,
+        goal: String,
+        status: AgentTeamTaskStatus,
+        owner: ExecutionProviderReference? = nil,
+        acceptedClaimID: UUID? = nil,
+        dependencyIDs: [UUID] = [],
+        artifactIDs: [UUID] = [],
+        blockerSummary: String? = nil,
+        lastUpdatedAt: Date
+    ) {
+        self.id = id
+        self.title = title
+        self.goal = goal
+        self.status = status
+        self.owner = owner
+        self.acceptedClaimID = acceptedClaimID
+        self.dependencyIDs = dependencyIDs
+        self.artifactIDs = artifactIDs
+        self.blockerSummary = blockerSummary
+        self.lastUpdatedAt = lastUpdatedAt
+    }
+
+    // MARK: - Backward-compatible Codable
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, goal, status, owner, acceptedClaimID
+        case dependencyIDs, artifactIDs, blockerSummary, lastUpdatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id              = try c.decode(UUID.self, forKey: .id)
+        title           = try c.decode(String.self, forKey: .title)
+        goal            = try c.decode(String.self, forKey: .goal)
+        status          = try c.decode(AgentTeamTaskStatus.self, forKey: .status)
+        owner           = try c.decodeIfPresent(ExecutionProviderReference.self, forKey: .owner)
+        acceptedClaimID = try c.decodeIfPresent(UUID.self, forKey: .acceptedClaimID)
+        dependencyIDs   = (try? c.decode([UUID].self, forKey: .dependencyIDs)) ?? []
+        artifactIDs     = (try? c.decode([UUID].self, forKey: .artifactIDs)) ?? []
+        blockerSummary  = try c.decodeIfPresent(String.self, forKey: .blockerSummary)
+        lastUpdatedAt   = try c.decode(Date.self, forKey: .lastUpdatedAt)
+    }
 }
 
 struct AgentTeamTaskBoardState: Codable, Equatable, Sendable {
@@ -86,6 +134,7 @@ struct AgentTeamTaskBoardState: Codable, Equatable, Sendable {
                     owner: legacyCard.owner,
                     acceptedClaimID: acceptedClaim?.id,
                     dependencyIDs: [],
+                    artifactIDs: [],
                     blockerSummary: nil,
                     lastUpdatedAt: acceptedClaim?.submittedAt ?? Date(timeIntervalSince1970: 0)
                 )
