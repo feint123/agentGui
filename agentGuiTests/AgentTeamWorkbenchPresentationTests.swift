@@ -485,3 +485,121 @@ extension AgentTeamWorkbenchPresentationTests {
         #expect(!presentation.commitBarState.mergeBlockDescriptions.isEmpty)
     }
 }
+
+// MARK: - Creative Mode Presentation
+
+@MainActor
+struct AgentTeamWorkbenchPresentationCreativeTests {
+
+    private func makeCreativeState() -> (session: Session, state: AgentTeamSessionState) {
+        let session = Session.fixture(title: "Icon 设计", kind: .agentTeam)
+        let state = AgentTeamSessionState(
+            session: session,
+            sourceSessionID: "chat-1",
+            sourceSessionTitle: "Icon 设计",
+            mode: .creativeExploration,
+            status: .active
+        )
+        state.missionBrief = AgentTeamMissionBrief(
+            objective: "为「极简记账」设计 App Icon",
+            constraints: [],
+            acceptanceCriteria: [],
+            mode: .creativeExploration,
+            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "low"),
+            initialContextSummary: ""
+        )
+        let groupID = UUID(uuidString: "60606060-6060-6060-6060-606060606060")!
+        let draftID1 = UUID(uuidString: "d1d1d1d1-d1d1-d1d1-d1d1-d1d1d1d1d1d1")!
+        let draftID2 = UUID(uuidString: "d2d2d2d2-d2d2-d2d2-d2d2-d2d2d2d2d2d2")!
+        let synthID  = UUID(uuidString: "50505050-5050-5050-5050-505050505050")!
+        state.taskBoardState = AgentTeamTaskBoardState(
+            cards: [
+                AgentTeamTaskCard(
+                    id: draftID1, title: "草案 1", goal: "Icon",
+                    status: .done, kind: .creativeDraft, creativeGroupID: groupID,
+                    lastUpdatedAt: Date(timeIntervalSince1970: 1)
+                ),
+                AgentTeamTaskCard(
+                    id: draftID2, title: "草案 2", goal: "Icon",
+                    status: .done, kind: .creativeDraft, creativeGroupID: groupID,
+                    lastUpdatedAt: Date(timeIntervalSince1970: 2)
+                ),
+                AgentTeamTaskCard(
+                    id: synthID, title: "综合", goal: "Icon",
+                    status: .working, kind: .synthesis, creativeGroupID: groupID,
+                    dependencyIDs: [draftID1, draftID2],
+                    lastUpdatedAt: Date(timeIntervalSince1970: 3)
+                )
+            ],
+            claims: []
+        )
+        return (session, state)
+    }
+
+    @Test
+    func boardCardExposesKindForCreativeDraftCard() {
+        let (session, state) = makeCreativeState()
+        let presentation = AgentTeamWorkbenchPresentation.make(session: session, state: state)
+
+        let draftCards = presentation.boardColumns
+            .flatMap(\.cards)
+            .filter { $0.cardKind == "creativeDraft" }
+        #expect(draftCards.count == 2)
+    }
+
+    @Test
+    func boardCardExposesDraftIndexForCreativeDraftCard() {
+        let (session, state) = makeCreativeState()
+        let presentation = AgentTeamWorkbenchPresentation.make(session: session, state: state)
+
+        let draftCards = presentation.boardColumns
+            .flatMap(\.cards)
+            .filter { $0.cardKind == "creativeDraft" }
+        let indices = draftCards.compactMap(\.draftIndexText).sorted()
+        #expect(indices == ["1", "2"])
+    }
+
+    @Test
+    func boardCardExposesKindForSynthesisCard() {
+        let (session, state) = makeCreativeState()
+        let presentation = AgentTeamWorkbenchPresentation.make(session: session, state: state)
+
+        let synthesisCards = presentation.boardColumns
+            .flatMap(\.cards)
+            .filter { $0.cardKind == "synthesis" }
+        #expect(synthesisCards.count == 1)
+    }
+
+    @Test
+    func inspectorShowsDraftArtifactsForSynthesisCard() {
+        let (session, state) = makeCreativeState()
+
+        let draftID1 = UUID(uuidString: "d1d1d1d1-d1d1-d1d1-d1d1-d1d1d1d1d1d1")!
+        let draftID2 = UUID(uuidString: "d2d2d2d2-d2d2-d2d2-d2d2-d2d2d2d2d2d2")!
+
+        state.artifactBoardState = AgentTeamArtifactBoardState(artifacts: [
+            AgentTeamArtifact(
+                id: UUID(uuidString: "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1")!,
+                kind: .ideaDraft, title: "几何方案",
+                producer: .builtIn, taskCardID: draftID1,
+                version: 1, summary: "简洁线条",
+                payload: .text("几何线条设计方案"), status: .submitted
+            ),
+            AgentTeamArtifact(
+                id: UUID(uuidString: "a2a2a2a2-a2a2-a2a2-a2a2-a2a2a2a2a2a2")!,
+                kind: .ideaDraft, title: "字形方案",
+                producer: .externalACP(profileID: AgentTeamBootstrapCreativeBoardTests.copilotProfileID),
+                taskCardID: draftID2,
+                version: 1, summary: "字体变形",
+                payload: .text("字形解构设计方案"), status: .submitted
+            )
+        ])
+
+        let presentation = AgentTeamWorkbenchPresentation.make(session: session, state: state)
+        let draftItems = presentation.inspector.creativeDraftItems
+
+        #expect(draftItems.count == 2)
+        #expect(draftItems.map(\.title).contains("几何方案"))
+        #expect(draftItems.map(\.title).contains("字形方案"))
+    }
+}

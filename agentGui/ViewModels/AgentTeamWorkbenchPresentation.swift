@@ -38,6 +38,9 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let blockerSummary: String?
         let artifactCountText: String
         let isLocked: Bool          // .briefed 且有未完成依赖时为 true
+        let cardKind: String          // "standard" | "creativeDraft" | "synthesis"
+        let creativeGroupID: String?  // creative group UUID string，nil for standard
+        let draftIndexText: String?   // "1", "2", "3" etc. for draft; nil for others
     }
 
     struct BoardColumn: Identifiable, Equatable {
@@ -56,12 +59,21 @@ struct AgentTeamWorkbenchPresentation: Equatable {
     }
 
     struct InspectorSummary: Equatable {
+        struct CreativeDraftItem: Identifiable, Equatable {
+            let id: String
+            let title: String
+            let producerSummary: String
+            let summary: String
+            let contentPreview: String    // payload.textContent 前 200 字
+        }
+
         let title: String
         let ownerSummary: String
         let dependencySummary: String
         let blockerSummary: String
         let downstreamSummary: String
         let artifactItems: [ArtifactItem]
+        let creativeDraftItems: [CreativeDraftItem]
     }
 
     struct CommitBarState: Equatable {
@@ -190,7 +202,10 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                             dependencySummary: "无依赖",
                             blockerSummary: nil,
                             artifactCountText: "无工件",
-                            isLocked: false
+                            isLocked: false,
+                            cardKind: AgentTeamTaskCardKind.standard.rawValue,
+                            creativeGroupID: nil,
+                            draftIndexText: nil
                         )
                     ] : []
                 )
@@ -211,6 +226,17 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                         let artifactCount = artifactBoard?.artifacts(for: card.id).count ?? 0
                         let isLocked = card.status == .briefed && !unresolvedDependencies.isEmpty
 
+                        // Creative: compute draftIndexText
+                        var draftIndexText: String? = nil
+                        if card.kind == .creativeDraft, let gid = card.creativeGroupID {
+                            let draftsInGroup = board.cards
+                                .filter { $0.kind == .creativeDraft && $0.creativeGroupID == gid }
+                                .sorted { $0.lastUpdatedAt < $1.lastUpdatedAt }
+                            if let pos = draftsInGroup.firstIndex(where: { $0.id == card.id }) {
+                                draftIndexText = "\(pos + 1)"
+                            }
+                        }
+
                         return BoardCard(
                             id: card.id.uuidString,
                             title: card.title,
@@ -221,7 +247,10 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                             dependencySummary: dependencySummary(for: card, unresolvedDependencies: unresolvedDependencies, in: board),
                             blockerSummary: card.blockerSummary,
                             artifactCountText: artifactCountText(artifactCount),
-                            isLocked: isLocked
+                            isLocked: isLocked,
+                            cardKind: card.kind.rawValue,
+                            creativeGroupID: card.creativeGroupID?.uuidString,
+                            draftIndexText: draftIndexText
                         )
                     }
             )
@@ -251,7 +280,8 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                 dependencySummary: "上游依赖：无",
                 blockerSummary: "阻塞：无",
                 downstreamSummary: "下游任务：无",
-                artifactItems: []
+                artifactItems: [],
+                creativeDraftItems: []
             )
         }
 
@@ -275,13 +305,50 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                 )
             }
 
+        // For synthesis cards: collect ideaDraft artifacts from all draft cards in the same group
+        let creativeDraftItems: [InspectorSummary.CreativeDraftItem]
+        if focusedCard.kind == .synthesis, let groupID = focusedCard.creativeGroupID {
+            creativeDraftItems = (artifactBoard?.artifacts ?? [])
+                .filter { artifact in
+                    artifact.kind == .ideaDraft &&
+                    board.card(id: artifact.taskCardID)?.creativeGroupID == groupID
+                }
+                .map { artifact in
+                    InspectorSummary.CreativeDraftItem(
+                        id: artifact.id.uuidString,
+                        title: artifact.title,
+                        producerSummary: displayName(for: artifact.producer, modelContext: modelContext),
+                        summary: artifact.summary,
+                        contentPreview: String(artifact.payload.textContent.prefix(200))
+                    )
+                }
+        } else {
+            // Also collect draft items if current board has draft artifacts at all
+            // (for non-synthesis focused card, still show if any creative drafts exist)
+            let allDraftArtifacts = (artifactBoard?.artifacts ?? [])
+                .filter { artifact in
+                    artifact.kind == .ideaDraft &&
+                    board.card(id: artifact.taskCardID)?.kind == .creativeDraft
+                }
+            creativeDraftItems = allDraftArtifacts.map { artifact in
+                InspectorSummary.CreativeDraftItem(
+                    id: artifact.id.uuidString,
+                    title: artifact.title,
+                    producerSummary: displayName(for: artifact.producer, modelContext: modelContext),
+                    summary: artifact.summary,
+                    contentPreview: String(artifact.payload.textContent.prefix(200))
+                )
+            }
+        }
+
         return InspectorSummary(
             title: focusedCard.title,
             ownerSummary: ownerSummary,
             dependencySummary: "上游依赖：\(upstreamTitles.isEmpty ? "无" : upstreamTitles.joined(separator: "、"))",
             blockerSummary: "阻塞：\((focusedCard.blockerSummary?.isEmpty == false ? focusedCard.blockerSummary! : "无"))",
             downstreamSummary: "下游任务：\(downstreamTitles.isEmpty ? "无" : downstreamTitles.joined(separator: "、"))",
-            artifactItems: artifactItems
+            artifactItems: artifactItems,
+            creativeDraftItems: creativeDraftItems
         )
     }
 
