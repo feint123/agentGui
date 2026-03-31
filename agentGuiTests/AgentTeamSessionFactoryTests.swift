@@ -20,11 +20,11 @@ struct AgentTeamSessionFactoryTests {
         draft.acceptanceCriteriaText = "Mission Header 回显 brief\nteam session 持久化 brief"
         draft.maxActiveProviders = 2
         draft.initialContextSummary = "来源聊天包含失败测试与日志。"
-        draft.eligibleProviderIDs = [
-            ExecutionProviderReference.builtIn.persistedValue,
-            LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference.persistedValue
+        let conductorRef = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        draft.roleAssignments = [
+            AgentTeamProviderRoleAssignment(providerReference: .builtIn, roles: [.worker]),
+            AgentTeamProviderRoleAssignment(providerReference: conductorRef, roles: [.conductor, .worker])
         ]
-        draft.preferredConductorID = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference.persistedValue
 
         let result = try AgentTeamSessionFactory().create(from: source, draft: draft, modelContext: context)
 
