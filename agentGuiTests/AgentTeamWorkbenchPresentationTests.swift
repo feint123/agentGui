@@ -54,12 +54,13 @@ struct AgentTeamWorkbenchPresentationTests {
             dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: "当前聊天包含失败测试与日志。",
             providerPlan: .init(
-                eligibleProviders: [
-                    .builtIn,
-                    .externalACP(profileID: LegacyExternalACPProviderKey.githubCopilotCLI.presetProfileID)
+                roleAssignments: [
+                    AgentTeamProviderRoleAssignment(providerReference: .builtIn, roles: [.reviewer]),
+                    AgentTeamProviderRoleAssignment(
+                        providerReference: .externalACP(profileID: LegacyExternalACPProviderKey.githubCopilotCLI.presetProfileID),
+                        roles: [.conductor, .worker]
+                    )
                 ],
-                preferredConductor: .externalACP(profileID: LegacyExternalACPProviderKey.githubCopilotCLI.presetProfileID),
-                preferredReviewer: .builtIn,
                 dispatchPolicy: .manualSelection
             )
         )
@@ -190,9 +191,9 @@ struct AgentTeamWorkbenchPresentationTests {
                 dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 1),
                 initialContextSummary: "当前会话引用了 dynamic ACP profile。",
                 providerPlan: .init(
-                    eligibleProviders: [.externalACP(profileID: profileID)],
-                    preferredConductor: .externalACP(profileID: profileID),
-                    preferredReviewer: nil,
+                    roleAssignments: [
+                        AgentTeamProviderRoleAssignment(providerReference: .externalACP(profileID: profileID), roles: [.conductor, .worker])
+                    ],
                     dispatchPolicy: .manualSelection
                 )
             )

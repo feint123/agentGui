@@ -93,9 +93,9 @@ struct AgentTeamBootstrapCreativeBoardTests {
             dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: maxActiveProviders),
             initialContextSummary: "参考风格：极简主义",
             providerPlan: .init(
-                eligibleProviders: providers,
-                preferredConductor: .builtIn,
-                preferredReviewer: nil,
+                roleAssignments: providers.enumerated().map { idx, ref in
+                    AgentTeamProviderRoleAssignment(providerReference: ref, roles: idx == 0 ? [.conductor, .worker] : [.worker])
+                },
                 dispatchPolicy: .autoClaim
             )
         )
@@ -361,9 +361,9 @@ struct AgentTeamClaimBatchCreativeRoutingTests {
             dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 3),
             initialContextSummary: "",
             providerPlan: .init(
-                eligibleProviders: providers,
-                preferredConductor: .builtIn,
-                preferredReviewer: nil,
+                roleAssignments: providers.enumerated().map { idx, ref in
+                    AgentTeamProviderRoleAssignment(providerReference: ref, roles: idx == 0 ? [.conductor, .worker] : [.worker])
+                },
                 dispatchPolicy: .autoClaim
             )
         )

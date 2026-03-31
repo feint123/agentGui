@@ -22,9 +22,9 @@ struct AgentTeamLaunchCoordinatorTests {
             dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: maxActiveProviders),
             initialContextSummary: "当前聊天包含失败测试与日志。",
             providerPlan: .init(
-                eligibleProviders: [.builtIn],
-                preferredConductor: .builtIn,
-                preferredReviewer: nil,
+                roleAssignments: [
+                    AgentTeamProviderRoleAssignment(providerReference: .builtIn, roles: [.conductor, .worker])
+                ],
                 dispatchPolicy: dispatchPolicy
             )
         )
@@ -326,9 +326,9 @@ private extension AgentTeamLaunchCoordinatorTests {
             dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: maxActiveProviders),
             initialContextSummary: "",
             providerPlan: .init(
-                eligibleProviders: eligibleProviders,
-                preferredConductor: eligibleProviders.first ?? .builtIn,
-                preferredReviewer: nil,
+                roleAssignments: eligibleProviders.enumerated().map { idx, ref in
+                    AgentTeamProviderRoleAssignment(providerReference: ref, roles: idx == 0 ? [.conductor, .worker] : [.worker])
+                },
                 dispatchPolicy: .autoClaim
             )
         )
