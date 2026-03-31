@@ -273,7 +273,7 @@ extension ClaudeService {
                 projectionWriter: executionProjectionStore,
                 runtimeBus: executionRuntimeBus
             ),
-            scheduler: ExecutionScheduler(maxConcurrentJobs: 2),
+            scheduler: ExecutionScheduler(maxConcurrentJobs: 20),
             runtimePool: ExecutionRuntimePool(),
             providerRegistry: executionProviderRegistry(for: modelContext),
             runtimeCoordinator: executionRuntimeCoordinator,

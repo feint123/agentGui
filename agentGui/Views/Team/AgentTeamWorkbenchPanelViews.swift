@@ -33,6 +33,7 @@ struct AgentTeamRosterPanelView: View {
 
 struct AgentTeamBoardPanelView: View {
     let columns: [AgentTeamWorkbenchPresentation.BoardColumn]
+    var onCardDone: ((String) -> Void)? = nil
 
     var body: some View {
         WorkbenchSidebarSectionCard(title: "Workstream Board", systemImage: "square.grid.3x3.topleft.filled") {
@@ -71,6 +72,14 @@ struct AgentTeamBoardPanelView: View {
                                     Text(card.claimCountText)
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
+
+                                    if column.id == AgentTeamTaskStatus.working.rawValue,
+                                       let onCardDone {
+                                        Button("标记完成") { onCardDone(card.id) }
+                                            .buttonStyle(.bordered)
+                                            .controlSize(.mini)
+                                            .accessibilityIdentifier("agentTeam.card.markDone.\(card.id)")
+                                    }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(12)
@@ -114,5 +123,71 @@ struct AgentTeamInspectorPanelView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+// MARK: - Commit Bar
+
+/// The fixed bottom action bar on the Team Workbench.
+/// Surfaces the primary lifecycle controls: launch, stop.
+struct AgentTeamCommitBarView: View {
+    let status: AgentTeamRunStatus
+    let isLaunching: Bool
+    let onLaunch: () -> Void
+    let onStop: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            switch status {
+            case .created:
+                Button(action: onLaunch) {
+                    if isLaunching {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("启动中…")
+                        }
+                    } else {
+                        Label("启动 Team", systemImage: "play.fill")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isLaunching)
+                .accessibilityIdentifier(AgentTeamSessionView.launchButtonAccessibilityIdentifier)
+
+            case .active:
+                Button(role: .destructive, action: onStop) {
+                    Label("停止", systemImage: "stop.fill")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier(AgentTeamSessionView.stopButtonAccessibilityIdentifier)
+
+            case .completed:
+                Label("已完成", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.subheadline.weight(.medium))
+
+            case .failed:
+                Label("已停止", systemImage: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+                    .font(.subheadline.weight(.medium))
+
+                Button(action: onLaunch) {
+                    Label("重新启动", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(isLaunching)
+                .accessibilityIdentifier(AgentTeamSessionView.launchButtonAccessibilityIdentifier)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 12)
+        .background(.bar)
+        .overlay(alignment: .top) {
+            Divider()
+        }
+        .accessibilityIdentifier(AgentTeamSessionView.commitBarAccessibilityIdentifier)
     }
 }

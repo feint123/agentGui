@@ -28,5 +28,8 @@ struct WorkbenchConversationPaneTests {
         #expect(AgentTeamSessionView.claimStatusAccessibilityIdentifier == "agentTeam.claim.status")
         #expect(AgentTeamSessionView.taskDependencyAccessibilityIdentifier == "agentTeam.task.dependencies")
         #expect(AgentTeamSessionView.taskBlockerAccessibilityIdentifier == "agentTeam.task.blocker")
+        #expect(AgentTeamSessionView.commitBarAccessibilityIdentifier == "agentTeam.commitBar")
+        #expect(AgentTeamSessionView.launchButtonAccessibilityIdentifier == "agentTeam.commitBar.launch")
+        #expect(AgentTeamSessionView.stopButtonAccessibilityIdentifier == "agentTeam.commitBar.stop")
     }
 }
