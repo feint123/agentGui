@@ -136,3 +136,99 @@ private func acceptedClaimFixture(id: UUID, taskCardID: UUID) -> AgentTeamClaim 
         submittedAt: Date(timeIntervalSince1970: 10)
     )
 }
+
+// MARK: - AgentTeamTaskBoardDispatchableCardsTests
+
+struct AgentTeamTaskBoardDispatchableCardsTests {
+
+    // 没有 card 时返回空数组
+    @Test
+    func emptyBoardReturnsNoDispatchableCards() {
+        let board = AgentTeamTaskBoardState(cards: [], claims: [])
+        #expect(board.dispatchableCards(upTo: 2).isEmpty)
+    }
+
+    // 单张无依赖 briefed 卡，完整 budget
+    @Test
+    func singleBriefedCardWithNoDependenciesIsDispatchable() {
+        let card = makeBriefedCard(id: uuid(1))
+        let board = AgentTeamTaskBoardState(cards: [card], claims: [])
+        #expect(board.dispatchableCards(upTo: 2).count == 1)
+    }
+
+    // 有未完成依赖的 briefed 卡不可派发
+    @Test
+    func briefedCardWithUnresolvedDependencyIsNotDispatchable() {
+        let depCardID = uuid(1)
+        let depCard = AgentTeamTaskCard(
+            id: depCardID, title: "上游", goal: "上游任务",
+            status: .working, owner: .builtIn, acceptedClaimID: UUID(),
+            dependencyIDs: [], lastUpdatedAt: Date()
+        )
+        let childCard = makeBriefedCard(id: uuid(2), dependencyIDs: [depCardID])
+        let board = AgentTeamTaskBoardState(cards: [depCard, childCard], claims: [])
+        #expect(board.dispatchableCards(upTo: 2).isEmpty)
+    }
+
+    // 依赖已完成（.done）时可派发
+    @Test
+    func briefedCardWithResolvedDependencyIsDispatchable() {
+        let depCardID = uuid(1)
+        let depCard = AgentTeamTaskCard(
+            id: depCardID, title: "上游", goal: "上游已完成",
+            status: .done, owner: .builtIn, acceptedClaimID: UUID(),
+            dependencyIDs: [], lastUpdatedAt: Date()
+        )
+        let childCard = makeBriefedCard(id: uuid(2), dependencyIDs: [depCardID])
+        let board = AgentTeamTaskBoardState(cards: [depCard, childCard], claims: [])
+        #expect(board.dispatchableCards(upTo: 2).count == 1)
+    }
+
+    // maxActiveProviders 限制 — 已有 1 个 active card，limit=1 → 返回空
+    @Test
+    func activeCardCountReducesDispatchableLimit() {
+        let activeCard = AgentTeamTaskCard(
+            id: uuid(1), title: "进行中", goal: "执行中",
+            status: .working, owner: .builtIn, acceptedClaimID: UUID(),
+            dependencyIDs: [], lastUpdatedAt: Date()
+        )
+        let waitingCard = makeBriefedCard(id: uuid(2))
+        let board = AgentTeamTaskBoardState(cards: [activeCard, waitingCard], claims: [])
+        #expect(board.dispatchableCards(upTo: 1).isEmpty)
+    }
+
+    // 3 张可派发卡，limit=2 → 只返回前 2 张
+    @Test
+    func dispatchableCappedByMaxActiveProviders() {
+        let cards = [uuid(1), uuid(2), uuid(3)].map { makeBriefedCard(id: $0) }
+        let board = AgentTeamTaskBoardState(cards: cards, claims: [])
+        #expect(board.dispatchableCards(upTo: 2).count == 2)
+    }
+
+    // .claimed 卡也计入 active 数（占用 budget）
+    @Test
+    func claimedCardCountsAsActiveForBudget() {
+        let claimedCard = AgentTeamTaskCard(
+            id: uuid(1), title: "已认领", goal: "进入 claimed",
+            status: .claimed, owner: .builtIn, acceptedClaimID: UUID(),
+            dependencyIDs: [], lastUpdatedAt: Date()
+        )
+        let briefedCard = makeBriefedCard(id: uuid(2))
+        let board = AgentTeamTaskBoardState(cards: [claimedCard, briefedCard], claims: [])
+        #expect(board.dispatchableCards(upTo: 1).isEmpty)
+    }
+
+    // MARK: - Helpers
+
+    private func uuid(_ n: UInt8) -> UUID {
+        UUID(uuidString: "00000000-0000-0000-0000-0000000000\(String(format: "%02x", n))")!
+    }
+
+    private func makeBriefedCard(id: UUID, dependencyIDs: [UUID] = []) -> AgentTeamTaskCard {
+        AgentTeamTaskCard(
+            id: id, title: "任务 \(id.uuidString.prefix(4))", goal: "执行此任务",
+            status: .briefed, owner: nil, acceptedClaimID: nil,
+            dependencyIDs: dependencyIDs, lastUpdatedAt: Date()
+        )
+    }
+}

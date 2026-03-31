@@ -121,6 +121,21 @@ struct AgentTeamTaskBoardState: Codable, Equatable, Sendable {
         }
     }
 
+    /// Returns `.briefed` cards that have all dependencies resolved,
+    /// limited to the remaining capacity given the current active count and `maxActiveProviders`.
+    ///
+    /// "Active" includes both `.working` and `.claimed` cards.
+    func dispatchableCards(upTo maxActiveProviders: Int) -> [AgentTeamTaskCard] {
+        let activeCount = cards.filter { $0.status == .working || $0.status == .claimed }.count
+        let remaining = max(0, maxActiveProviders - activeCount)
+        guard remaining > 0 else { return [] }
+        return cards
+            .filter { $0.status == .briefed }
+            .filter { unresolvedDependencies(for: $0.id).isEmpty }
+            .prefix(remaining)
+            .map { $0 }
+    }
+
     static func migrating(_ legacy: AgentTeamClaimBoardState) -> Self {
         Self(
             cards: legacy.cards.map { legacyCard in
