@@ -45,4 +45,15 @@ struct AgentTeamMissionBriefResolverTests {
         #expect(resolution.brief.initialContextSummary.contains("修复 ACP"))
         #expect(resolution.brief.mode == .executionDelivery)
     }
+
+    @Test
+    func fallbackBriefUsesDispatchBudget() {
+        let session = Session.fixture(title: "Budget Test", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+
+        let resolution = AgentTeamMissionBriefResolver().resolve(session: session, state: state)
+
+        #expect(resolution.isFallback == true)
+        #expect(resolution.brief.dispatchBudget.maxActiveProviders == 2)
+    }
 }
