@@ -36,6 +36,7 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let claimCountText: String
         let dependencySummary: String
         let blockerSummary: String?
+        let artifactCountText: String
     }
 
     struct BoardColumn: Identifiable, Equatable {
@@ -44,12 +45,22 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let cards: [BoardCard]
     }
 
+    struct ArtifactItem: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let kindText: String
+        let producerSummary: String
+        let statusText: String
+        let summary: String
+    }
+
     struct InspectorSummary: Equatable {
         let title: String
         let ownerSummary: String
         let dependencySummary: String
         let blockerSummary: String
         let downstreamSummary: String
+        let artifactItems: [ArtifactItem]
     }
 
     let header: Header
@@ -67,14 +78,15 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let conductorName = displayName(for: providerPlan.preferredConductor, modelContext: modelContext)
         let reviewerName = providerPlan.preferredReviewer.map { displayName(for: $0, modelContext: modelContext) } ?? "未设置"
         let boardState = state?.taskBoardState
-        let boardProjection = makeBoardColumns(from: boardState, modelContext: modelContext)
+        let artifactBoard = state?.artifactBoardState
+        let boardProjection = makeBoardColumns(from: boardState, artifactBoard: artifactBoard, modelContext: modelContext)
         let acceptedOwnerNames = Set(
             boardProjection
                 .flatMap(\ .cards)
                 .map(\ .owner)
                 .filter { $0 != "待认领" }
         )
-        let inspector = makeInspectorSummary(from: boardState, modelContext: modelContext)
+        let inspector = makeInspectorSummary(from: boardState, artifactBoard: artifactBoard, modelContext: modelContext)
 
         return Self(
             header: Header(
@@ -149,7 +161,11 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         "预算：并发 \(budget.maxActiveProviders) · Token \(budget.tokenBudgetText) · 成本 \(budget.costBudgetText)"
     }
 
-    private static func makeBoardColumns(from board: AgentTeamTaskBoardState?, modelContext: ModelContext?) -> [BoardColumn] {
+    private static func makeBoardColumns(
+        from board: AgentTeamTaskBoardState?,
+        artifactBoard: AgentTeamArtifactBoardState?,
+        modelContext: ModelContext?
+    ) -> [BoardColumn] {
         guard let board else {
             return statusColumnOrder.map { status in
                 BoardColumn(
@@ -164,7 +180,8 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                             statusText: title(for: .briefed),
                             claimCountText: "0 个 claim",
                             dependencySummary: "无依赖",
-                            blockerSummary: nil
+                            blockerSummary: nil,
+                            artifactCountText: "无工件"
                         )
                     ] : []
                 )
@@ -182,6 +199,7 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                         let acceptedClaim = board.acceptedClaim(for: card.id)
                         let ownerReference = card.owner ?? acceptedClaim?.providerReference
                         let unresolvedDependencies = board.unresolvedDependencies(for: card.id)
+                        let artifactCount = artifactBoard?.artifacts(for: card.id).count ?? 0
 
                         return BoardCard(
                             id: card.id.uuidString,
@@ -191,14 +209,27 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                             statusText: title(for: status),
                             claimCountText: "\(claims.count) 个 claim",
                             dependencySummary: dependencySummary(for: card, unresolvedDependencies: unresolvedDependencies, in: board),
-                            blockerSummary: card.blockerSummary
+                            blockerSummary: card.blockerSummary,
+                            artifactCountText: artifactCountText(artifactCount)
                         )
                     }
             )
         }
     }
 
-    private static func makeInspectorSummary(from board: AgentTeamTaskBoardState?, modelContext: ModelContext?) -> InspectorSummary {
+    private static func artifactCountText(_ count: Int) -> String {
+        switch count {
+        case 0: return "无工件"
+        case 1: return "1 件工件"
+        default: return "\(count) 件工件"
+        }
+    }
+
+    private static func makeInspectorSummary(
+        from board: AgentTeamTaskBoardState?,
+        artifactBoard: AgentTeamArtifactBoardState?,
+        modelContext: ModelContext?
+    ) -> InspectorSummary {
         guard let board,
               let focusedCard = statusColumnOrder
                 .compactMap({ status in board.cards.first(where: { $0.status == status }) })
@@ -208,7 +239,8 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                 ownerSummary: "Owner：待认领",
                 dependencySummary: "上游依赖：无",
                 blockerSummary: "阻塞：无",
-                downstreamSummary: "下游任务：无"
+                downstreamSummary: "下游任务：无",
+                artifactItems: []
             )
         }
 
@@ -220,12 +252,25 @@ struct AgentTeamWorkbenchPresentation: Equatable {
             .filter { $0.dependencyIDs.contains(focusedCard.id) }
             .map(\ .title)
 
+        let artifactItems: [ArtifactItem] = (artifactBoard?.artifacts(for: focusedCard.id) ?? [])
+            .map { artifact in
+                ArtifactItem(
+                    id: artifact.id.uuidString,
+                    title: artifact.title,
+                    kindText: artifact.kind.rawValue,
+                    producerSummary: displayName(for: artifact.producer, modelContext: modelContext),
+                    statusText: artifact.status.rawValue,
+                    summary: artifact.summary
+                )
+            }
+
         return InspectorSummary(
             title: focusedCard.title,
             ownerSummary: ownerSummary,
             dependencySummary: "上游依赖：\(upstreamTitles.isEmpty ? "无" : upstreamTitles.joined(separator: "、"))",
             blockerSummary: "阻塞：\((focusedCard.blockerSummary?.isEmpty == false ? focusedCard.blockerSummary! : "无"))",
-            downstreamSummary: "下游任务：\(downstreamTitles.isEmpty ? "无" : downstreamTitles.joined(separator: "、"))"
+            downstreamSummary: "下游任务：\(downstreamTitles.isEmpty ? "无" : downstreamTitles.joined(separator: "、"))",
+            artifactItems: artifactItems
         )
     }
 

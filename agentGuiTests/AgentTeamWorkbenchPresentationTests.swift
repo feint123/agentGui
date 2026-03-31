@@ -204,4 +204,99 @@ struct AgentTeamWorkbenchPresentationTests {
             #expect(presentation.roster.first(where: { $0.role == "conductor" })?.title == "Qoder Agent")
             #expect(presentation.roster.first(where: { $0.role == "worker" })?.focus == "Qoder Agent")
         }
+
+    @Test
+    func presentationProjectsArtifactsForFocusedCard() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+
+        let cardID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
+        let artifactID = UUID(uuidString: "ffffffff-ffff-ffff-ffff-ffffffffffff")!
+
+        state.missionBrief = AgentTeamMissionBrief(
+            objective: "测试 artifact 投影",
+            constraints: [],
+            acceptanceCriteria: [],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: 1, tokenBudgetText: "10k", costBudgetText: "low"),
+            initialContextSummary: ""
+        )
+
+        let claim = AgentTeamClaim(
+            id: UUID(),
+            providerReference: .builtIn,
+            taskCardID: cardID,
+            confidence: 1.0,
+            rationaleSummary: "auto",
+            requiredCapabilities: [],
+            expectedArtifacts: [],
+            estimatedCostSummary: "low",
+            status: .accepted,
+            submittedAt: Date(timeIntervalSince1970: 1)
+        )
+        state.taskBoardState = AgentTeamTaskBoardState(
+            cards: [
+                AgentTeamTaskCard(
+                    id: cardID,
+                    title: "主任务",
+                    goal: "测试",
+                    status: .working,
+                    owner: .builtIn,
+                    acceptedClaimID: claim.id,
+                    dependencyIDs: [],
+                    artifactIDs: [artifactID],
+                    blockerSummary: nil,
+                    lastUpdatedAt: Date(timeIntervalSince1970: 1)
+                )
+            ],
+            claims: [claim]
+        )
+
+        state.artifactBoardState = AgentTeamArtifactBoardState(
+            artifacts: [
+                AgentTeamArtifact(
+                    id: artifactID,
+                    kind: .patchProposal,
+                    title: "PR #99",
+                    producer: .builtIn,
+                    taskCardID: cardID,
+                    version: 1,
+                    summary: "新增 artifact 投影测试",
+                    payload: .text("diff内容"),
+                    status: .submitted
+                )
+            ]
+        )
+
+        let presentation = AgentTeamWorkbenchPresentation.make(session: session, state: state)
+
+        #expect(presentation.inspector.artifactItems.count == 1)
+        #expect(presentation.inspector.artifactItems.first?.title == "PR #99")
+        #expect(presentation.inspector.artifactItems.first?.kindText == "patchProposal")
+        #expect(presentation.inspector.artifactItems.first?.statusText == "submitted")
+
+        let workingCard = presentation.boardColumns
+            .first(where: { $0.id == AgentTeamTaskStatus.working.rawValue })?
+            .cards
+            .first(where: { $0.id == cardID.uuidString })
+        #expect(workingCard?.artifactCountText == "1 件工件")
+    }
+
+    @Test
+    func presentationEmptyArtifactBoardShowsNoItems() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        state.missionBrief = AgentTeamMissionBrief(
+            objective: "空 artifact board 测试",
+            constraints: [],
+            acceptanceCriteria: [],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: 1, tokenBudgetText: "5k", costBudgetText: "low"),
+            initialContextSummary: ""
+        )
+
+        let presentation = AgentTeamWorkbenchPresentation.make(session: session, state: state)
+
+        #expect(presentation.inspector.artifactItems.isEmpty)
+    }
 }
