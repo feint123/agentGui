@@ -31,6 +31,56 @@ struct AgentTeamRosterPanelView: View {
     }
 }
 
+private struct AgentTeamBoardCardView: View {
+    let card: AgentTeamWorkbenchPresentation.BoardCard
+    let isFirst: Bool
+    let columnID: String
+    let onCardDone: ((String) -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(card.title)
+                .font(.subheadline.weight(.semibold))
+            Text(card.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("Owner：\(card.owner)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(isFirst ? AgentTeamSessionView.claimOwnerAccessibilityIdentifier : "")
+            Text("状态：\(card.statusText)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(isFirst ? AgentTeamSessionView.claimStatusAccessibilityIdentifier : "")
+            Text(card.dependencySummary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier(isFirst ? AgentTeamSessionView.taskDependencyAccessibilityIdentifier : "")
+            if let blockerSummary = card.blockerSummary, !blockerSummary.isEmpty {
+                Text("阻塞：\(blockerSummary)")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier(isFirst ? AgentTeamSessionView.taskBlockerAccessibilityIdentifier : "")
+            }
+            Text(card.claimCountText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(card.artifactCountText)
+                .font(.caption2)
+                .foregroundStyle(card.artifactCountText == "无工件" ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.blue))
+            if columnID == AgentTeamTaskStatus.working.rawValue, let onCardDone {
+                Button("标记完成") { onCardDone(card.id) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .accessibilityIdentifier("agentTeam.card.markDone.\(card.id)")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
 struct AgentTeamBoardPanelView: View {
     let columns: [AgentTeamWorkbenchPresentation.BoardColumn]
     var onCardDone: ((String) -> Void)? = nil
@@ -43,47 +93,13 @@ struct AgentTeamBoardPanelView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(column.title)
                                 .font(.headline)
-
                             ForEach(column.cards) { card in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(card.title)
-                                        .font(.subheadline.weight(.semibold))
-                                    Text(card.summary)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Text("Owner：\(card.owner)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .accessibilityIdentifier(card.id == firstCardID ? AgentTeamSessionView.claimOwnerAccessibilityIdentifier : "")
-                                    Text("状态：\(card.statusText)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .accessibilityIdentifier(card.id == firstCardID ? AgentTeamSessionView.claimStatusAccessibilityIdentifier : "")
-                                    Text(card.dependencySummary)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .accessibilityIdentifier(card.id == firstCardID ? AgentTeamSessionView.taskDependencyAccessibilityIdentifier : "")
-                                    if let blockerSummary = card.blockerSummary, blockerSummary.isEmpty == false {
-                                        Text("阻塞：\(blockerSummary)")
-                                            .font(.caption2)
-                                            .foregroundStyle(.orange)
-                                            .accessibilityIdentifier(card.id == firstCardID ? AgentTeamSessionView.taskBlockerAccessibilityIdentifier : "")
-                                    }
-                                    Text(card.claimCountText)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-
-                                    if column.id == AgentTeamTaskStatus.working.rawValue,
-                                       let onCardDone {
-                                        Button("标记完成") { onCardDone(card.id) }
-                                            .buttonStyle(.bordered)
-                                            .controlSize(.mini)
-                                            .accessibilityIdentifier("agentTeam.card.markDone.\(card.id)")
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(12)
-                                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                AgentTeamBoardCardView(
+                                    card: card,
+                                    isFirst: card.id == firstCardID,
+                                    columnID: column.id,
+                                    onCardDone: onCardDone
+                                )
                             }
                         }
                         .frame(width: 220, alignment: .topLeading)
@@ -120,6 +136,28 @@ struct AgentTeamInspectorPanelView: View {
                 Text(summary.downstreamSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if !summary.artifactItems.isEmpty {
+                    Divider()
+                    Text("工件")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(summary.artifactItems) { item in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.title)
+                                .font(.caption.weight(.medium))
+                            Text("\(item.kindText) · \(item.statusText)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(item.summary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
