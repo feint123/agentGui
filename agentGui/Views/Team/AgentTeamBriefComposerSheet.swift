@@ -138,6 +138,7 @@ struct AgentTeamBriefComposerSheet: View {
             }
             .keyboardShortcut(.defaultAction)
             .disabled(!canSubmit)
+            .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("agentTeam.brief.submit")
         }
     }
@@ -298,10 +299,16 @@ struct AgentTeamBriefComposerSheet: View {
         case .idle:
             EmptyView()
         case .extracting:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("正在解析…").font(.caption).foregroundStyle(.secondary)
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(.secondary.opacity(0.1))
+                    .frame(height: 4)
+                ShimmerBarView()
+                    .frame(height: 4)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
             }
+            .frame(maxWidth: 120)
+            .accessibilityIdentifier("agentTeam.brief.extractingProgress")
         case .done:
             Label("解析完成", systemImage: "checkmark.circle")
                 .font(.caption)
@@ -771,6 +778,27 @@ private extension AgentTeamMode {
         switch self {
         case .executionDelivery:   "hammer"
         case .creativeExploration: "lightbulb.max"
+        }
+    }
+}
+
+// MARK: - ShimmerBarView
+
+private struct ShimmerBarView: View {
+    @State private var phase: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { _ in
+            LinearGradient(
+                colors: [.clear, .secondary.opacity(0.5), .clear],
+                startPoint: UnitPoint(x: phase - 0.4, y: 0.5),
+                endPoint: UnitPoint(x: phase + 0.4, y: 0.5)
+            )
+            .onAppear {
+                withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
+                    phase = 1.4
+                }
+            }
         }
     }
 }
