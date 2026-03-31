@@ -42,133 +42,204 @@ struct AgentTeamBriefComposerSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Header
-            VStack(alignment: .leading, spacing: 6) {
-                Text("创建 Team Mission Brief")
-                    .font(.title3.weight(.semibold))
+        VStack(spacing: 0) {
+            // 标题行
+            sheetHeader
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
 
+            Divider()
+
+            // 双栏主体
+            HStack(alignment: .top, spacing: 0) {
+                // 左栏：任务意图
+                ScrollView {
+                    leftColumn
+                        .padding(16)
+                }
+                .frame(minWidth: 320)
+
+                Divider()
+
+                // 右栏：Team 配置
+                ScrollView {
+                    rightColumn
+                        .padding(16)
+                }
+                .frame(minWidth: 280)
+            }
+            .frame(maxHeight: .infinity)
+
+            Divider()
+
+            // 底部 Commit Bar
+            commitBar
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+        }
+        .frame(minWidth: 680, minHeight: 520)
+        .accessibilityIdentifier("agentTeam.briefComposer")
+        .onAppear { onAppearSetup() }
+        .task(id: sourceContext?.sessionID ?? "") { await triggerWarmup() }
+        .onDisappear { extractionVM?.cancelDebounce() }
+    }
+
+    // MARK: - Sheet Header
+
+    private var sheetHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("创建 Team Mission")
+                    .font(.title3.weight(.semibold))
                 Text(sourceSummary)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("agentTeam.brief.sourceSummary")
             }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-
-                    // MARK: 主输入框
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("任务描述")
-                            .font(.headline)
-                        TextEditor(text: $draft.rawInput)
-                            .frame(minHeight: 120)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.secondary.opacity(0.18))
-                            )
-                            .accessibilityIdentifier("agentTeam.brief.rawInput")
-                            .onChange(of: draft.rawInput) { _, _ in
-                                extractionVM?.scheduleDebounceExtraction(draft: $draft)
-                            }
-
-                        HStack {
-                            extractionStatusLabel
-                            Spacer()
-                            Button("解析 Brief") {
-                                Task { @MainActor in
-                                    var localDraft = draft
-                                    await extractionVM?.triggerExtraction(draft: &localDraft)
-                                    draft = localDraft
-                                }
-                            }
-                            .disabled(draft.rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                      || draft.extractionState == .extracting)
-                            .accessibilityIdentifier("agentTeam.brief.extractButton")
-                        }
-                    }
-
-                    // MARK: 提取结果预览（仅在 done 后展示）
-                    if draft.extractionState == .done {
-                        extractionResultSection
-                    }
-
-                    // MARK: Provider 角色分配区
-                    providerRoleSection
-
-                    // MARK: 高级选项（默认折叠）
-                    DisclosureGroup("高级选项", isExpanded: $showAdvancedOptions) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Stepper(value: $draft.maxActiveProviders, in: 1...6) {
-                                Text("并发上限：\(draft.maxActiveProviders)")
-                            }
-                            .accessibilityIdentifier("agentTeam.brief.maxActiveProviders")
-
-                            Picker("Mode", selection: $draft.mode) {
-                                ForEach(AgentTeamMode.allCases, id: \.self) { mode in
-                                    Text(mode.displayName).tag(mode)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .accessibilityIdentifier("agentTeam.brief.mode")
-
-                            Text("Initial Context Summary")
-                                .font(.headline)
-                            TextEditor(text: $draft.initialContextSummary)
-                                .frame(minHeight: 80)
-                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.18)))
-                                .accessibilityIdentifier("agentTeam.brief.contextSummary")
-                        }
-                        .padding(.top, 4)
-                    }
-                }
-            }
-
-            // Footer
-            HStack {
-                Spacer()
-                Button("取消", action: onCancel)
-                    .keyboardShortcut(.cancelAction)
-                    .accessibilityIdentifier("agentTeam.brief.cancel")
-
-                Button("创建 Team") {
-                    onSubmit(draft)
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(canSubmit == false)
-                .accessibilityIdentifier("agentTeam.brief.submit")
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 640, minHeight: 520, alignment: .topLeading)
-        .accessibilityIdentifier("agentTeam.briefComposer")
-        .onAppear {
-            draft.reconcileProviderOptions(
-                resolvedProviderOptions,
-                sourceDefaultProviderID: sourceContext?.defaultExecutionProviderReference.persistedValue
-            )
-            setupExtractionVM()
-        }
-        .task(id: sourceContext?.sessionID ?? "") {
-            let allOptions = resolvedProviderOptions
-            await withTaskGroup(of: Void.self) { group in
-                for option in allOptions where option.isEnabled {
-                    let ref = ExecutionProviderReference.decodePersisted(option.id)
-                    group.addTask { @MainActor in
-                        await warmupCoordinator.warmup(
-                            provider: ref,
-                            claudeService: claudeService,
-                            sourceSession: nil,
-                            modelContext: modelContext
-                        )
-                    }
-                }
-            }
-        }
-        .onDisappear {
-            extractionVM?.cancelDebounce()
+            Spacer()
         }
     }
+
+    // MARK: - Left Column
+
+    private var leftColumn: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            rawInputSection
+            if draft.extractionState == .done {
+                extractionResultSection
+            }
+            advancedModeSection
+        }
+    }
+
+    // MARK: - Right Column
+
+    private var rightColumn: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            providerRoleSection
+            advancedOptionsSection
+        }
+    }
+
+    // MARK: - Commit Bar
+
+    private var commitBar: some View {
+        HStack {
+            Spacer()
+            Button("取消", action: onCancel)
+                .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("agentTeam.brief.cancel")
+
+            Button {
+                onSubmit(draft)
+            } label: {
+                Label("创建 Team", systemImage: "arrow.right")
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(!canSubmit)
+            .accessibilityIdentifier("agentTeam.brief.submit")
+        }
+    }
+
+    // MARK: - Raw Input Section
+
+    private var rawInputSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("任务描述")
+                .font(.headline)
+            TextEditor(text: $draft.rawInput)
+                .frame(minHeight: 120)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.18))
+                )
+                .accessibilityIdentifier("agentTeam.brief.rawInput")
+                .onChange(of: draft.rawInput) { _, _ in
+                    extractionVM?.scheduleDebounceExtraction(draft: $draft)
+                }
+
+            HStack {
+                extractionStatusLabel
+                Spacer()
+                Button("解析 Brief") {
+                    Task { @MainActor in
+                        var localDraft = draft
+                        await extractionVM?.triggerExtraction(draft: &localDraft)
+                        draft = localDraft
+                    }
+                }
+                .disabled(draft.rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          || draft.extractionState == .extracting)
+                .accessibilityIdentifier("agentTeam.brief.extractButton")
+            }
+        }
+    }
+
+    // MARK: - Advanced Mode Section (placeholder, replaced in Task 5)
+
+    private var advancedModeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("执行模式")
+                .font(.headline)
+            Picker("Mode", selection: $draft.mode) {
+                ForEach(AgentTeamMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("agentTeam.brief.mode")
+        }
+    }
+
+    // MARK: - Advanced Options Section (right column)
+
+    private var advancedOptionsSection: some View {
+        DisclosureGroup("高级选项", isExpanded: $showAdvancedOptions) {
+            VStack(alignment: .leading, spacing: 8) {
+                Stepper(value: $draft.maxActiveProviders, in: 1...6) {
+                    Text("并发上限：\(draft.maxActiveProviders)")
+                }
+                .accessibilityIdentifier("agentTeam.brief.maxActiveProviders")
+
+                Text("Initial Context Summary")
+                    .font(.headline)
+                TextEditor(text: $draft.initialContextSummary)
+                    .frame(minHeight: 80)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.18)))
+                    .accessibilityIdentifier("agentTeam.brief.contextSummary")
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    // MARK: - onAppear / task helpers
+
+    private func onAppearSetup() {
+        draft.reconcileProviderOptions(
+            resolvedProviderOptions,
+            sourceDefaultProviderID: sourceContext?.defaultExecutionProviderReference.persistedValue
+        )
+        setupExtractionVM()
+    }
+
+    private func triggerWarmup() async {
+        let allOptions = resolvedProviderOptions
+        await withTaskGroup(of: Void.self) { group in
+            for option in allOptions where option.isEnabled {
+                let ref = ExecutionProviderReference.decodePersisted(option.id)
+                group.addTask { @MainActor in
+                    await warmupCoordinator.warmup(
+                        provider: ref,
+                        claudeService: claudeService,
+                        sourceSession: nil,
+                        modelContext: modelContext
+                    )
+                }
+            }
+        }
+    }
+
 
     // MARK: - Provider 角色分配区
 
