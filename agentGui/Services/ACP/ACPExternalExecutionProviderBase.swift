@@ -1569,6 +1569,8 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 return "configOptionUpdate"
             case .sessionInfoUpdate:
                 return "sessionInfoUpdate"
+            case .usageUpdate:
+                return "usageUpdate"
             case .other(let kind, _):
                 return "other[\(kind)]"
             }
@@ -1594,6 +1596,8 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
                 return "configOptionUpdate"
             case .sessionInfoUpdate:
                 return "sessionInfoUpdate"
+            case .usageUpdate:
+                return "usageUpdate"
             case .other(let kind, _):
                 return "other[\(kind)]"
             }

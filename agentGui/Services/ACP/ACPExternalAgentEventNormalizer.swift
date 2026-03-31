@@ -79,6 +79,8 @@ struct ACPExternalAgentEventNormalizer {
             return []
         case .sessionInfoUpdate:
             return []
+        case .usageUpdate:
+            return []
         case .userMessageChunk:
             return []
         case .other:
@@ -106,9 +108,7 @@ struct ACPExternalAgentEventNormalizer {
     }
 
     func permissionReason(in request: ACPRequestPermissionRequest) -> String? {
-        if let content = request.toolCall.content,
-           let reason = string(from: content),
-           !reason.isEmpty {
+        if let reason = string(from: request.toolCall.content), !reason.isEmpty {
             return reason
         }
 
@@ -155,20 +155,15 @@ struct ACPExternalAgentEventNormalizer {
         return nil
     }
 
-    private func string(from value: ACPPromptContentBlock?) -> String? {
-        guard let value else { return nil }
-
-        switch value {
-        case .text(let text):
-            return text.text
-        case .resourceLink(let link):
-            return link.description ?? link.title ?? link.name
-        case .embeddedResource(let resource):
-            let reason = string(from: resource.resource)
-            return reason ?? resourceLink(from: resource.resource)
-        case .image, .audio, .other:
-            return nil
-        }
+    private func string(from value: [ACPToolCallContent]?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value.compactMap { item -> String? in
+            switch item {
+            case .content(let block): return text(from: block)
+            case .diff(let diff): return diff.path
+            case .terminal, .other: return nil
+            }
+        }.first
     }
 
     private func resourceLink(from value: ACPJSONValue) -> String? {

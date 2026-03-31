@@ -457,7 +457,7 @@ nonisolated struct ACPContentChunk: Codable, Equatable, Sendable {
 
 nonisolated struct ACPToolCall: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
-    var content: ACPPromptContentBlock?
+    var content: [ACPToolCallContent]?
     var kind: ACPToolKind?
     var locations: [ACPToolCallLocation]?
     var rawInput: ACPJSONValue?
@@ -468,7 +468,7 @@ nonisolated struct ACPToolCall: Codable, Equatable, Sendable {
 
     init(
         meta: [String: ACPJSONValue]? = nil,
-        content: ACPPromptContentBlock? = nil,
+        content: [ACPToolCallContent]? = nil,
         kind: ACPToolKind? = nil,
         locations: [ACPToolCallLocation]? = nil,
         rawInput: ACPJSONValue? = nil,
@@ -501,7 +501,7 @@ nonisolated struct ACPToolCall: Codable, Equatable, Sendable {
     ) {
         self.init(
             meta: meta,
-            content: content.flatMap { try? $0.decode(ACPPromptContentBlock.self) },
+            content: content.flatMap { try? $0.decode([ACPToolCallContent].self) },
             kind: kind.map(ACPToolKind.init(rawValue:)),
             locations: locations.flatMap { try? $0.decode([ACPToolCallLocation].self) },
             rawInput: rawInput,
@@ -527,7 +527,7 @@ nonisolated struct ACPToolCall: Codable, Equatable, Sendable {
 
 nonisolated struct ACPToolCallUpdatePayload: Codable, Equatable, Sendable {
     var meta: [String: ACPJSONValue]?
-    var content: ACPPromptContentBlock?
+    var content: [ACPToolCallContent]?
     var kind: ACPToolKind?
     var locations: [ACPToolCallLocation]?
     var rawInput: ACPJSONValue?
@@ -538,7 +538,7 @@ nonisolated struct ACPToolCallUpdatePayload: Codable, Equatable, Sendable {
 
     init(
         meta: [String: ACPJSONValue]? = nil,
-        content: ACPPromptContentBlock? = nil,
+        content: [ACPToolCallContent]? = nil,
         kind: ACPToolKind? = nil,
         locations: [ACPToolCallLocation]? = nil,
         rawInput: ACPJSONValue? = nil,
@@ -571,7 +571,7 @@ nonisolated struct ACPToolCallUpdatePayload: Codable, Equatable, Sendable {
     ) {
         self.init(
             meta: meta,
-            content: content.flatMap { try? $0.decode(ACPPromptContentBlock.self) },
+            content: content.flatMap { try? $0.decode([ACPToolCallContent].self) },
             kind: kind.map(ACPToolKind.init(rawValue:)),
             locations: locations.flatMap { try? $0.decode([ACPToolCallLocation].self) },
             rawInput: rawInput,
@@ -592,6 +592,97 @@ nonisolated struct ACPToolCallUpdatePayload: Codable, Equatable, Sendable {
         case status
         case title
         case toolCallID = "toolCallId"
+    }
+}
+
+// MARK: - ToolCallContent types (ACP Schema ToolCallContent discriminated union)
+
+nonisolated struct ACPToolCallDiffContent: Codable, Equatable, Sendable {
+    var meta: [String: ACPJSONValue]?
+    var path: String
+    var newText: String
+    var oldText: String?
+
+    enum CodingKeys: String, CodingKey {
+        case meta = "_meta"
+        case path
+        case newText
+        case oldText
+    }
+}
+
+nonisolated struct ACPToolCallTerminalRef: Codable, Equatable, Sendable {
+    var meta: [String: ACPJSONValue]?
+    var terminalId: String
+
+    enum CodingKeys: String, CodingKey {
+        case meta = "_meta"
+        case terminalId
+    }
+}
+
+/// A single element of a ToolCall's `content` array.
+/// Discriminated by the `type` field: "content" | "diff" | "terminal"
+nonisolated enum ACPToolCallContent: Codable, Equatable, Sendable {
+    case content(ACPPromptContentBlock)
+    case diff(ACPToolCallDiffContent)
+    case terminal(ACPToolCallTerminalRef)
+    case other(String, ACPJSONValue)
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let payload = try container.decode([String: ACPJSONValue].self)
+        let typeString = payload["type"]?.stringValue ?? ""
+
+        switch typeString {
+        case "content":
+            guard let contentValue = payload["content"] else {
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "ToolCallContent type='content' missing 'content' field")
+            }
+            self = .content(try contentValue.decode(ACPPromptContentBlock.self))
+        case "diff":
+            self = .diff(try ACPJSONValue.object(payload).decode(ACPToolCallDiffContent.self))
+        case "terminal":
+            self = .terminal(try ACPJSONValue.object(payload).decode(ACPToolCallTerminalRef.self))
+        default:
+            self = .other(typeString, .object(payload))
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .content(let block):
+            var obj: [String: ACPJSONValue] = ["type": .string("content")]
+            obj["content"] = try ACPJSONValue.fromEncodable(block)
+            try container.encode(obj)
+        case .diff(let diff):
+            var obj = try ACPJSONValue.fromEncodable(diff).objectValue ?? [:]
+            obj["type"] = .string("diff")
+            try container.encode(obj)
+        case .terminal(let ref):
+            var obj = try ACPJSONValue.fromEncodable(ref).objectValue ?? [:]
+            obj["type"] = .string("terminal")
+            try container.encode(obj)
+        case .other(_, let payload):
+            try container.encode(payload)
+        }
+    }
+}
+
+// MARK: - UsageUpdate payload (claude-agent-acp extension)
+
+nonisolated struct ACPUsageUpdatePayload: Codable, Equatable, Sendable {
+    var meta: [String: ACPJSONValue]?
+    var used: Int?
+    var size: Int?
+    var cost: ACPJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case meta = "_meta"
+        case used
+        case size
+        case cost
     }
 }
 
@@ -715,6 +806,7 @@ nonisolated enum ACPSessionUpdate: Codable, Equatable, Sendable {
     case currentModeUpdate(ACPCurrentModeUpdatePayload)
     case configOptionUpdate(ACPConfigOptionUpdatePayload)
     case sessionInfoUpdate(ACPSessionInfoUpdatePayload)
+    case usageUpdate(ACPUsageUpdatePayload)
     case other(kind: String, payload: ACPJSONValue)
 
     init(from decoder: any Decoder) throws {
@@ -745,6 +837,8 @@ nonisolated enum ACPSessionUpdate: Codable, Equatable, Sendable {
             self = .configOptionUpdate(try ACPJSONValue.object(payload).decode(ACPConfigOptionUpdatePayload.self))
         case "session_info_update":
             self = .sessionInfoUpdate(try ACPJSONValue.object(payload).decode(ACPSessionInfoUpdatePayload.self))
+        case "usage_update":
+            self = .usageUpdate(try ACPJSONValue.object(payload).decode(ACPUsageUpdatePayload.self))
         default:
             self = .other(kind: kind, payload: .object(payload))
         }
@@ -773,6 +867,8 @@ nonisolated enum ACPSessionUpdate: Codable, Equatable, Sendable {
             try container.encode(SessionUpdateEnvelope(sessionUpdate: "config_option_update", payload: try ACPJSONValue.fromEncodable(value)))
         case .sessionInfoUpdate(let value):
             try container.encode(SessionUpdateEnvelope(sessionUpdate: "session_info_update", payload: try ACPJSONValue.fromEncodable(value)))
+        case .usageUpdate(let value):
+            try container.encode(SessionUpdateEnvelope(sessionUpdate: "usage_update", payload: try ACPJSONValue.fromEncodable(value)))
         case .other(_, let payload):
             try container.encode(payload)
         }

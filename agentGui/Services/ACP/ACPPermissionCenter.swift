@@ -254,9 +254,16 @@ final class ACPPermissionCenter: @unchecked Sendable {
     }
 
     private static func reason(from request: ACPRequestPermissionRequest) -> String? {
-        if let content = request.toolCall.content {
-            if let direct = string(from: content), !direct.isEmpty {
-                return direct
+        if let content = request.toolCall.content, !content.isEmpty {
+            let text = content.compactMap { item -> String? in
+                switch item {
+                case .content(let block): return string(from: block)
+                case .diff(let diff): return diff.path
+                case .terminal, .other: return nil
+                }
+            }.first
+            if let text, !text.isEmpty {
+                return text
             }
         }
 

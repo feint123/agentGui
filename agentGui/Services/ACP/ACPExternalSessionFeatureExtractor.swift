@@ -161,7 +161,7 @@ struct ACPExternalSessionFeatureExtractor {
                     )
                 )
             ]
-        case .agentMessageChunk, .agentThoughtChunk, .toolCall, .toolCallUpdate, .sessionInfoUpdate, .userMessageChunk, .other:
+        case .agentMessageChunk, .agentThoughtChunk, .toolCall, .toolCallUpdate, .sessionInfoUpdate, .usageUpdate, .userMessageChunk, .other:
             return []
         }
     }
