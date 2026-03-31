@@ -480,6 +480,44 @@ struct agentGuiApp: App {
                 budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
                 initialContextSummary: "来源聊天包含失败测试与日志摘要。"
             )
+        case "claim":
+            state.sourceSessionID = "chat-source-1"
+            state.sourceSessionTitle = "修复 ACP"
+            state.status = .active
+            state.missionBrief = AgentTeamMissionBrief(
+                objective: "为 ACP team 汇总修复方案",
+                constraints: ["仅修改 Swift 文件", "保持 focused tests"],
+                acceptanceCriteria: ["Mission Header 回显真实 brief", "Team session 持久化 mission brief"],
+                mode: .executionDelivery,
+                budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+                initialContextSummary: "来源聊天包含失败测试与日志摘要。"
+            )
+            let cardID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+            let claim = AgentTeamClaim(
+                id: UUID(uuidString: "66666666-6666-6666-6666-666666666666")!,
+                providerReference: .builtIn,
+                taskCardID: cardID,
+                confidence: 0.95,
+                rationaleSummary: "适合负责主执行路径",
+                requiredCapabilities: ["swift"],
+                expectedArtifacts: ["patchProposal"],
+                estimatedCostSummary: "medium",
+                status: .accepted,
+                submittedAt: Date(timeIntervalSince1970: 1)
+            )
+            state.claimBoardState = AgentTeamClaimBoardState(
+                cards: [
+                    AgentTeamClaimCard(
+                        id: cardID,
+                        title: "修复主路径",
+                        goal: "建立 claim gate",
+                        phase: .claimed,
+                        owner: .builtIn,
+                        claimIDs: [claim.id]
+                    )
+                ],
+                claims: [claim]
+            )
         default:
             break
         }

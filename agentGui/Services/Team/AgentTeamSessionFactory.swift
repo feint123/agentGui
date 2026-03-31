@@ -80,6 +80,10 @@ struct AgentTeamSessionFactory {
             mode: brief.mode
         )
         state.missionBrief = brief
+        state.claimBoardState = AgentTeamClaimCoordinator().bootstrapBoard(
+            from: brief,
+            preferredProvider: session.defaultExecutionProviderReference
+        )
         session.agentTeamState = state
 
         modelContext.insert(session)

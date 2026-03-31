@@ -98,4 +98,8 @@ extension ExecutionJob {
             payloadJSON = newValue?.encodedJSON ?? "{}"
         }
     }
+
+    var teamContext: AgentTeamExecutionContext? {
+        payload?.teamContext
+    }
 }

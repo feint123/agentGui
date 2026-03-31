@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import agentGui
 
@@ -36,8 +37,57 @@ struct AgentTeamWorkbenchPresentationTests {
         #expect(presentation.header.isFallbackBrief == false)
         #expect(presentation.roster.count == 3)
         #expect(presentation.roster.map(\ .role) == ["conductor", "worker", "reviewer"])
-        #expect(presentation.boardColumns.count >= 3)
-        #expect(presentation.boardColumns.map(\ .title) == ["Briefing", "Working", "Reviewing"])
+        #expect(presentation.boardColumns.isEmpty == false)
+        #expect(presentation.boardColumns.flatMap(\ .cards).isEmpty == false)
+    }
+
+    @Test
+    func presentationProjectsAcceptedOwnerFromClaimBoard() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        state.missionBrief = AgentTeamMissionBrief(
+            objective: "为 ACP team 汇总修复方案",
+            constraints: ["仅修改 Swift 文件"],
+            acceptanceCriteria: ["Focused tests 通过"],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+            initialContextSummary: "当前聊天包含失败测试与日志。"
+        )
+
+        let cardID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+        let claim = AgentTeamClaim(
+            id: UUID(uuidString: "66666666-6666-6666-6666-666666666666")!,
+            providerReference: .builtIn,
+            taskCardID: cardID,
+            confidence: 0.95,
+            rationaleSummary: "适合负责主执行路径",
+            requiredCapabilities: ["swift"],
+            expectedArtifacts: ["patchProposal"],
+            estimatedCostSummary: "medium",
+            status: .accepted,
+            submittedAt: Date(timeIntervalSince1970: 1)
+        )
+        state.claimBoardState = AgentTeamClaimBoardState(
+            cards: [
+                AgentTeamClaimCard(
+                    id: cardID,
+                    title: "修复主路径",
+                    goal: "建立 claim gate",
+                    phase: .claimed,
+                    owner: .builtIn,
+                    claimIDs: [claim.id]
+                )
+            ],
+            claims: [claim]
+        )
+
+        let presentation = AgentTeamWorkbenchPresentation.make(session: session, state: state)
+        let card = presentation.boardColumns.flatMap(\ .cards).first
+
+        #expect(card?.owner == "Built-In Agent")
+        #expect(card?.claimStatusText == "已认领")
+        #expect(card?.claimCountText == "1 个 claim")
+        #expect(card?.summary.contains("建立 claim gate") == true)
     }
 
     @Test

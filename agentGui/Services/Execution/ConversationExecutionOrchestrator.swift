@@ -20,6 +20,7 @@ final class ConversationExecutionOrchestrator {
     private let runtimePool: ExecutionRuntimePool
     private let providerRegistry: ConversationExecutionProviderRegistry
     private let runtimeCoordinator: ConversationExecutionRuntimeCoordinator
+    private let claimExecutionGate: AgentTeamClaimExecutionGate
     private let changeReviewProjectionStore: ChangeReviewProjectionStore?
     private let workspaceChangeCaptureExecutor: DetachedWorkspaceChangeCaptureExecutor
     private var mailboxes: [String: SessionExecutionMailbox] = [:]
@@ -37,6 +38,7 @@ final class ConversationExecutionOrchestrator {
         runtimePool: ExecutionRuntimePool,
         providerRegistry: ConversationExecutionProviderRegistry,
         runtimeCoordinator: ConversationExecutionRuntimeCoordinator,
+        claimExecutionGate: AgentTeamClaimExecutionGate = AgentTeamClaimExecutionGate(),
         changeReviewProjectionStore: ChangeReviewProjectionStore? = nil,
         workspaceChangeCaptureService: WorkspaceChangeCaptureService = WorkspaceChangeCaptureService(),
         workspaceChangeCaptureExecutor: DetachedWorkspaceChangeCaptureExecutor? = nil
@@ -49,6 +51,7 @@ final class ConversationExecutionOrchestrator {
         self.runtimePool = runtimePool
         self.providerRegistry = providerRegistry
         self.runtimeCoordinator = runtimeCoordinator
+        self.claimExecutionGate = claimExecutionGate
         self.changeReviewProjectionStore = changeReviewProjectionStore
         self.workspaceChangeCaptureExecutor = workspaceChangeCaptureExecutor
             ?? DetachedWorkspaceChangeCaptureExecutor(service: workspaceChangeCaptureService)
@@ -56,6 +59,14 @@ final class ConversationExecutionOrchestrator {
 
     func enqueue(_ command: EnqueueExecutionCommand) async throws -> ExecutionJobHandle {
         await restorePendingJobs()
+
+        let session = try persistenceStore.session(id: command.sessionID)
+        try validateClaimGate(
+            session: session,
+            state: session.agentTeamState,
+            providerReference: command.providerReference,
+            teamContext: command.payload.teamContext
+        )
 
         let result = try await persistenceStore.enqueue(
             sessionID: command.sessionID,
@@ -200,6 +211,19 @@ final class ConversationExecutionOrchestrator {
         }
 
         activeAttemptIDsByJobID[candidate.jobID] = attempt.id
+
+        do {
+            try validateClaimGate(
+                session: session,
+                state: session.agentTeamState,
+                providerReference: job.providerReference,
+                teamContext: job.teamContext
+            )
+        } catch {
+            await finish(job: job, outcome: .failed, errorMessage: error.localizedDescription)
+            return
+        }
+
         updateProjectionForRunningJob(jobID: candidate.jobID, sessionID: candidate.sessionID, providerReference: job.providerReference)
 
         await runtimeCoordinator.prepareForActivation(
@@ -394,6 +418,20 @@ final class ConversationExecutionOrchestrator {
             return nil
         }
         return url
+    }
+
+    private func validateClaimGate(
+        session: Session,
+        state: AgentTeamSessionState?,
+        providerReference: ExecutionProviderReference,
+        teamContext: AgentTeamExecutionContext?
+    ) throws {
+        try claimExecutionGate.validate(
+            session: session,
+            state: state,
+            providerReference: providerReference,
+            teamContext: teamContext
+        )
     }
 
     private func finish(

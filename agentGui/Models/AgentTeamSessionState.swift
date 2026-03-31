@@ -9,6 +9,7 @@ final class AgentTeamSessionState {
     var sourceSessionID: String
     var sourceSessionTitle: String
     var briefJSON: String=""
+    var claimBoardJSON: String=""
     var modeRaw: String
     var statusRaw: String
     var createdAt: Date
@@ -19,6 +20,7 @@ final class AgentTeamSessionState {
         sourceSessionID: String = "",
         sourceSessionTitle: String = "",
         briefJSON: String = "",
+        claimBoardJSON: String = "",
         mode: AgentTeamMode = .executionDelivery,
         status: AgentTeamRunStatus = .created,
         createdAt: Date = Date(),
@@ -28,6 +30,7 @@ final class AgentTeamSessionState {
         self.sourceSessionID = sourceSessionID
         self.sourceSessionTitle = sourceSessionTitle
         self.briefJSON = briefJSON
+        self.claimBoardJSON = claimBoardJSON
         self.modeRaw = mode.rawValue
         self.statusRaw = status.rawValue
         self.createdAt = createdAt
@@ -46,6 +49,19 @@ extension AgentTeamSessionState {
         }
         set {
             updateMissionBrief(newValue)
+        }
+    }
+
+    var claimBoardState: AgentTeamClaimBoardState? {
+        get {
+            guard let data = claimBoardJSON.data(using: .utf8),
+                  let board = try? JSONDecoder().decode(AgentTeamClaimBoardState.self, from: data) else {
+                return nil
+            }
+            return board
+        }
+        set {
+            updateClaimBoard(newValue)
         }
     }
 
@@ -81,6 +97,24 @@ extension AgentTeamSessionState {
 
         briefJSON = encoded
         modeRaw = brief.mode.rawValue
+        updatedAt = Date()
+    }
+
+    func updateClaimBoard(_ board: AgentTeamClaimBoardState?) {
+        guard let board else {
+            claimBoardJSON = ""
+            updatedAt = Date()
+            return
+        }
+
+        guard let data = try? JSONEncoder().encode(board),
+              let encoded = String(data: data, encoding: .utf8) else {
+            claimBoardJSON = ""
+            updatedAt = Date()
+            return
+        }
+
+        claimBoardJSON = encoded
         updatedAt = Date()
     }
 }

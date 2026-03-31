@@ -4,13 +4,15 @@ struct AgentTeamSessionView: View {
     static let panelAccessibilityIdentifier = "panel.agentTeam"
     static let missionHeaderAccessibilityIdentifier = "agentTeam.missionHeader"
     static let rosterAccessibilityIdentifier = "agentTeam.roster"
-    static let boardAccessibilityIdentifier = "agentTeam.board"
+    static let boardAccessibilityIdentifier = "agentTeam.claimBoard"
     static let inspectorAccessibilityIdentifier = "agentTeam.inspector"
     static let placeholderAccessibilityIdentifier = "agentTeam.placeholder"
     static let titleAccessibilityIdentifier = "agentTeam.title"
     static let constraintsAccessibilityIdentifier = "agentTeam.brief.constraintsList"
     static let acceptanceAccessibilityIdentifier = "agentTeam.brief.acceptanceList"
     static let contextSummaryAccessibilityIdentifier = "agentTeam.brief.contextSummary"
+    static let claimOwnerAccessibilityIdentifier = "agentTeam.claim.owner"
+    static let claimStatusAccessibilityIdentifier = "agentTeam.claim.status"
 
     let session: Session
     let state: AgentTeamSessionState?

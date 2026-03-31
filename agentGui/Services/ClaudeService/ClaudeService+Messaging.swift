@@ -130,7 +130,8 @@ extension ClaudeService {
                 modelID: modelId,
                 selectedFilePath: selectedFilePath,
                 selectedText: selectedText,
-                directives: directives
+                directives: directives,
+                teamContext: resolveTeamExecutionContext(session: session, providerReference: providerReference)
             ),
             sourceUserMessageID: sourceUserMessageID
         )
@@ -166,7 +167,8 @@ extension ClaudeService {
                 modelID: modelId,
                 selectedFilePath: nil,
                 selectedText: nil,
-                directives: []
+                directives: [],
+                teamContext: resolveTeamExecutionContext(session: session, providerReference: providerReference)
             ),
             sourceUserMessageID: lastUser.id
         )
@@ -200,10 +202,23 @@ extension ClaudeService {
                 modelID: modelId,
                 selectedFilePath: nil,
                 selectedText: nil,
-                directives: []
+                directives: [],
+                teamContext: resolveTeamExecutionContext(session: session, providerReference: providerReference)
             ),
             sourceUserMessageID: message.id
         )
+    }
+
+    private func resolveTeamExecutionContext(
+        session: Session,
+        providerReference: ExecutionProviderReference
+    ) -> AgentTeamExecutionContext? {
+        guard session.kind == .agentTeam,
+              let board = session.agentTeamState?.claimBoardState else {
+            return nil
+        }
+
+        return board.executionContext(for: providerReference)
     }
 
     private func resolveExecutionOrchestrator(for modelContext: ModelContext) async -> ConversationExecutionOrchestrator {

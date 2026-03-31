@@ -53,6 +53,14 @@ struct AgentTeamBoardPanelView: View {
                                     Text("Owner：\(card.owner)")
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
+                                        .accessibilityIdentifier(card.id == firstCardID ? AgentTeamSessionView.claimOwnerAccessibilityIdentifier : "")
+                                    Text("状态：\(card.claimStatusText)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .accessibilityIdentifier(card.id == firstCardID ? AgentTeamSessionView.claimStatusAccessibilityIdentifier : "")
+                                    Text(card.claimCountText)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(12)
@@ -66,6 +74,10 @@ struct AgentTeamBoardPanelView: View {
             }
             .scrollIndicators(.hidden)
         }
+    }
+
+    private var firstCardID: String? {
+        columns.first(where: { !$0.cards.isEmpty })?.cards.first?.id
     }
 }
 

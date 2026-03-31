@@ -22,7 +22,9 @@ struct WorkbenchConversationPaneTests {
         #expect(AgentTeamSessionView.panelAccessibilityIdentifier == "panel.agentTeam")
         #expect(AgentTeamSessionView.missionHeaderAccessibilityIdentifier == "agentTeam.missionHeader")
         #expect(AgentTeamSessionView.rosterAccessibilityIdentifier == "agentTeam.roster")
-        #expect(AgentTeamSessionView.boardAccessibilityIdentifier == "agentTeam.board")
+        #expect(AgentTeamSessionView.boardAccessibilityIdentifier == "agentTeam.claimBoard")
         #expect(AgentTeamSessionView.inspectorAccessibilityIdentifier == "agentTeam.inspector")
+        #expect(AgentTeamSessionView.claimOwnerAccessibilityIdentifier == "agentTeam.claim.owner")
+        #expect(AgentTeamSessionView.claimStatusAccessibilityIdentifier == "agentTeam.claim.status")
     }
 }

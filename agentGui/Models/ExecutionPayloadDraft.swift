@@ -6,7 +6,8 @@ enum ExecutionPayloadDraft: Codable, Equatable, Sendable {
         modelID: String,
         selectedFilePath: String?,
         selectedText: String?,
-        directives: [ChatInputDirective]
+        directives: [ChatInputDirective],
+        teamContext: AgentTeamExecutionContext?
     )
 
     private enum CodingKeys: String, CodingKey {
@@ -16,6 +17,7 @@ enum ExecutionPayloadDraft: Codable, Equatable, Sendable {
         case selectedFilePath
         case selectedText
         case directives
+        case teamContext
     }
 
     private enum Kind: String, Codable {
@@ -31,7 +33,8 @@ enum ExecutionPayloadDraft: Codable, Equatable, Sendable {
                 modelID: try container.decode(String.self, forKey: .modelID),
                 selectedFilePath: try container.decodeIfPresent(String.self, forKey: .selectedFilePath),
                 selectedText: try container.decodeIfPresent(String.self, forKey: .selectedText),
-                directives: try container.decodeIfPresent([ChatInputDirective].self, forKey: .directives) ?? []
+                directives: try container.decodeIfPresent([ChatInputDirective].self, forKey: .directives) ?? [],
+                teamContext: try container.decodeIfPresent(AgentTeamExecutionContext.self, forKey: .teamContext)
             )
         }
     }
@@ -39,18 +42,26 @@ enum ExecutionPayloadDraft: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case let .userPrompt(text, modelID, selectedFilePath, selectedText, directives):
+        case let .userPrompt(text, modelID, selectedFilePath, selectedText, directives, teamContext):
             try container.encode(Kind.userPrompt, forKey: .kind)
             try container.encode(text, forKey: .text)
             try container.encode(modelID, forKey: .modelID)
             try container.encodeIfPresent(selectedFilePath, forKey: .selectedFilePath)
             try container.encodeIfPresent(selectedText, forKey: .selectedText)
             try container.encode(directives, forKey: .directives)
+            try container.encodeIfPresent(teamContext, forKey: .teamContext)
         }
     }
 }
 
 extension ExecutionPayloadDraft {
+    var teamContext: AgentTeamExecutionContext? {
+        switch self {
+        case let .userPrompt(_, _, _, _, _, teamContext):
+            return teamContext
+        }
+    }
+
     var encodedJSON: String {
         guard let data = try? JSONEncoder().encode(self),
               let json = String(data: data, encoding: .utf8) else {

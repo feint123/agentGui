@@ -24,6 +24,7 @@ struct ConversationExecutionRequest {
     let selectedFilePath: String?
     let selectedText: String?
     let directives: [ChatInputDirective]
+    let teamContext: AgentTeamExecutionContext?
     let modelContext: ModelContext
     let sourceUserMessageID: UUID?
     let targetAgentMessageID: UUID?
@@ -36,6 +37,7 @@ struct ConversationExecutionRequest {
         selectedFilePath: String?,
         selectedText: String?,
         directives: [ChatInputDirective],
+        teamContext: AgentTeamExecutionContext? = nil,
         modelContext: ModelContext,
         sourceUserMessageID: UUID? = nil,
         targetAgentMessageID: UUID? = nil,
@@ -47,6 +49,7 @@ struct ConversationExecutionRequest {
         self.selectedFilePath = selectedFilePath
         self.selectedText = selectedText
         self.directives = directives
+        self.teamContext = teamContext
         self.modelContext = modelContext
         self.sourceUserMessageID = sourceUserMessageID
         self.targetAgentMessageID = targetAgentMessageID

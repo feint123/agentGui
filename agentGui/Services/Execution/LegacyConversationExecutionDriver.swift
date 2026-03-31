@@ -73,7 +73,7 @@ final class LegacyConversationExecutionDriver: ConversationExecutionDriver {
         }
 
         switch payload {
-        case let .userPrompt(text, modelID, selectedFilePath, selectedText, directives):
+        case let .userPrompt(text, modelID, selectedFilePath, selectedText, directives, teamContext):
             return ConversationExecutionRequest(
                 text: text,
                 session: context.session,
@@ -81,6 +81,7 @@ final class LegacyConversationExecutionDriver: ConversationExecutionDriver {
                 selectedFilePath: selectedFilePath,
                 selectedText: selectedText,
                 directives: directives,
+                teamContext: teamContext,
                 modelContext: context.modelContext,
                 sourceUserMessageID: job.sourceUserMessageID,
                 targetAgentMessageID: job.targetAgentMessageID,

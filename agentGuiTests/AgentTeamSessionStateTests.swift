@@ -86,4 +86,68 @@ struct AgentTeamSessionStateTests {
 
         #expect(state.updatedAt > originalUpdatedAt)
     }
+
+    @Test
+    func claimBoardRoundTripsThroughPersistenceSlot() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        let claim = AgentTeamClaim(
+            id: UUID(),
+            providerReference: .builtIn,
+            taskCardID: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            confidence: 0.88,
+            rationaleSummary: "负责主执行路径",
+            requiredCapabilities: ["swift"],
+            expectedArtifacts: ["patchProposal"],
+            estimatedCostSummary: "low",
+            status: .pending,
+            submittedAt: Date(timeIntervalSince1970: 10)
+        )
+        let board = AgentTeamClaimBoardState(
+            cards: [
+                AgentTeamClaimCard(
+                    id: claim.taskCardID,
+                    title: "修复主路径",
+                    goal: "建立 claim gate",
+                    phase: .claiming,
+                    owner: nil,
+                    claimIDs: [claim.id]
+                )
+            ],
+            claims: [claim]
+        )
+
+        state.claimBoardState = board
+
+        #expect(state.claimBoardJSON.isEmpty == false)
+        #expect(state.claimBoardState == board)
+    }
+
+    @Test
+    func updatingClaimBoardRefreshesUpdatedAt() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let originalUpdatedAt = Date(timeIntervalSince1970: 2)
+        let state = AgentTeamSessionState(
+            session: session,
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: originalUpdatedAt
+        )
+        let board = AgentTeamClaimBoardState(
+            cards: [
+                AgentTeamClaimCard(
+                    id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+                    title: "认领主任务",
+                    goal: "选择 owner",
+                    phase: .claiming,
+                    owner: .builtIn,
+                    claimIDs: []
+                )
+            ],
+            claims: []
+        )
+
+        state.claimBoardState = board
+
+        #expect(state.updatedAt > originalUpdatedAt)
+    }
 }

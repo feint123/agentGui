@@ -28,6 +28,8 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let title: String
         let summary: String
         let owner: String
+        let claimStatusText: String
+        let claimCountText: String
     }
 
     struct BoardColumn: Identifiable, Equatable {
@@ -53,6 +55,13 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let resolvedSourceTitle = sourceTitle.isEmpty ? "无来源聊天" : sourceTitle
         let resolution = AgentTeamMissionBriefResolver().resolve(session: session, state: state)
         let brief = resolution.brief
+        let boardProjection = makeBoardColumns(from: state?.claimBoardState)
+        let acceptedOwnerNames = Set(
+            boardProjection
+                .flatMap(\ .cards)
+                .map(\ .owner)
+                .filter { $0 != "待认领" }
+        )
 
         return Self(
             header: Header(
@@ -72,17 +81,17 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                     id: "conductor",
                     role: "conductor",
                     title: "Conductor",
-                    readiness: "已就绪",
-                    focus: "拆分任务与同步上下文",
+                    readiness: acceptedOwnerNames.isEmpty ? "协调认领" : "已完成 owner 决策",
+                    focus: acceptedOwnerNames.isEmpty ? "等待 provider 提交 claim" : "同步认领结果与团队焦点",
                     blocker: "无"
                 ),
                 RosterItem(
                     id: "worker",
                     role: "worker",
                     title: "Worker",
-                    readiness: "待命",
-                    focus: "执行当前工作流占位任务",
-                    blocker: "等待正式 task card"
+                    readiness: acceptedOwnerNames.isEmpty ? "待认领" : "已认领",
+                    focus: acceptedOwnerNames.isEmpty ? "等待 owner 分配" : acceptedOwnerNames.joined(separator: "、"),
+                    blocker: acceptedOwnerNames.isEmpty ? "等待 accepted claim" : "无"
                 ),
                 RosterItem(
                     id: "reviewer",
@@ -93,44 +102,7 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                     blocker: "等待首个产物"
                 )
             ],
-            boardColumns: [
-                BoardColumn(
-                    id: "briefing",
-                    title: "Briefing",
-                    cards: [
-                        BoardCard(
-                            id: "brief-1",
-                            title: "对齐 mission 占位信息",
-                            summary: "建立目标、来源、模式和验收摘要的展示结构。",
-                            owner: "Conductor"
-                        )
-                    ]
-                ),
-                BoardColumn(
-                    id: "working",
-                    title: "Working",
-                    cards: [
-                        BoardCard(
-                            id: "work-1",
-                            title: "等待 Feature 5 task cards",
-                            summary: "当前以占位卡展示并行为后续任务板预留承载面。",
-                            owner: "Worker"
-                        )
-                    ]
-                ),
-                BoardColumn(
-                    id: "reviewing",
-                    title: "Reviewing",
-                    cards: [
-                        BoardCard(
-                            id: "review-1",
-                            title: "等待首个 artifact",
-                            summary: "后续在此承接 review trace、merge gate 与人工介入。",
-                            owner: "Reviewer"
-                        )
-                    ]
-                )
-            ],
+            boardColumns: boardProjection,
             inspector: InspectorSummary(
                 title: "待选中 work item",
                 artifactSummary: "Artifact：当前显示占位说明，后续承接 Feature 6 typed artifacts。",
@@ -162,5 +134,82 @@ struct AgentTeamWorkbenchPresentation: Equatable {
 
     private static func budgetSummary(for budget: AgentTeamBudget) -> String {
         "预算：并发 \(budget.maxActiveProviders) · Token \(budget.tokenBudgetText) · 成本 \(budget.costBudgetText)"
+    }
+
+    private static func makeBoardColumns(from board: AgentTeamClaimBoardState?) -> [BoardColumn] {
+        guard let board, !board.cards.isEmpty else {
+            return [
+                BoardColumn(
+                    id: "claiming",
+                    title: "待认领",
+                    cards: [
+                        BoardCard(
+                            id: "claim-placeholder",
+                            title: "等待 claim board 初始化",
+                            summary: "当前会话尚未生成可认领 card。",
+                            owner: "待认领",
+                            claimStatusText: "待认领",
+                            claimCountText: "0 个 claim"
+                        )
+                    ]
+                )
+            ]
+        }
+
+        let boardCards = board.cards.map { card in
+            let claims = board.claims(for: card.id)
+            let acceptedClaim = board.acceptedClaim(for: card.id)
+            let ownerReference = card.owner ?? acceptedClaim?.providerReference
+            let claimStatusText: String
+
+            if ownerReference != nil {
+                claimStatusText = "已认领"
+            } else if claims.count > 1 {
+                claimStatusText = "竞争认领"
+            } else {
+                claimStatusText = "待认领"
+            }
+
+            return BoardCard(
+                id: card.id.uuidString,
+                title: card.title,
+                summary: card.goal,
+                owner: ownerReference.map(displayName(for:)) ?? "待认领",
+                claimStatusText: claimStatusText,
+                claimCountText: "\(claims.count) 个 claim"
+            )
+        }
+
+        let claimedCards = boardCards.filter { $0.claimStatusText == "已认领" }
+        let unclaimedCards = boardCards.filter { $0.claimStatusText != "已认领" }
+        var columns: [BoardColumn] = []
+
+        if !unclaimedCards.isEmpty {
+            columns.append(BoardColumn(id: "claiming", title: "待认领", cards: unclaimedCards))
+        }
+        if !claimedCards.isEmpty {
+            columns.append(BoardColumn(id: "claimed", title: "已认领", cards: claimedCards))
+        }
+
+        return columns
+    }
+
+    private static func displayName(for providerReference: ExecutionProviderReference) -> String {
+        switch providerReference {
+        case .builtIn:
+            return "Built-In Agent"
+        case let .externalACP(profileID):
+            if let key = LegacyExternalACPProviderKey.allCases.first(where: { $0.presetProfileID == profileID }) {
+                switch key {
+                case .githubCopilotCLI:
+                    return "GitHub Copilot CLI"
+                case .openCodeCLI:
+                    return "OpenCode CLI"
+                case .claudeAdapterCLI:
+                    return "Claude Adapter CLI"
+                }
+            }
+            return "External ACP"
+        }
     }
 }
