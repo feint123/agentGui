@@ -256,14 +256,6 @@ struct agentGuiApp: App {
                 .environment(PersistenceCoordinator.shared)
         }
         .modelContainer(sharedModelContainer)
-
-        Window("Agent 工作室", id: AgentStudioWindowScene.id) {
-            AgentStudioWindowView()
-                .environment(claudeService)
-                .environment(PersistenceCoordinator.shared)
-        }
-        .modelContainer(sharedModelContainer)
-        .defaultSize(width: 960, height: 540)
     }
 
     @MainActor

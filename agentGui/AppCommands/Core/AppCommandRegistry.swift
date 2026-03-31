@@ -51,15 +51,6 @@ struct AppCommandRegistry {
             requirement: .none
         ),
         AppCommandDescriptor(
-            id: .showAgentStudio,
-            title: "显示 Agent 工作室",
-            category: .window,
-            menuPlacement: .windowArrangement,
-            shortcut: AppCommandShortcut(key: "s", modifiers: [.command, .shift]),
-            keywords: ["工作室", "studio", "窗口"],
-            requirement: .openWindow
-        ),
-        AppCommandDescriptor(
             id: .showSessionsPanel,
             title: "切换到会话",
             category: .navigation,

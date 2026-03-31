@@ -19,19 +19,6 @@ enum ConversationExecutionProviderID: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    var defaultCharacterSkin: CharacterSkin {
-        switch self {
-        case .builtInAgent:
-            return .coder
-        case .githubCopilotCLI:
-            return .detective
-        case .openCodeCLI:
-            return .robot
-        case .claudeAdapterCLI:
-            return .wizard
-        }
-    }
-
     static func optionItems(
         copilotAvailabilityStatus: GitHubCopilotCLIAvailabilityStatus = .unknown,
         openCodeAvailabilityStatus: OpenCodeCLIAvailabilityStatus = .unknown,

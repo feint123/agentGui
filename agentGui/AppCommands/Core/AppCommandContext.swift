@@ -12,7 +12,6 @@ enum AppFocusedSceneKind: Equatable {
     case workbench
     case contextWindow
     case settings
-    case agentStudio
 }
 
 @MainActor

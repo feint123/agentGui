@@ -35,8 +35,6 @@ final class AppCommandRouter {
         case .openWorkspaceChooser:
             requestWorkspaceSelection()
             return .performed
-        case .showAgentStudio:
-            return openWindow(AgentStudioWindowScene.id, in: context)
         case .showSessionsPanel:
             context.workbenchState?.selectedItem = .sessions
             return .performed

@@ -5,10 +5,6 @@ struct WindowCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
-        CommandGroup(after: .windowArrangement) {
-            commandButton(.showAgentStudio)
-        }
-
         CommandMenu("上下文") {
             commandButton(.openContextWindow)
         }

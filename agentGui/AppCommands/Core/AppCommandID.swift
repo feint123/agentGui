@@ -5,7 +5,6 @@ enum AppCommandID: String, CaseIterable, Identifiable {
     case checkForUpdates
     case showSettings
     case openWorkspaceChooser
-    case showAgentStudio
     case showSessionsPanel
     case showWorkspacePanel
     case showGitPanel
