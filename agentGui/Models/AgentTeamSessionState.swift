@@ -11,6 +11,7 @@ final class AgentTeamSessionState {
     var briefJSON: String=""
     var claimBoardJSON: String=""
     var taskBoardJSON: String=""
+    var artifactBoardJSON: String=""
     var modeRaw: String
     var statusRaw: String
     var createdAt: Date
@@ -23,6 +24,7 @@ final class AgentTeamSessionState {
         briefJSON: String = "",
         claimBoardJSON: String = "",
         taskBoardJSON: String = "",
+        artifactBoardJSON: String = "",
         mode: AgentTeamMode = .executionDelivery,
         status: AgentTeamRunStatus = .created,
         createdAt: Date = Date(),
@@ -34,6 +36,7 @@ final class AgentTeamSessionState {
         self.briefJSON = briefJSON
         self.claimBoardJSON = claimBoardJSON
         self.taskBoardJSON = taskBoardJSON
+        self.artifactBoardJSON = artifactBoardJSON
         self.modeRaw = mode.rawValue
         self.statusRaw = status.rawValue
         self.createdAt = createdAt
@@ -154,6 +157,37 @@ extension AgentTeamSessionState {
         }
 
         taskBoardJSON = encoded
+        updatedAt = Date()
+    }
+
+    var artifactBoardState: AgentTeamArtifactBoardState? {
+        get {
+            guard let data = artifactBoardJSON.data(using: .utf8),
+                  let board = try? JSONDecoder().decode(AgentTeamArtifactBoardState.self, from: data) else {
+                return nil
+            }
+            return board
+        }
+        set {
+            updateArtifactBoard(newValue)
+        }
+    }
+
+    func updateArtifactBoard(_ board: AgentTeamArtifactBoardState?) {
+        guard let board else {
+            artifactBoardJSON = ""
+            updatedAt = Date()
+            return
+        }
+
+        guard let data = try? JSONEncoder().encode(board),
+              let encoded = String(data: data, encoding: .utf8) else {
+            artifactBoardJSON = ""
+            updatedAt = Date()
+            return
+        }
+
+        artifactBoardJSON = encoded
         updatedAt = Date()
     }
 }

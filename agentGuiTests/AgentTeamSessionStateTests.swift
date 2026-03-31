@@ -276,4 +276,51 @@ struct AgentTeamSessionStateTests {
 
         #expect(state.updatedAt > originalUpdatedAt)
     }
+
+    @Test
+    func artifactBoardStateRoundTripsThroughPersistenceSlot() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        let cardID = UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
+        let artifact = AgentTeamArtifact(
+            id: UUID(uuidString: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")!,
+            kind: .patchProposal,
+            title: "修复 PR",
+            producer: .builtIn,
+            taskCardID: cardID,
+            version: 1,
+            summary: "新增 artifact 持久化",
+            payload: .text("--- diff ---"),
+            status: .submitted
+        )
+        let board = AgentTeamArtifactBoardState(artifacts: [artifact])
+
+        state.artifactBoardState = board
+
+        #expect(state.artifactBoardState == board)
+        #expect(state.artifactBoardJSON.isEmpty == false)
+    }
+
+    @Test
+    func emptyArtifactBoardJSONReturnsNil() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+
+        #expect(state.artifactBoardJSON == "")
+        #expect(state.artifactBoardState == nil)
+    }
+
+    @Test
+    func updatingArtifactBoardRefreshesUpdatedAt() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let originalUpdatedAt = Date(timeIntervalSince1970: 1)
+        let state = AgentTeamSessionState(
+            session: session,
+            updatedAt: originalUpdatedAt
+        )
+
+        state.artifactBoardState = AgentTeamArtifactBoardState(artifacts: [])
+
+        #expect(state.updatedAt >= originalUpdatedAt)
+    }
 }
