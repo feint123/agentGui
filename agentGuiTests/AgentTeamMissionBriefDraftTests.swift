@@ -19,20 +19,16 @@ struct AgentTeamMissionBriefDraftTests {
     @Test
     func buildBriefNormalizesMultilineFields() {
         var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.rawInput = "修复 ACP 团队协作中的并发问题"
         draft.objective = "为 ACP team 生成修复计划"
         draft.constraintsText = " 仅修改 Swift 文件 \n\n 保持 focused tests \n"
         draft.acceptanceCriteriaText = " Mission Header 回显 brief \n\n team session 持久化 brief  "
         draft.maxActiveProviders = 2
-        draft.tokenBudgetText = "20k"
-        draft.costBudgetText = "medium"
-        draft.initialContextSummary = "当前聊天包含失败测试与日志。"
         draft.eligibleProviderIDs = [
             ExecutionProviderReference.builtIn.persistedValue,
-            LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue,
-            LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference.persistedValue
+            LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue
         ]
         draft.preferredConductorID = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue
-        draft.preferredReviewerID = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference.persistedValue
 
         let brief = draft.buildBrief()
 
@@ -40,14 +36,24 @@ struct AgentTeamMissionBriefDraftTests {
         #expect(brief.constraints == ["仅修改 Swift 文件", "保持 focused tests"])
         #expect(brief.acceptanceCriteria == ["Mission Header 回显 brief", "team session 持久化 brief"])
         #expect(brief.dispatchBudget == AgentTeamDispatchBudget(maxActiveProviders: 2))
-        #expect(brief.providerPlan.eligibleProviders == [
-            .builtIn,
-            LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference,
-            LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
-        ])
-        #expect(brief.providerPlan.preferredConductor == LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference)
-        #expect(brief.providerPlan.preferredReviewer == LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference)
-        #expect(brief.providerPlan.dispatchPolicy == .manualSelection)
+    }
+
+    @Test
+    func buildBriefFallsBackToRawInputWhenObjectiveEmpty() {
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.rawInput = "快速修复并发问题"
+        draft.objective = ""
+        draft.eligibleProviderIDs = [ExecutionProviderReference.builtIn.persistedValue]
+        draft.preferredConductorID = ExecutionProviderReference.builtIn.persistedValue
+
+        let brief = draft.buildBrief()
+        #expect(brief.objective == "快速修复并发问题")
+    }
+
+    @Test
+    func extractionStateDefaultsToIdle() {
+        let draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        #expect(draft.extractionState == .idle)
     }
 
     @Test

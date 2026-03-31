@@ -1,48 +1,55 @@
 import Foundation
 
+enum BriefExtractionState: Equatable, Sendable {
+    case idle
+    case extracting
+    case done
+    case failed(String)
+}
+
 struct AgentTeamMissionBriefDraft: Equatable, Sendable {
+    var rawInput: String
     var objective: String
     var constraintsText: String
     var acceptanceCriteriaText: String
     var mode: AgentTeamMode
     var maxActiveProviders: Int
-    var tokenBudgetText: String
-    var costBudgetText: String
     var initialContextSummary: String
     var sourceSessionTitle: String
     var eligibleProviderIDs: [String]
     var preferredConductorID: String
     var preferredReviewerID: String
     var dispatchPolicy: AgentTeamDispatchPolicy
+    var extractionState: BriefExtractionState
 
     init(
+        rawInput: String = "",
         objective: String = "",
         constraintsText: String = "",
         acceptanceCriteriaText: String = "",
         mode: AgentTeamMode = .executionDelivery,
         maxActiveProviders: Int = 2,
-        tokenBudgetText: String = "20k",
-        costBudgetText: String = "medium",
         initialContextSummary: String = "",
         sourceSessionTitle: String = "",
         eligibleProviderIDs: [String] = [],
         preferredConductorID: String = "",
         preferredReviewerID: String = "",
-        dispatchPolicy: AgentTeamDispatchPolicy = .manualSelection
+        dispatchPolicy: AgentTeamDispatchPolicy = .manualSelection,
+        extractionState: BriefExtractionState = .idle
     ) {
+        self.rawInput = rawInput
         self.objective = objective
         self.constraintsText = constraintsText
         self.acceptanceCriteriaText = acceptanceCriteriaText
         self.mode = mode
         self.maxActiveProviders = maxActiveProviders
-        self.tokenBudgetText = tokenBudgetText
-        self.costBudgetText = costBudgetText
         self.initialContextSummary = initialContextSummary
         self.sourceSessionTitle = sourceSessionTitle
         self.eligibleProviderIDs = eligibleProviderIDs
         self.preferredConductorID = preferredConductorID
         self.preferredReviewerID = preferredReviewerID
         self.dispatchPolicy = dispatchPolicy
+        self.extractionState = extractionState
     }
 }
 
@@ -52,19 +59,19 @@ extension AgentTeamMissionBriefDraft {
         let preview = source?.lastMessagePreview.trimmedNonEmpty
         let seededProvider = source?.defaultExecutionProviderReference.persistedValue ?? ""
         return Self(
+            rawInput: "",
             objective: defaultObjective(for: sourceTitle),
             constraintsText: "",
             acceptanceCriteriaText: "",
             mode: .executionDelivery,
             maxActiveProviders: 2,
-            tokenBudgetText: "20k",
-            costBudgetText: "medium",
             initialContextSummary: defaultContextSummary(sourceTitle: sourceTitle, preview: preview),
             sourceSessionTitle: sourceTitle,
             eligibleProviderIDs: seededProvider.isEmpty ? [] : [seededProvider],
             preferredConductorID: seededProvider,
             preferredReviewerID: "",
-            dispatchPolicy: seededProvider.isEmpty ? .manualSelection : .sourceSessionSeeded
+            dispatchPolicy: seededProvider.isEmpty ? .manualSelection : .sourceSessionSeeded,
+            extractionState: .idle
         )
     }
 
@@ -72,19 +79,19 @@ extension AgentTeamMissionBriefDraft {
         let sourceTitle = sourceContext?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let seededProvider = sourceContext?.defaultExecutionProviderReference.persistedValue ?? ""
         return Self(
+            rawInput: "",
             objective: defaultObjective(for: sourceTitle),
             constraintsText: "",
             acceptanceCriteriaText: "",
             mode: .executionDelivery,
             maxActiveProviders: 2,
-            tokenBudgetText: "20k",
-            costBudgetText: "medium",
             initialContextSummary: defaultContextSummary(sourceTitle: sourceTitle, preview: nil),
             sourceSessionTitle: sourceTitle,
             eligibleProviderIDs: seededProvider.isEmpty ? [] : [seededProvider],
             preferredConductorID: seededProvider,
             preferredReviewerID: "",
-            dispatchPolicy: seededProvider.isEmpty ? .manualSelection : .sourceSessionSeeded
+            dispatchPolicy: seededProvider.isEmpty ? .manualSelection : .sourceSessionSeeded,
+            extractionState: .idle
         )
     }
 
@@ -183,8 +190,11 @@ extension AgentTeamMissionBriefDraft {
     }
 
     private var resolvedObjective: String {
-        objective.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
-            ?? Self.defaultObjective(for: sourceSessionTitle)
+        let trimmedObjective = objective.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedObjective.isEmpty { return trimmedObjective }
+        let trimmedRaw = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedRaw.isEmpty { return trimmedRaw }
+        return Self.defaultObjective(for: sourceSessionTitle)
     }
 
     private var resolvedContextSummary: String {

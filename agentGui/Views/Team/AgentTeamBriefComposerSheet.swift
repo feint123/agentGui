@@ -90,12 +90,6 @@ struct AgentTeamBriefComposerSheet: View {
                                 Text("并发上限：\(draft.maxActiveProviders)")
                             }
                             .accessibilityIdentifier("agentTeam.brief.maxActiveProviders")
-                            TextField("Token Budget", text: $draft.tokenBudgetText)
-                                .textFieldStyle(.roundedBorder)
-                                .accessibilityIdentifier("agentTeam.brief.tokenBudget")
-                            TextField("Cost Budget", text: $draft.costBudgetText)
-                                .textFieldStyle(.roundedBorder)
-                                .accessibilityIdentifier("agentTeam.brief.costBudget")
                         }
                     }
 
