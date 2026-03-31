@@ -152,7 +152,7 @@ struct AgentTeamLaunchCoordinator {
     }
 
     /// Claims all dispatchable `.briefed` cards (no unresolved dependencies) up to
-    /// `brief.budget.maxActiveProviders`, assigns providers via round-robin from
+    /// `brief.dispatchBudget.maxActiveProviders`, assigns providers via round-robin from
     /// `brief.providerPlan.eligibleProviders`, and advances each card to `.claimed`.
     ///
     /// Returns a `ClaimPhaseResult` per claimed card. Returns `[]` when no dispatchable
