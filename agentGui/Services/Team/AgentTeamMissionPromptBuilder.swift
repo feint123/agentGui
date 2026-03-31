@@ -39,4 +39,15 @@ struct AgentTeamMissionPromptBuilder {
 
         return lines.joined(separator: "\n")
     }
+
+    func buildPrompt(brief: AgentTeamMissionBrief, card: AgentTeamTaskCard, artifacts: [AgentTeamArtifact]) -> String {
+        var prompt = buildPrompt(brief: brief, card: card)
+        guard !artifacts.isEmpty else { return prompt }
+        var lines: [String] = ["", "**Existing Artifacts:**"]
+        for artifact in artifacts {
+            lines.append("- [\(artifact.kind.rawValue)] \(artifact.title) (by \(artifact.producer)) — \(artifact.summary)")
+        }
+        prompt += "\n" + lines.joined(separator: "\n")
+        return prompt
+    }
 }

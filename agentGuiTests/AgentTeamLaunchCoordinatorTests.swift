@@ -269,4 +269,94 @@ struct AgentTeamMissionPromptBuilderTests {
 
         #expect(prompt.contains("Your Task") == false)
     }
+
+    @Test
+    func artifactOverloadWithNoArtifactsMatchesBase() {
+        let brief = AgentTeamMissionBrief(
+            objective: "构建模块",
+            constraints: [],
+            acceptanceCriteria: [],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: 1, tokenBudgetText: "10k", costBudgetText: "low"),
+            initialContextSummary: ""
+        )
+        let card = AgentTeamTaskCard(
+            id: UUID(),
+            title: "主任务",
+            goal: "完成目标",
+            status: .briefed,
+            lastUpdatedAt: Date(timeIntervalSince1970: 0)
+        )
+        let builder = AgentTeamMissionPromptBuilder()
+        let base = builder.buildPrompt(brief: brief, card: card)
+        let withEmpty = builder.buildPrompt(brief: brief, card: card, artifacts: [])
+        #expect(base == withEmpty)
+    }
+
+    @Test
+    func artifactOverloadAppendsExistingArtifactsSection() {
+        let brief = AgentTeamMissionBrief(
+            objective: "构建模块",
+            constraints: [],
+            acceptanceCriteria: [],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: 1, tokenBudgetText: "10k", costBudgetText: "low"),
+            initialContextSummary: ""
+        )
+        let card = AgentTeamTaskCard(
+            id: UUID(),
+            title: "主任务",
+            goal: "完成目标",
+            status: .briefed,
+            lastUpdatedAt: Date(timeIntervalSince1970: 0)
+        )
+        let artifact = AgentTeamArtifact(
+            id: UUID(),
+            kind: .implementationPlan,
+            title: "实现方案 v1",
+            producer: .builtIn,
+            taskCardID: UUID(),
+            version: 1,
+            summary: "初始方案摘要",
+            payload: .text("content"),
+            status: .draft
+        )
+        let prompt = AgentTeamMissionPromptBuilder().buildPrompt(brief: brief, card: card, artifacts: [artifact])
+        #expect(prompt.contains("**Existing Artifacts:**"))
+        #expect(prompt.contains("实现方案 v1"))
+        #expect(prompt.contains("初始方案摘要"))
+    }
+
+    @Test
+    func artifactOverloadListsMultipleArtifactsInOrder() {
+        let brief = AgentTeamMissionBrief(
+            objective: "测试目标",
+            constraints: [],
+            acceptanceCriteria: [],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: 1, tokenBudgetText: "10k", costBudgetText: "low"),
+            initialContextSummary: ""
+        )
+        let card = AgentTeamTaskCard(
+            id: UUID(),
+            title: "任务",
+            goal: "完成",
+            status: .briefed,
+            lastUpdatedAt: Date(timeIntervalSince1970: 0)
+        )
+        let a1 = AgentTeamArtifact(
+            id: UUID(), kind: .brief, title: "摘要草稿",
+            producer: .builtIn, taskCardID: UUID(), version: 1,
+            summary: "第一个工件", payload: .text("t"), status: .draft
+        )
+        let a2 = AgentTeamArtifact(
+            id: UUID(), kind: .validationReport, title: "验证报告",
+            producer: .builtIn, taskCardID: UUID(), version: 1,
+            summary: "第二个工件", payload: .text("t"), status: .submitted
+        )
+        let prompt = AgentTeamMissionPromptBuilder().buildPrompt(brief: brief, card: card, artifacts: [a1, a2])
+        let range1 = prompt.range(of: "摘要草稿")!
+        let range2 = prompt.range(of: "验证报告")!
+        #expect(range1.lowerBound < range2.lowerBound)
+    }
 }
