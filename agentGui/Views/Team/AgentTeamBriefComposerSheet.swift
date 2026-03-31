@@ -107,7 +107,7 @@ struct AgentTeamBriefComposerSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             rawInputSection
             if draft.extractionState == .done {
-                extractionResultSection
+                BriefExtractionPreviewCard(draft: $draft)
             }
             advancedModeSection
         }
@@ -163,7 +163,9 @@ struct AgentTeamBriefComposerSheet: View {
                     Task { @MainActor in
                         var localDraft = draft
                         await extractionVM?.triggerExtraction(draft: &localDraft)
-                        draft = localDraft
+                        withAnimation(.spring(duration: 0.35, bounce: 0.2)) {
+                            draft = localDraft
+                        }
                     }
                 }
                 .disabled(draft.rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -474,6 +476,147 @@ private extension AgentTeamProviderRole {
         case .conductor: "指挥"
         case .worker:    "执行"
         case .reviewer:  "审核"
+        }
+    }
+}
+
+// MARK: - BriefExtractionPreviewCard
+
+private struct BriefExtractionPreviewCard: View {
+    @Binding var draft: AgentTeamMissionBriefDraft
+
+    var body: some View {
+        WorkbenchSidebarSectionCard(title: "解析结果", systemImage: "sparkles") {
+            VStack(alignment: .leading, spacing: 12) {
+                // Objective 可编辑
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("目标")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("Objective", text: $draft.objective, axis: .vertical)
+                        .lineLimit(2...4)
+                        .workbenchSidebarHeaderFieldStyle()
+                        .accessibilityIdentifier("agentTeam.brief.objective")
+                }
+
+                // Constraints chips
+                chipSection(
+                    label: "限制条件",
+                    chips: draft.constraintChips,
+                    accessibilityPrefix: "agentTeam.brief.constraintChip",
+                    onDelete: { draft.removeConstraintChip(at: $0) }
+                )
+
+                // Acceptance Criteria chips
+                chipSection(
+                    label: "验收标准",
+                    chips: draft.criteriaChips,
+                    accessibilityPrefix: "agentTeam.brief.criteriaChip",
+                    onDelete: { draft.removeCriteriaChip(at: $0) }
+                )
+            }
+        }
+        .transition(
+            .opacity.combined(with: .offset(y: 12))
+        )
+        .accessibilityIdentifier("agentTeam.brief.extractionPreview")
+    }
+
+    @ViewBuilder
+    private func chipSection(
+        label: String,
+        chips: [String],
+        accessibilityPrefix: String,
+        onDelete: @escaping (Int) -> Void
+    ) -> some View {
+        if !chips.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                BriefFlowLayout(spacing: 6) {
+                    ForEach(Array(chips.enumerated()), id: \.offset) { index, chip in
+                        DeletableChipView(
+                            label: chip,
+                            onDelete: { onDelete(index) }
+                        )
+                        .accessibilityIdentifier("\(accessibilityPrefix).\(index)")
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - DeletableChipView
+
+private struct DeletableChipView: View {
+    let label: String
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.caption)
+                .lineLimit(1)
+            Button(action: onDelete) {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+    }
+}
+
+// MARK: - BriefFlowLayout (simple wrapping HStack)
+
+private struct BriefFlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var rowX: CGFloat = 0
+        var maxRowHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if rowX + size.width > width, rowX > 0 {
+                totalHeight += maxRowHeight + spacing
+                rowX = 0
+                maxRowHeight = 0
+            }
+            rowX += size.width + spacing
+            maxRowHeight = max(maxRowHeight, size.height)
+        }
+        totalHeight += maxRowHeight
+        return CGSize(width: width, height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var rowX = bounds.minX
+        var rowY = bounds.minY
+        var maxRowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if rowX + size.width > bounds.maxX, rowX > bounds.minX {
+                rowY += maxRowHeight + spacing
+                rowX = bounds.minX
+                maxRowHeight = 0
+            }
+            subview.place(
+                at: CGPoint(x: rowX, y: rowY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(size)
+            )
+            rowX += size.width + spacing
+            maxRowHeight = max(maxRowHeight, size.height)
         }
     }
 }
