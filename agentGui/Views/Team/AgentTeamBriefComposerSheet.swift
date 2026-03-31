@@ -27,6 +27,7 @@ struct AgentTeamBriefComposerSheet: View {
     @State private var draft: AgentTeamMissionBriefDraft
     @State private var extractionVM: BriefComposerExtractionViewModel?
     @State private var showAdvancedOptions = false
+    @State private var warmupCoordinator = BriefComposerProviderWarmupCoordinator()
 
     init(
         sourceContext: NewSessionMenuAction.SourceContext?,
@@ -92,44 +93,8 @@ struct AgentTeamBriefComposerSheet: View {
                         extractionResultSection
                     }
 
-                    // MARK: Provider 选择
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Providers")
-                            .font(.headline)
-
-                        if resolvedProviderOptions.isEmpty {
-                            Text("当前没有可用 provider。请先在设置中启用至少一个执行器。")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(resolvedProviderOptions) { option in
-                                Toggle(isOn: binding(for: option.id)) {
-                                    Text(option.title)
-                                }
-                                .toggleStyle(.checkbox)
-                                .accessibilityIdentifier("agentTeam.brief.provider.\(option.id)")
-                            }
-
-                            Picker("Conductor", selection: $draft.preferredConductorID) {
-                                ForEach(selectedProviderOptions) { option in
-                                    Text(option.title).tag(option.id)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .disabled(selectedProviderOptions.isEmpty)
-                            .accessibilityIdentifier("agentTeam.brief.preferredConductor")
-
-                            Picker("Reviewer", selection: $draft.preferredReviewerID) {
-                                Text("不指定").tag("")
-                                ForEach(reviewerOptions) { option in
-                                    Text(option.title).tag(option.id)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .disabled(selectedProviderOptions.isEmpty)
-                            .accessibilityIdentifier("agentTeam.brief.preferredReviewer")
-                        }
-                    }
+                    // MARK: Provider 角色分配区
+                    providerRoleSection
 
                     // MARK: 高级选项（默认折叠）
                     DisclosureGroup("高级选项", isExpanded: $showAdvancedOptions) {
@@ -184,9 +149,71 @@ struct AgentTeamBriefComposerSheet: View {
             )
             setupExtractionVM()
         }
+        .task(id: sourceContext?.sessionID ?? "") {
+            let allOptions = resolvedProviderOptions
+            await withTaskGroup(of: Void.self) { group in
+                for option in allOptions where option.isEnabled {
+                    let ref = ExecutionProviderReference.decodePersisted(option.id)
+                    group.addTask { @MainActor in
+                        await warmupCoordinator.warmup(
+                            provider: ref,
+                            claudeService: claudeService,
+                            sourceSession: nil,
+                            modelContext: modelContext
+                        )
+                    }
+                }
+            }
+        }
         .onDisappear {
             extractionVM?.cancelDebounce()
         }
+    }
+
+    // MARK: - Provider 角色分配区
+
+    private var providerRoleSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Team 成员与角色")
+                .font(.headline)
+
+            let options = resolvedProviderOptions
+            if options.isEmpty {
+                Text("未检测到启用的 Provider，将使用内置 Built-in。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(options, id: \.id) { option in
+                    let ref = ExecutionProviderReference.decodePersisted(option.id)
+                    ProviderRoleRowView(
+                        providerName: option.title,
+                        warmupState: warmupCoordinator.warmupState(for: ref),
+                        assignment: assignmentBinding(for: ref),
+                        modelOptions: warmupCoordinator.modelOptions(for: ref),
+                        modeOptions: warmupCoordinator.modeOptions(for: ref)
+                    )
+                }
+            }
+        }
+    }
+
+    /// 从 roleAssignments 提供 Binding
+    private func assignmentBinding(
+        for provider: ExecutionProviderReference
+    ) -> Binding<AgentTeamProviderRoleAssignment> {
+        Binding(
+            get: {
+                self.draft.roleAssignments.first(where: { $0.providerReference == provider })
+                    ?? AgentTeamProviderRoleAssignment(providerReference: provider)
+            },
+            set: { newValue in
+                if let idx = self.draft.roleAssignments.firstIndex(where: { $0.providerReference == provider }) {
+                    self.draft.roleAssignments[idx] = newValue
+                } else {
+                    self.draft.roleAssignments.append(newValue)
+                }
+            }
+        )
     }
 
     // MARK: - Extraction Status Label
@@ -247,9 +274,8 @@ struct AgentTeamBriefComposerSheet: View {
     private var canSubmit: Bool {
         let hasInput = draft.rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             || draft.objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        let hasProvider = draft.eligibleProviderIDs.isEmpty == false
-            && draft.preferredConductorID.isEmpty == false
-        return hasInput && hasProvider
+        let hasConductor = draft.roleAssignments.contains(where: { $0.isConductor })
+        return hasInput && hasConductor
     }
 
     private var sourceSummary: String {
@@ -264,29 +290,6 @@ struct AgentTeamBriefComposerSheet: View {
             .filter(\.isEnabled)
     }
 
-    private var selectedProviderOptions: [ExecutionOptionItem] {
-        resolvedProviderOptions.filter { draft.eligibleProviderIDs.contains($0.id) }
-    }
-
-    private var reviewerOptions: [ExecutionOptionItem] {
-        selectedProviderOptions.filter { $0.id != draft.preferredConductorID }
-    }
-
-    private func binding(for providerID: String) -> Binding<Bool> {
-        Binding(
-            get: { draft.eligibleProviderIDs.contains(providerID) },
-            set: { isSelected in
-                let currentlySelected = draft.eligibleProviderIDs.contains(providerID)
-                guard currentlySelected != isSelected else { return }
-                draft.toggleEligibleProvider(providerID)
-                draft.reconcileProviderOptions(
-                    resolvedProviderOptions,
-                    sourceDefaultProviderID: sourceContext?.defaultExecutionProviderReference.persistedValue
-                )
-            }
-        )
-    }
-
     private func setupExtractionVM() {
         guard let service = claudeService.service else { return }
         let settings = AppSettings.getOrCreate(in: modelContext)
@@ -296,5 +299,117 @@ struct AgentTeamBriefComposerSheet: View {
                 modelID: settings.selectedModel
             )
         )
+    }
+}
+
+// MARK: - ProviderRoleRowView
+
+private struct ProviderRoleRowView: View {
+    let providerName: String
+    let warmupState: BriefComposerProviderWarmupCoordinator.WarmupState
+    @Binding var assignment: AgentTeamProviderRoleAssignment
+    let modelOptions: [ExecutionOptionItem]
+    let modeOptions: [ExecutionOptionItem]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                warmupStatusView
+                Text(providerName)
+                    .fontWeight(.medium)
+                Spacer()
+                ForEach(AgentTeamProviderRole.allCases, id: \.self) { role in
+                    RoleChipButton(
+                        label: role.displayLabel,
+                        isSelected: assignment.roles.contains(role)
+                    ) {
+                        toggleRole(role)
+                    }
+                }
+            }
+            if case .ready = warmupState, !modelOptions.isEmpty {
+                HStack(spacing: 12) {
+                    if !modelOptions.isEmpty {
+                        Picker("模型", selection: Binding(
+                            get: { assignment.selectedModelID ?? "" },
+                            set: { assignment.selectedModelID = $0.isEmpty ? nil : $0 }
+                        )) {
+                            Text("默认").tag("")
+                            ForEach(modelOptions) { opt in
+                                Text(opt.title).tag(opt.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 160)
+                    }
+                    if !modeOptions.isEmpty {
+                        Picker("模式", selection: Binding(
+                            get: { assignment.selectedModeID ?? "" },
+                            set: { assignment.selectedModeID = $0.isEmpty ? nil : $0 }
+                        )) {
+                            Text("默认").tag("")
+                            ForEach(modeOptions) { opt in
+                                Text(opt.title).tag(opt.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 160)
+                    }
+                }
+                .font(.caption)
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.2))
+        )
+    }
+
+    @ViewBuilder
+    private var warmupStatusView: some View {
+        switch warmupState {
+        case .idle:    Color.clear.frame(width: 10, height: 10)
+        case .warming: ProgressView().controlSize(.mini).frame(width: 10, height: 10)
+        case .ready:   Circle().fill(.green).frame(width: 8, height: 8)
+        case .failed:  Circle().fill(.secondary).frame(width: 8, height: 8)
+        }
+    }
+
+    private func toggleRole(_ role: AgentTeamProviderRole) {
+        var copy = assignment
+        if copy.roles.contains(role) {
+            copy.roles.remove(role)
+        } else {
+            copy.roles.insert(role)
+        }
+        assignment = copy
+    }
+}
+
+private struct RoleChipButton: View {
+    let label: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption.weight(isSelected ? .semibold : .regular))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private extension AgentTeamProviderRole {
+    var displayLabel: String {
+        switch self {
+        case .conductor: "指挥"
+        case .worker:    "执行"
+        case .reviewer:  "审核"
+        }
     }
 }
