@@ -149,10 +149,7 @@ struct AgentTeamWorkbenchPresentation: Equatable {
     private static let statusColumnOrder: [AgentTeamTaskStatus] = [.briefed, .claimed, .working, .reviewing, .done, .blocked]
 
     private static func modeText(for mode: AgentTeamMode) -> String {
-        switch mode {
-        case .executionDelivery:
-            return "执行交付"
-        }
+        mode.displayName
     }
 
     private static func statusText(for status: AgentTeamRunStatus) -> String {

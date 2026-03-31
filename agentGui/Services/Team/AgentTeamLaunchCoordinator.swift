@@ -180,8 +180,16 @@ struct AgentTeamLaunchCoordinator {
 
         var results: [ClaimPhaseResult] = []
 
+        let draftCards = dispatchable.filter { $0.kind == .creativeDraft }
+        let totalDrafts = draftCards.count
+
         for (index, card) in dispatchable.enumerated() {
-            let providerRef = assignedProvider(at: index, eligibleProviders: eligibleProviders)
+            let providerRef: ExecutionProviderReference
+            if card.kind == .synthesis {
+                providerRef = conductor
+            } else {
+                providerRef = assignedProvider(at: index, eligibleProviders: eligibleProviders)
+            }
 
             let claim = AgentTeamClaim(
                 id: UUID(),
@@ -215,7 +223,37 @@ struct AgentTeamLaunchCoordinator {
                     claimID: acceptedClaim.id
                 )
             )
-            let prompt = AgentTeamMissionPromptBuilder().buildPrompt(brief: brief, card: card)
+
+            let promptBuilder = AgentTeamMissionPromptBuilder()
+            let prompt: String
+            switch card.kind {
+            case .creativeDraft:
+                let draftIndex = draftCards.firstIndex(where: { $0.id == card.id }) ?? index
+                prompt = promptBuilder.buildCreativeDraftPrompt(
+                    brief: brief,
+                    card: card,
+                    draftIndex: draftIndex,
+                    totalDrafts: max(totalDrafts, 1)
+                )
+            case .synthesis:
+                let groupID = card.creativeGroupID
+                let draftArtifacts = (state.artifactBoardState?.artifacts ?? [])
+                    .filter { artifact in
+                        guard let gid = groupID else { return false }
+                        return state.taskBoardState?.card(id: artifact.taskCardID)?.creativeGroupID == gid
+                    }
+                    .filter { $0.kind == .ideaDraft }
+                prompt = promptBuilder.buildSynthesisPrompt(
+                    brief: brief,
+                    synthesisCard: card,
+                    draftArtifacts: draftArtifacts
+                )
+            case .standard:
+                let existingArtifacts = (state.artifactBoardState?.artifacts ?? [])
+                    .filter { $0.taskCardID == card.id }
+                prompt = promptBuilder.buildPrompt(brief: brief, card: card, artifacts: existingArtifacts)
+            }
+
             results.append(ClaimPhaseResult(
                 primaryCardID: card.id,
                 executionTarget: executionTarget,

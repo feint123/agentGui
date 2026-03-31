@@ -43,6 +43,21 @@ struct AgentTeamTaskBoardCoordinator {
         from brief: AgentTeamMissionBrief,
         preferredProvider: ExecutionProviderReference
     ) -> AgentTeamTaskBoardState {
+        switch brief.mode {
+        case .creativeExploration:
+            return bootstrapCreativeBoard(
+                from: brief,
+                eligibleProviders: brief.providerPlan.eligibleProviders
+            )
+        case .executionDelivery:
+            return bootstrapExecutionBoard(from: brief, preferredProvider: preferredProvider)
+        }
+    }
+
+    private func bootstrapExecutionBoard(
+        from brief: AgentTeamMissionBrief,
+        preferredProvider: ExecutionProviderReference
+    ) -> AgentTeamTaskBoardState {
         _ = preferredProvider
 
         let primaryCardID = UUID()
@@ -79,6 +94,42 @@ struct AgentTeamTaskBoardCoordinator {
                     lastUpdatedAt: Date(timeIntervalSince1970: 0)
                 )
             ] + acceptanceCards,
+            claims: []
+        )
+    }
+
+    func bootstrapCreativeBoard(
+        from brief: AgentTeamMissionBrief,
+        eligibleProviders: [ExecutionProviderReference]
+    ) -> AgentTeamTaskBoardState {
+        let groupID = UUID()
+        let draftCount = min(3, max(1, eligibleProviders.count))
+
+        let draftCards: [AgentTeamTaskCard] = (0..<draftCount).map { index in
+            AgentTeamTaskCard(
+                id: UUID(),
+                title: "\(brief.objective.prefix(20))（草案 \(index + 1)）",
+                goal: brief.objective,
+                status: .briefed,
+                kind: .creativeDraft,
+                creativeGroupID: groupID,
+                lastUpdatedAt: Date(timeIntervalSince1970: 0)
+            )
+        }
+
+        let synthesisCard = AgentTeamTaskCard(
+            id: UUID(),
+            title: "\(brief.objective.prefix(20))（综合）",
+            goal: brief.objective,
+            status: .briefed,
+            kind: .synthesis,
+            creativeGroupID: groupID,
+            dependencyIDs: draftCards.map(\.id),
+            lastUpdatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        return AgentTeamTaskBoardState(
+            cards: draftCards + [synthesisCard],
             claims: []
         )
     }

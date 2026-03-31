@@ -1,5 +1,13 @@
 import Foundation
 
+// MARK: - Task Card Kind
+
+enum AgentTeamTaskCardKind: String, Codable, Equatable, Sendable {
+    case standard
+    case creativeDraft
+    case synthesis
+}
+
 enum AgentTeamTaskStatus: String, Codable, Equatable, Sendable {
     case briefed
     case claimed
@@ -14,6 +22,8 @@ struct AgentTeamTaskCard: Codable, Equatable, Identifiable, Sendable {
     var title: String
     var goal: String
     var status: AgentTeamTaskStatus
+    var kind: AgentTeamTaskCardKind
+    var creativeGroupID: UUID?
     var owner: ExecutionProviderReference?
     var acceptedClaimID: UUID?
     var dependencyIDs: [UUID]
@@ -28,6 +38,8 @@ struct AgentTeamTaskCard: Codable, Equatable, Identifiable, Sendable {
         title: String,
         goal: String,
         status: AgentTeamTaskStatus,
+        kind: AgentTeamTaskCardKind = .standard,
+        creativeGroupID: UUID? = nil,
         owner: ExecutionProviderReference? = nil,
         acceptedClaimID: UUID? = nil,
         dependencyIDs: [UUID] = [],
@@ -39,6 +51,8 @@ struct AgentTeamTaskCard: Codable, Equatable, Identifiable, Sendable {
         self.title = title
         self.goal = goal
         self.status = status
+        self.kind = kind
+        self.creativeGroupID = creativeGroupID
         self.owner = owner
         self.acceptedClaimID = acceptedClaimID
         self.dependencyIDs = dependencyIDs
@@ -50,7 +64,7 @@ struct AgentTeamTaskCard: Codable, Equatable, Identifiable, Sendable {
     // MARK: - Backward-compatible Codable
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, goal, status, owner, acceptedClaimID
+        case id, title, goal, status, kind, creativeGroupID, owner, acceptedClaimID
         case dependencyIDs, artifactIDs, blockerSummary, lastUpdatedAt
     }
 
@@ -60,6 +74,8 @@ struct AgentTeamTaskCard: Codable, Equatable, Identifiable, Sendable {
         title           = try c.decode(String.self, forKey: .title)
         goal            = try c.decode(String.self, forKey: .goal)
         status          = try c.decode(AgentTeamTaskStatus.self, forKey: .status)
+        kind            = (try? c.decode(AgentTeamTaskCardKind.self, forKey: .kind)) ?? .standard
+        creativeGroupID = try? c.decode(UUID.self, forKey: .creativeGroupID)
         owner           = try c.decodeIfPresent(ExecutionProviderReference.self, forKey: .owner)
         acceptedClaimID = try c.decodeIfPresent(UUID.self, forKey: .acceptedClaimID)
         dependencyIDs   = (try? c.decode([UUID].self, forKey: .dependencyIDs)) ?? []
