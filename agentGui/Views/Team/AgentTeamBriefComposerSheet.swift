@@ -245,7 +245,7 @@ struct AgentTeamBriefComposerSheet: View {
     private var providerRoleSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Team 成员与角色")
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
 
             let options = resolvedProviderOptions
             if options.isEmpty {
@@ -255,13 +255,17 @@ struct AgentTeamBriefComposerSheet: View {
             } else {
                 ForEach(options, id: \.id) { option in
                     let ref = ExecutionProviderReference.decodePersisted(option.id)
-                    ProviderRoleRowView(
+                    let badge = ref == .builtIn ? "Built-in" : "ACP"
+                    let state = warmupCoordinator.warmupState(for: ref)
+                    ProviderRoleCard(
                         providerName: option.title,
-                        warmupState: warmupCoordinator.warmupState(for: ref),
+                        providerTypeBadge: badge,
+                        warmupState: state,
                         assignment: assignmentBinding(for: ref),
                         modelOptions: warmupCoordinator.modelOptions(for: ref),
                         modeOptions: warmupCoordinator.modeOptions(for: ref)
                     )
+                    .animation(.spring(duration: 0.4, bounce: 0.1), value: state == .warming)
                 }
             }
         }
@@ -372,35 +376,61 @@ struct AgentTeamBriefComposerSheet: View {
     }
 }
 
-// MARK: - ProviderRoleRowView
+// MARK: - ProviderRoleCard
 
-private struct ProviderRoleRowView: View {
+private struct ProviderRoleCard: View {
     let providerName: String
+    let providerTypeBadge: String
     let warmupState: BriefComposerProviderWarmupCoordinator.WarmupState
     @Binding var assignment: AgentTeamProviderRoleAssignment
     let modelOptions: [ExecutionOptionItem]
     let modeOptions: [ExecutionOptionItem]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
+            // 顶部行：名称 + badge + warm-up indicator
             HStack(spacing: 8) {
-                warmupStatusView
+                WarmupIndicatorView(state: warmupState)
+                    .accessibilityLabel(warmupAccessibilityLabel)
+
                 Text(providerName)
-                    .fontWeight(.medium)
+                    .font(.subheadline.weight(.semibold))
+
+                Text(providerTypeBadge)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.secondary.opacity(0.12), in: Capsule())
+
                 Spacer()
-                ForEach(AgentTeamProviderRole.allCases, id: \.self) { role in
-                    RoleChipButton(
-                        label: role.displayLabel,
-                        isSelected: assignment.roles.contains(role)
-                    ) {
-                        toggleRole(role)
-                    }
-                }
             }
-            if case .ready = warmupState, !modelOptions.isEmpty {
-                HStack(spacing: 12) {
-                    if !modelOptions.isEmpty {
-                        Picker("模型", selection: Binding(
+
+            // 角色 chip 行
+            ProviderRoleChipRow(assignment: $assignment)
+                .accessibilityIdentifier("agentTeam.brief.provider.\(providerName).roleRow")
+
+            // 展开区：模型 + 模式 Picker（warm-up ready 后显示）
+            if case .ready = warmupState, !modelOptions.isEmpty || !modeOptions.isEmpty {
+                pickerExpansion
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .workbenchSidebarCardStyle(padding: 12)
+        .accessibilityIdentifier("agentTeam.brief.provider.\(providerName)")
+    }
+
+    @ViewBuilder
+    private var pickerExpansion: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            HStack(spacing: 12) {
+                if !modelOptions.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("模型")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Picker("", selection: Binding(
                             get: { assignment.selectedModelID ?? "" },
                             set: { assignment.selectedModelID = $0.isEmpty ? nil : $0 }
                         )) {
@@ -412,8 +442,13 @@ private struct ProviderRoleRowView: View {
                         .labelsHidden()
                         .frame(maxWidth: 160)
                     }
-                    if !modeOptions.isEmpty {
-                        Picker("模式", selection: Binding(
+                }
+                if !modeOptions.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("模式")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Picker("", selection: Binding(
                             get: { assignment.selectedModeID ?? "" },
                             set: { assignment.selectedModeID = $0.isEmpty ? nil : $0 }
                         )) {
@@ -426,19 +461,73 @@ private struct ProviderRoleRowView: View {
                         .frame(maxWidth: 160)
                     }
                 }
-                .font(.caption)
             }
+            .font(.caption)
         }
-        .workbenchSidebarCardStyle(padding: 12)
     }
 
-    @ViewBuilder
-    private var warmupStatusView: some View {
+    private var warmupAccessibilityLabel: String {
         switch warmupState {
-        case .idle:    Color.clear.frame(width: 10, height: 10)
-        case .warming: ProgressView().controlSize(.mini).frame(width: 10, height: 10)
-        case .ready:   Circle().fill(.green).frame(width: 8, height: 8)
-        case .failed:  Circle().fill(.secondary).frame(width: 8, height: 8)
+        case .idle:    return "待连接 \(providerName)"
+        case .warming: return "正在连接 \(providerName)..."
+        case .ready:   return "\(providerName) 就绪"
+        case .failed:  return "\(providerName) 连接失败"
+        }
+    }
+}
+
+// MARK: - WarmupIndicatorView
+
+private struct WarmupIndicatorView: View {
+    let state: BriefComposerProviderWarmupCoordinator.WarmupState
+
+    var body: some View {
+        ZStack {
+            switch state {
+            case .idle:
+                Circle()
+                    .fill(.secondary.opacity(0.25))
+                    .frame(width: 8, height: 8)
+            case .warming:
+                ProgressView()
+                    .controlSize(.mini)
+                    .frame(width: 10, height: 10)
+            case .ready:
+                Circle()
+                    .fill(.green)
+                    .frame(width: 8, height: 8)
+            case .failed:
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 10, height: 10)
+            }
+        }
+        .animation(.spring(duration: 0.3), value: isReady)
+    }
+
+    private var isReady: Bool {
+        if case .ready = state { return true }
+        return false
+    }
+}
+
+// MARK: - ProviderRoleChipRow
+
+private struct ProviderRoleChipRow: View {
+    @Binding var assignment: AgentTeamProviderRoleAssignment
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(AgentTeamProviderRole.allCases, id: \.self) { role in
+                RoleChipButton(
+                    label: role.displayLabel,
+                    isSelected: assignment.roles.contains(role)
+                ) {
+                    toggleRole(role)
+                }
+            }
+            Spacer(minLength: 0)
         }
     }
 
