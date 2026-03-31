@@ -109,7 +109,7 @@ struct AgentTeamBriefComposerSheet: View {
             if draft.extractionState == .done {
                 BriefExtractionPreviewCard(draft: $draft)
             }
-            advancedModeSection
+            BriefModeSelector(selectedMode: $draft.mode)
         }
     }
 
@@ -617,6 +617,71 @@ private struct BriefFlowLayout: Layout {
             )
             rowX += size.width + spacing
             maxRowHeight = max(maxRowHeight, size.height)
+        }
+    }
+}
+
+// MARK: - BriefModeSelector
+
+private struct BriefModeSelector: View {
+    @Binding var selectedMode: AgentTeamMode
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("执行模式")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(AgentTeamMode.allCases, id: \.self) { mode in
+                        modeTile(mode)
+                    }
+                }
+            }
+        }
+        .accessibilityIdentifier("agentTeam.brief.modeSelector")
+    }
+
+    @ViewBuilder
+    private func modeTile(_ mode: AgentTeamMode) -> some View {
+        let isSelected = selectedMode == mode
+        Button {
+            withAnimation(.spring(duration: 0.25)) {
+                selectedMode = mode
+            }
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: mode.systemImageName)
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                Text(mode.displayName)
+                    .font(.caption.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
+        }
+        .buttonStyle(.plain)
+        .scaleEffect(isSelected ? 1.03 : 1.0)
+        .animation(.spring(duration: 0.25), value: isSelected)
+        .glassEffect(
+            isSelected ? .regular.interactive() : .regular,
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .accessibilityIdentifier("agentTeam.brief.mode.\(mode.rawValue)")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityValue(isSelected ? "已选中" : "")
+    }
+}
+
+private extension AgentTeamMode {
+    var systemImageName: String {
+        switch self {
+        case .executionDelivery:   "hammer"
+        case .creativeExploration: "lightbulb.max"
         }
     }
 }
