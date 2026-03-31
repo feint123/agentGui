@@ -152,6 +152,11 @@ struct AgentTeamInspectorPanelView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
+                            if item.kindText == "reviewReport" {
+                                Text("📋 \(item.producerSummary)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(8)
@@ -171,8 +176,10 @@ struct AgentTeamInspectorPanelView: View {
 struct AgentTeamCommitBarView: View {
     let status: AgentTeamRunStatus
     let isLaunching: Bool
+    let commitBarState: AgentTeamWorkbenchPresentation.CommitBarState
     let onLaunch: () -> Void
     let onStop: () -> Void
+    var onMerge: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -216,6 +223,34 @@ struct AgentTeamCommitBarView: View {
                 .buttonStyle(.bordered)
                 .disabled(isLaunching)
                 .accessibilityIdentifier(AgentTeamSessionView.launchButtonAccessibilityIdentifier)
+            }
+
+            Divider()
+                .frame(height: 20)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Button(commitBarState.mergeButtonLabel) {
+                    onMerge?()
+                }
+                .disabled(!commitBarState.isReadyToMerge)
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("teamCommitBar.mergeButton")
+
+                if !commitBarState.mergeBlockDescriptions.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(commitBarState.mergeBlockDescriptions, id: \.self) { reason in
+                            Label(reason, systemImage: "exclamationmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+
+                if commitBarState.pendingReviewCount > 0 {
+                    Text("\(commitBarState.pendingReviewCount) 张卡等待 review")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer(minLength: 0)

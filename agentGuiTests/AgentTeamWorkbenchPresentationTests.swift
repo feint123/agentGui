@@ -300,3 +300,80 @@ struct AgentTeamWorkbenchPresentationTests {
         #expect(presentation.inspector.artifactItems.isEmpty)
     }
 }
+
+// MARK: - CommitBarState Tests
+
+extension AgentTeamWorkbenchPresentationTests {
+
+    @Test
+    func commitBarReadyWhenAllCardsDoneWithApprovedReview() {
+        let session = Session.fixture(title: "Test", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        let cardID = UUID()
+        let card = AgentTeamTaskCard(
+            id: cardID, title: "T", goal: "G", status: .done, lastUpdatedAt: Date()
+        )
+        let report = AgentTeamReviewReport(
+            id: UUID(), reviewer: .builtIn, reviewedArtifactIDs: [],
+            kind: .approval, decision: .approved,
+            rationale: "all good", issues: [], conflictingArtifactPairs: [],
+            submittedAt: Date()
+        )
+        let reviewArtifact = AgentTeamArtifact(
+            id: UUID(), kind: .reviewReport, title: "Review",
+            producer: .builtIn, taskCardID: cardID, version: 1,
+            summary: "all good", payload: .reviewReport(report), status: .submitted
+        )
+        state.taskBoardState = AgentTeamTaskBoardState(cards: [card], claims: [])
+        state.artifactBoardState = AgentTeamArtifactBoardState(artifacts: [reviewArtifact])
+
+        let presentation = AgentTeamWorkbenchPresentation.make(
+            session: session, state: state, modelContext: nil
+        )
+        #expect(presentation.commitBarState.isReadyToMerge == true)
+        #expect(presentation.commitBarState.mergeBlockDescriptions.isEmpty)
+    }
+
+    @Test
+    func commitBarBlockedWhenWorkingCardExists() {
+        let session = Session.fixture(title: "Test", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        let card = AgentTeamTaskCard(
+            id: UUID(), title: "T", goal: "G", status: .working, lastUpdatedAt: Date()
+        )
+        state.taskBoardState = AgentTeamTaskBoardState(cards: [card], claims: [])
+        state.artifactBoardState = AgentTeamArtifactBoardState(artifacts: [])
+
+        let presentation = AgentTeamWorkbenchPresentation.make(
+            session: session, state: state, modelContext: nil
+        )
+        #expect(presentation.commitBarState.isReadyToMerge == false)
+        #expect(!presentation.commitBarState.mergeBlockDescriptions.isEmpty)
+    }
+
+    @Test
+    func commitBarShowsPendingReviewCount() {
+        let session = Session.fixture(title: "Test", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        let card1 = AgentTeamTaskCard(id: UUID(), title: "T1", goal: "G", status: .reviewing, lastUpdatedAt: Date())
+        let card2 = AgentTeamTaskCard(id: UUID(), title: "T2", goal: "G", status: .reviewing, lastUpdatedAt: Date())
+        state.taskBoardState = AgentTeamTaskBoardState(cards: [card1, card2], claims: [])
+        state.artifactBoardState = AgentTeamArtifactBoardState(artifacts: [])
+
+        let presentation = AgentTeamWorkbenchPresentation.make(
+            session: session, state: state, modelContext: nil
+        )
+        #expect(presentation.commitBarState.pendingReviewCount == 2)
+    }
+
+    @Test
+    func commitBarBlockedWhenTaskBoardNil() {
+        let session = Session.fixture(title: "Test", kind: .agentTeam)
+
+        let presentation = AgentTeamWorkbenchPresentation.make(
+            session: session, state: nil, modelContext: nil
+        )
+        #expect(presentation.commitBarState.isReadyToMerge == false)
+        #expect(!presentation.commitBarState.mergeBlockDescriptions.isEmpty)
+    }
+}

@@ -26,10 +26,12 @@ enum AgentTeamArtifactStatus: String, Codable, Equatable, Sendable, CaseIterable
 
 enum AgentTeamArtifactPayload: Codable, Equatable, Sendable {
     case text(String)
+    case reviewReport(AgentTeamReviewReport)
 
     private enum CodingKeys: String, CodingKey {
         case type
         case text
+        case reviewReportData
     }
 
     init(from decoder: Decoder) throws {
@@ -39,6 +41,9 @@ enum AgentTeamArtifactPayload: Codable, Equatable, Sendable {
         case "text":
             let content = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
             self = .text(content)
+        case "reviewReport":
+            let report = try container.decode(AgentTeamReviewReport.self, forKey: .reviewReportData)
+            self = .reviewReport(report)
         default:
             let content = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
             self = .text(content)
@@ -51,12 +56,16 @@ enum AgentTeamArtifactPayload: Codable, Equatable, Sendable {
         case let .text(content):
             try container.encode("text", forKey: .type)
             try container.encode(content, forKey: .text)
+        case let .reviewReport(report):
+            try container.encode("reviewReport", forKey: .type)
+            try container.encode(report, forKey: .reviewReportData)
         }
     }
 
     var textContent: String {
         switch self {
         case let .text(content): return content
+        case let .reviewReport(report): return report.rationale
         }
     }
 }
@@ -94,5 +103,19 @@ struct AgentTeamArtifactBoardState: Codable, Equatable, Sendable {
 
     func artifact(id: UUID) -> AgentTeamArtifact? {
         artifacts.first { $0.id == id }
+    }
+}
+
+// MARK: - Review Report Accessor
+
+extension AgentTeamArtifactBoardState {
+    /// 返回指定 task card 下、kind 为 reviewReport 且 payload 为 .reviewReport 的所有报告。
+    func reviewReports(for taskCardID: UUID) -> [AgentTeamReviewReport] {
+        artifacts(for: taskCardID)
+            .filter { $0.kind == .reviewReport }
+            .compactMap {
+                if case let .reviewReport(report) = $0.payload { return report }
+                return nil
+            }
     }
 }

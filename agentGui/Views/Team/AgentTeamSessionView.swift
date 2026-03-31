@@ -54,6 +54,7 @@ struct AgentTeamSessionView: View {
             AgentTeamCommitBarView(
                 status: state?.status ?? .created,
                 isLaunching: isLaunching,
+                commitBarState: presentation.commitBarState,
                 onLaunch: { Task { await launchTeam() } },
                 onStop: { Task { await claudeService.stopTeamMission(session: session, modelContext: modelContext) } }
             )

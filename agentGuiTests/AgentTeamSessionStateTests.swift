@@ -323,4 +323,29 @@ struct AgentTeamSessionStateTests {
 
         #expect(state.updatedAt >= originalUpdatedAt)
     }
+
+    @Test
+    func artifactBoardStateReviewReportRoundTrip() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        let cardID = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let report = AgentTeamReviewReport(
+            id: UUID(), reviewer: .builtIn, reviewedArtifactIDs: [],
+            kind: .approval, decision: .approved,
+            rationale: "all good", issues: [], conflictingArtifactPairs: [],
+            submittedAt: Date(timeIntervalSince1970: 3_000_000)
+        )
+        let artifact = AgentTeamArtifact(
+            id: UUID(), kind: .reviewReport, title: "R",
+            producer: .builtIn, taskCardID: cardID, version: 1,
+            summary: "ok", payload: .reviewReport(report), status: .submitted
+        )
+        state.artifactBoardState = AgentTeamArtifactBoardState(artifacts: [artifact])
+
+        let reloaded = state.artifactBoardState
+        #expect(reloaded?.artifacts.count == 1)
+        let reloadedReports = reloaded?.reviewReports(for: cardID)
+        #expect(reloadedReports?.count == 1)
+        #expect(reloadedReports?.first?.decision == .approved)
+    }
 }

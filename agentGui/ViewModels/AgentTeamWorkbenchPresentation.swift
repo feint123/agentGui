@@ -63,10 +63,18 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let artifactItems: [ArtifactItem]
     }
 
+    struct CommitBarState: Equatable {
+        let isReadyToMerge: Bool
+        let mergeBlockDescriptions: [String]
+        let pendingReviewCount: Int
+        let mergeButtonLabel: String
+    }
+
     let header: Header
     let roster: [RosterItem]
     let boardColumns: [BoardColumn]
     let inspector: InspectorSummary
+    let commitBarState: CommitBarState
 
     static func make(session: Session, state: AgentTeamSessionState?, modelContext: ModelContext? = nil) -> Self {
         let sourceTitle = state?.sourceSessionTitle.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -87,6 +95,7 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                 .filter { $0 != "待认领" }
         )
         let inspector = makeInspectorSummary(from: boardState, artifactBoard: artifactBoard, modelContext: modelContext)
+        let commitBarState = makeCommitBarState(taskBoard: boardState, artifactBoard: artifactBoard)
 
         return Self(
             header: Header(
@@ -131,7 +140,8 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                 )
             ],
             boardColumns: boardProjection,
-            inspector: inspector
+            inspector: inspector,
+            commitBarState: commitBarState
         )
     }
 
@@ -332,5 +342,31 @@ struct AgentTeamWorkbenchPresentation: Equatable {
             }
             return "External ACP"
         }
+    }
+
+    private static func makeCommitBarState(
+        taskBoard: AgentTeamTaskBoardState?,
+        artifactBoard: AgentTeamArtifactBoardState?
+    ) -> CommitBarState {
+        guard let taskBoard else {
+            return CommitBarState(
+                isReadyToMerge: false,
+                mergeBlockDescriptions: ["Task board 尚未初始化"],
+                pendingReviewCount: 0,
+                mergeButtonLabel: "合并输出"
+            )
+        }
+        let resolvedArtifactBoard = artifactBoard ?? AgentTeamArtifactBoardState(artifacts: [])
+        let gateStatus = AgentTeamMergeGateEvaluator().evaluate(
+            taskBoard: taskBoard,
+            artifactBoard: resolvedArtifactBoard
+        )
+        let pendingReviewCount = taskBoard.cards.filter { $0.status == .reviewing }.count
+        return CommitBarState(
+            isReadyToMerge: gateStatus.isReady,
+            mergeBlockDescriptions: gateStatus.blocks.map { $0.localizedDescription },
+            pendingReviewCount: pendingReviewCount,
+            mergeButtonLabel: gateStatus.isReady ? "检查通过，合并输出" : "合并输出"
+        )
     }
 }
