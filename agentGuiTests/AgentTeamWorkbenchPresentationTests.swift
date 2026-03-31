@@ -299,6 +299,114 @@ struct AgentTeamWorkbenchPresentationTests {
 
         #expect(presentation.inspector.artifactItems.isEmpty)
     }
+
+    // MARK: - isLocked (Feature 8)
+
+    @Test
+    @MainActor
+    func boardCardIsLockedWhenBriefedAndHasUnresolvedDependency() throws {
+        let session = Session.fixture(title: "Team", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session, mode: .executionDelivery, status: .created)
+        state.missionBrief = AgentTeamMissionBrief(
+            objective: "依赖锁定测试",
+            constraints: [], acceptanceCriteria: [],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: 2, tokenBudgetText: "10k", costBudgetText: "low"),
+            initialContextSummary: ""
+        )
+
+        let parentID = UUID(uuidString: "aaaa0000-0000-0000-0000-000000000001")!
+        let childID  = UUID(uuidString: "aaaa0000-0000-0000-0000-000000000002")!
+
+        let board = AgentTeamTaskBoardState(
+            cards: [
+                AgentTeamTaskCard(id: parentID, title: "主卡", goal: "执行主任务",
+                                  status: .working, owner: .builtIn, acceptedClaimID: UUID(),
+                                  dependencyIDs: [], lastUpdatedAt: Date()),
+                AgentTeamTaskCard(id: childID,  title: "子卡", goal: "执行子任务",
+                                  status: .briefed, owner: nil, acceptedClaimID: nil,
+                                  dependencyIDs: [parentID], lastUpdatedAt: Date())
+            ],
+            claims: []
+        )
+        state.taskBoardState = board
+        state.claimBoardState = board.claimBoardProjection
+
+        let presentation = AgentTeamWorkbenchPresentation.make(session: session, state: state)
+        let briefedColumn = presentation.boardColumns.first { $0.id == "briefed" }
+        let childCard = briefedColumn?.cards.first { $0.id == childID.uuidString }
+
+        #expect(childCard?.isLocked == true)
+    }
+
+    @Test
+    @MainActor
+    func boardCardIsNotLockedWhenBriefedWithNoUnresolvedDependency() throws {
+        let session = Session.fixture(title: "Team", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session, mode: .executionDelivery, status: .created)
+        state.missionBrief = AgentTeamMissionBrief(
+            objective: "无锁定测试",
+            constraints: [], acceptanceCriteria: [],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: 2, tokenBudgetText: "10k", costBudgetText: "low"),
+            initialContextSummary: ""
+        )
+
+        let cardID = UUID(uuidString: "bbbb0000-0000-0000-0000-000000000001")!
+        let board = AgentTeamTaskBoardState(
+            cards: [
+                AgentTeamTaskCard(id: cardID, title: "独立卡", goal: "独立执行",
+                                  status: .briefed, owner: nil, acceptedClaimID: nil,
+                                  dependencyIDs: [], lastUpdatedAt: Date())
+            ],
+            claims: []
+        )
+        state.taskBoardState = board
+        state.claimBoardState = board.claimBoardProjection
+
+        let presentation = AgentTeamWorkbenchPresentation.make(session: session, state: state)
+        let briefedColumn = presentation.boardColumns.first { $0.id == "briefed" }
+        let card = briefedColumn?.cards.first { $0.id == cardID.uuidString }
+
+        #expect(card?.isLocked == false)
+    }
+
+    @Test
+    @MainActor
+    func boardCardIsNotLockedWhenDependencyIsDone() throws {
+        let session = Session.fixture(title: "Team", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session, mode: .executionDelivery, status: .created)
+        state.missionBrief = AgentTeamMissionBrief(
+            objective: "依赖已完成测试",
+            constraints: [], acceptanceCriteria: [],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: 2, tokenBudgetText: "10k", costBudgetText: "low"),
+            initialContextSummary: ""
+        )
+
+        let parentID = UUID(uuidString: "cccc0000-0000-0000-0000-000000000001")!
+        let childID  = UUID(uuidString: "cccc0000-0000-0000-0000-000000000002")!
+
+        let board = AgentTeamTaskBoardState(
+            cards: [
+                AgentTeamTaskCard(id: parentID, title: "已完成主卡", goal: "done",
+                                  status: .done, owner: .builtIn, acceptedClaimID: UUID(),
+                                  dependencyIDs: [], lastUpdatedAt: Date()),
+                AgentTeamTaskCard(id: childID, title: "子卡", goal: "dep resolved",
+                                  status: .briefed, owner: nil, acceptedClaimID: nil,
+                                  dependencyIDs: [parentID], lastUpdatedAt: Date())
+            ],
+            claims: []
+        )
+        state.taskBoardState = board
+        state.claimBoardState = board.claimBoardProjection
+
+        let presentation = AgentTeamWorkbenchPresentation.make(session: session, state: state)
+        let briefedColumn = presentation.boardColumns.first { $0.id == "briefed" }
+        let childCard = briefedColumn?.cards.first { $0.id == childID.uuidString }
+
+        #expect(childCard?.isLocked == false)
+    }
 }
 
 // MARK: - CommitBarState Tests

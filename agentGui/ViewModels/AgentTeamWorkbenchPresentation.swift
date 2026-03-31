@@ -37,6 +37,7 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let dependencySummary: String
         let blockerSummary: String?
         let artifactCountText: String
+        let isLocked: Bool          // .briefed 且有未完成依赖时为 true
     }
 
     struct BoardColumn: Identifiable, Equatable {
@@ -191,7 +192,8 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                             claimCountText: "0 个 claim",
                             dependencySummary: "无依赖",
                             blockerSummary: nil,
-                            artifactCountText: "无工件"
+                            artifactCountText: "无工件",
+                            isLocked: false
                         )
                     ] : []
                 )
@@ -210,6 +212,7 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                         let ownerReference = card.owner ?? acceptedClaim?.providerReference
                         let unresolvedDependencies = board.unresolvedDependencies(for: card.id)
                         let artifactCount = artifactBoard?.artifacts(for: card.id).count ?? 0
+                        let isLocked = card.status == .briefed && !unresolvedDependencies.isEmpty
 
                         return BoardCard(
                             id: card.id.uuidString,
@@ -220,7 +223,8 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                             claimCountText: "\(claims.count) 个 claim",
                             dependencySummary: dependencySummary(for: card, unresolvedDependencies: unresolvedDependencies, in: board),
                             blockerSummary: card.blockerSummary,
-                            artifactCountText: artifactCountText(artifactCount)
+                            artifactCountText: artifactCountText(artifactCount),
+                            isLocked: isLocked
                         )
                     }
             )
