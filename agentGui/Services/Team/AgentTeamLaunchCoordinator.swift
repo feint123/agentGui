@@ -139,6 +139,97 @@ struct AgentTeamLaunchCoordinator {
         state.status = .failed
     }
 
+    // MARK: - Batch Claim
+
+    /// Assigns a provider from `eligibleProviders` using round-robin by `cardIndex`.
+    /// Falls back to `.builtIn` when the list is empty.
+    func assignedProvider(
+        at cardIndex: Int,
+        eligibleProviders: [ExecutionProviderReference]
+    ) -> ExecutionProviderReference {
+        guard !eligibleProviders.isEmpty else { return .builtIn }
+        return eligibleProviders[cardIndex % eligibleProviders.count]
+    }
+
+    /// Claims all dispatchable `.briefed` cards (no unresolved dependencies) up to
+    /// `brief.budget.maxActiveProviders`, assigns providers via round-robin from
+    /// `brief.providerPlan.eligibleProviders`, and advances each card to `.claimed`.
+    ///
+    /// Returns a `ClaimPhaseResult` per claimed card. Returns `[]` when no dispatchable
+    /// cards remain (all done, all blocked, or budget exhausted).
+    ///
+    /// Call `beginWorking(cardID:in:)` for each result after persisting the claimed state.
+    func claimBatch(state: AgentTeamSessionState) throws -> [ClaimPhaseResult] {
+        guard let brief = state.missionBrief else {
+            throw Error.missingBrief
+        }
+
+        let taskBoardCoordinator = AgentTeamTaskBoardCoordinator()
+        let claimCoordinator = AgentTeamClaimCoordinator()
+        let conductor = brief.providerPlan.preferredConductor
+        let eligibleProviders = brief.providerPlan.eligibleProviders
+        let maxActive = brief.budget.maxActiveProviders
+
+        var taskBoard = state.taskBoardState
+            ?? taskBoardCoordinator.bootstrapBoard(from: brief, preferredProvider: conductor)
+
+        let dispatchable = taskBoard.dispatchableCards(upTo: maxActive)
+        guard !dispatchable.isEmpty else {
+            return []
+        }
+
+        var results: [ClaimPhaseResult] = []
+
+        for (index, card) in dispatchable.enumerated() {
+            let providerRef = assignedProvider(at: index, eligibleProviders: eligibleProviders)
+
+            let claim = AgentTeamClaim(
+                id: UUID(),
+                providerReference: providerRef,
+                taskCardID: card.id,
+                confidence: 1.0,
+                rationaleSummary: "Batch auto-claim for execution parallelism.",
+                requiredCapabilities: [],
+                expectedArtifacts: [],
+                estimatedCostSummary: brief.budget.costBudgetText,
+                status: .pending,
+                submittedAt: Date()
+            )
+            taskBoard.claims.append(claim)
+
+            let (_, updatedBoard) = try claimCoordinator.acceptBestClaim(
+                for: card.id,
+                in: taskBoard.claimBoardProjection,
+                preferredProvider: providerRef,
+                updating: taskBoard,
+                taskBoardCoordinator: taskBoardCoordinator
+            )
+            taskBoard = updatedBoard
+
+            guard let acceptedClaim = taskBoard.acceptedClaim(for: card.id) else { continue }
+
+            let executionTarget = AgentTeamExecutionTarget(
+                providerReference: providerRef,
+                teamContext: AgentTeamExecutionContext(
+                    taskCardID: card.id,
+                    claimID: acceptedClaim.id
+                )
+            )
+            let prompt = AgentTeamMissionPromptBuilder().buildPrompt(brief: brief, card: card)
+            results.append(ClaimPhaseResult(
+                primaryCardID: card.id,
+                executionTarget: executionTarget,
+                missionPrompt: prompt
+            ))
+        }
+
+        state.taskBoardState = taskBoard
+        state.claimBoardState = taskBoard.claimBoardProjection
+        state.status = .active
+
+        return results
+    }
+
     // MARK: - Card Completion
 
     /// Marks a working card as done. Completes the team if no active cards remain.

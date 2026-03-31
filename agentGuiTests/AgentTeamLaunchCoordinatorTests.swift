@@ -209,6 +209,146 @@ struct AgentTeamLaunchCoordinatorTests {
 
         #expect(state.status == .completed)
     }
+
+    // MARK: - claimBatch
+
+    @Test
+    func claimBatchReturnsEmptyWhenNoBriefedCards() throws {
+        let state = makeState(maxActiveProviders: 2)
+        // 把所有 briefed 卡设为 done
+        guard var taskBoard = state.taskBoardState else {
+            #expect(Bool(false), "Expected task board"); return
+        }
+        taskBoard.cards = taskBoard.cards.map {
+            AgentTeamTaskCard(id: $0.id, title: $0.title, goal: $0.goal,
+                              status: .done, owner: .builtIn, acceptedClaimID: UUID(),
+                              dependencyIDs: $0.dependencyIDs, lastUpdatedAt: Date())
+        }
+        state.taskBoardState = taskBoard
+
+        let results = try AgentTeamLaunchCoordinator().claimBatch(state: state)
+        #expect(results.isEmpty)
+    }
+
+    @Test
+    func claimBatchClaimsAllDispatchableBriefedCardsUpToBudget() throws {
+        // Brief 中有 2 张独立 briefed 卡，maxActiveProviders=2
+        let state = makeStateWithTwoIndependentBriefedCards(maxActiveProviders: 2)
+
+        let results = try AgentTeamLaunchCoordinator().claimBatch(state: state)
+
+        #expect(results.count == 2)
+        // 两张卡都应进入 .claimed 状态
+        let claimedCount = state.taskBoardState?.cards.filter { $0.status == .claimed }.count ?? 0
+        #expect(claimedCount == 2)
+    }
+
+    @Test
+    func claimBatchRespectsBudgetWhenAlreadyAtMax() throws {
+        let state = makeStateWithTwoIndependentBriefedCards(maxActiveProviders: 1)
+
+        let results = try AgentTeamLaunchCoordinator().claimBatch(state: state)
+
+        // 只能认领 1 张（budget=1）
+        #expect(results.count == 1)
+    }
+
+    @Test
+    func claimBatchAssignsProvidersRoundRobin() throws {
+        // eligibleProviders = [.builtIn, acp(X)]，2 张卡
+        let acpID = UUID()
+        let state = makeStateWithTwoIndependentBriefedCards(
+            maxActiveProviders: 2,
+            eligibleProviders: [.builtIn, .externalACP(profileID: acpID)]
+        )
+
+        let results = try AgentTeamLaunchCoordinator().claimBatch(state: state)
+
+        #expect(results.count == 2)
+        let providers = results.map { $0.executionTarget.providerReference }
+        #expect(providers[0] == .builtIn)
+        #expect(providers[1] == .externalACP(profileID: acpID))
+    }
+
+    @Test
+    func claimBatchSetsStatusToActive() throws {
+        let state = makeStateWithTwoIndependentBriefedCards(maxActiveProviders: 2)
+        _ = try AgentTeamLaunchCoordinator().claimBatch(state: state)
+        #expect(state.status == .active)
+    }
+
+    @Test
+    func claimBatchThrowsMissingBriefWhenBriefAbsent() throws {
+        let session = Session.fixture(title: "Team", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session, mode: .executionDelivery, status: .created)
+        // no brief set
+
+        #expect(throws: AgentTeamLaunchCoordinator.Error.missingBrief) {
+            try AgentTeamLaunchCoordinator().claimBatch(state: state)
+        }
+    }
+
+    @Test
+    func claimBatchSkipsCardsWithUnresolvedDependencies() throws {
+        // 1 张主卡（.briefed，no deps） + 1 张依赖主卡的子卡（.briefed）
+        let state = makeState(maxActiveProviders: 2)
+        // bootstrapBoard 会生成 1 主卡 + acceptance criteria 子卡（依赖主卡）
+        // 只有主卡无依赖，子卡有依赖 → claimBatch 只认领主卡
+
+        let results = try AgentTeamLaunchCoordinator().claimBatch(state: state)
+
+        // 主卡 1 张可派发（子卡依赖主卡，未完成）
+        #expect(results.count == 1)
+        guard let primaryCard = state.taskBoardState?.cards.first(where: { $0.dependencyIDs.isEmpty }) else {
+            #expect(Bool(false), "Expected primary card with no deps"); return
+        }
+        #expect(results[0].primaryCardID == primaryCard.id)
+    }
+}
+
+// MARK: - Test helpers for Feature 8
+
+@MainActor
+private extension AgentTeamLaunchCoordinatorTests {
+    func makeStateWithTwoIndependentBriefedCards(
+        maxActiveProviders: Int = 2,
+        eligibleProviders: [ExecutionProviderReference] = [.builtIn]
+    ) -> AgentTeamSessionState {
+        let cardA = UUID()
+        let cardB = UUID()
+        let session = Session.fixture(title: "Team (Parallel)", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session, mode: .executionDelivery, status: .created)
+        state.missionBrief = AgentTeamMissionBrief(
+            objective: "并行执行两个独立子任务",
+            constraints: [],
+            acceptanceCriteria: [],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: maxActiveProviders,
+                          tokenBudgetText: "20k", costBudgetText: "medium"),
+            initialContextSummary: "",
+            providerPlan: .init(
+                eligibleProviders: eligibleProviders,
+                preferredConductor: eligibleProviders.first ?? .builtIn,
+                preferredReviewer: nil,
+                dispatchPolicy: .autoClaim
+            )
+        )
+        // 手动构造两张独立 briefed 卡（无依赖）
+        let board = AgentTeamTaskBoardState(
+            cards: [
+                AgentTeamTaskCard(id: cardA, title: "子任务 A", goal: "执行 A",
+                                  status: .briefed, owner: nil, acceptedClaimID: nil,
+                                  dependencyIDs: [], lastUpdatedAt: Date()),
+                AgentTeamTaskCard(id: cardB, title: "子任务 B", goal: "执行 B",
+                                  status: .briefed, owner: nil, acceptedClaimID: nil,
+                                  dependencyIDs: [], lastUpdatedAt: Date())
+            ],
+            claims: []
+        )
+        state.taskBoardState = board
+        state.claimBoardState = board.claimBoardProjection
+        return state
+    }
 }
 
 // MARK: - AgentTeamMissionPromptBuilderTests
