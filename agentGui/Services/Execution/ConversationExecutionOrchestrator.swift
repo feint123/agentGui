@@ -455,6 +455,10 @@ final class ConversationExecutionOrchestrator {
         _ = await mailbox(for: job.sessionID).finishRunning(jobID: job.id)
         await scheduler.markFinished(jobID: job.id, sessionID: job.sessionID)
 
+        if outcome == .completed {
+            commitTeamArtifactIfNeeded(for: job)
+        }
+
         projectionWriter.apply(
             .finished(
                 sessionID: job.sessionID,
@@ -469,6 +473,63 @@ final class ConversationExecutionOrchestrator {
         )
 
         await dispatchReadyJobs()
+    }
+
+    /// 当 job 携带 teamContext 且执行成功时，把 agent 回复内容封装为 finalSynthesis artifact
+    /// 写入 AgentTeamSessionState.artifactBoardState。
+    private func commitTeamArtifactIfNeeded(for job: ExecutionJob) {
+        guard let teamContext = job.teamContext,
+              let session = try? persistenceStore.session(id: job.sessionID),
+              let state = session.agentTeamState else {
+            return
+        }
+
+        // 取 job 对应的 agent message 文本内容
+        let agentText: String
+        if let targetID = job.targetAgentMessageID,
+           let msg = session.messages.first(where: { $0.id == targetID }) {
+            agentText = msg.textContent ?? ""
+        } else {
+            // 兜底：取该 session 最后一条 agent message
+            agentText = session.messages
+                .filter { $0.direction == .agent }
+                .sorted { $0.sequence < $1.sequence }
+                .last?.textContent ?? ""
+        }
+
+        guard !agentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        let artifact = AgentTeamArtifact(
+            id: UUID(),
+            kind: .finalSynthesis,
+            title: "执行结果",
+            producer: job.providerReference,
+            taskCardID: teamContext.taskCardID,
+            version: 1,
+            summary: String(agentText.prefix(200)),
+            payload: .text(agentText),
+            status: .submitted
+        )
+
+        var artifactBoard = state.artifactBoardState ?? AgentTeamArtifactBoardState()
+        var taskBoard = state.taskBoardState
+
+        do {
+            if var tb = taskBoard {
+                (artifactBoard, taskBoard) = try AgentTeamArtifactBoardCoordinator()
+                    .submitArtifact(artifact, into: artifactBoard, linking: &tb)
+                state.artifactBoardState = artifactBoard
+                state.taskBoardState = taskBoard
+            } else {
+                artifactBoard.artifacts.append(artifact)
+                state.artifactBoardState = artifactBoard
+            }
+            try? modelContext.save()
+        } catch {
+            // artifact 提交失败不应中断主执行流程，静默忽略
+        }
     }
 
     private func updateProjectionForRunningJob(

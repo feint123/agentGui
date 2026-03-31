@@ -66,6 +66,17 @@ struct AgentTeamSessionView: View {
         } message: {
             if let launchError { Text(launchError) }
         }
+        .sheet(item: Binding(
+            get: { claudeService.pendingUserQuestion(for: session.sessionId) },
+            set: { newVal in
+                if newVal == nil {
+                    claudeService.pendingUserQuestion(for: session.sessionId)?.cancel()
+                    claudeService.clearPendingUserQuestion(for: session.sessionId)
+                }
+            }
+        )) { request in
+            AskUserQuestionView(request: request)
+        }
         .accessibilityIdentifier(Self.panelAccessibilityIdentifier)
         .task(id: session.sessionId) {
             let settings = AppSettings.getOrCreate(in: modelContext)
@@ -84,13 +95,17 @@ struct AgentTeamSessionView: View {
         .make(session: session, state: state, modelContext: modelContext)
     }
 
+    private var isExecuting: Bool {
+        claudeService.executionProjectionStore.projection(for: session.sessionId).isRunning
+    }
+
     private var horizontalShell: some View {
         HStack(alignment: .top, spacing: 16) {
             AgentTeamRosterPanelView(items: presentation.roster)
                 .frame(width: 260, alignment: .topLeading)
                 .accessibilityIdentifier(Self.rosterAccessibilityIdentifier)
 
-            AgentTeamBoardPanelView(columns: presentation.boardColumns, onCardDone: handleCardDone)
+            AgentTeamBoardPanelView(columns: presentation.boardColumns, isExecuting: isExecuting, onCardDone: handleCardDone)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .accessibilityIdentifier(Self.boardAccessibilityIdentifier)
 
@@ -105,7 +120,7 @@ struct AgentTeamSessionView: View {
             AgentTeamRosterPanelView(items: presentation.roster)
                 .accessibilityIdentifier(Self.rosterAccessibilityIdentifier)
 
-            AgentTeamBoardPanelView(columns: presentation.boardColumns, onCardDone: handleCardDone)
+            AgentTeamBoardPanelView(columns: presentation.boardColumns, isExecuting: isExecuting, onCardDone: handleCardDone)
                 .accessibilityIdentifier(Self.boardAccessibilityIdentifier)
 
             AgentTeamInspectorPanelView(summary: presentation.inspector)

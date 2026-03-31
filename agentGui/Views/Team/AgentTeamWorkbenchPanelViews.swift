@@ -35,6 +35,7 @@ private struct AgentTeamBoardCardView: View {
     let card: AgentTeamWorkbenchPresentation.BoardCard
     let isFirst: Bool
     let columnID: String
+    let isExecuting: Bool
     let onCardDone: ((String) -> Void)?
 
     var body: some View {
@@ -68,11 +69,23 @@ private struct AgentTeamBoardCardView: View {
             Text(card.artifactCountText)
                 .font(.caption2)
                 .foregroundStyle(card.artifactCountText == "无工件" ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.blue))
-            if columnID == AgentTeamTaskStatus.working.rawValue, let onCardDone {
-                Button("标记完成") { onCardDone(card.id) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
-                    .accessibilityIdentifier("agentTeam.card.markDone.\(card.id)")
+            if columnID == AgentTeamTaskStatus.working.rawValue {
+                if isExecuting {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("执行中…")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityIdentifier("agentTeam.card.executionProgress.\(card.id)")
+                }
+                if let onCardDone {
+                    Button("标记完成") { onCardDone(card.id) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                        .accessibilityIdentifier("agentTeam.card.markDone.\(card.id)")
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -83,6 +96,7 @@ private struct AgentTeamBoardCardView: View {
 
 struct AgentTeamBoardPanelView: View {
     let columns: [AgentTeamWorkbenchPresentation.BoardColumn]
+    var isExecuting: Bool = false
     var onCardDone: ((String) -> Void)? = nil
 
     var body: some View {
@@ -98,6 +112,7 @@ struct AgentTeamBoardPanelView: View {
                                     card: card,
                                     isFirst: card.id == firstCardID,
                                     columnID: column.id,
+                                    isExecuting: isExecuting && column.id == AgentTeamTaskStatus.working.rawValue,
                                     onCardDone: onCardDone
                                 )
                             }

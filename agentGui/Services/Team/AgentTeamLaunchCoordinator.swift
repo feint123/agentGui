@@ -36,12 +36,19 @@ struct AgentTeamLaunchCoordinator {
         let missionPrompt: String
     }
 
-    // MARK: - Launch
+    /// Intermediate result from the first phase (claim) of a two-phase launch.
+    struct ClaimPhaseResult: Equatable {
+        let primaryCardID: UUID
+        let executionTarget: AgentTeamExecutionTarget
+        let missionPrompt: String
+    }
 
-    /// Creates an accepted claim for the conductor, transitions the first briefed
-    /// card to `.working`, sets `state.status = .active`, and returns the
-    /// execution target + generated mission prompt.
-    func launch(state: AgentTeamSessionState) throws -> LaunchResult {
+    // MARK: - Two-Phase Launch
+
+    /// Phase 1: Bootstrap the task board, create an auto-claim for the conductor,
+    /// and advance the primary card to `.claimed`. Also sets `state.status = .active`.
+    /// Persists board state so SwiftUI can render the Claimed column before execution starts.
+    func claimPrimaryCard(state: AgentTeamSessionState) throws -> ClaimPhaseResult {
         guard let brief = state.missionBrief else {
             throw Error.missingBrief
         }
@@ -50,23 +57,19 @@ struct AgentTeamLaunchCoordinator {
         let taskBoardCoordinator = AgentTeamTaskBoardCoordinator()
         let claimCoordinator = AgentTeamClaimCoordinator()
 
-        // Bootstrap board if it hasn't been initialised yet
         var taskBoard = state.taskBoardState
             ?? taskBoardCoordinator.bootstrapBoard(from: brief, preferredProvider: conductor)
 
-        // Enforce maxActiveProviders: only count cards actively in flight
         let activeCount = taskBoard.cards.filter { $0.status == .working }.count
         let maxActive = brief.budget.maxActiveProviders
         guard activeCount < maxActive else {
             throw Error.providerBudgetExceeded(max: maxActive, active: activeCount)
         }
 
-        // Find the first card that is still waiting to be claimed
         guard let primaryCard = taskBoard.cards.first(where: { $0.status == .briefed }) else {
             throw Error.noPrimaryCard
         }
 
-        // Create an auto-claim for the conductor (confidence 1.0)
         let claim = AgentTeamClaim(
             id: UUID(),
             providerReference: conductor,
@@ -79,11 +82,8 @@ struct AgentTeamLaunchCoordinator {
             status: .pending,
             submittedAt: Date()
         )
-
-        // Register claim in the task board's claims array
         taskBoard.claims.append(claim)
 
-        // Accept the best claim — updates both the claim projection and task board
         let (_, claimedTaskBoard) = try claimCoordinator.acceptBestClaim(
             for: primaryCard.id,
             in: taskBoard.claimBoardProjection,
@@ -92,19 +92,12 @@ struct AgentTeamLaunchCoordinator {
             taskBoardCoordinator: taskBoardCoordinator
         )
 
-        // Advance card from .claimed → .working
-        let workingTaskBoard = try taskBoardCoordinator.transitionCard(
-            primaryCard.id,
-            to: .working,
-            in: claimedTaskBoard
-        )
-
-        // Persist updated boards and flip team status to active
-        state.taskBoardState = workingTaskBoard
-        state.claimBoardState = workingTaskBoard.claimBoardProjection
+        // Only advance to .claimed here — NOT .working
+        state.taskBoardState = claimedTaskBoard
+        state.claimBoardState = claimedTaskBoard.claimBoardProjection
         state.status = .active
 
-        guard let acceptedClaim = workingTaskBoard.acceptedClaim(for: primaryCard.id) else {
+        guard let acceptedClaim = claimedTaskBoard.acceptedClaim(for: primaryCard.id) else {
             throw Error.noPrimaryCard
         }
 
@@ -115,9 +108,28 @@ struct AgentTeamLaunchCoordinator {
                 claimID: acceptedClaim.id
             )
         )
-
         let prompt = AgentTeamMissionPromptBuilder().buildPrompt(brief: brief, card: primaryCard)
-        return LaunchResult(executionTarget: executionTarget, missionPrompt: prompt)
+        return ClaimPhaseResult(primaryCardID: primaryCard.id, executionTarget: executionTarget, missionPrompt: prompt)
+    }
+
+    /// Phase 2: Advance the primary card from `.claimed` to `.working`.
+    /// Call this after persisting Phase 1 and yielding to SwiftUI at least once.
+    func beginWorking(cardID: UUID, in state: AgentTeamSessionState) throws {
+        guard var taskBoard = state.taskBoardState else { return }
+        taskBoard = try AgentTeamTaskBoardCoordinator().transitionCard(cardID, to: .working, in: taskBoard)
+        state.taskBoardState = taskBoard
+        state.claimBoardState = taskBoard.claimBoardProjection
+    }
+
+    // MARK: - Legacy single-step launch (kept for tests)
+
+    /// Creates an accepted claim for the conductor, transitions the first briefed
+    /// card to `.working`, sets `state.status = .active`, and returns the
+    /// execution target + generated mission prompt.
+    func launch(state: AgentTeamSessionState) throws -> LaunchResult {
+        let claimResult = try claimPrimaryCard(state: state)
+        try beginWorking(cardID: claimResult.primaryCardID, in: state)
+        return LaunchResult(executionTarget: claimResult.executionTarget, missionPrompt: claimResult.missionPrompt)
     }
 
     // MARK: - Stop
