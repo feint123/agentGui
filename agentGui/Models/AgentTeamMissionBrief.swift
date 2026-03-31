@@ -1,21 +1,61 @@
 import Foundation
 
+// MARK: - Provider Role Types
+
+enum AgentTeamProviderRole: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case conductor
+    case worker
+    case reviewer
+}
+
+struct AgentTeamProviderRoleAssignment: Codable, Equatable, Sendable {
+    let providerReference: ExecutionProviderReference
+    var roles: Set<AgentTeamProviderRole>
+    var selectedModelID: String?
+    var selectedModeID: String?
+
+    init(
+        providerReference: ExecutionProviderReference,
+        roles: Set<AgentTeamProviderRole> = [],
+        selectedModelID: String? = nil,
+        selectedModeID: String? = nil
+    ) {
+        self.providerReference = providerReference
+        self.roles = roles
+        self.selectedModelID = selectedModelID
+        self.selectedModeID = selectedModeID
+    }
+
+    var isConductor: Bool { roles.contains(.conductor) }
+    var isWorker:    Bool { roles.contains(.worker) }
+    var isReviewer:  Bool { roles.contains(.reviewer) }
+}
+
+// MARK: - Provider Plan
+
 struct AgentTeamProviderPlan: Codable, Equatable, Sendable {
-    var eligibleProviders: [ExecutionProviderReference]
-    var preferredConductor: ExecutionProviderReference
-    var preferredReviewer: ExecutionProviderReference?
+    var roleAssignments: [AgentTeamProviderRoleAssignment]
     var dispatchPolicy: AgentTeamDispatchPolicy
 
     init(
-        eligibleProviders: [ExecutionProviderReference],
-        preferredConductor: ExecutionProviderReference,
-        preferredReviewer: ExecutionProviderReference?,
-        dispatchPolicy: AgentTeamDispatchPolicy
+        roleAssignments: [AgentTeamProviderRoleAssignment],
+        dispatchPolicy: AgentTeamDispatchPolicy = .manualSelection
     ) {
-        self.eligibleProviders = eligibleProviders
-        self.preferredConductor = preferredConductor
-        self.preferredReviewer = preferredReviewer
+        self.roleAssignments = roleAssignments
         self.dispatchPolicy = dispatchPolicy
+    }
+
+    // MARK: - 计算属性
+    var eligibleProviders: [ExecutionProviderReference] {
+        roleAssignments.map(\.providerReference)
+    }
+
+    var preferredConductor: ExecutionProviderReference {
+        roleAssignments.first(where: { $0.isConductor })?.providerReference ?? .builtIn
+    }
+
+    var preferredReviewer: ExecutionProviderReference? {
+        roleAssignments.first(where: { $0.isReviewer })?.providerReference
     }
 }
 
@@ -42,9 +82,7 @@ struct AgentTeamMissionBrief: Codable, Equatable, Sendable {
         dispatchBudget: AgentTeamDispatchBudget = AgentTeamDispatchBudget(),
         initialContextSummary: String,
         providerPlan: AgentTeamProviderPlan = AgentTeamProviderPlan(
-            eligibleProviders: [.builtIn],
-            preferredConductor: .builtIn,
-            preferredReviewer: nil,
+            roleAssignments: [AgentTeamProviderRoleAssignment(providerReference: .builtIn, roles: [.conductor, .worker])],
             dispatchPolicy: .manualSelection
         )
     ) {
@@ -85,7 +123,7 @@ extension AgentTeamMissionBrief {
         mode = try c.decode(AgentTeamMode.self, forKey: .mode)
         initialContextSummary = try c.decodeIfPresent(String.self, forKey: .initialContextSummary) ?? ""
         providerPlan = try c.decodeIfPresent(AgentTeamProviderPlan.self, forKey: .providerPlan)
-            ?? AgentTeamProviderPlan(eligibleProviders: [.builtIn], preferredConductor: .builtIn, preferredReviewer: nil, dispatchPolicy: .manualSelection)
+            ?? AgentTeamProviderPlan(roleAssignments: [AgentTeamProviderRoleAssignment(providerReference: .builtIn, roles: [.conductor, .worker])], dispatchPolicy: .manualSelection)
 
         if let newBudget = try c.decodeIfPresent(AgentTeamDispatchBudget.self, forKey: .dispatchBudget) {
             dispatchBudget = newBudget

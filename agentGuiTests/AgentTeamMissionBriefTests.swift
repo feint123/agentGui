@@ -16,9 +16,10 @@ struct AgentTeamMissionBriefTests {
             dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: "来源聊天包含 bug 复现与日志摘要。",
             providerPlan: AgentTeamProviderPlan(
-                eligibleProviders: [.builtIn, conductor, reviewer],
-                preferredConductor: conductor,
-                preferredReviewer: reviewer,
+                roleAssignments: [
+                    AgentTeamProviderRoleAssignment(providerReference: conductor, roles: [.conductor, .worker]),
+                    AgentTeamProviderRoleAssignment(providerReference: reviewer, roles: [.reviewer])
+                ],
                 dispatchPolicy: .manualSelection
             )
         )
@@ -34,13 +35,14 @@ struct AgentTeamMissionBriefTests {
         let conductor = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
         let reviewer = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
         let plan = AgentTeamProviderPlan(
-            eligibleProviders: [.builtIn, conductor, reviewer],
-            preferredConductor: conductor,
-            preferredReviewer: reviewer,
+            roleAssignments: [
+                AgentTeamProviderRoleAssignment(providerReference: conductor, roles: [.conductor, .worker]),
+                AgentTeamProviderRoleAssignment(providerReference: reviewer, roles: [.reviewer])
+            ],
             dispatchPolicy: .sourceSessionSeeded
         )
 
-        #expect(plan.eligibleProviders == [.builtIn, conductor, reviewer])
+        #expect(plan.eligibleProviders == [conductor, reviewer])
         #expect(plan.preferredConductor == conductor)
         #expect(plan.preferredReviewer == reviewer)
         #expect(plan.dispatchPolicy == .sourceSessionSeeded)
@@ -65,5 +67,84 @@ struct AgentTeamMissionBriefTests {
         let data = try JSONEncoder().encode(brief)
         let decoded = try JSONDecoder().decode(AgentTeamMissionBrief.self, from: data)
         #expect(decoded.dispatchBudget.maxActiveProviders == 2)
+    }
+
+    @Test
+    func providerRoleAssignmentAllowsSameProviderAsConductorAndReviewer() {
+        let provider = ExecutionProviderReference.builtIn
+        var assignment = AgentTeamProviderRoleAssignment(providerReference: provider)
+        assignment.roles.insert(.conductor)
+        assignment.roles.insert(.reviewer)
+
+        #expect(assignment.roles.contains(.conductor))
+        #expect(assignment.roles.contains(.reviewer))
+        #expect(assignment.isConductor)
+        #expect(assignment.isReviewer)
+    }
+
+    @Test
+    func providerRoleAssignmentRoundTripsThroughJSON() throws {
+        let assignment = AgentTeamProviderRoleAssignment(
+            providerReference: LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference,
+            roles: [.conductor, .worker],
+            selectedModelID: "claude-opus-4",
+            selectedModeID: "code"
+        )
+        let data = try JSONEncoder().encode(assignment)
+        let decoded = try JSONDecoder().decode(AgentTeamProviderRoleAssignment.self, from: data)
+        #expect(decoded == assignment)
+    }
+
+    @Test
+    func providerPlanUsesRoleAssignmentsAsSourceOfTruth() {
+        let conductor = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        let reviewer = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+        let plan = AgentTeamProviderPlan(
+            roleAssignments: [
+                AgentTeamProviderRoleAssignment(
+                    providerReference: conductor,
+                    roles: [.conductor, .worker]
+                ),
+                AgentTeamProviderRoleAssignment(
+                    providerReference: reviewer,
+                    roles: [.reviewer]
+                )
+            ],
+            dispatchPolicy: .manualSelection
+        )
+
+        #expect(plan.preferredConductor == conductor)
+        #expect(plan.preferredReviewer == reviewer)
+        #expect(plan.eligibleProviders == [conductor, reviewer])
+    }
+
+    @Test
+    func providerPlanAllowsSameProviderAsConductorAndReviewer() {
+        let solo = ExecutionProviderReference.builtIn
+        let plan = AgentTeamProviderPlan(
+            roleAssignments: [
+                AgentTeamProviderRoleAssignment(providerReference: solo, roles: [.conductor, .reviewer])
+            ],
+            dispatchPolicy: .manualSelection
+        )
+        #expect(plan.preferredConductor == solo)
+        #expect(plan.preferredReviewer == solo)
+        #expect(plan.eligibleProviders == [solo])
+    }
+
+    @Test
+    func providerPlanRoleAssignmentsRoundTripsThroughJSON() throws {
+        let plan = AgentTeamProviderPlan(
+            roleAssignments: [
+                AgentTeamProviderRoleAssignment(
+                    providerReference: .builtIn,
+                    roles: [.conductor, .reviewer]
+                )
+            ],
+            dispatchPolicy: .autoClaim
+        )
+        let data = try JSONEncoder().encode(plan)
+        let decoded = try JSONDecoder().decode(AgentTeamProviderPlan.self, from: data)
+        #expect(decoded == plan)
     }
 }

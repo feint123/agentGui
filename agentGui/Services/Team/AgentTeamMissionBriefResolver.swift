@@ -59,9 +59,7 @@ struct AgentTeamMissionBriefResolver {
             dispatchBudget: AgentTeamDispatchBudget(maxActiveProviders: 2),
             initialContextSummary: initialContextSummary,
             providerPlan: AgentTeamProviderPlan(
-                eligibleProviders: [.builtIn],
-                preferredConductor: .builtIn,
-                preferredReviewer: nil,
+                roleAssignments: [AgentTeamProviderRoleAssignment(providerReference: .builtIn, roles: [.conductor, .worker])],
                 dispatchPolicy: .manualSelection
             )
         )
