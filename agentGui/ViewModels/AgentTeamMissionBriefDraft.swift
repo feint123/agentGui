@@ -237,6 +237,49 @@ extension AgentTeamMissionBriefDraft {
     }
 }
 
+// MARK: - Chip 操作助手 (Feature 16)
+extension AgentTeamMissionBriefDraft {
+    /// 将 constraintsText 按行拆分，过滤空行，返回 chip 数组。
+    var constraintChips: [String] {
+        constraintsText.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    /// 将 acceptanceCriteriaText 按行拆分，过滤空行，返回 chip 数组。
+    var criteriaChips: [String] {
+        acceptanceCriteriaText.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    /// 删除 constraintChips[at]，重新写回 constraintsText。
+    mutating func removeConstraintChip(at index: Int) {
+        var chips = constraintChips
+        guard chips.indices.contains(index) else { return }
+        chips.remove(at: index)
+        constraintsText = chips.joined(separator: "\n")
+    }
+
+    /// 删除 criteriaChips[at]，重新写回 acceptanceCriteriaText。
+    mutating func removeCriteriaChip(at index: Int) {
+        var chips = criteriaChips
+        guard chips.indices.contains(index) else { return }
+        chips.remove(at: index)
+        acceptanceCriteriaText = chips.joined(separator: "\n")
+    }
+
+    /// 在 constraintChips 末尾追加一行（仅当非空时）。
+    mutating func appendConstraintChip(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        constraintsText = (constraintChips + [trimmed]).joined(separator: "\n")
+    }
+
+    /// 在 criteriaChips 末尾追加一行（仅当非空时）。
+    mutating func appendCriteriaChip(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        acceptanceCriteriaText = (criteriaChips + [trimmed]).joined(separator: "\n")
+    }
+}
+
 private extension String {
     var trimmedNonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)

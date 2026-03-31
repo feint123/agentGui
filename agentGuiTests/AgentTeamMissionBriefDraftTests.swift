@@ -129,4 +129,53 @@ struct AgentTeamMissionBriefDraftTests {
 
         #expect(draft.roleAssignments.isEmpty == false || draft.roleAssignments.isEmpty)
     }
+
+    // MARK: - Chip 操作助手 (Feature 16)
+
+    @Test
+    func constraintChipsReturnsNonEmptyLines() {
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.constraintsText = "只改 Swift 文件\n不删除测试\n"
+        #expect(draft.constraintChips == ["只改 Swift 文件", "不删除测试"])
+    }
+
+    @Test
+    func criteriaChipsReturnsNonEmptyLines() {
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.acceptanceCriteriaText = "所有测试通过\n"
+        #expect(draft.criteriaChips == ["所有测试通过"])
+    }
+
+    @Test
+    func removeConstraintChipDeletesCorrectLine() {
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.constraintsText = "A\nB\nC"
+        draft.removeConstraintChip(at: 1)   // 删除 "B"
+        #expect(draft.constraintChips == ["A", "C"])
+    }
+
+    @Test
+    func removeCriteriaChipDeletesCorrectLine() {
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.acceptanceCriteriaText = "X\nY"
+        draft.removeCriteriaChip(at: 0)     // 删除 "X"
+        #expect(draft.criteriaChips == ["Y"])
+    }
+
+    @Test
+    func appendConstraintChipAddsLine() {
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.constraintsText = "A"
+        draft.appendConstraintChip("B")
+        #expect(draft.constraintChips == ["A", "B"])
+    }
+
+    @Test
+    func chipRoundTripPreservesContent() {
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.constraintsText = "行一\n行二\n行三"
+        draft.removeConstraintChip(at: 1)
+        draft.appendConstraintChip("行四")
+        #expect(draft.constraintChips == ["行一", "行三", "行四"])
+    }
 }
