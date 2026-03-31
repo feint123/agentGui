@@ -57,7 +57,13 @@ struct AgentTeamMissionBriefResolver {
             ],
             mode: mode,
             budget: AgentTeamBudget(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
-            initialContextSummary: initialContextSummary
+            initialContextSummary: initialContextSummary,
+            providerPlan: AgentTeamProviderPlan(
+                eligibleProviders: [.builtIn],
+                preferredConductor: .builtIn,
+                preferredReviewer: nil,
+                dispatchPolicy: .manualSelection
+            )
         )
     }
 }

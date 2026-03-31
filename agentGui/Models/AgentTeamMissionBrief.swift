@@ -1,5 +1,30 @@
 import Foundation
 
+struct AgentTeamProviderPlan: Codable, Equatable, Sendable {
+    var eligibleProviders: [ExecutionProviderReference]
+    var preferredConductor: ExecutionProviderReference
+    var preferredReviewer: ExecutionProviderReference?
+    var dispatchPolicy: AgentTeamDispatchPolicy
+
+    init(
+        eligibleProviders: [ExecutionProviderReference],
+        preferredConductor: ExecutionProviderReference,
+        preferredReviewer: ExecutionProviderReference?,
+        dispatchPolicy: AgentTeamDispatchPolicy
+    ) {
+        self.eligibleProviders = eligibleProviders
+        self.preferredConductor = preferredConductor
+        self.preferredReviewer = preferredReviewer
+        self.dispatchPolicy = dispatchPolicy
+    }
+}
+
+enum AgentTeamDispatchPolicy: String, Codable, Equatable, Sendable {
+    case manualSelection
+    case sourceSessionSeeded
+    case autoClaim
+}
+
 struct AgentTeamMissionBrief: Codable, Equatable, Sendable {
     var objective: String
     var constraints: [String]
@@ -7,6 +32,7 @@ struct AgentTeamMissionBrief: Codable, Equatable, Sendable {
     var mode: AgentTeamMode
     var budget: AgentTeamBudget
     var initialContextSummary: String
+    var providerPlan: AgentTeamProviderPlan
 
     init(
         objective: String,
@@ -14,7 +40,13 @@ struct AgentTeamMissionBrief: Codable, Equatable, Sendable {
         acceptanceCriteria: [String],
         mode: AgentTeamMode,
         budget: AgentTeamBudget,
-        initialContextSummary: String
+        initialContextSummary: String,
+        providerPlan: AgentTeamProviderPlan = AgentTeamProviderPlan(
+            eligibleProviders: [.builtIn],
+            preferredConductor: .builtIn,
+            preferredReviewer: nil,
+            dispatchPolicy: .manualSelection
+        )
     ) {
         self.objective = objective
         self.constraints = constraints
@@ -22,6 +54,7 @@ struct AgentTeamMissionBrief: Codable, Equatable, Sendable {
         self.mode = mode
         self.budget = budget
         self.initialContextSummary = initialContextSummary
+        self.providerPlan = providerPlan
     }
 }
 

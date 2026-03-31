@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import agentGui
 
@@ -25,6 +26,13 @@ struct AgentTeamMissionBriefDraftTests {
         draft.tokenBudgetText = "20k"
         draft.costBudgetText = "medium"
         draft.initialContextSummary = "当前聊天包含失败测试与日志。"
+        draft.eligibleProviderIDs = [
+            ExecutionProviderReference.builtIn.persistedValue,
+            LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue,
+            LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference.persistedValue
+        ]
+        draft.preferredConductorID = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue
+        draft.preferredReviewerID = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference.persistedValue
 
         let brief = draft.buildBrief()
 
@@ -32,5 +40,63 @@ struct AgentTeamMissionBriefDraftTests {
         #expect(brief.constraints == ["仅修改 Swift 文件", "保持 focused tests"])
         #expect(brief.acceptanceCriteria == ["Mission Header 回显 brief", "team session 持久化 brief"])
         #expect(brief.budget == AgentTeamBudget(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"))
+        #expect(brief.providerPlan.eligibleProviders == [
+            .builtIn,
+            LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference,
+            LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        ])
+        #expect(brief.providerPlan.preferredConductor == LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference)
+        #expect(brief.providerPlan.preferredReviewer == LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference)
+        #expect(brief.providerPlan.dispatchPolicy == .manualSelection)
+    }
+
+    @Test
+    func sourceContextPrefillsSeededProviderParticipationPlan() {
+        let source = NewSessionMenuAction.SourceContext(
+            sessionID: "chat-1",
+            title: "修复 ACP",
+            defaultExecutionProviderReference: LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+        )
+
+        let draft = AgentTeamMissionBriefDraft.prefilled(fromSourceContext: source)
+
+        #expect(draft.eligibleProviderIDs == [LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue])
+        #expect(draft.preferredConductorID == LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue)
+        #expect(draft.dispatchPolicy == .sourceSessionSeeded)
+    }
+
+    @Test
+    func reconcileProviderOptionsDropsUnavailableSelectionsWithoutImplicitStandaloneFallback() {
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.eligibleProviderIDs = [UUID().uuidString]
+        draft.preferredConductorID = UUID().uuidString
+
+        draft.reconcileProviderOptions([
+            ExecutionOptionItem(id: ExecutionProviderReference.builtIn.persistedValue, title: "Built-In Agent")
+        ])
+
+        #expect(draft.eligibleProviderIDs.isEmpty)
+        #expect(draft.preferredConductorID.isEmpty)
+        #expect(draft.dispatchPolicy == .manualSelection)
+    }
+
+    @Test
+    func togglingProviderRemovesReviewerAndConductorWhenSelectionBecomesInvalid() {
+        let conductor = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference.persistedValue
+        let reviewer = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference.persistedValue
+        var draft = AgentTeamMissionBriefDraft.prefilled(from: nil)
+        draft.eligibleProviderIDs = [conductor, reviewer]
+        draft.preferredConductorID = conductor
+        draft.preferredReviewerID = reviewer
+
+        draft.toggleEligibleProvider(reviewer)
+
+        #expect(draft.eligibleProviderIDs == [conductor])
+        #expect(draft.preferredReviewerID.isEmpty)
+
+        draft.toggleEligibleProvider(conductor)
+
+        #expect(draft.eligibleProviderIDs.isEmpty)
+        #expect(draft.preferredConductorID.isEmpty)
     }
 }

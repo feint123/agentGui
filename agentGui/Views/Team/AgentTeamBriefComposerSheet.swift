@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct AgentTeamBriefComposerRequest: Identifiable {
     let id = UUID()
@@ -16,6 +17,8 @@ struct AgentTeamBriefComposerRequest: Identifiable {
 }
 
 struct AgentTeamBriefComposerSheet: View {
+    @Environment(\.modelContext) private var modelContext
+
     let sourceContext: NewSessionMenuAction.SourceContext?
     let onCancel: () -> Void
     let onSubmit: (AgentTeamMissionBriefDraft) -> Void
@@ -94,6 +97,44 @@ struct AgentTeamBriefComposerSheet: View {
                         }
                     }
 
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Providers")
+                            .font(.headline)
+
+                        if resolvedProviderOptions.isEmpty {
+                            Text("当前没有可用 provider。请先在设置中启用至少一个执行器。")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(resolvedProviderOptions) { option in
+                                Toggle(isOn: binding(for: option.id)) {
+                                    Text(option.title)
+                                }
+                                .toggleStyle(.checkbox)
+                                .accessibilityIdentifier("agentTeam.brief.provider.\(option.id)")
+                            }
+
+                            Picker("Conductor", selection: $draft.preferredConductorID) {
+                                ForEach(selectedProviderOptions) { option in
+                                    Text(option.title).tag(option.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .disabled(selectedProviderOptions.isEmpty)
+                            .accessibilityIdentifier("agentTeam.brief.preferredConductor")
+
+                            Picker("Reviewer", selection: $draft.preferredReviewerID) {
+                                Text("不指定").tag("")
+                                ForEach(reviewerOptions) { option in
+                                    Text(option.title).tag(option.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .disabled(selectedProviderOptions.isEmpty)
+                            .accessibilityIdentifier("agentTeam.brief.preferredReviewer")
+                        }
+                    }
+
                     Text("Initial Context Summary")
                         .font(.headline)
                     TextEditor(text: $draft.initialContextSummary)
@@ -121,10 +162,18 @@ struct AgentTeamBriefComposerSheet: View {
         .padding(20)
         .frame(minWidth: 640, minHeight: 560, alignment: .topLeading)
         .accessibilityIdentifier("agentTeam.briefComposer")
+        .onAppear {
+            draft.reconcileProviderOptions(
+                resolvedProviderOptions,
+                sourceDefaultProviderID: sourceContext?.defaultExecutionProviderReference.persistedValue
+            )
+        }
     }
 
     private var canSubmit: Bool {
         draft.objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            && draft.eligibleProviderIDs.isEmpty == false
+            && draft.preferredConductorID.isEmpty == false
     }
 
     private var sourceSummary: String {
@@ -133,5 +182,39 @@ struct AgentTeamBriefComposerSheet: View {
             return "独立 Team Mode 会话"
         }
         return "来源会话：\(sourceTitle)"
+    }
+
+    private var resolvedProviderOptions: [ExecutionOptionItem] {
+        SettingsStore(modelContext: modelContext, persistenceCoordinator: nil)
+            .defaultExecutionProviderOptions()
+            .filter(\ .isEnabled)
+    }
+
+    private var selectedProviderOptions: [ExecutionOptionItem] {
+        resolvedProviderOptions.filter { draft.eligibleProviderIDs.contains($0.id) }
+    }
+
+    private var reviewerOptions: [ExecutionOptionItem] {
+        selectedProviderOptions.filter { $0.id != draft.preferredConductorID }
+    }
+
+    private func binding(for providerID: String) -> Binding<Bool> {
+        Binding(
+            get: {
+                draft.eligibleProviderIDs.contains(providerID)
+            },
+            set: { isSelected in
+                let currentlySelected = draft.eligibleProviderIDs.contains(providerID)
+                guard currentlySelected != isSelected else {
+                    return
+                }
+
+                draft.toggleEligibleProvider(providerID)
+                draft.reconcileProviderOptions(
+                    resolvedProviderOptions,
+                    sourceDefaultProviderID: sourceContext?.defaultExecutionProviderReference.persistedValue
+                )
+            }
+        )
     }
 }

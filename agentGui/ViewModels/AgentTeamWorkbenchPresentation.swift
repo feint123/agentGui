@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 struct AgentTeamWorkbenchPresentation: Equatable {
     struct Header: Equatable {
@@ -8,6 +9,9 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let modeText: String
         let statusText: String
         let budgetSummary: String
+        let providerSummary: String
+        let conductorSummary: String
+        let reviewerSummary: String
         let constraints: [String]
         let acceptanceCriteria: [String]
         let contextSummary: String
@@ -28,8 +32,10 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         let title: String
         let summary: String
         let owner: String
-        let claimStatusText: String
+        let statusText: String
         let claimCountText: String
+        let dependencySummary: String
+        let blockerSummary: String?
     }
 
     struct BoardColumn: Identifiable, Equatable {
@@ -40,9 +46,10 @@ struct AgentTeamWorkbenchPresentation: Equatable {
 
     struct InspectorSummary: Equatable {
         let title: String
-        let artifactSummary: String
-        let reviewSummary: String
-        let traceSummary: String
+        let ownerSummary: String
+        let dependencySummary: String
+        let blockerSummary: String
+        let downstreamSummary: String
     }
 
     let header: Header
@@ -50,18 +57,24 @@ struct AgentTeamWorkbenchPresentation: Equatable {
     let boardColumns: [BoardColumn]
     let inspector: InspectorSummary
 
-    static func make(session: Session, state: AgentTeamSessionState?) -> Self {
+    static func make(session: Session, state: AgentTeamSessionState?, modelContext: ModelContext? = nil) -> Self {
         let sourceTitle = state?.sourceSessionTitle.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedSourceTitle = sourceTitle.isEmpty ? "无来源聊天" : sourceTitle
         let resolution = AgentTeamMissionBriefResolver().resolve(session: session, state: state)
         let brief = resolution.brief
-        let boardProjection = makeBoardColumns(from: state?.claimBoardState)
+        let providerPlan = brief.providerPlan
+        let eligibleProviderNames = providerPlan.eligibleProviders.map { displayName(for: $0, modelContext: modelContext) }
+        let conductorName = displayName(for: providerPlan.preferredConductor, modelContext: modelContext)
+        let reviewerName = providerPlan.preferredReviewer.map { displayName(for: $0, modelContext: modelContext) } ?? "未设置"
+        let boardState = state?.taskBoardState
+        let boardProjection = makeBoardColumns(from: boardState, modelContext: modelContext)
         let acceptedOwnerNames = Set(
             boardProjection
                 .flatMap(\ .cards)
                 .map(\ .owner)
                 .filter { $0 != "待认领" }
         )
+        let inspector = makeInspectorSummary(from: boardState, modelContext: modelContext)
 
         return Self(
             header: Header(
@@ -71,6 +84,9 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                 modeText: modeText(for: brief.mode),
                 statusText: statusText(for: state?.status ?? .created),
                 budgetSummary: budgetSummary(for: brief.budget),
+                providerSummary: "Providers：\(eligibleProviderNames.joined(separator: "、"))",
+                conductorSummary: "Conductor：\(conductorName)",
+                reviewerSummary: "Reviewer：\(reviewerName)",
                 constraints: brief.constraints,
                 acceptanceCriteria: brief.acceptanceCriteria,
                 contextSummary: brief.initialContextSummary,
@@ -80,37 +96,34 @@ struct AgentTeamWorkbenchPresentation: Equatable {
                 RosterItem(
                     id: "conductor",
                     role: "conductor",
-                    title: "Conductor",
+                    title: conductorName,
                     readiness: acceptedOwnerNames.isEmpty ? "协调认领" : "已完成 owner 决策",
-                    focus: acceptedOwnerNames.isEmpty ? "等待 provider 提交 claim" : "同步认领结果与团队焦点",
+                    focus: "负责 brief、claim 决策与调度",
                     blocker: "无"
                 ),
                 RosterItem(
                     id: "worker",
                     role: "worker",
-                    title: "Worker",
-                    readiness: acceptedOwnerNames.isEmpty ? "待认领" : "已认领",
-                    focus: acceptedOwnerNames.isEmpty ? "等待 owner 分配" : acceptedOwnerNames.joined(separator: "、"),
+                    title: "Eligible Providers",
+                    readiness: "已选择 \(eligibleProviderNames.count) 个 provider",
+                    focus: eligibleProviderNames.joined(separator: "、"),
                     blocker: acceptedOwnerNames.isEmpty ? "等待 accepted claim" : "无"
                 ),
                 RosterItem(
                     id: "reviewer",
                     role: "reviewer",
-                    title: "Reviewer",
-                    readiness: "待命",
+                    title: reviewerName,
+                    readiness: providerPlan.preferredReviewer == nil ? "未配置 reviewer" : "已配置 reviewer",
                     focus: "校验 artifact 与 review gate",
-                    blocker: "等待首个产物"
+                    blocker: providerPlan.preferredReviewer == nil ? "等待 reviewer 指定" : "等待首个产物"
                 )
             ],
             boardColumns: boardProjection,
-            inspector: InspectorSummary(
-                title: "待选中 work item",
-                artifactSummary: "Artifact：当前显示占位说明，后续承接 Feature 6 typed artifacts。",
-                reviewSummary: "Review：当前显示占位说明，后续承接 Feature 10 review gate。",
-                traceSummary: "Trace：当前显示占位说明，后续接入 team execution timeline。"
-            )
+            inspector: inspector
         )
     }
+
+    private static let statusColumnOrder: [AgentTeamTaskStatus] = [.briefed, .claimed, .working, .reviewing, .done, .blocked]
 
     private static func modeText(for mode: AgentTeamMode) -> String {
         switch mode {
@@ -136,69 +149,132 @@ struct AgentTeamWorkbenchPresentation: Equatable {
         "预算：并发 \(budget.maxActiveProviders) · Token \(budget.tokenBudgetText) · 成本 \(budget.costBudgetText)"
     }
 
-    private static func makeBoardColumns(from board: AgentTeamClaimBoardState?) -> [BoardColumn] {
-        guard let board, !board.cards.isEmpty else {
-            return [
+    private static func makeBoardColumns(from board: AgentTeamTaskBoardState?, modelContext: ModelContext?) -> [BoardColumn] {
+        guard let board else {
+            return statusColumnOrder.map { status in
                 BoardColumn(
-                    id: "claiming",
-                    title: "待认领",
-                    cards: [
+                    id: status.rawValue,
+                    title: title(for: status),
+                    cards: status == .briefed ? [
                         BoardCard(
-                            id: "claim-placeholder",
-                            title: "等待 claim board 初始化",
-                            summary: "当前会话尚未生成可认领 card。",
+                            id: "task-placeholder",
+                            title: "等待 task board 初始化",
+                            summary: "当前会话尚未生成可执行 task card。",
                             owner: "待认领",
-                            claimStatusText: "待认领",
-                            claimCountText: "0 个 claim"
+                            statusText: title(for: .briefed),
+                            claimCountText: "0 个 claim",
+                            dependencySummary: "无依赖",
+                            blockerSummary: nil
                         )
-                    ]
+                    ] : []
                 )
-            ]
+            }
         }
 
-        let boardCards = board.cards.map { card in
-            let claims = board.claims(for: card.id)
-            let acceptedClaim = board.acceptedClaim(for: card.id)
-            let ownerReference = card.owner ?? acceptedClaim?.providerReference
-            let claimStatusText: String
+        return statusColumnOrder.map { status in
+            BoardColumn(
+                id: status.rawValue,
+                title: title(for: status),
+                cards: board.cards
+                    .filter { $0.status == status }
+                    .map { card in
+                        let claims = board.claims(for: card.id)
+                        let acceptedClaim = board.acceptedClaim(for: card.id)
+                        let ownerReference = card.owner ?? acceptedClaim?.providerReference
+                        let unresolvedDependencies = board.unresolvedDependencies(for: card.id)
 
-            if ownerReference != nil {
-                claimStatusText = "已认领"
-            } else if claims.count > 1 {
-                claimStatusText = "竞争认领"
-            } else {
-                claimStatusText = "待认领"
-            }
+                        return BoardCard(
+                            id: card.id.uuidString,
+                            title: card.title,
+                            summary: card.goal,
+                            owner: ownerReference.map { displayName(for: $0, modelContext: modelContext) } ?? "待认领",
+                            statusText: title(for: status),
+                            claimCountText: "\(claims.count) 个 claim",
+                            dependencySummary: dependencySummary(for: card, unresolvedDependencies: unresolvedDependencies, in: board),
+                            blockerSummary: card.blockerSummary
+                        )
+                    }
+            )
+        }
+    }
 
-            return BoardCard(
-                id: card.id.uuidString,
-                title: card.title,
-                summary: card.goal,
-                owner: ownerReference.map(displayName(for:)) ?? "待认领",
-                claimStatusText: claimStatusText,
-                claimCountText: "\(claims.count) 个 claim"
+    private static func makeInspectorSummary(from board: AgentTeamTaskBoardState?, modelContext: ModelContext?) -> InspectorSummary {
+        guard let board,
+              let focusedCard = statusColumnOrder
+                .compactMap({ status in board.cards.first(where: { $0.status == status }) })
+                .first else {
+            return InspectorSummary(
+                title: "待选中 work item",
+                ownerSummary: "Owner：待认领",
+                dependencySummary: "上游依赖：无",
+                blockerSummary: "阻塞：无",
+                downstreamSummary: "下游任务：无"
             )
         }
 
-        let claimedCards = boardCards.filter { $0.claimStatusText == "已认领" }
-        let unclaimedCards = boardCards.filter { $0.claimStatusText != "已认领" }
-        var columns: [BoardColumn] = []
+        let acceptedClaim = board.acceptedClaim(for: focusedCard.id)
+        let ownerReference = focusedCard.owner ?? acceptedClaim?.providerReference
+        let ownerSummary = ownerReference.map { "Owner：\(displayName(for: $0, modelContext: modelContext))" } ?? "Owner：待认领"
+        let upstreamTitles = focusedCard.dependencyIDs.compactMap { board.card(id: $0)?.title }
+        let downstreamTitles = board.cards
+            .filter { $0.dependencyIDs.contains(focusedCard.id) }
+            .map(\ .title)
 
-        if !unclaimedCards.isEmpty {
-            columns.append(BoardColumn(id: "claiming", title: "待认领", cards: unclaimedCards))
-        }
-        if !claimedCards.isEmpty {
-            columns.append(BoardColumn(id: "claimed", title: "已认领", cards: claimedCards))
-        }
-
-        return columns
+        return InspectorSummary(
+            title: focusedCard.title,
+            ownerSummary: ownerSummary,
+            dependencySummary: "上游依赖：\(upstreamTitles.isEmpty ? "无" : upstreamTitles.joined(separator: "、"))",
+            blockerSummary: "阻塞：\((focusedCard.blockerSummary?.isEmpty == false ? focusedCard.blockerSummary! : "无"))",
+            downstreamSummary: "下游任务：\(downstreamTitles.isEmpty ? "无" : downstreamTitles.joined(separator: "、"))"
+        )
     }
 
-    private static func displayName(for providerReference: ExecutionProviderReference) -> String {
+    private static func title(for status: AgentTeamTaskStatus) -> String {
+        switch status {
+        case .briefed:
+            return "Briefed"
+        case .claimed:
+            return "Claimed"
+        case .working:
+            return "Working"
+        case .reviewing:
+            return "Reviewing"
+        case .done:
+            return "Done"
+        case .blocked:
+            return "Blocked"
+        }
+    }
+
+    private static func dependencySummary(
+        for card: AgentTeamTaskCard,
+        unresolvedDependencies: [UUID],
+        in board: AgentTeamTaskBoardState
+    ) -> String {
+        guard card.dependencyIDs.isEmpty == false else {
+            return "无依赖"
+        }
+
+        if unresolvedDependencies.isEmpty {
+            return "依赖 \(card.dependencyIDs.count) 张卡，均已完成"
+        }
+
+        let unresolvedTitles = unresolvedDependencies.compactMap { board.card(id: $0)?.title }
+        if unresolvedTitles.isEmpty {
+            return "依赖 \(card.dependencyIDs.count) 张卡"
+        }
+        return "依赖 \(card.dependencyIDs.count) 张卡：\(unresolvedTitles.joined(separator: "、"))"
+    }
+
+    private static func displayName(for providerReference: ExecutionProviderReference, modelContext: ModelContext?) -> String {
         switch providerReference {
         case .builtIn:
             return "Built-In Agent"
         case let .externalACP(profileID):
+            if let modelContext,
+               let profile = try? ACPProviderProfileRepository(modelContext: modelContext).allProfiles().first(where: { $0.id == profileID }) {
+                return profile.displayName
+            }
             if let key = LegacyExternalACPProviderKey.allCases.first(where: { $0.presetProfileID == profileID }) {
                 switch key {
                 case .githubCopilotCLI:

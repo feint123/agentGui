@@ -118,4 +118,24 @@ struct AgentTeamClaimCoordinator {
         }
         return nextBoard
     }
+
+    func acceptBestClaim(
+        for taskCardID: UUID,
+        in board: AgentTeamClaimBoardState,
+        preferredProvider: ExecutionProviderReference,
+        updating taskBoard: AgentTeamTaskBoardState,
+        taskBoardCoordinator: AgentTeamTaskBoardCoordinator = AgentTeamTaskBoardCoordinator()
+    ) throws -> (claimBoard: AgentTeamClaimBoardState, taskBoard: AgentTeamTaskBoardState) {
+        let resolvedClaimBoard = acceptBestClaim(
+            for: taskCardID,
+            in: board,
+            preferredProvider: preferredProvider
+        )
+
+        var nextTaskBoard = taskBoard
+        nextTaskBoard.claims = resolvedClaimBoard.claims
+        nextTaskBoard = try taskBoardCoordinator.applyingAcceptedClaim(taskCardID: taskCardID, in: nextTaskBoard)
+
+        return (resolvedClaimBoard, nextTaskBoard)
+    }
 }

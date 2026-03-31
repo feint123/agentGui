@@ -26,5 +26,7 @@ struct WorkbenchConversationPaneTests {
         #expect(AgentTeamSessionView.inspectorAccessibilityIdentifier == "agentTeam.inspector")
         #expect(AgentTeamSessionView.claimOwnerAccessibilityIdentifier == "agentTeam.claim.owner")
         #expect(AgentTeamSessionView.claimStatusAccessibilityIdentifier == "agentTeam.claim.status")
+        #expect(AgentTeamSessionView.taskDependencyAccessibilityIdentifier == "agentTeam.task.dependencies")
+        #expect(AgentTeamSessionView.taskBlockerAccessibilityIdentifier == "agentTeam.task.blocker")
     }
 }

@@ -7,6 +7,16 @@ enum NewSessionMenuAction: Equatable, Identifiable, Sendable {
         let title: String
         let defaultExecutionProviderReference: ExecutionProviderReference
 
+        init(
+            sessionID: String,
+            title: String,
+            defaultExecutionProviderReference: ExecutionProviderReference
+        ) {
+            self.sessionID = sessionID
+            self.title = title
+            self.defaultExecutionProviderReference = defaultExecutionProviderReference
+        }
+
         init(session: Session) {
             self.sessionID = session.sessionId
             self.title = session.title

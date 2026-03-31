@@ -143,4 +143,143 @@ struct AgentTeamClaimTests {
         #expect(board.acceptedClaim(for: cardID) == nil)
         #expect(board.claims(for: cardID).map(\.id) == [registeredClaimID])
     }
+
+    @Test
+    func preferredExecutionTargetUsesAcceptedOwnerContext() throws {
+        let provider = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        let cardID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
+        let claimID = UUID(uuidString: "99999999-9999-9999-9999-999999999999")!
+        let board = AgentTeamClaimBoardState(
+            cards: [
+                AgentTeamClaimCard(
+                    id: cardID,
+                    title: "主任务",
+                    goal: "执行主修复",
+                    phase: .claimed,
+                    owner: provider,
+                    claimIDs: [claimID]
+                )
+            ],
+            claims: [
+                AgentTeamClaim(
+                    id: claimID,
+                    providerReference: provider,
+                    taskCardID: cardID,
+                    confidence: 0.97,
+                    rationaleSummary: "最适合负责主执行路径",
+                    requiredCapabilities: ["swift"],
+                    expectedArtifacts: ["patchProposal"],
+                    estimatedCostSummary: "medium",
+                    status: .accepted,
+                    submittedAt: Date(timeIntervalSince1970: 1)
+                )
+            ]
+        )
+
+        let target = try #require(board.preferredExecutionTarget())
+
+        #expect(target.providerReference == provider)
+        #expect(target.teamContext == AgentTeamExecutionContext(taskCardID: cardID, claimID: claimID))
+    }
+
+    @Test
+    func preferredExecutionTargetReturnsNilWhenBoardHasMultipleAcceptedOwners() {
+        let firstProvider = ExecutionProviderReference.builtIn
+        let secondProvider = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+        let firstCardID = UUID(uuidString: "aaaaaaaa-1111-1111-1111-111111111111")!
+        let secondCardID = UUID(uuidString: "bbbbbbbb-2222-2222-2222-222222222222")!
+        let firstClaimID = UUID(uuidString: "cccccccc-3333-3333-3333-333333333333")!
+        let secondClaimID = UUID(uuidString: "dddddddd-4444-4444-4444-444444444444")!
+        let board = AgentTeamClaimBoardState(
+            cards: [
+                AgentTeamClaimCard(
+                    id: firstCardID,
+                    title: "主任务",
+                    goal: "修复执行路径",
+                    phase: .claimed,
+                    owner: firstProvider,
+                    claimIDs: [firstClaimID]
+                ),
+                AgentTeamClaimCard(
+                    id: secondCardID,
+                    title: "次任务",
+                    goal: "补充验证",
+                    phase: .claimed,
+                    owner: secondProvider,
+                    claimIDs: [secondClaimID]
+                )
+            ],
+            claims: [
+                AgentTeamClaim(
+                    id: firstClaimID,
+                    providerReference: firstProvider,
+                    taskCardID: firstCardID,
+                    confidence: 0.92,
+                    rationaleSummary: "主任务 accepted claim",
+                    requiredCapabilities: ["swift"],
+                    expectedArtifacts: ["patchProposal"],
+                    estimatedCostSummary: "medium",
+                    status: .accepted,
+                    submittedAt: Date(timeIntervalSince1970: 1)
+                ),
+                AgentTeamClaim(
+                    id: secondClaimID,
+                    providerReference: secondProvider,
+                    taskCardID: secondCardID,
+                    confidence: 0.75,
+                    rationaleSummary: "次任务 accepted claim",
+                    requiredCapabilities: ["tests"],
+                    expectedArtifacts: ["validationReport"],
+                    estimatedCostSummary: "low",
+                    status: .accepted,
+                    submittedAt: Date(timeIntervalSince1970: 2)
+                )
+            ]
+        )
+
+        #expect(board.preferredExecutionTarget() == nil)
+    }
+
+    @Test
+    func taskBoardClaimBoardProjectionPreservesAcceptedOwnerCompatibility() {
+        let cardID = UUID(uuidString: "eeeeeeee-1111-1111-1111-111111111111")!
+        let claimID = UUID(uuidString: "ffffffff-2222-2222-2222-222222222222")!
+        let provider = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference
+        let taskBoard = AgentTeamTaskBoardState(
+            cards: [
+                AgentTeamTaskCard(
+                    id: cardID,
+                    title: "主任务",
+                    goal: "保留 claim gate 兼容投影",
+                    status: .reviewing,
+                    owner: provider,
+                    acceptedClaimID: claimID,
+                    dependencyIDs: [],
+                    blockerSummary: nil,
+                    lastUpdatedAt: Date(timeIntervalSince1970: 1)
+                )
+            ],
+            claims: [
+                AgentTeamClaim(
+                    id: claimID,
+                    providerReference: provider,
+                    taskCardID: cardID,
+                    confidence: 0.93,
+                    rationaleSummary: "accepted owner",
+                    requiredCapabilities: ["swift"],
+                    expectedArtifacts: ["patchProposal"],
+                    estimatedCostSummary: "medium",
+                    status: .accepted,
+                    submittedAt: Date(timeIntervalSince1970: 2)
+                )
+            ]
+        )
+
+        let legacyBoard = taskBoard.claimBoardProjection
+
+        #expect(legacyBoard.cards.first?.phase == .claimed)
+        #expect(legacyBoard.cards.first?.owner == provider)
+        #expect(legacyBoard.cards.first?.claimIDs == [claimID])
+        #expect(legacyBoard.acceptedClaim(for: cardID)?.id == claimID)
+    }
 }

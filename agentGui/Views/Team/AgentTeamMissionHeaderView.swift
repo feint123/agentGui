@@ -22,6 +22,8 @@ struct AgentTeamMissionHeaderView: View {
 
             chipRow
 
+            providerPlanSection
+
             if presentation.isFallbackBrief {
                 Text("该 Team 会话由历史壳层推导出 fallback brief，建议补充正式 mission brief。")
                     .font(.footnote)
@@ -72,6 +74,26 @@ struct AgentTeamMissionHeaderView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var providerPlanSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Provider Plan")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Text(presentation.providerSummary)
+                .font(.body)
+                .foregroundStyle(.primary)
+
+            Text(presentation.conductorSummary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Text(presentation.reviewerSummary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func detailSection(

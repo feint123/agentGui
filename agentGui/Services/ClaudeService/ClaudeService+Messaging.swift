@@ -27,14 +27,20 @@ extension ClaudeService {
         lastError = nil
         do {
             let orchestrator = await resolveExecutionOrchestrator(for: modelContext)
+            let fallbackProviderReference = ConversationExecutionProviderRegistry.resolveProviderReference(
+                for: session,
+                settings: AppSettings.getOrCreate(in: modelContext)
+            )
+            let executionTarget = resolveExecutionTarget(
+                session: session,
+                fallbackProviderReference: fallbackProviderReference
+            )
             let command = resolveEnqueueCommand(
                 text: text,
                 session: session,
                 modelId: modelId,
-                providerReference: ConversationExecutionProviderRegistry.resolveProviderReference(
-                    for: session,
-                    settings: AppSettings.getOrCreate(in: modelContext)
-                ),
+                providerReference: executionTarget.providerReference,
+                teamContext: executionTarget.teamContext,
                 selectedFilePath: selectedFilePath,
                 selectedText: selectedText,
                 directives: directives,
@@ -111,6 +117,7 @@ extension ClaudeService {
         session: Session,
         modelId: String,
         providerReference: ExecutionProviderReference,
+        teamContext: AgentTeamExecutionContext?,
         selectedFilePath: String?,
         selectedText: String?,
         directives: [ChatInputDirective],
@@ -131,7 +138,7 @@ extension ClaudeService {
                 selectedFilePath: selectedFilePath,
                 selectedText: selectedText,
                 directives: directives,
-                teamContext: resolveTeamExecutionContext(session: session, providerReference: providerReference)
+                teamContext: teamContext
             ),
             sourceUserMessageID: sourceUserMessageID
         )
@@ -156,19 +163,23 @@ extension ClaudeService {
 
         let settings = AppSettings.getOrCreate(in: modelContext)
         let registry = executionProviderRegistry(for: modelContext)
-        let providerReference = ConversationExecutionProviderRegistry.resolveProviderReference(for: session, settings: settings)
-        await registry.provider(for: providerReference).resetSessionState(session: session, modelContext: modelContext)
+        let fallbackProviderReference = ConversationExecutionProviderRegistry.resolveProviderReference(for: session, settings: settings)
+        let executionTarget = resolveExecutionTarget(
+            session: session,
+            fallbackProviderReference: fallbackProviderReference
+        )
+        await registry.provider(for: executionTarget.providerReference).resetSessionState(session: session, modelContext: modelContext)
 
         return EnqueueExecutionCommand(
             sessionID: session.sessionId,
-            providerReference: providerReference,
+            providerReference: executionTarget.providerReference,
             payload: .userPrompt(
                 text: lastUserText,
                 modelID: modelId,
                 selectedFilePath: nil,
                 selectedText: nil,
                 directives: [],
-                teamContext: resolveTeamExecutionContext(session: session, providerReference: providerReference)
+                teamContext: executionTarget.teamContext
             ),
             sourceUserMessageID: lastUser.id
         )
@@ -191,21 +202,44 @@ extension ClaudeService {
 
         let settings = AppSettings.getOrCreate(in: modelContext)
         let registry = executionProviderRegistry(for: modelContext)
-        let providerReference = ConversationExecutionProviderRegistry.resolveProviderReference(for: session, settings: settings)
-        await registry.provider(for: providerReference).resetSessionState(session: session, modelContext: modelContext)
+        let fallbackProviderReference = ConversationExecutionProviderRegistry.resolveProviderReference(for: session, settings: settings)
+        let executionTarget = resolveExecutionTarget(
+            session: session,
+            fallbackProviderReference: fallbackProviderReference
+        )
+        await registry.provider(for: executionTarget.providerReference).resetSessionState(session: session, modelContext: modelContext)
 
         return EnqueueExecutionCommand(
             sessionID: session.sessionId,
-            providerReference: providerReference,
+            providerReference: executionTarget.providerReference,
             payload: .userPrompt(
                 text: newText,
                 modelID: modelId,
                 selectedFilePath: nil,
                 selectedText: nil,
                 directives: [],
-                teamContext: resolveTeamExecutionContext(session: session, providerReference: providerReference)
+                teamContext: executionTarget.teamContext
             ),
             sourceUserMessageID: message.id
+        )
+    }
+
+    private func resolveExecutionTarget(
+        session: Session,
+        fallbackProviderReference: ExecutionProviderReference
+    ) -> (providerReference: ExecutionProviderReference, teamContext: AgentTeamExecutionContext?) {
+        guard session.kind == .agentTeam,
+              let board = session.agentTeamState?.claimBoardState else {
+            return (fallbackProviderReference, nil)
+        }
+
+        if let preferredTarget = board.preferredExecutionTarget() {
+            return (preferredTarget.providerReference, preferredTarget.teamContext)
+        }
+
+        return (
+            fallbackProviderReference,
+            resolveTeamExecutionContext(session: session, providerReference: fallbackProviderReference)
         )
     }
 

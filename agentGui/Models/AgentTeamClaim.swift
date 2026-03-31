@@ -69,6 +69,27 @@ struct AgentTeamClaimBoardState: Codable, Equatable, Sendable {
             .first
     }
 
+    func preferredExecutionTarget() -> AgentTeamExecutionTarget? {
+        let acceptedTargets = cards.compactMap { card -> AgentTeamExecutionTarget? in
+            guard let owner = card.owner,
+                  let claim = acceptedClaim(for: card.id),
+                  claim.providerReference == owner else {
+                return nil
+            }
+
+            return AgentTeamExecutionTarget(
+                providerReference: owner,
+                teamContext: AgentTeamExecutionContext(taskCardID: card.id, claimID: claim.id)
+            )
+        }
+
+        guard acceptedTargets.count == 1 else {
+            return nil
+        }
+
+        return acceptedTargets.first
+    }
+
     func executionContext(for providerReference: ExecutionProviderReference) -> AgentTeamExecutionContext? {
         let ownedContexts = cards.compactMap { card -> AgentTeamExecutionContext? in
             guard card.owner == providerReference,
@@ -86,6 +107,11 @@ struct AgentTeamClaimBoardState: Codable, Equatable, Sendable {
 
         return ownedContexts.first
     }
+}
+
+struct AgentTeamExecutionTarget: Equatable, Sendable {
+    let providerReference: ExecutionProviderReference
+    let teamContext: AgentTeamExecutionContext
 }
 
 struct AgentTeamExecutionContext: Codable, Equatable, Sendable {

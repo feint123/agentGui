@@ -1,6 +1,9 @@
 import SwiftUI
+import SwiftData
 
 struct AgentTeamSessionView: View {
+    @Environment(\.modelContext) private var modelContext
+
     static let panelAccessibilityIdentifier = "panel.agentTeam"
     static let missionHeaderAccessibilityIdentifier = "agentTeam.missionHeader"
     static let rosterAccessibilityIdentifier = "agentTeam.roster"
@@ -13,6 +16,8 @@ struct AgentTeamSessionView: View {
     static let contextSummaryAccessibilityIdentifier = "agentTeam.brief.contextSummary"
     static let claimOwnerAccessibilityIdentifier = "agentTeam.claim.owner"
     static let claimStatusAccessibilityIdentifier = "agentTeam.claim.status"
+    static let taskDependencyAccessibilityIdentifier = "agentTeam.task.dependencies"
+    static let taskBlockerAccessibilityIdentifier = "agentTeam.task.blocker"
 
     let session: Session
     let state: AgentTeamSessionState?
@@ -43,7 +48,7 @@ struct AgentTeamSessionView: View {
     }
 
     private var presentation: AgentTeamWorkbenchPresentation {
-        .make(session: session, state: state)
+        .make(session: session, state: state, modelContext: modelContext)
     }
 
     private var horizontalShell: some View {

@@ -11,7 +11,7 @@ import SwiftAnthropic
 import AppKit
 
 enum PersistenceSchema {
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     static let sharedModelTypes: [any PersistentModel.Type] = [
         AppSettings.self,

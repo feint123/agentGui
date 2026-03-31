@@ -22,6 +22,11 @@ struct AgentTeamSessionFactoryTests {
         draft.tokenBudgetText = "20k"
         draft.costBudgetText = "medium"
         draft.initialContextSummary = "来源聊天包含失败测试与日志。"
+        draft.eligibleProviderIDs = [
+            ExecutionProviderReference.builtIn.persistedValue,
+            LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference.persistedValue
+        ]
+        draft.preferredConductorID = LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference.persistedValue
 
         let result = try AgentTeamSessionFactory().create(from: source, draft: draft, modelContext: context)
 
@@ -33,6 +38,8 @@ struct AgentTeamSessionFactoryTests {
         #expect(result.state.mode == .executionDelivery)
         #expect(result.state.missionBrief?.objective == "为 ACP team 生成修复计划")
         #expect(result.state.missionBrief?.constraints == ["仅修改 Swift 文件", "保持 focused tests"])
+        #expect(result.state.missionBrief?.providerPlan.preferredConductor == LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference)
+        #expect(result.session.defaultExecutionProviderReference == LegacyExternalACPProviderKey.openCodeCLI.compatibilityReference)
     }
 
     @Test
@@ -52,7 +59,7 @@ struct AgentTeamSessionFactoryTests {
     }
 
     @Test
-    func createFromChatBootstrapsClaimBoardFromCanonicalBrief() throws {
+    func createFromChatBootstrapsTaskBoardFromCanonicalBrief() throws {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [configuration])
@@ -72,13 +79,19 @@ struct AgentTeamSessionFactoryTests {
         draft.initialContextSummary = "来源聊天包含失败测试与日志。"
 
         let result = try AgentTeamSessionFactory().create(from: source, draft: draft, modelContext: context)
-        let board = try #require(result.state.claimBoardState)
+        let board = try #require(result.state.taskBoardState)
         let card = try #require(board.cards.first)
+        let legacyBoard = try #require(result.state.claimBoardState)
 
         #expect(result.session.defaultExecutionProviderReference == LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference)
-        #expect(card.title.isEmpty == false)
+        #expect(board.cards.count == 3)
+        #expect(card.title == "为 ACP team 生成修复计划")
         #expect(card.goal.contains("为 ACP team 生成修复计划"))
+        #expect(card.status == .briefed)
         #expect(card.owner == nil)
+        #expect(card.dependencyIDs.isEmpty)
+        #expect(board.cards.dropFirst().allSatisfy { $0.dependencyIDs == [card.id] })
         #expect(board.claims.isEmpty)
+        #expect(legacyBoard.cards.count == board.cards.count)
     }
 }

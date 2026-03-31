@@ -162,4 +162,67 @@ struct AgentTeamClaimCoordinatorTests {
         #expect(resolved.claim(id: originalAcceptedID)?.status == .rejected)
         #expect(resolved.claim(id: replacementAcceptedID)?.status == .accepted)
     }
+
+    @Test
+    func acceptBestClaimCanPromoteTaskBoardCardToClaimed() throws {
+        let preferredProvider = LegacyExternalACPProviderKey.githubCopilotCLI.compatibilityReference
+        let coordinator = AgentTeamClaimCoordinator()
+        let taskBoardCoordinator = AgentTeamTaskBoardCoordinator()
+        let brief = AgentTeamMissionBrief(
+            objective: "为 ACP team 汇总修复方案",
+            constraints: ["仅修改 Swift 文件"],
+            acceptanceCriteria: ["Focused tests 通过"],
+            mode: .executionDelivery,
+            budget: .init(maxActiveProviders: 2, tokenBudgetText: "20k", costBudgetText: "medium"),
+            initialContextSummary: "当前聊天包含失败测试与日志。"
+        )
+        var claimBoard = coordinator.bootstrapBoard(from: brief, preferredProvider: preferredProvider)
+        let cardID = try #require(claimBoard.cards.first?.id)
+        let claimID = UUID(uuidString: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")!
+        let taskBoard = AgentTeamTaskBoardState(
+            cards: [
+                AgentTeamTaskCard(
+                    id: cardID,
+                    title: "主任务",
+                    goal: "让 accepted claim 推进 task status",
+                    status: .briefed,
+                    owner: nil,
+                    acceptedClaimID: nil,
+                    dependencyIDs: [],
+                    blockerSummary: nil,
+                    lastUpdatedAt: Date(timeIntervalSince1970: 1)
+                )
+            ],
+            claims: []
+        )
+
+        claimBoard = coordinator.submitClaim(
+            AgentTeamClaim(
+                id: claimID,
+                providerReference: preferredProvider,
+                taskCardID: cardID,
+                confidence: 0.91,
+                rationaleSummary: "接受 claim 后应该推进状态",
+                requiredCapabilities: ["swift"],
+                expectedArtifacts: ["patchProposal"],
+                estimatedCostSummary: "medium",
+                status: .pending,
+                submittedAt: Date(timeIntervalSince1970: 3)
+            ),
+            into: claimBoard
+        )
+
+        let resolved = try coordinator.acceptBestClaim(
+            for: cardID,
+            in: claimBoard,
+            preferredProvider: preferredProvider,
+            updating: taskBoard,
+            taskBoardCoordinator: taskBoardCoordinator
+        )
+
+        #expect(resolved.claimBoard.acceptedClaim(for: cardID)?.id == claimID)
+        #expect(resolved.taskBoard.cards.first?.status == .claimed)
+        #expect(resolved.taskBoard.cards.first?.owner == preferredProvider)
+        #expect(resolved.taskBoard.cards.first?.acceptedClaimID == claimID)
+    }
 }

@@ -69,9 +69,7 @@ struct AgentTeamSessionFactory {
     ) throws -> Result {
         let sessionTitle = makeSessionTitle(from: sourceContext)
         let session = Session(title: sessionTitle, kind: .agentTeam)
-        if let sourceContext {
-            session.defaultExecutionProviderReference = sourceContext.defaultExecutionProviderReference
-        }
+        session.defaultExecutionProviderReference = brief.providerPlan.preferredConductor
 
         let state = AgentTeamSessionState(
             session: session,
@@ -79,11 +77,14 @@ struct AgentTeamSessionFactory {
             sourceSessionTitle: sourceContext?.title ?? "",
             mode: brief.mode
         )
-        state.missionBrief = brief
-        state.claimBoardState = AgentTeamClaimCoordinator().bootstrapBoard(
+        let taskBoard = AgentTeamTaskBoardCoordinator().bootstrapBoard(
             from: brief,
-            preferredProvider: session.defaultExecutionProviderReference
+            preferredProvider: brief.providerPlan.preferredConductor
         )
+
+        state.missionBrief = brief
+        state.taskBoardState = taskBoard
+        state.claimBoardState = taskBoard.claimBoardProjection
         session.agentTeamState = state
 
         modelContext.insert(session)

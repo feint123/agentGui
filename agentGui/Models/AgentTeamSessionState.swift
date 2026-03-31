@@ -10,6 +10,7 @@ final class AgentTeamSessionState {
     var sourceSessionTitle: String
     var briefJSON: String=""
     var claimBoardJSON: String=""
+    var taskBoardJSON: String=""
     var modeRaw: String
     var statusRaw: String
     var createdAt: Date
@@ -21,6 +22,7 @@ final class AgentTeamSessionState {
         sourceSessionTitle: String = "",
         briefJSON: String = "",
         claimBoardJSON: String = "",
+        taskBoardJSON: String = "",
         mode: AgentTeamMode = .executionDelivery,
         status: AgentTeamRunStatus = .created,
         createdAt: Date = Date(),
@@ -31,6 +33,7 @@ final class AgentTeamSessionState {
         self.sourceSessionTitle = sourceSessionTitle
         self.briefJSON = briefJSON
         self.claimBoardJSON = claimBoardJSON
+        self.taskBoardJSON = taskBoardJSON
         self.modeRaw = mode.rawValue
         self.statusRaw = status.rawValue
         self.createdAt = createdAt
@@ -62,6 +65,24 @@ extension AgentTeamSessionState {
         }
         set {
             updateClaimBoard(newValue)
+        }
+    }
+
+    var taskBoardState: AgentTeamTaskBoardState? {
+        get {
+            if let data = taskBoardJSON.data(using: .utf8),
+               let board = try? JSONDecoder().decode(AgentTeamTaskBoardState.self, from: data) {
+                return board
+            }
+
+            guard let legacyBoard = claimBoardState else {
+                return nil
+            }
+
+            return AgentTeamTaskBoardState.migrating(legacyBoard)
+        }
+        set {
+            updateTaskBoard(newValue)
         }
     }
 
@@ -115,6 +136,24 @@ extension AgentTeamSessionState {
         }
 
         claimBoardJSON = encoded
+        updatedAt = Date()
+    }
+
+    func updateTaskBoard(_ board: AgentTeamTaskBoardState?) {
+        guard let board else {
+            taskBoardJSON = ""
+            updatedAt = Date()
+            return
+        }
+
+        guard let data = try? JSONEncoder().encode(board),
+              let encoded = String(data: data, encoding: .utf8) else {
+            taskBoardJSON = ""
+            updatedAt = Date()
+            return
+        }
+
+        taskBoardJSON = encoded
         updatedAt = Date()
     }
 }

@@ -150,4 +150,130 @@ struct AgentTeamSessionStateTests {
 
         #expect(state.updatedAt > originalUpdatedAt)
     }
+
+    @Test
+    func taskBoardStatePrefersPersistedTaskBoardJSONOverLegacyClaimBoardJSON() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        let legacyCardID = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let taskCardID = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        let claimID = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+
+        state.claimBoardState = AgentTeamClaimBoardState(
+            cards: [
+                AgentTeamClaimCard(
+                    id: legacyCardID,
+                    title: "旧 claim 卡",
+                    goal: "兼容历史数据",
+                    phase: .claiming,
+                    owner: nil,
+                    claimIDs: []
+                )
+            ],
+            claims: []
+        )
+        state.taskBoardState = AgentTeamTaskBoardState(
+            cards: [
+                AgentTeamTaskCard(
+                    id: taskCardID,
+                    title: "新 task 卡",
+                    goal: "优先读取 taskBoardJSON",
+                    status: .working,
+                    owner: .builtIn,
+                    acceptedClaimID: claimID,
+                    dependencyIDs: [],
+                    blockerSummary: nil,
+                    lastUpdatedAt: Date(timeIntervalSince1970: 30)
+                )
+            ],
+            claims: [
+                AgentTeamClaim(
+                    id: claimID,
+                    providerReference: .builtIn,
+                    taskCardID: taskCardID,
+                    confidence: 0.91,
+                    rationaleSummary: "接受的新 owner",
+                    requiredCapabilities: ["swift"],
+                    expectedArtifacts: ["patchProposal"],
+                    estimatedCostSummary: "medium",
+                    status: .accepted,
+                    submittedAt: Date(timeIntervalSince1970: 31)
+                )
+            ]
+        )
+
+        #expect(state.taskBoardState?.cards.map(\.id) == [taskCardID])
+        #expect(state.taskBoardState?.cards.first?.status == .working)
+    }
+
+    @Test
+    func taskBoardStateFallsBackToLegacyClaimBoardMigration() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let state = AgentTeamSessionState(session: session)
+        let cardID = UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
+        let claimID = UUID(uuidString: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")!
+
+        state.claimBoardState = AgentTeamClaimBoardState(
+            cards: [
+                AgentTeamClaimCard(
+                    id: cardID,
+                    title: "旧 claim 卡",
+                    goal: "从 claim 迁移到 task board",
+                    phase: .claimed,
+                    owner: .builtIn,
+                    claimIDs: [claimID]
+                )
+            ],
+            claims: [
+                AgentTeamClaim(
+                    id: claimID,
+                    providerReference: .builtIn,
+                    taskCardID: cardID,
+                    confidence: 0.96,
+                    rationaleSummary: "历史 accepted claim",
+                    requiredCapabilities: ["swift"],
+                    expectedArtifacts: ["patchProposal"],
+                    estimatedCostSummary: "low",
+                    status: .accepted,
+                    submittedAt: Date(timeIntervalSince1970: 40)
+                )
+            ]
+        )
+
+        let board = state.taskBoardState
+
+        #expect(board?.cards.map(\.id) == [cardID])
+        #expect(board?.cards.first?.status == .claimed)
+        #expect(board?.cards.first?.acceptedClaimID == claimID)
+    }
+
+    @Test
+    func updatingTaskBoardRefreshesUpdatedAt() {
+        let session = Session.fixture(title: "修复 ACP", kind: .agentTeam)
+        let originalUpdatedAt = Date(timeIntervalSince1970: 2)
+        let state = AgentTeamSessionState(
+            session: session,
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: originalUpdatedAt
+        )
+
+        state.taskBoardState = AgentTeamTaskBoardState(
+            cards: [
+                AgentTeamTaskCard(
+                    id: UUID(uuidString: "ffffffff-ffff-ffff-ffff-ffffffffffff")!,
+                    title: "任务卡",
+                    goal: "刷新 updatedAt",
+                    status: .briefed,
+                    owner: nil,
+                    acceptedClaimID: nil,
+                    dependencyIDs: [],
+                    blockerSummary: nil,
+                    lastUpdatedAt: Date(timeIntervalSince1970: 50)
+                )
+            ],
+            claims: []
+        )
+
+        #expect(state.updatedAt > originalUpdatedAt)
+    }
 }
