@@ -1,8 +1,7 @@
 import Foundation
 
 struct AgentDefinitionLoader {
-    private let allowedNames = ["explore", "worker", "verifier"]
-    private let allowedOutputContracts: Set<String> = ["exploration_report", "work_result", "verification_report"]
+    private static let builtInSortOrder = ["explore", "worker", "verifier"]
     private let requiredFields: Set<String> = [
         "name",
         "display-name",
@@ -14,7 +13,19 @@ struct AgentDefinitionLoader {
         "subagent-invocable",
         "output-contract"
     ]
-    private let optionalFields: Set<String> = ["model-preference", "tags", "examples", "notes"]
+    private let optionalFields: Set<String> = [
+        "model-preference",
+        "effort",
+        "background",
+        "omit-main-context",
+        "initial-prompt",
+        "critical-reminder",
+        "color",
+        "disallowed-tools",
+        "tags",
+        "examples",
+        "notes"
+    ]
 
     func loadBuiltInDocuments(from bundle: Bundle) throws -> [AgentDefinitionDocument] {
         let directory = try builtInAgentsDirectoryURL(from: bundle)
@@ -60,8 +71,8 @@ struct AgentDefinitionLoader {
             throw AgentValidationError.missingRequiredField(field)
         }
 
-        guard let name = parsed.fields["name"], allowedNames.contains(name) else {
-            throw AgentValidationError.invalidAgentName(parsed.fields["name"] ?? named)
+        guard let name = parsed.fields["name"], !name.isEmpty else {
+            throw AgentValidationError.missingRequiredField("name")
         }
         guard let displayName = parsed.fields["display-name"] else {
             throw AgentValidationError.missingRequiredField("display-name")
@@ -91,11 +102,36 @@ struct AgentDefinitionLoader {
         if !userInvocable && !subagentInvocable {
             throw AgentValidationError.invalidVisibilityCombination
         }
-        guard let outputContract = parsed.fields["output-contract"], allowedOutputContracts.contains(outputContract) else {
-            throw AgentValidationError.invalidOutputContract(parsed.fields["output-contract"] ?? "")
+        guard let outputContract = parsed.fields["output-contract"],
+              !outputContract.isEmpty else {
+            throw AgentValidationError.missingRequiredField("output-contract")
         }
         guard !parsed.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AgentValidationError.emptyBody
+        }
+
+        // MARK: Optional execution-trait fields (S-A1)
+        let modelPreference = parsed.fields["model-preference"]
+            .flatMap(SubagentModelPreference.init(rawValue:)) ?? .inherit
+
+        let effort = parsed.fields["effort"]
+            .flatMap(SubagentEffort.init(rawValue:))
+
+        let background = parseBool(parsed.fields["background"] ?? "false") ?? false
+
+        let omitMainContext = parseBool(parsed.fields["omit-main-context"] ?? "false") ?? false
+
+        let initialPrompt = parsed.fields["initial-prompt"].flatMap { $0.isEmpty ? nil : $0 }
+
+        let criticalReminder = parsed.fields["critical-reminder"].flatMap { $0.isEmpty ? nil : $0 }
+
+        let color = parsed.fields["color"].flatMap { $0.isEmpty ? nil : $0 }
+
+        let disallowedToolNames: [String]
+        if let rawDisallowed = parsed.fields["disallowed-tools"] {
+            disallowedToolNames = try parseArray(rawDisallowed)
+        } else {
+            disallowedToolNames = []
         }
 
         return AgentDefinitionDocument(
@@ -108,12 +144,20 @@ struct AgentDefinitionLoader {
             userInvocable: userInvocable,
             subagentInvocable: subagentInvocable,
             outputContract: outputContract,
-            body: parsed.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            body: parsed.body.trimmingCharacters(in: .whitespacesAndNewlines),
+            modelPreference: modelPreference,
+            effort: effort,
+            background: background,
+            omitMainContext: omitMainContext,
+            initialPrompt: initialPrompt,
+            criticalReminder: criticalReminder,
+            color: color,
+            disallowedToolNames: disallowedToolNames
         )
     }
 
     private func sortIndex(for name: String) -> Int {
-        allowedNames.firstIndex(of: name) ?? .max
+        Self.builtInSortOrder.firstIndex(of: name) ?? .max
     }
 
     private func builtInAgentsDirectoryURL(from bundle: Bundle) throws -> URL {
