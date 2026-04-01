@@ -51,6 +51,33 @@ struct WorkflowRoleDefinition: Sendable {
     let maxTurnsPerActivation: Int
     let maxActivations: Int
 
+    // MARK: - S-A1 Execution Traits
+
+    /// 子代理优先使用的模型。`.inherit` 表示沿用父代理的模型。
+    let modelPreference: SubagentModelPreference
+
+    /// Thinking budget 偏好（`nil` 表示使用服务默认值）。
+    let effort: SubagentEffort?
+
+    /// `true` 时此代理总应以后台任务方式产生（不阻塞父代理 loop）。
+    let background: Bool
+
+    /// `true` 时对此代理构建系统提示时跳过 CLAUDE.md 层级、git status
+    /// 和 workspace 状态描述（节省只读代理的 token 开销）。
+    let omitMainContext: Bool
+
+    /// 子代理第一轮 user-message 前额外注入的文本（nil = 不注入）。
+    let initialPrompt: String?
+
+    /// 每轮 user-message 前重新注入的短提醒（≤200 字；nil = 不注入）。
+    let criticalReminder: String?
+
+    /// UI 标注颜色名称（nil = 使用默认）。
+    let color: String?
+
+    /// 从代理可用工具集中排除的工具名称列表（空 = 不排除）。
+    let disallowedToolNames: [String]
+
     // MARK: Adapter
 
     /// Alias used by the run_subagent path (maps to maxTurnsPerActivation).
@@ -74,7 +101,16 @@ struct WorkflowRoleDefinition: Sendable {
         defaultOutputMessageKind: WorkflowMessageKind = .statusUpdate,
         primaryOutputArtifactKind: WorkflowArtifactKind? = nil,
         maxTurnsPerActivation: Int = 10,
-        maxActivations: Int = 5
+        maxActivations: Int = 5,
+        // S-A1 新增（全部有默认值，向后兼容）
+        modelPreference: SubagentModelPreference = .inherit,
+        effort: SubagentEffort? = nil,
+        background: Bool = false,
+        omitMainContext: Bool = false,
+        initialPrompt: String? = nil,
+        criticalReminder: String? = nil,
+        color: String? = nil,
+        disallowedToolNames: [String] = []
     ) {
         self.name = name
         self.displayName = displayName
@@ -92,6 +128,14 @@ struct WorkflowRoleDefinition: Sendable {
         self.primaryOutputArtifactKind = primaryOutputArtifactKind
         self.maxTurnsPerActivation = maxTurnsPerActivation
         self.maxActivations = maxActivations
+        self.modelPreference = modelPreference
+        self.effort = effort
+        self.background = background
+        self.omitMainContext = omitMainContext
+        self.initialPrompt = initialPrompt
+        self.criticalReminder = criticalReminder
+        self.color = color
+        self.disallowedToolNames = disallowedToolNames
     }
 
 }
