@@ -429,11 +429,11 @@ private struct ProviderRoleCard: View {
 
     @ViewBuilder
     private var pickerExpansion: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Divider()
-            HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 if !modelOptions.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text("模型")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -447,11 +447,12 @@ private struct ProviderRoleCard: View {
                             }
                         }
                         .labelsHidden()
-                        .frame(maxWidth: 160)
+                        .controlSize(.small)
+                        .frame(maxWidth: 140)
                     }
                 }
                 if !modeOptions.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text("模式")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -465,11 +466,12 @@ private struct ProviderRoleCard: View {
                             }
                         }
                         .labelsHidden()
-                        .frame(maxWidth: 160)
+                        .controlSize(.small)
+                        .frame(maxWidth: 140)
                     }
                 }
+                Spacer(minLength: 0)
             }
-            .font(.caption)
         }
     }
 
@@ -591,7 +593,10 @@ private struct BriefExtractionPreviewCard: View {
                         .foregroundStyle(.secondary)
                     TextField("Objective", text: $draft.objective, axis: .vertical)
                         .lineLimit(2...4)
-                        .workbenchSidebarHeaderFieldStyle()
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                         .accessibilityIdentifier("agentTeam.brief.objective")
                 }
 

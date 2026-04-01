@@ -38,6 +38,10 @@ struct ToolDefinition {
     let schemaVersion: Int
     let supportedContexts: Set<ToolContext>
     let authorization: ToolAuthorizationDescriptor
+    /// Whether this tool is safe to execute concurrently with other tools
+    /// that share this flag. Read-only tools (LSP queries, payload reads,
+    /// web fetches) should return true. Write/execute tools must return false.
+    let isConcurrencySafe: Bool
     let executorKey: String
     let descriptionBuilder: (ToolDefinitionBuildContext) -> String
     let inputSchemaBuilder: (ToolDefinitionBuildContext) -> JSONSchema
@@ -49,6 +53,7 @@ struct ToolDefinition {
         schemaVersion: Int,
         supportedContexts: Set<ToolContext>,
         authorization: ToolAuthorizationDescriptor = .none,
+        isConcurrencySafe: Bool = false,
         executorKey: String,
         descriptionBuilder: @escaping (ToolDefinitionBuildContext) -> String,
         inputSchemaBuilder: @escaping (ToolDefinitionBuildContext) -> JSONSchema
@@ -59,6 +64,7 @@ struct ToolDefinition {
         self.schemaVersion = schemaVersion
         self.supportedContexts = supportedContexts
         self.authorization = authorization
+        self.isConcurrencySafe = isConcurrencySafe
         self.executorKey = executorKey
         self.descriptionBuilder = descriptionBuilder
         self.inputSchemaBuilder = inputSchemaBuilder

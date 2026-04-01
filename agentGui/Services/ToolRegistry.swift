@@ -142,6 +142,7 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .system,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent, .backgroundTask],
+            isConcurrencySafe: true,
             executorKey: "builtin.readToolPayload",
             descriptionBuilder: { _ in
                 """
@@ -179,6 +180,7 @@ struct DefaultToolRegistry: ToolRegistry {
                 requirements: [ToolCapabilityRequirement(capabilityID: .network, minimumLevel: .observe)],
                 riskTier: .medium
             ),
+            isConcurrencySafe: true,
             executorKey: "builtin.webSearch",
             descriptionBuilder: { _ in
                 """
@@ -211,6 +213,7 @@ struct DefaultToolRegistry: ToolRegistry {
                 requirements: [ToolCapabilityRequirement(capabilityID: .network, minimumLevel: .observe)],
                 riskTier: .medium
             ),
+            isConcurrencySafe: true,
             executorKey: "builtin.webFetch",
             descriptionBuilder: { _ in
                 """
@@ -306,6 +309,7 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .system,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent],
+            isConcurrencySafe: true,
             executorKey: "lsp.documentSymbols",
             descriptionBuilder: { _ in
                 "List document symbols from an active language server session for a file."
@@ -331,6 +335,7 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .system,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent],
+            isConcurrencySafe: true,
             executorKey: "lsp.workspaceSymbols",
             descriptionBuilder: { _ in
                 "Search workspace symbols using an active language server session."
@@ -356,6 +361,7 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .system,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent],
+            isConcurrencySafe: true,
             executorKey: "lsp.diagnostics",
             descriptionBuilder: { _ in
                 "Read the latest cached diagnostics for a document from the LSP diagnostics store."
@@ -380,6 +386,7 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .system,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent],
+            isConcurrencySafe: true,
             executorKey: "lsp.listServers",
             descriptionBuilder: { _ in
                 "List the configured built-in and custom language server profiles."
@@ -397,6 +404,7 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .system,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent],
+            isConcurrencySafe: true,
             executorKey: "lsp.serverStatus",
             descriptionBuilder: { _ in
                 "Read runtime status for a language server session bound to a workspace."
@@ -426,6 +434,7 @@ struct DefaultToolRegistry: ToolRegistry {
             category: .system,
             schemaVersion: 1,
             supportedContexts: [.mainAgent, .subagent],
+            isConcurrencySafe: true,
             executorKey: executorKey,
             descriptionBuilder: { _ in description },
             inputSchemaBuilder: { _ in
