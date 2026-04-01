@@ -2,15 +2,18 @@ import Foundation
 
 struct UnifiedMemoryFileStoreAdapter: MemoryStoreAdapter {
     private let baseDirectory: URL
+    private let memoryDir: URL
     private let fileManager: FileManager
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
     init(
         baseDirectory: URL = ConfigDirectoryManager.shared.agentGuiDir.appending(path: "unified-memory", directoryHint: .isDirectory),
+        memoryDir: URL = ConfigDirectoryManager.shared.memoryDir,
         fileManager: FileManager = .default
     ) {
         self.baseDirectory = baseDirectory
+        self.memoryDir = memoryDir
         self.fileManager = fileManager
 
         let encoder = JSONEncoder()
@@ -56,6 +59,7 @@ struct UnifiedMemoryFileStoreAdapter: MemoryStoreAdapter {
         }
 
         try saveStoredRecords(stored, scope: record.scope)
+        triggerIndexRebuild()
         return MemoryWriteResult(record: record, action: action)
     }
 
@@ -87,6 +91,7 @@ struct UnifiedMemoryFileStoreAdapter: MemoryStoreAdapter {
         record.updatedAt = Date()
         existing.records[existing.index] = UnifiedMemoryStoredRecord(record: record)
         try saveStoredRecords(existing.records, scope: record.scope)
+        triggerIndexRebuild()
         return MemoryWriteResult(record: record, action: .archived(reason: reason))
     }
 
@@ -206,5 +211,13 @@ struct UnifiedMemoryFileStoreAdapter: MemoryStoreAdapter {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: ":", with: "__")
         return baseDirectory.appending(path: "\(sanitizedNamespace).json")
+    }
+
+    private func triggerIndexRebuild() {
+        let dir = memoryDir
+        let allRecords = (try? allRecords(includeArchived: false)) ?? []
+        Task.detached(priority: .utility) {
+            try? MemoryIndexFileSystem(memoryDir: dir).rebuild(with: allRecords)
+        }
     }
 }
