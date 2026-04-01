@@ -8,6 +8,7 @@ final class BuiltInSessionExecutionContext {
     var currentInputTokens: Int = 0
     var currentModelID: String = ""
     var pendingUserQuestion: AskUserQuestionRequest?
+    var contextBudgetState: ContextBudgetState?    // F-B1: context window budget tracking
 
     init(sessionID: String) {
         self.sessionID = sessionID

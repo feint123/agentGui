@@ -111,3 +111,22 @@ final class BudgetRunTrackerTests: XCTestCase {
         XCTAssertEqual(result.continuationCount, 3)
     }
 }
+
+// MARK: - BuiltInSessionContextBudgetTests
+
+@MainActor
+final class BuiltInSessionContextBudgetTests: XCTestCase {
+
+    func test_contextBudgetState_initiallyNil() async {
+        let ctx = BuiltInSessionExecutionContext(sessionID: "test-session")
+        XCTAssertNil(ctx.contextBudgetState)
+    }
+
+    func test_contextBudgetState_canBeSet() async {
+        let ctx = BuiltInSessionExecutionContext(sessionID: "test-session")
+        let tracker = ContextWindowBudgetTracker()
+        let state = tracker.evaluate(tokenUsage: 50_000, contextWindow: 200_000)
+        ctx.contextBudgetState = state
+        XCTAssertEqual(ctx.contextBudgetState?.level, .normal)
+    }
+}

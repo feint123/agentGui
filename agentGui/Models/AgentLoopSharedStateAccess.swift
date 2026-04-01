@@ -9,4 +9,5 @@ struct AgentLoopSharedStateAccess {
     let writeEpistemicInputs: @MainActor (String, [EpistemicInputEnvelope]) -> Void
     let setCurrentModelId: @MainActor (String) -> Void
     let setCurrentInputTokens: @MainActor (Int) -> Void
+    let updateContextBudget: @MainActor (ContextBudgetState) -> Void   // F-B1: context budget state
 }

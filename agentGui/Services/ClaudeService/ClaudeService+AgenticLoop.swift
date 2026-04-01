@@ -218,7 +218,10 @@ extension ClaudeService {
             readEpistemicInputs: { self.sessionEpistemicInputs[$0] ?? [] },
             writeEpistemicInputs: { self.sessionEpistemicInputs[$0] = $1 },
             setCurrentModelId: { self.builtInExecutionContext(for: runtime.sessionId).currentModelID = $0 },
-            setCurrentInputTokens: { self.builtInExecutionContext(for: runtime.sessionId).currentInputTokens = $0 }
+            setCurrentInputTokens: { self.builtInExecutionContext(for: runtime.sessionId).currentInputTokens = $0 },
+            updateContextBudget: { [weak self] state in
+                self?.builtInExecutionContext(for: runtime.sessionId).contextBudgetState = state
+            }
         )
         let emitter = AgentLoopHookEmitter(
             dispatcher: hookDispatcher,
