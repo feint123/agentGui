@@ -160,4 +160,58 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
         XCTAssertFalse(outcome.result.isError)
         XCTAssertEqual(outcome.result.text, "normal-result")
     }
+
+    // MARK: - ChangeReviewHook integration: snapshot → toolResultSummary
+
+    func test_changeReviewHook_withSnapshot_setsSummaryOnRecord() async {
+        let store = ChangeReviewProjectionStore()
+        let proposal = ChangeProposalSnapshot(
+            id: UUID(),
+            sessionID: "s1",
+            jobID: nil,
+            messageID: nil,
+            providerID: .builtInAgent,
+            state: .readyForReview,
+            baseWorkspaceRoot: "/tmp",
+            summary: nil,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        let fileChange = ProposedFileChangeSnapshot(
+            id: UUID(),
+            proposalID: proposal.id,
+            relativePath: "Foo.swift",
+            absolutePath: "/tmp/Foo.swift",
+            changeKind: .modify,
+            unifiedDiff: "+line",
+            state: .proposed,
+            lineAdditions: 1,
+            lineDeletions: 0
+        )
+        let snapshot = ChangeProposalReviewSnapshot(proposal: proposal, fileChanges: [fileChange])
+        let writeResult = ToolExecutionResult(
+            "staged",
+            status: .success,
+            changeProposalSnapshot: snapshot
+        )
+
+        let hook = ChangeReviewHook(projectionStore: store)
+        let pipeline = ToolExecutionHookPipeline(hooks: [hook])
+        let coordinator = makeCoordinator(
+            executionResult: writeResult,
+            pipeline: pipeline
+        )
+
+        var tool = AgentLoopPendingTool(id: "tc-write", name: "str_replace_based_edit_tool")
+        tool.partialJson = #"{"command":"str_replace","path":"Foo.swift"}"#
+        let record = ToolCall(toolCallId: "tc-write", kind: .execute)
+        let outcome = await coordinator.execute(pendingTool: tool, record: record)
+
+        XCTAssertNotNil(outcome.record.toolResultSummary, "ChangeReviewHook should set toolResultSummary")
+        XCTAssertTrue(
+            outcome.record.toolResultSummary?.contains("1") ?? false,
+            "Summary should mention file count"
+        )
+        XCTAssertEqual(store.snapshot(for: proposal.id)?.fileChanges.count, 1)
+    }
 }

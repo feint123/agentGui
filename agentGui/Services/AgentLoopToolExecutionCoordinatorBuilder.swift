@@ -60,9 +60,22 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                         result: result
                     )
                 },
-                hookPipeline: nil    // F-C3/C4/C5 will register hooks here
+                hookPipeline: buildHookPipeline()
             )
         )
+    }
+
+    private func buildHookPipeline() -> ToolExecutionHookPipeline {
+        var hooks: [any ToolExecutionHook] = []
+
+        if let projectionStore = claudeService.changeReviewProjectionStore {
+            hooks.append(ChangeReviewHook(projectionStore: projectionStore))
+        }
+
+        // F-C4 VerificationEvidenceHook 将在此追加
+        // F-C5 PayloadBudgetHook 将在此追加
+
+        return ToolExecutionHookPipeline(hooks: hooks)
     }
 
     private func requestApprovalIfNeeded(
