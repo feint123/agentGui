@@ -10,6 +10,7 @@ struct AgentLoopRunState {
     var executionEvidence: Set<ExecutionEvidenceKind>
     var verificationState: VerificationState?
     let hookState: AgentLoopBuiltInHookFactory.State
+    var budgetRunTracker: BudgetRunTracker    // F-B1: per-run diminishing returns tracker
 
     init(
         runID: String = UUID().uuidString,
@@ -18,7 +19,8 @@ struct AgentLoopRunState {
         loopMemory: ContextMemory = ContextMemory(),
         executionEvidence: Set<ExecutionEvidenceKind> = [],
         verificationState: VerificationState? = nil,
-        hookState: AgentLoopBuiltInHookFactory.State = AgentLoopBuiltInHookFactory.State()
+        hookState: AgentLoopBuiltInHookFactory.State = AgentLoopBuiltInHookFactory.State(),
+        budgetRunTracker: BudgetRunTracker = BudgetRunTracker()   // F-B1
     ) {
         self.runID = runID
         self.accumulatedText = accumulatedText
@@ -27,5 +29,6 @@ struct AgentLoopRunState {
         self.executionEvidence = executionEvidence
         self.verificationState = verificationState
         self.hookState = hookState
+        self.budgetRunTracker = budgetRunTracker   // F-B1
     }
 }

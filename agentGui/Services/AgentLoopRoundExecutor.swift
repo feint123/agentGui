@@ -195,7 +195,21 @@ struct AgentLoopRoundExecutor {
                 tools: tools.isEmpty ? nil : tools
             )
         ) {
-            sharedState.setCurrentInputTokens(tokenCount.inputTokens)
+            let inputTokens = tokenCount.inputTokens
+            sharedState.setCurrentInputTokens(inputTokens)
+
+            // F-B1: 计算 context budget 级别并更新 session 上下文
+            let budgetTracker = ContextWindowBudgetTracker()
+            let windowSize = claudeService.contextWindowSize(for: modelId)
+            let budgetState = budgetTracker.evaluate(tokenUsage: inputTokens, contextWindow: windowSize)
+            sharedState.updateContextBudget(budgetState)
+
+            // F-B1: Diminishing returns 检测 — 每次 countTokens 后记录
+            let roundResult = state.budgetRunTracker.recordRound(currentGlobalTokens: inputTokens)
+            if roundResult.isDiminishing {
+                state.loopCtx.phase = .finalizing
+                state.loopCtx.terminationReason = "diminishing_returns (continuation: \(roundResult.continuationCount), delta: \(roundResult.currentDeltaTokens))"
+            }
         }
 
         let stream = try await request.service.streamMessage(params)
