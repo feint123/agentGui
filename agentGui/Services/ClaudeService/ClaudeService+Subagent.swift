@@ -51,6 +51,11 @@ extension ClaudeService {
             return .error("missing 'task' parameter", sender: "system")
         }
 
+        // S-A3: 解析调用方可选的 model override
+        let overrideModelId = input["model"]?.stringValue.flatMap {
+            $0.isEmpty ? nil : $0
+        }
+
         do {
             return try await runNamedSubagent(
                 name: agentName,
@@ -58,6 +63,7 @@ extension ClaudeService {
                 toolCallRecord: toolCallRecord,
                 service: service,
                 modelId: modelId,
+                overrideModelId: overrideModelId,
                 settings: settings,
                 sessionId: sessionId,
                 modelContext: modelContext
@@ -73,6 +79,7 @@ extension ClaudeService {
         toolCallRecord: ToolCall,
         service: any AnthropicService,
         modelId: String,
+        overrideModelId: String? = nil,
         settings: AppSettings,
         sessionId: String,
         modelContext: ModelContext
@@ -89,6 +96,7 @@ extension ClaudeService {
             toolCallRecord: toolCallRecord,
             service: service,
             modelId: modelId,
+            overrideModelId: overrideModelId,
             settings: settings,
             sessionId: sessionId,
             modelContext: modelContext
@@ -103,16 +111,25 @@ extension ClaudeService {
         toolCallRecord: ToolCall,
         service: any AnthropicService,
         modelId: String,
+        overrideModelId: String? = nil,
         settings: AppSettings,
         sessionId: String,
         modelContext: ModelContext
     ) async throws -> AgentMessage {
         let startTime = Date()
+
+        // S-A3: 按三层优先级解析实际使用的模型 ID
+        let resolvedModelId = SubagentModelResolver.resolve(
+            preference: definition.modelPreference,
+            parentModelId: modelId,
+            overrideModelId: overrideModelId
+        )
+
         var loopMessages: [MessageParameter.Message] = [.init(role: .user, content: .text(task))]
         let system = makeEphemeralSystemPrompt(definition.systemPrompt)
         let request = AgentLoopRunRequest(
             service: service,
-            modelId: modelId,
+            modelId: resolvedModelId,
             tools: buildSubagentTools(definition: definition, settings: settings),
             system: system,
             maxRounds: definition.maxRounds,
