@@ -100,20 +100,17 @@ struct DirectIntentDraft: Sendable {
 @MainActor
 final class DirectIntentBackend {
     private let proposalStore: ChangeProposalStore
-    private let projectionStore: ChangeReviewProjectionStore?
     private let workspaceSyncService: DraftWorkspaceSyncService
 
     init(
         modelContext: ModelContext,
         persistenceCoordinator: PersistenceCoordinator? = nil,
-        projectionStore: ChangeReviewProjectionStore? = nil,
         workspaceSyncService: DraftWorkspaceSyncService = DraftWorkspaceSyncService()
     ) {
         self.proposalStore = ChangeProposalStore(
             modelContext: modelContext,
             persistenceCoordinator: persistenceCoordinator
         )
-        self.projectionStore = projectionStore
         self.workspaceSyncService = workspaceSyncService
     }
 
