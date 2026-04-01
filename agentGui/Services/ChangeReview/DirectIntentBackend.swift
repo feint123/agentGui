@@ -229,7 +229,6 @@ final class DirectIntentBackend {
         )
 
         let snapshot = try await proposalStore.reviewSnapshot(for: proposal.id)
-        projectionStore?.set(snapshot)
         return snapshot
     }
 

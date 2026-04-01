@@ -96,8 +96,7 @@ extension ClaudeService {
             )
         case .success(let draft):
             let backend = DirectIntentBackend(
-                modelContext: modelContext,
-                projectionStore: changeReviewProjectionStore
+                modelContext: modelContext
             )
 
             do {
