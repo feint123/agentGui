@@ -59,7 +59,8 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                         record: record,
                         result: result
                     )
-                }
+                },
+                hookPipeline: nil    // F-C3/C4/C5 will register hooks here
             )
         )
     }
