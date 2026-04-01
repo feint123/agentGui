@@ -18,6 +18,16 @@ struct AgentRuntimeDefinition: Sendable, Equatable {
     let primaryOutputArtifactKind: WorkflowArtifactKind?
     let maxActivations: Int
 
+    // MARK: - S-A1 Optional execution-trait fields
+    let modelPreference: SubagentModelPreference
+    let effort: SubagentEffort?
+    let background: Bool
+    let omitMainContext: Bool
+    let initialPrompt: String?
+    let criticalReminder: String?
+    let color: String?
+    let disallowedToolNames: [String]
+
     var workflowRoleDefinition: WorkflowRoleDefinition {
         WorkflowRoleDefinition(
             name: name,
@@ -35,7 +45,15 @@ struct AgentRuntimeDefinition: Sendable, Equatable {
             defaultOutputMessageKind: defaultOutputMessageKind,
             primaryOutputArtifactKind: primaryOutputArtifactKind,
             maxTurnsPerActivation: maxTurns,
-            maxActivations: maxActivations
+            maxActivations: maxActivations,
+            modelPreference: modelPreference,
+            effort: effort,
+            background: background,
+            omitMainContext: omitMainContext,
+            initialPrompt: initialPrompt,
+            criticalReminder: criticalReminder,
+            color: color,
+            disallowedToolNames: disallowedToolNames
         )
     }
 }
@@ -62,7 +80,15 @@ extension AgentRuntimeDefinition {
                 subscribesTo: [.task, .infoRequest],
                 defaultOutputMessageKind: .infoResponse,
                 primaryOutputArtifactKind: .explorationReport,
-                maxActivations: 5
+                maxActivations: 5,
+                modelPreference: document.modelPreference,
+                effort: document.effort,
+                background: document.background,
+                omitMainContext: document.omitMainContext,
+                initialPrompt: document.initialPrompt,
+                criticalReminder: document.criticalReminder,
+                color: document.color,
+                disallowedToolNames: document.disallowedToolNames
             )
         case "worker":
             return AgentRuntimeDefinition(
@@ -81,7 +107,15 @@ extension AgentRuntimeDefinition {
                 subscribesTo: [.task, .reviewFeedback, .rejection, .infoResponse],
                 defaultOutputMessageKind: .handoff,
                 primaryOutputArtifactKind: .codePatchSummary,
-                maxActivations: 5
+                maxActivations: 5,
+                modelPreference: document.modelPreference,
+                effort: document.effort,
+                background: document.background,
+                omitMainContext: document.omitMainContext,
+                initialPrompt: document.initialPrompt,
+                criticalReminder: document.criticalReminder,
+                color: document.color,
+                disallowedToolNames: document.disallowedToolNames
             )
         case "verifier":
             return AgentRuntimeDefinition(
@@ -100,10 +134,43 @@ extension AgentRuntimeDefinition {
                 subscribesTo: [.task, .handoff],
                 defaultOutputMessageKind: .statusUpdate,
                 primaryOutputArtifactKind: nil,
-                maxActivations: 3
+                maxActivations: 3,
+                modelPreference: document.modelPreference,
+                effort: document.effort,
+                background: document.background,
+                omitMainContext: document.omitMainContext,
+                initialPrompt: document.initialPrompt,
+                criticalReminder: document.criticalReminder,
+                color: document.color,
+                disallowedToolNames: document.disallowedToolNames
             )
         default:
-            throw AgentValidationError.invalidAgentName(document.name)
+            return AgentRuntimeDefinition(
+                name: document.name,
+                displayName: document.displayName,
+                description: document.description,
+                argumentHint: document.argumentHint,
+                systemPrompt: document.body,
+                toolGrants: toolGrants,
+                maxTurns: document.maxTurns,
+                userInvocable: document.userInvocable,
+                subagentInvocable: document.subagentInvocable,
+                outputContract: document.outputContract,
+                readableArtifacts: [],
+                writableArtifacts: [],
+                subscribesTo: [.task],
+                defaultOutputMessageKind: .statusUpdate,
+                primaryOutputArtifactKind: nil,
+                maxActivations: 5,
+                modelPreference: document.modelPreference,
+                effort: document.effort,
+                background: document.background,
+                omitMainContext: document.omitMainContext,
+                initialPrompt: document.initialPrompt,
+                criticalReminder: document.criticalReminder,
+                color: document.color,
+                disallowedToolNames: document.disallowedToolNames
+            )
         }
     }
 
