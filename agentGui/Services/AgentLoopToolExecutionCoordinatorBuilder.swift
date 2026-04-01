@@ -73,7 +73,10 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
             hooks.append(ChangeReviewHook(projectionStore: projectionStore))
         }
 
-        // F-C4 VerificationEvidenceHook 将在此追加
+        // F-C4: VerificationEvidenceHook — records bash test runs + nudges on todo completion
+        let evidenceStore = claudeService.verificationEvidenceStore(for: sessionId)
+        hooks.append(VerificationEvidenceHook(sessionID: sessionId, evidenceStore: evidenceStore))
+
         // F-C5 PayloadBudgetHook 将在此追加
 
         return ToolExecutionHookPipeline(hooks: hooks)

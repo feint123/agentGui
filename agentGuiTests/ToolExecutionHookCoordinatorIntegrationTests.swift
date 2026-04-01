@@ -25,6 +25,7 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
         let capturedResult = executionResult
         return AgentLoopToolExecutionCoordinator(
             dependencies: .init(
+                sessionID: "test-session",
                 runSubagent: { _, _ in AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:]) },
                 requestApprovalIfNeeded: { _, _, _ in nil },
                 executeTool: { _, _ in capturedResult },
@@ -44,6 +45,7 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
         let pipeline = ToolExecutionHookPipeline(hooks: [blockHook])
         let coordinator = AgentLoopToolExecutionCoordinator(
             dependencies: .init(
+                sessionID: "test-session",
                 runSubagent: { _, _ in AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:]) },
                 requestApprovalIfNeeded: { _, _, _ in nil },
                 executeTool: { _, _ in
@@ -144,6 +146,7 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
     func test_noPipeline_executionProceedsNormally() async {
         let coordinator = AgentLoopToolExecutionCoordinator(
             dependencies: .init(
+                sessionID: "test-session",
                 runSubagent: { _, _ in AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:]) },
                 requestApprovalIfNeeded: { _, _, _ in nil },
                 executeTool: { _, _ in .success("normal-result") },

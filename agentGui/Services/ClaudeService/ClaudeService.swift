@@ -101,6 +101,20 @@ final class ClaudeService {
     /// Session-scoped review projections produced by staged file edits.
     var changeReviewProjectionStore: ChangeReviewProjectionStore?
 
+    /// Per-session stores of test-run verification evidence (keyed by sessionID).
+    /// In-memory only; cleared on process restart.
+    private var verificationEvidenceStores: [String: VerificationEvidenceStore] = [:]
+
+    /// Returns (or lazily creates) the VerificationEvidenceStore for the given session.
+    func verificationEvidenceStore(for sessionID: String) -> VerificationEvidenceStore {
+        if let existing = verificationEvidenceStores[sessionID] {
+            return existing
+        }
+        let store = VerificationEvidenceStore()
+        verificationEvidenceStores[sessionID] = store
+        return store
+    }
+
     /// Shared budget controller used to shape large tool results before they are appended to the model context.
     var toolResultBudgetController = ToolResultBudgetController()
 
