@@ -23,4 +23,8 @@ struct AgentDefinitionDocument: Sendable, Equatable {
     let criticalReminder: String?                  // default: nil
     let color: String?                             // default: nil
     let disallowedToolNames: [String]              // default: []
+
+    // MARK: - S-A2 One-Shot
+    /// `true` 时子代理执行完成后不附加执行元数据 trailer，节省 token。
+    let isOneShot: Bool                        // frontmatter: one-shot (default: false)
 }

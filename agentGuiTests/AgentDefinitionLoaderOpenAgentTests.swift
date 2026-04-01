@@ -50,6 +50,7 @@ final class AgentDefinitionLoaderOpenAgentTests: XCTestCase {
         XCTAssertNil(doc.criticalReminder)
         XCTAssertNil(doc.color)
         XCTAssertEqual(doc.disallowedToolNames, [])
+        XCTAssertFalse(doc.isOneShot)
     }
 
     func test_documentParsesAllOptionalFields() throws {
@@ -72,6 +73,7 @@ final class AgentDefinitionLoaderOpenAgentTests: XCTestCase {
             critical-reminder: READ-ONLY. Do not edit files.
             color: blue
             disallowed-tools: [bash_write, file_delete]
+            one-shot: true
             ---
             # Role
             You are an analyst.
@@ -87,6 +89,7 @@ final class AgentDefinitionLoaderOpenAgentTests: XCTestCase {
         XCTAssertEqual(doc.criticalReminder,    "READ-ONLY. Do not edit files.")
         XCTAssertEqual(doc.color,               "blue")
         XCTAssertEqual(doc.disallowedToolNames, ["bash_write", "file_delete"])
+        XCTAssertTrue(doc.isOneShot)
     }
 
     // MARK: - Whitelist removal
@@ -298,5 +301,48 @@ final class AgentDefinitionLoaderOpenAgentTests: XCTestCase {
             XCTAssertNil(runtime.color)
             XCTAssertEqual(runtime.disallowedToolNames, [])
         }
+    }
+
+    // MARK: - S-A2 one-shot field
+
+    func test_unsupportedField_oneShotTypo_throwsError() throws {
+        let raw = """
+            ---
+            name: myagent
+            display-name: My Agent
+            description: Test.
+            argument-hint: Test.
+            tools: [read_only_editor]
+            max-turns: 10
+            user-invocable: false
+            subagent-invocable: true
+            output-contract: test_report
+            oneshot: true
+            ---
+            # Role
+            Body.
+            """
+        let loader = AgentDefinitionLoader()
+        XCTAssertThrowsError(try loader.parseDocument(named: "myagent.agent.md", raw: raw)) { error in
+            guard case AgentValidationError.unsupportedFields(let fields) = error else {
+                XCTFail("Expected unsupportedFields, got \(error)")
+                return
+            }
+            XCTAssertTrue(fields.contains("oneshot"))
+        }
+    }
+
+    func test_builtInExploreAgentHasOneShotEnabled() throws {
+        let loader = AgentDefinitionLoader()
+        let documents = try loader.loadBuiltInDocuments(from: Bundle(for: type(of: self)))
+        let explore = try XCTUnwrap(documents.first { $0.name == "explore" })
+        XCTAssertTrue(explore.isOneShot, "explore 代理应标记为 one-shot")
+    }
+
+    func test_builtInWorkerAgentHasOneShotDisabled() throws {
+        let loader = AgentDefinitionLoader()
+        let documents = try loader.loadBuiltInDocuments(from: Bundle(for: type(of: self)))
+        let worker = try XCTUnwrap(documents.first { $0.name == "worker" })
+        XCTAssertFalse(worker.isOneShot, "worker 代理不应标记为 one-shot")
     }
 }

@@ -78,6 +78,10 @@ struct WorkflowRoleDefinition: Sendable {
     /// 从代理可用工具集中排除的工具名称列表（空 = 不排除）。
     let disallowedToolNames: [String]
 
+    // MARK: - S-A2 One-Shot Trailer Skip
+    /// `true` 时子代理结果不附加执行元数据 trailer。
+    let isOneShot: Bool
+
     // MARK: Adapter
 
     /// Alias used by the run_subagent path (maps to maxTurnsPerActivation).
@@ -110,7 +114,9 @@ struct WorkflowRoleDefinition: Sendable {
         initialPrompt: String? = nil,
         criticalReminder: String? = nil,
         color: String? = nil,
-        disallowedToolNames: [String] = []
+        disallowedToolNames: [String] = [],
+        // S-A2 新增
+        isOneShot: Bool = false
     ) {
         self.name = name
         self.displayName = displayName
@@ -136,6 +142,7 @@ struct WorkflowRoleDefinition: Sendable {
         self.criticalReminder = criticalReminder
         self.color = color
         self.disallowedToolNames = disallowedToolNames
+        self.isOneShot = isOneShot
     }
 
 }

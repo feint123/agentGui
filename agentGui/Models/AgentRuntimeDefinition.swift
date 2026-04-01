@@ -28,6 +28,9 @@ struct AgentRuntimeDefinition: Sendable, Equatable {
     let color: String?
     let disallowedToolNames: [String]
 
+    // MARK: - S-A2
+    let isOneShot: Bool
+
     var workflowRoleDefinition: WorkflowRoleDefinition {
         WorkflowRoleDefinition(
             name: name,
@@ -53,7 +56,8 @@ struct AgentRuntimeDefinition: Sendable, Equatable {
             initialPrompt: initialPrompt,
             criticalReminder: criticalReminder,
             color: color,
-            disallowedToolNames: disallowedToolNames
+            disallowedToolNames: disallowedToolNames,
+            isOneShot: isOneShot
         )
     }
 }
@@ -88,7 +92,8 @@ extension AgentRuntimeDefinition {
                 initialPrompt: document.initialPrompt,
                 criticalReminder: document.criticalReminder,
                 color: document.color,
-                disallowedToolNames: document.disallowedToolNames
+                disallowedToolNames: document.disallowedToolNames,
+                isOneShot: document.isOneShot
             )
         case "worker":
             return AgentRuntimeDefinition(
@@ -115,7 +120,8 @@ extension AgentRuntimeDefinition {
                 initialPrompt: document.initialPrompt,
                 criticalReminder: document.criticalReminder,
                 color: document.color,
-                disallowedToolNames: document.disallowedToolNames
+                disallowedToolNames: document.disallowedToolNames,
+                isOneShot: document.isOneShot
             )
         case "verifier":
             return AgentRuntimeDefinition(
@@ -142,7 +148,8 @@ extension AgentRuntimeDefinition {
                 initialPrompt: document.initialPrompt,
                 criticalReminder: document.criticalReminder,
                 color: document.color,
-                disallowedToolNames: document.disallowedToolNames
+                disallowedToolNames: document.disallowedToolNames,
+                isOneShot: document.isOneShot
             )
         default:
             return AgentRuntimeDefinition(
@@ -169,7 +176,8 @@ extension AgentRuntimeDefinition {
                 initialPrompt: document.initialPrompt,
                 criticalReminder: document.criticalReminder,
                 color: document.color,
-                disallowedToolNames: document.disallowedToolNames
+                disallowedToolNames: document.disallowedToolNames,
+                isOneShot: document.isOneShot
             )
         }
     }

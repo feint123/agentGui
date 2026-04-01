@@ -127,11 +127,19 @@ extension ClaudeService {
             request: request,
             runtime: runtime
         )
-        let output = result.text.isEmpty ? "(subagent produced no output)" : result.text
+        let rawOutput = result.text.isEmpty ? "(subagent produced no output)" : result.text
         let elapsed = Date().timeIntervalSince(startTime)
+        let rounds = min(loopMessages.count / 2, definition.maxRounds)
+        let trailer = ClaudeService.buildSubagentTrailer(
+            agentName: definition.name,
+            rounds: rounds,
+            elapsed: elapsed,
+            isOneShot: definition.isOneShot
+        )
+        let output = ClaudeService.applyTrailerToOutput(output: rawOutput, trailer: trailer)
         let metadata: [String: String] = [
             "agent":    definition.name,
-            "rounds":   String(min(loopMessages.count / 2, definition.maxRounds)),
+            "rounds":   String(rounds),
             "elapsed":  String(format: "%.2fs", elapsed)
         ]
         return .detecting(text: output, sender: definition.name, metadata: metadata)
@@ -161,5 +169,26 @@ extension ClaudeService {
         }
 
         return nil
+    }
+
+    // MARK: - S-A2 One-Shot Trailer
+
+    /// 根据 isOneShot 标记生成执行元数据 trailer。
+    /// - Returns: 追加在输出末尾的字符串（以 `\n` 开头），或 `nil`（one-shot 代理跳过）。
+    nonisolated static func buildSubagentTrailer(
+        agentName: String,
+        rounds: Int,
+        elapsed: TimeInterval,
+        isOneShot: Bool
+    ) -> String? {
+        guard !isOneShot else { return nil }
+        let elapsedStr = String(format: "%.2fs", elapsed)
+        return "\n<agent_execution>agent: \(agentName) | rounds: \(rounds) | elapsed: \(elapsedStr)</agent_execution>"
+    }
+
+    /// 将 trailer（可为 nil）追加到输出文本末尾。
+    nonisolated static func applyTrailerToOutput(output: String, trailer: String?) -> String {
+        guard let trailer else { return output }
+        return output + trailer
     }
 }

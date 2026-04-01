@@ -22,6 +22,7 @@ struct AgentDefinitionLoader {
         "critical-reminder",
         "color",
         "disallowed-tools",
+        "one-shot",      // S-A2
         "tags",
         "examples",
         "notes"
@@ -134,6 +135,9 @@ struct AgentDefinitionLoader {
             disallowedToolNames = []
         }
 
+        // MARK: S-A2 — one-shot flag
+        let isOneShot = parseBool(parsed.fields["one-shot"] ?? "false") ?? false
+
         return AgentDefinitionDocument(
             name: name,
             displayName: displayName,
@@ -152,7 +156,8 @@ struct AgentDefinitionLoader {
             initialPrompt: initialPrompt,
             criticalReminder: criticalReminder,
             color: color,
-            disallowedToolNames: disallowedToolNames
+            disallowedToolNames: disallowedToolNames,
+            isOneShot: isOneShot
         )
     }
 
