@@ -259,6 +259,14 @@ extension ClaudeService {
         Use your judgment — the goal is clarity and accountability, not ceremony.
         """)
 
+        // Memory type guidance（对齐 Claude Code memoryTypes.ts）
+        parts.append("## Memory System\n\n\(MemoryTypeGuidanceComposer().compose())")
+
         return parts.joined(separator: "\n\n")
+    }
+
+    /// 生成完整的 Memory System prompt 节（pure static，便于测试直接验证内容）。
+    nonisolated static func memoryGuidanceSection() -> String {
+        "## Memory System\n\n\(MemoryTypeGuidanceComposer().compose())"
     }
 }

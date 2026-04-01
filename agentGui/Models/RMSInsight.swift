@@ -103,6 +103,12 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
     /// The store uses this to sort newer insights ahead of older ones when needed.
     var updatedAt: Date?
 
+    /// 对齐 Claude Code 四类型分类的语义标注。
+    ///
+    /// 可选字段，`nil` 表示旧数据或尚未分类。
+    /// 不影响 `RMSInsightKind` 的已有行为。
+    var semanticType: MemorySemanticType?
+
     /// Creates a reusable RMS insight with full control over all fields.
     ///
     /// - Parameters:
@@ -116,6 +122,7 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
     ///   - scope: Optional reuse boundary for the insight.
     ///   - confidence: Reliability score for later selection and persistence logic.
     ///   - updatedAt: Optional explicit timestamp; if omitted, the store may fill one in during persistence.
+    ///   - semanticType: Optional Claude Code四类型语义分类标注。
     init(
         id: String,
         kind: RMSInsightKind,
@@ -127,7 +134,8 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
         rawContentFilePath: String? = nil,
         scope: MemoryScope? = nil,
         confidence: Double = 1,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        semanticType: MemorySemanticType? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -140,6 +148,7 @@ struct RMSInsight: Codable, Equatable, Sendable, Identifiable {
         self.scope = scope
         self.confidence = confidence
         self.updatedAt = updatedAt
+        self.semanticType = semanticType
     }
 
     /// Convenience constructor for a stable behavioral constraint.
