@@ -136,6 +136,11 @@ struct AgentLoopToolExecutionCoordinator {
                 case .appendAttachment(let text):
                     record.toolResultSummary = text
                 case .rewriteResult(let rewritten):
+                    // Preserve timeline readability: copy the envelope summary (if any) so that
+                    // the execution theater shows e.g. "bash result (24576 chars)" rather than blank.
+                    if let summary = rewritten.envelope?.summary {
+                        record.toolResultSummary = summary
+                    }
                     return AgentLoopToolExecutionOutcome(result: rewritten, record: record)
                 case .passthrough:
                     break

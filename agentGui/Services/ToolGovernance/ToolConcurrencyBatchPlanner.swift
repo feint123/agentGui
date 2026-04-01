@@ -25,6 +25,15 @@ struct ToolConcurrencyBatchPlanner {
     let isConcurrencySafe: (String) throws -> Bool
 
     /// Partition `tools` into an ordered sequence of execution batches.
+    ///
+    /// - Note (S-F3 reservation): When the Fork concurrent subagent dispatcher
+    ///   (S-F3 in `2026-04-01-subagent-capability-enhancement-design.md`) is implemented,
+    ///   fork-mode subagents should be classified as concurrency-safe here by inspecting
+    ///   `tool.subagentType` (or an equivalent annotation on `AgentLoopPendingTool`).  
+    ///   Add a branch before the `isConcurrencySafe` check, e.g.:
+    ///   ```swift
+    ///   if tool.subagentType == .fork { /* treat as safe */ }
+    ///   ```
     func partition(_ tools: [AgentLoopPendingTool]) -> [ToolExecutionBatch] {
         tools.reduce(into: [ToolExecutionBatch]()) { batches, tool in
             let safe = (try? isConcurrencySafe(tool.name)) ?? false
