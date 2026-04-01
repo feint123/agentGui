@@ -145,58 +145,184 @@ final class SkillService {
 
     // MARK: - Frontmatter Parsing
 
-    /// Parses YAML frontmatter (between `---` markers) and extracts `name:` and `description:` values.
-    /// Only the first frontmatter block is parsed. Multi-line values are not supported.
-    nonisolated private static func parseFrontmatter(at url: URL) -> (name: String?, description: String?) {
+    /// SkillService 内部使用的 frontmatter 解析结果，包含所有 S-A1 新字段。
+    private struct SkillFrontmatterResult {
+        var name: String?
+        var description: String?
+        var whenToUse: String?
+        var argumentHint: String?
+        var argumentNames: [String] = []
+        var allowedTools: [String] = []
+        var model: String?
+        var effort: EffortLevel?
+        var executionContext: SkillExecutionContext = .inline
+        var agent: String?
+        var userInvocable: Bool = true
+        var disableModelInvocation: Bool = false
+        var version: String?
+        var paths: [String]?
+    }
+
+    /// Parses YAML frontmatter (between `---` markers) and extracts all S-A1 manifest fields.
+    /// Only the first frontmatter block is parsed. Missing fields fall back to safe defaults.
+    nonisolated private static func parseFrontmatter(at url: URL) -> SkillFrontmatterResult {
+        var result = SkillFrontmatterResult()
+
         guard let raw = try? String(contentsOf: url, encoding: .utf8) else {
             print("[SkillService]   parseFrontmatter: failed to read \(url.path)")
-            return (nil, nil)
+            return result
         }
 
         let lines = raw.components(separatedBy: "\n")
         guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else {
             print("[SkillService]   parseFrontmatter: no frontmatter in \(url.lastPathComponent)")
-            return (nil, nil)
+            return result
         }
 
-        var name: String? = nil
-        var description: String? = nil
-        var descriptionLines: [String] = []
         var inFrontmatter = false
-        var collectingDescription = false
+        var collectingField: String? = nil
+        var collectedLines: [String] = []
 
         for (i, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+
             if i == 0 { inFrontmatter = true; continue }
-            if trimmed == "---" && inFrontmatter { break }
+            if trimmed == "---" && inFrontmatter {
+                flushCollectedLines(&result, field: collectingField, lines: collectedLines)
+                break
+            }
             guard inFrontmatter else { break }
 
-            if collectingDescription {
-                // Multi-line description: continuation lines start with whitespace
-                if line.hasPrefix("  ") || line.hasPrefix("\t") {
-                    descriptionLines.append(trimmed)
-                    continue
-                } else {
-                    collectingDescription = false
-                }
+            // 续行（以两个空格或 Tab 开头的列表项）
+            if let field = collectingField,
+               (line.hasPrefix("  ") || line.hasPrefix("\t")) {
+                let item = trimmed.hasPrefix("- ") ? String(trimmed.dropFirst(2)) : trimmed
+                let cleaned = removeQuotes(item)
+                if !cleaned.isEmpty { collectedLines.append(cleaned) }
+                continue
+            } else if collectingField != nil {
+                flushCollectedLines(&result, field: collectingField, lines: collectedLines)
+                collectingField = nil
+                collectedLines = []
             }
 
-            if trimmed.hasPrefix("name:") {
-                let value = trimmed.dropFirst("name:".count).trimmingCharacters(in: .whitespaces)
-                name = removeQuotes(value)
-            } else if trimmed.hasPrefix("description:") {
-                let value = trimmed.dropFirst("description:".count).trimmingCharacters(in: .whitespaces)
-                if value.isEmpty {
-                    collectingDescription = true
+            guard let colonIdx = trimmed.firstIndex(of: ":") else { continue }
+            let key = String(trimmed[..<colonIdx]).trimmingCharacters(in: .whitespaces)
+            let rawValue = String(trimmed[trimmed.index(after: colonIdx)...]).trimmingCharacters(in: .whitespaces)
+
+            switch key {
+            case "name":
+                result.name = removeQuotes(rawValue)
+
+            case "description":
+                if rawValue.isEmpty {
+                    collectingField = "description"
+                    collectedLines = []
                 } else {
-                    descriptionLines = [removeQuotes(value)]
-                    collectingDescription = true
+                    result.description = removeQuotes(rawValue)
                 }
+
+            case "when_to_use":
+                result.whenToUse = removeQuotes(rawValue).nonEmptyOrNil
+
+            case "argument-hint":
+                result.argumentHint = removeQuotes(rawValue).nonEmptyOrNil
+
+            case "arguments":
+                if rawValue.hasPrefix("[") {
+                    result.argumentNames = parseInlineList(rawValue)
+                } else if rawValue.isEmpty {
+                    collectingField = "arguments"
+                    collectedLines = []
+                } else {
+                    result.argumentNames = [removeQuotes(rawValue)]
+                }
+
+            case "allowed-tools":
+                if rawValue.hasPrefix("[") {
+                    result.allowedTools = parseInlineList(rawValue)
+                } else if rawValue.isEmpty {
+                    collectingField = "allowed-tools"
+                    collectedLines = []
+                } else {
+                    result.allowedTools = [removeQuotes(rawValue)]
+                }
+
+            case "model":
+                let m = removeQuotes(rawValue)
+                result.model = m == "inherit" ? nil : m.nonEmptyOrNil
+
+            case "effort":
+                result.effort = EffortLevel(rawValue: removeQuotes(rawValue).lowercased())
+                if result.effort == nil && !rawValue.isEmpty {
+                    print("[SkillService]   parseFrontmatter: invalid effort '\(rawValue)' in \(url.lastPathComponent)")
+                }
+
+            case "context":
+                result.executionContext = SkillExecutionContext(rawValue: removeQuotes(rawValue)) ?? .inline
+
+            case "agent":
+                result.agent = removeQuotes(rawValue).nonEmptyOrNil
+
+            case "user-invocable":
+                result.userInvocable = parseBool(rawValue, default: true)
+
+            case "disable-model-invocation":
+                result.disableModelInvocation = parseBool(rawValue, default: false)
+
+            case "version":
+                result.version = removeQuotes(rawValue).nonEmptyOrNil
+
+            case "paths":
+                if rawValue.hasPrefix("[") {
+                    result.paths = parseInlineList(rawValue).nonEmptyOrNil
+                } else if rawValue.isEmpty {
+                    collectingField = "paths"
+                    collectedLines = []
+                } else {
+                    result.paths = [removeQuotes(rawValue)]
+                }
+
+            default:
+                break
             }
         }
 
-        description = descriptionLines.isEmpty ? nil : descriptionLines.joined(separator: " ")
-        return (name, description)
+        return result
+    }
+
+    nonisolated private static func flushCollectedLines(
+        _ result: inout SkillFrontmatterResult,
+        field: String?,
+        lines: [String]
+    ) {
+        guard let field, !lines.isEmpty else { return }
+        switch field {
+        case "description":   result.description = lines.joined(separator: " ")
+        case "arguments":     result.argumentNames = lines
+        case "allowed-tools": result.allowedTools = lines
+        case "paths":         result.paths = lines.nonEmptyOrNil
+        default: break
+        }
+    }
+
+    /// Parses a YAML inline list like `[a, b, c]`.
+    nonisolated private static func parseInlineList(_ raw: String) -> [String] {
+        let stripped = raw.trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        return stripped
+            .components(separatedBy: ",")
+            .map { removeQuotes($0.trimmingCharacters(in: .whitespaces)) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Parses a YAML boolean value (`true`/`false`/`yes`/`no`).
+    nonisolated private static func parseBool(_ raw: String, default defaultValue: Bool) -> Bool {
+        switch raw.lowercased() {
+        case "true", "yes", "1":  return true
+        case "false", "no", "0":  return false
+        default:                   return defaultValue
+        }
     }
 
     nonisolated private static func removeQuotes(_ s: String) -> String {
@@ -248,15 +374,38 @@ final class SkillService {
                     return nil
                 }
 
-                let (name, description) = parseFrontmatter(at: skillFile)
+                let fmResult = parseFrontmatter(at: skillFile)
                 let dirName = url.lastPathComponent
-                print("[SkillService]   loaded skill: dir=\(dirName) name=\(name ?? "(nil)") desc=\(description?.prefix(60) ?? "(nil)")")
+
+                // 检测参考文件（hasReferenceFiles）
+                let otherFiles = (try? fm.contentsOfDirectory(
+                    at: url,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                ))?.filter { $0.lastPathComponent != "SKILL.md" } ?? []
+                let hasReferenceFiles = !otherFiles.isEmpty
+
+                print("[SkillService]   loaded skill: dir=\(dirName) name=\(fmResult.name ?? "(nil)") desc=\(fmResult.description?.prefix(60) ?? "(nil)")")
                 return Skill(
                     directoryName: dirName,
-                    name: name ?? dirName,
-                    description: description ?? "",
+                    name: fmResult.name ?? dirName,
+                    description: fmResult.description ?? "",
                     path: url,
-                    contentURL: skillFile
+                    contentURL: skillFile,
+                    whenToUse: fmResult.whenToUse,
+                    argumentHint: fmResult.argumentHint,
+                    argumentNames: fmResult.argumentNames,
+                    allowedTools: fmResult.allowedTools,
+                    model: fmResult.model,
+                    effort: fmResult.effort,
+                    executionContext: fmResult.executionContext,
+                    agent: fmResult.agent,
+                    userInvocable: fmResult.userInvocable,
+                    disableModelInvocation: fmResult.disableModelInvocation,
+                    version: fmResult.version,
+                    paths: fmResult.paths,
+                    hasReferenceFiles: hasReferenceFiles,
+                    loadedFrom: .user
                 )
             }
 
@@ -279,4 +428,16 @@ final class SkillService {
             content: resolveSkillPaths(in: raw, skillDirectory: skill.path)
         )
     }
+}
+
+// MARK: - Frontmatter helpers
+
+private extension String {
+    /// Returns nil if the string is empty, otherwise self.
+    var nonEmptyOrNil: String? { isEmpty ? nil : self }
+}
+
+private extension Array {
+    /// Returns nil if the array is empty, otherwise self.
+    var nonEmptyOrNil: [Element]? { isEmpty ? nil : self }
 }
