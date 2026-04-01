@@ -164,7 +164,10 @@ struct agentGuiApp: App {
                     reliabilityCenterViewModel.bindRuntimeSnapshotStore(claudeService.executionRuntimeSnapshotStore)
                     reliabilityCenterViewModel.bindRuntimeRecoveryService(runtimeRecoveryService)
                     Task {
-                        await skillService.loadSkills()
+                        let workspaceURL = settings.workingDirectory.isEmpty
+                            ? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                            : URL(fileURLWithPath: settings.workingDirectory)
+                        await skillService.loadSkills(workspaceURL: workspaceURL)
                     }
                     let backgroundObservationService = BackgroundTaskObservationService(
                         recoveryRefreshSink: runtimeRecoveryService

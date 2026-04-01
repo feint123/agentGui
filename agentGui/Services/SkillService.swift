@@ -26,17 +26,30 @@ final class SkillService {
     private var contentCache: [String: String] = [:]
 
     private let skillsDirectory: URL
+    private var workspaceURL: URL?
 
-    init(skillsDirectory: URL? = nil) {
+    init(skillsDirectory: URL? = nil, workspaceURL: URL? = nil) {
         self.skillsDirectory = skillsDirectory ?? Self.defaultSkillsDirectory()
+        self.workspaceURL = workspaceURL
     }
 
     // MARK: - Load
 
-    /// Scans the skills directory and populates `availableSkills`.
+    /// Scans all skill sources (user + project) and populates `availableSkills`.
     func loadSkills() async {
-        availableSkills = await Task.detached(priority: .userInitiated) { [skillsDirectory] in
-            Self.scanSkills(in: skillsDirectory)
+        let userDir = skillsDirectory
+        let workspace = workspaceURL
+        availableSkills = await Task.detached(priority: .userInitiated) { [userDir, workspace] in
+            Self.loadAllSkills(userSkillsDir: userDir, workspaceURL: workspace)
+        }.value
+    }
+
+    /// 使用新的 workspace 重新加载所有来源的技能。
+    func loadSkills(workspaceURL: URL?) async {
+        self.workspaceURL = workspaceURL
+        let userDir = skillsDirectory
+        availableSkills = await Task.detached(priority: .userInitiated) { [userDir, workspaceURL] in
+            Self.loadAllSkills(userSkillsDir: userDir, workspaceURL: workspaceURL)
         }.value
     }
 
@@ -344,9 +357,108 @@ final class SkillService {
             .appending(path: ".claude/skills", directoryHint: .isDirectory)
     }
 
-    nonisolated private static func scanSkills(in skillsDirectory: URL) -> [Skill] {
+    /// 多源加载入口：user + project（deep-first）→ 合并去重 → 排序。
+    nonisolated private static func loadAllSkills(
+        userSkillsDir: URL,
+        workspaceURL: URL?
+    ) -> [Skill] {
+        // 1. User source
+        let userSkills = scanSkills(in: userSkillsDir, source: .user)
+
+        // 2. Project sources（workspace 向上遍历）
+        var projectSkills: [Skill] = []
+        if let workspace = workspaceURL {
+            let projectDirs = projectSkillDirs(startingAt: workspace)
+            for dir in projectDirs {
+                let skills = scanSkills(in: dir, source: .project)
+                projectSkills.append(contentsOf: skills)
+            }
+        }
+
+        // 3. 合并去重（user 优先于 project）
+        let merged = mergeAndDeduplicate(userSkills + projectSkills)
+        return merged.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+    }
+
+    /// 合并多个来源的 Skill 列表，通过 realpath 过滤 symlink 重复。
+    /// 策略：first-wins by canonical path（入参顺序决定优先级）。
+    nonisolated internal static func mergeAndDeduplicate(_ allSkills: [Skill]) -> [Skill] {
+        var seenRealPaths: Set<String> = []
+        return allSkills.filter { skill in
+            let resolved = skill.contentURL.resolvingSymlinksInPath().path
+            if seenRealPaths.contains(resolved) {
+                return false
+            }
+            seenRealPaths.insert(resolved)
+            return true
+        }
+    }
+
+    /// 从 `startURL` 向上遍历，收集沿途存在的 `.claude/skills/` 目录路径列表。
+    ///
+    /// 停止条件：到达 `home`、到达 git root 后处理该层、到达文件系统根。
+    /// 返回顺序：deep-first（最接近 startURL 的目录在最前）。
+    nonisolated internal static func projectSkillDirs(
+        startingAt startURL: URL,
+        home: URL? = nil
+    ) -> [URL] {
         let fm = FileManager.default
-        print("[SkillService] skillsDirectory = \(skillsDirectory.path)")
+        let homeURL = (home ?? homeDirectory()).standardized
+        let stopAtGit = gitRoot(for: startURL)
+        var current = startURL.standardized
+        var dirs: [URL] = []
+
+        while true {
+            // HOME 本身不遍历（其 user skills 由独立路径负责）
+            if current.path == homeURL.path { break }
+
+            let claudeSkills = current.appending(path: ".claude/skills")
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: claudeSkills.path, isDirectory: &isDir), isDir.boolValue {
+                dirs.append(claudeSkills)
+            }
+
+            // 处理完 git root 层后停止——防止 repo 外的父目录渗透
+            if let gitRoot = stopAtGit, current.path == gitRoot.path { break }
+
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path { break }  // 文件系统根
+            current = parent
+        }
+
+        return dirs
+    }
+
+    /// 从 `startURL` 向上查找最近的含 `.git` 目录/文件的祖先目录。
+    nonisolated internal static func gitRoot(for startURL: URL) -> URL? {
+        let fm = FileManager.default
+        var current = startURL.standardized
+
+        while true {
+            let gitPath = current.appending(path: ".git")
+            if fm.fileExists(atPath: gitPath.path) {
+                return current
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                // 到达文件系统根
+                return nil
+            }
+            current = parent
+        }
+    }
+
+    /// 返回当前进程运行的真实 HOME 目录（优先使用 getpwuid 以避免沙箱偏差）。
+    nonisolated private static func homeDirectory() -> URL {
+        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
+            return URL(fileURLWithPath: String(cString: dir), isDirectory: true)
+        }
+        return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+    }
+
+    nonisolated internal static func scanSkills(in skillsDirectory: URL, source: SkillSource = .user) -> [Skill] {
+        let fm = FileManager.default
+        print("[SkillService] skillsDirectory = \(skillsDirectory.path) source=\(source)")
 
         guard fm.fileExists(atPath: skillsDirectory.path) else {
             print("[SkillService] ❌ directory does not exist: \(skillsDirectory.path)")
@@ -405,7 +517,7 @@ final class SkillService {
                     version: fmResult.version,
                     paths: fmResult.paths,
                     hasReferenceFiles: hasReferenceFiles,
-                    loadedFrom: .user
+                    loadedFrom: source
                 )
             }
 
