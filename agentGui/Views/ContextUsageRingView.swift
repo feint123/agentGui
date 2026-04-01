@@ -17,16 +17,26 @@ struct ContextUsageRingView: View {
 
     private var ratio: Double { min(service.contextUsageRatio(for: sessionID), 1.0) }
 
+    private var budgetLevel: BudgetLevel {
+        service.builtInExecutionContext(for: sessionID).contextBudgetState?.level ?? .normal
+    }
+
     private var ringColor: Color {
-        if ratio < 0.6 { return .green }
-        if ratio < 0.8 { return .yellow }
-        return .red
+        switch budgetLevel {
+        case .normal:           return .green
+        case .warning:          return .yellow
+        case .critical:         return .orange
+        case .autoCompactReady: return .red
+        }
     }
 
     private var statusLabel: String {
-        if ratio < 0.6 { return "正常" }
-        if ratio < 0.8 { return "较高" }
-        return "接近上限"
+        switch budgetLevel {
+        case .normal:           return "正常"
+        case .warning:          return "较高"
+        case .critical:         return "临近限制"
+        case .autoCompactReady: return "需压缩"
+        }
     }
 
     private var compactLabel: String {
@@ -145,10 +155,17 @@ struct ContextUsageRingView: View {
 
             // Remaining
             detailRow(label: "剩余容量") {
-                Text("\(remainStr) tokens")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(ratio > 0.8 ? .red : .secondary)
+                if let pctRemaining = service.builtInExecutionContext(for: sessionID).contextBudgetState?.percentRemaining {
+                    Text("\(pctRemaining)% 剩余")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(budgetLevel == .normal ? .secondary : ringColor)
+                } else {
+                    Text("\(remainStr) tokens")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(ratio > 0.8 ? .red : .secondary)
+                }
             }
         }
     }
