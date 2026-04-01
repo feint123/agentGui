@@ -17,6 +17,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
     func build() -> AgentLoopToolExecutionCoordinator {
         AgentLoopToolExecutionCoordinator(
             dependencies: .init(
+                sessionID: sessionId,
                 runSubagent: { input, record in
                     await claudeService.executeRunSubagentTool(
                         input: input,

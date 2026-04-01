@@ -8,6 +8,7 @@ struct AgentLoopToolExecutionOutcome {
 
 struct AgentLoopToolExecutionCoordinator {
     struct Dependencies {
+        let sessionID: String                          // F-C4: propagated to hook pipeline
         let runSubagent: (MessageResponse.Content.Input, ToolCall) async -> AgentMessage
         let requestApprovalIfNeeded: (String, MessageResponse.Content.Input, ToolCall) async -> ToolExecutionResult?
         let executeTool: (String, MessageResponse.Content.Input) async -> ToolExecutionResult
@@ -66,7 +67,7 @@ struct AgentLoopToolExecutionCoordinator {
                 toolCallId: record.toolCallId,
                 toolName: pendingTool.name,
                 input: effectiveInput,
-                sessionID: "",
+                sessionID: dependencies.sessionID,
                 executionContext: .mainAgent
             )
             let preOutcome = await pipeline.runPreExecute(toolCall: preview)
@@ -101,7 +102,7 @@ struct AgentLoopToolExecutionCoordinator {
                 toolCallId: record.toolCallId,
                 toolName: pendingTool.name,
                 input: effectiveInput,
-                sessionID: "",
+                sessionID: dependencies.sessionID,
                 executionContext: .mainAgent
             )
             if result.isError {
@@ -127,7 +128,7 @@ struct AgentLoopToolExecutionCoordinator {
                     toolName: pendingTool.name,
                     input: effectiveInput,
                     result: result,
-                    sessionID: "",
+                    sessionID: dependencies.sessionID,
                     executionContext: .mainAgent
                 )
                 let postAction = await pipeline.runPostExecute(record: runRecord)
