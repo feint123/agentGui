@@ -34,6 +34,16 @@ final class ConfigDirectoryManager {
         agentGuiDir.appendingPathComponent("lsp-server", isDirectory: true)
     }
 
+    /// `~/.agentgui/memory/`
+    var memoryDir: URL {
+        agentGuiDir.appendingPathComponent("memory", isDirectory: true)
+    }
+
+    /// `~/.agentgui/memory/MEMORY.md`
+    var memoryIndexURL: URL {
+        memoryDir.appendingPathComponent("MEMORY.md")
+    }
+
     // MARK: - Setup
 
     /// Creates `~/.agentgui/` and an empty legacy `memory.md` if they do not yet exist.
@@ -59,6 +69,12 @@ final class ConfigDirectoryManager {
             try fm.createDirectory(at: lspServerDirectoryURL, withIntermediateDirectories: true)
         } catch {
             print("[ConfigDirectoryManager] Failed to create LSP server directory: \(error)")
+        }
+
+        do {
+            try fm.createDirectory(at: memoryDir, withIntermediateDirectories: true)
+        } catch {
+            print("[ConfigDirectoryManager] Failed to create memory directory: \(error)")
         }
     }
 
