@@ -19,6 +19,20 @@ extension ClaudeService {
         buildSubagentTools(definition: definition, settings: settings)
     }
 
+    /// 解析子代理实际使用的模型 ID（测试可见辅助桥接方法）。
+    /// 将 WorkflowRoleDefinition.modelPreference 传递给 SubagentModelResolver。
+    nonisolated static func resolvedModelId(
+        for definition: WorkflowRoleDefinition,
+        parentModelId: String,
+        overrideModelId: String? = nil
+    ) -> String {
+        SubagentModelResolver.resolve(
+            preference: definition.modelPreference,
+            parentModelId: parentModelId,
+            overrideModelId: overrideModelId
+        )
+    }
+
     /// 执行 run_subagent 工具调用：解析参数、查找定义、运行嵌套 loop
     /// 返回 AgentMessage（带发送方、接收方、内容类型和元数据）而非纯字符串。
     func executeRunSubagentTool(
