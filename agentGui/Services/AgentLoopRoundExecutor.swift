@@ -468,114 +468,33 @@ struct AgentLoopRoundExecutor {
         var toolResultObjects: [MessageParameter.Message.Content.ContentObject] = []
         var toolObservations: [String] = []
 
-        for pending in outcome.pendingTools {
-            let input = pending.parsedInput
-            let willExecuteHooks = (try? await emitter.dispatch(
-                .willExecuteTool,
-                state: state,
-                messages: messages,
-                overrides: .init(
-                    metadata: [
-                        "toolName": pending.name,
-                        "inputLength": pending.partialJson.count,
-                        "roundIndex": outcome.roundIndex,
-                        "toolUseID": pending.id,
-                        "agentRound": outcome.round
-                    ],
-                    toolName: pending.name,
-                    toolInput: input
-                )
-            )) ?? AgentLoopHookDispatchResult()
-            let toolSpan = PerformanceMonitor.self.startSpan("tool_\(pending.name)", category: "Tool", level: .normal)
+        // 使用批次规划器分批执行：连续的只读工具并发，其余工具串行
+        let batchPlanner = ToolConcurrencyBatchPlanner(registry: DefaultToolRegistry())
+        let batches = batchPlanner.partition(outcome.pendingTools)
 
-            assistantObjects.append(.toolUse(pending.id, pending.name, input))
-            let record = willExecuteHooks.toolCallRecord ?? claudeService.makeToolCallRecord(
-                toolUseId: pending.id,
-                toolName: pending.name,
-                input: input,
-                message: runtime.parentMessage,
-                agentRound: outcome.round,
-                executionContext: request.toolExecutionContext
-            )
-            let executionOutcome = await toolCoordinator.execute(
-                pendingTool: pending,
-                record: record,
-                interceptor: runtime.toolInterceptor
-            )
-            let result = executionOutcome.result
-            // execution evidence 会驱动 finalization guard，因此必须在每个 tool 完成后立即写回共享状态。
-            if let evidence = ExecutionGuard.evidenceKind(toolName: pending.name, input: input, result: result) {
-                state.executionEvidence.insert(evidence)
-                sharedState.writeExecutionEvidence(runtime.sessionId, state.executionEvidence)
-            }
-            await emitter.emit(
-                .didExecuteTool,
-                state: state,
-                messages: messages,
-                overrides: .init(
-                    metadata: Self.toolExecutionMetadata(
-                        toolName: pending.name,
-                        input: input,
-                        result: result,
-                        roundIndex: outcome.roundIndex,
-                        claudeService: claudeService
-                    ),
-                    toolName: pending.name,
-                    toolInput: input,
-                    toolResultText: result.text,
-                    toolCallRecord: record
+        for batch in batches {
+            switch batch {
+            case .concurrent(let concurrentTools):
+                try await executeConcurrentBatch(
+                    tools: concurrentTools,
+                    outcome: outcome,
+                    state: &state,
+                    messages: messages,
+                    assistantObjects: &assistantObjects,
+                    toolResultObjects: &toolResultObjects,
+                    toolObservations: &toolObservations
                 )
-            )
-
-            let classification = (try? await emitter.dispatch(
-                .classifyFailureTrigger,
-                state: state,
-                messages: messages,
-                overrides: .init(
-                    metadata: ["isError": result.isError],
-                    toolName: pending.name,
-                    toolInput: input,
-                    toolResultText: result.text,
-                    toolCallRecord: record
-                )
-            )) ?? AgentLoopHookDispatchResult()
-            if let failureTrigger = classification.failureTrigger {
-                state.loopCtx.pendingFailureTrigger = failureTrigger
-            }
-
-            if pending.name == "run_subagent", record.subagentAgentName == "verifier" {
-                let store = SessionTaskStateStore(modelContext: runtime.modelContext)
-                let existingVerification = sharedState.readVerification(runtime.sessionId)
-                    ?? store.verification(for: runtime.sessionId)
-                let reduction = AgentLoopVerificationCoordinator.reduceVerifierResult(
-                    rawText: result.text,
-                    existingVerification: existingVerification,
-                    executionEvidence: state.executionEvidence,
-                    verifierAgent: record.subagentAgentName ?? "verifier"
-                )
-                state.verificationState = reduction.verificationState
-                state.hookState.verificationState = reduction.verificationState
-                sharedState.writeVerification(runtime.sessionId, reduction.report)
-                try? store.saveVerification(reduction.report, for: runtime.sessionId)
-                state.loopCtx.pendingFailureTrigger = reduction.failureTrigger
-                record.subagentMessageMetadata = verifierMetadata(
-                    existing: record.subagentMessageMetadata,
-                    reduction: reduction
+            case .serial(let serialTool):
+                try await executeSerialTool(
+                    tool: serialTool,
+                    outcome: outcome,
+                    state: &state,
+                    messages: messages,
+                    assistantObjects: &assistantObjects,
+                    toolResultObjects: &toolResultObjects,
+                    toolObservations: &toolObservations
                 )
             }
-
-            let observation = (result.rawOutputText ?? result.text)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !observation.isEmpty {
-                toolObservations.append(observation)
-            }
-
-            toolResultObjects.append(.toolResult(pending.id, result.text, isError: result.isError ? true : nil))
-            toolResultObjects.append(contentsOf: result.mediaContent)
-
-            toolSpan.addMetadata("isError", value: result.isError)
-            toolSpan.addMetadata("outputLength", value: result.text.count)
-            toolSpan.end()
         }
 
         messages.append(.init(role: .assistant, content: .list(assistantObjects)))
@@ -907,5 +826,282 @@ struct AgentLoopRoundExecutor {
             toolObservations: normalizedObservations,
             events: events
         )
+    }
+
+    // MARK: - Tool Execution Helpers
+
+    private func executeSerialTool(
+        tool pending: AgentLoopPendingTool,
+        outcome: RoundOutcome,
+        state: inout AgentLoopRunState,
+        messages: [MessageParameter.Message],
+        assistantObjects: inout [MessageParameter.Message.Content.ContentObject],
+        toolResultObjects: inout [MessageParameter.Message.Content.ContentObject],
+        toolObservations: inout [String]
+    ) async throws {
+        let input = pending.parsedInput
+        let willExecuteHooks = (try? await emitter.dispatch(
+            .willExecuteTool,
+            state: state,
+            messages: messages,
+            overrides: .init(
+                metadata: [
+                    "toolName": pending.name,
+                    "inputLength": pending.partialJson.count,
+                    "roundIndex": outcome.roundIndex,
+                    "toolUseID": pending.id,
+                    "agentRound": outcome.round
+                ],
+                toolName: pending.name,
+                toolInput: input
+            )
+        )) ?? AgentLoopHookDispatchResult()
+        let toolSpan = PerformanceMonitor.self.startSpan("tool_\(pending.name)", category: "Tool", level: .normal)
+
+        assistantObjects.append(.toolUse(pending.id, pending.name, input))
+        let record = willExecuteHooks.toolCallRecord ?? claudeService.makeToolCallRecord(
+            toolUseId: pending.id,
+            toolName: pending.name,
+            input: input,
+            message: runtime.parentMessage,
+            agentRound: outcome.round,
+            executionContext: request.toolExecutionContext
+        )
+        let executionOutcome = await toolCoordinator.execute(
+            pendingTool: pending,
+            record: record,
+            interceptor: runtime.toolInterceptor
+        )
+        let result = executionOutcome.result
+        // execution evidence 会驱动 finalization guard，因此必须在每个 tool 完成后立即写回共享状态。
+        if let evidence = ExecutionGuard.evidenceKind(toolName: pending.name, input: input, result: result) {
+            state.executionEvidence.insert(evidence)
+            sharedState.writeExecutionEvidence(runtime.sessionId, state.executionEvidence)
+        }
+        await emitter.emit(
+            .didExecuteTool,
+            state: state,
+            messages: messages,
+            overrides: .init(
+                metadata: Self.toolExecutionMetadata(
+                    toolName: pending.name,
+                    input: input,
+                    result: result,
+                    roundIndex: outcome.roundIndex,
+                    claudeService: claudeService
+                ),
+                toolName: pending.name,
+                toolInput: input,
+                toolResultText: result.text,
+                toolCallRecord: record
+            )
+        )
+
+        let classification = (try? await emitter.dispatch(
+            .classifyFailureTrigger,
+            state: state,
+            messages: messages,
+            overrides: .init(
+                metadata: ["isError": result.isError],
+                toolName: pending.name,
+                toolInput: input,
+                toolResultText: result.text,
+                toolCallRecord: record
+            )
+        )) ?? AgentLoopHookDispatchResult()
+        if let failureTrigger = classification.failureTrigger {
+            state.loopCtx.pendingFailureTrigger = failureTrigger
+        }
+
+        if pending.name == "run_subagent", record.subagentAgentName == "verifier" {
+            let store = SessionTaskStateStore(modelContext: runtime.modelContext)
+            let existingVerification = sharedState.readVerification(runtime.sessionId)
+                ?? store.verification(for: runtime.sessionId)
+            let reduction = AgentLoopVerificationCoordinator.reduceVerifierResult(
+                rawText: result.text,
+                existingVerification: existingVerification,
+                executionEvidence: state.executionEvidence,
+                verifierAgent: record.subagentAgentName ?? "verifier"
+            )
+            state.verificationState = reduction.verificationState
+            state.hookState.verificationState = reduction.verificationState
+            sharedState.writeVerification(runtime.sessionId, reduction.report)
+            try? store.saveVerification(reduction.report, for: runtime.sessionId)
+            state.loopCtx.pendingFailureTrigger = reduction.failureTrigger
+            record.subagentMessageMetadata = verifierMetadata(
+                existing: record.subagentMessageMetadata,
+                reduction: reduction
+            )
+        }
+
+        let observation = (result.rawOutputText ?? result.text)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !observation.isEmpty {
+            toolObservations.append(observation)
+        }
+
+        toolResultObjects.append(.toolResult(pending.id, result.text, isError: result.isError ? true : nil))
+        toolResultObjects.append(contentsOf: result.mediaContent)
+
+        toolSpan.addMetadata("isError", value: result.isError)
+        toolSpan.addMetadata("outputLength", value: result.text.count)
+        toolSpan.end()
+    }
+
+    private func executeConcurrentBatch(
+        tools: [AgentLoopPendingTool],
+        outcome: RoundOutcome,
+        state: inout AgentLoopRunState,
+        messages: [MessageParameter.Message],
+        assistantObjects: inout [MessageParameter.Message.Content.ContentObject],
+        toolResultObjects: inout [MessageParameter.Message.Content.ContentObject],
+        toolObservations: inout [String]
+    ) async throws {
+        // Phase 1: Pre-hooks（串行）— 发出 willExecuteTool，创建 ToolCall 记录
+        // 串行是因为 willExecuteTool 钩子会写入 ModelContext 并创建持久化记录
+        struct PreHookEntry {
+            let pending: AgentLoopPendingTool
+            let record: ToolCall
+        }
+        var preHookEntries: [PreHookEntry] = []
+        preHookEntries.reserveCapacity(tools.count)
+
+        for pending in tools {
+            let input = pending.parsedInput
+            let willExecuteHooks = (try? await emitter.dispatch(
+                .willExecuteTool,
+                state: state,
+                messages: messages,
+                overrides: .init(
+                    metadata: [
+                        "toolName": pending.name,
+                        "inputLength": pending.partialJson.count,
+                        "roundIndex": outcome.roundIndex,
+                        "toolUseID": pending.id,
+                        "agentRound": outcome.round
+                    ],
+                    toolName: pending.name,
+                    toolInput: input
+                )
+            )) ?? AgentLoopHookDispatchResult()
+
+            let record = willExecuteHooks.toolCallRecord ?? claudeService.makeToolCallRecord(
+                toolUseId: pending.id,
+                toolName: pending.name,
+                input: input,
+                message: runtime.parentMessage,
+                agentRound: outcome.round,
+                executionContext: request.toolExecutionContext
+            )
+            assistantObjects.append(.toolUse(pending.id, pending.name, input))
+            preHookEntries.append(PreHookEntry(pending: pending, record: record))
+        }
+
+        // Phase 2: 并发执行 — withTaskGroup 继承 @MainActor 隔离
+        // 各任务的真正 I/O（网络、LSP）在 await 点让出 MainActor，允许其他任务同步推进
+        // 使用预分配数组（index 寻址）避免收集结果时的 Sendable 约束
+        var executionResults: [AgentLoopToolExecutionOutcome?] = Array(repeating: nil, count: tools.count)
+
+        await withTaskGroup(of: Void.self) { group in
+            for (index, entry) in preHookEntries.enumerated() {
+                let pending = entry.pending
+                let record = entry.record
+                group.addTask { @MainActor in
+                    let ex = await self.toolCoordinator.execute(
+                        pendingTool: pending,
+                        record: record,
+                        interceptor: self.runtime.toolInterceptor
+                    )
+                    executionResults[index] = ex
+                }
+            }
+        }
+
+        // Phase 3: 后处理（串行，按原始顺序）
+        // executionResults 此时已全部填充；按 preHookEntries 顺序处理确保 toolResultObjects 顺序正确
+        for (index, entry) in preHookEntries.enumerated() {
+            guard let executionOutcome = executionResults[index] else { continue }
+            let pending = entry.pending
+            let record = entry.record
+            let result = executionOutcome.result
+            let input = pending.parsedInput
+
+            let toolSpan = PerformanceMonitor.self.startSpan("tool_\(pending.name)", category: "Tool", level: .normal)
+
+            if let evidence = ExecutionGuard.evidenceKind(toolName: pending.name, input: input, result: result) {
+                state.executionEvidence.insert(evidence)
+                sharedState.writeExecutionEvidence(runtime.sessionId, state.executionEvidence)
+            }
+
+            await emitter.emit(
+                .didExecuteTool,
+                state: state,
+                messages: messages,
+                overrides: .init(
+                    metadata: Self.toolExecutionMetadata(
+                        toolName: pending.name,
+                        input: input,
+                        result: result,
+                        roundIndex: outcome.roundIndex,
+                        claudeService: claudeService
+                    ),
+                    toolName: pending.name,
+                    toolInput: input,
+                    toolResultText: result.text,
+                    toolCallRecord: record
+                )
+            )
+
+            let classification = (try? await emitter.dispatch(
+                .classifyFailureTrigger,
+                state: state,
+                messages: messages,
+                overrides: .init(
+                    metadata: ["isError": result.isError],
+                    toolName: pending.name,
+                    toolInput: input,
+                    toolResultText: result.text,
+                    toolCallRecord: record
+                )
+            )) ?? AgentLoopHookDispatchResult()
+            if let failureTrigger = classification.failureTrigger {
+                state.loopCtx.pendingFailureTrigger = failureTrigger
+            }
+
+            // run_subagent 的 isConcurrencySafe = false，此分支实践中不会触发；保留以备安全
+            if pending.name == "run_subagent", record.subagentAgentName == "verifier" {
+                let store = SessionTaskStateStore(modelContext: runtime.modelContext)
+                let existingVerification = sharedState.readVerification(runtime.sessionId)
+                    ?? store.verification(for: runtime.sessionId)
+                let reduction = AgentLoopVerificationCoordinator.reduceVerifierResult(
+                    rawText: result.text,
+                    existingVerification: existingVerification,
+                    executionEvidence: state.executionEvidence,
+                    verifierAgent: record.subagentAgentName ?? "verifier"
+                )
+                state.verificationState = reduction.verificationState
+                state.hookState.verificationState = reduction.verificationState
+                sharedState.writeVerification(runtime.sessionId, reduction.report)
+                try? store.saveVerification(reduction.report, for: runtime.sessionId)
+                state.loopCtx.pendingFailureTrigger = reduction.failureTrigger
+                record.subagentMessageMetadata = verifierMetadata(
+                    existing: record.subagentMessageMetadata,
+                    reduction: reduction
+                )
+            }
+
+            let observation = (result.rawOutputText ?? result.text)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !observation.isEmpty {
+                toolObservations.append(observation)
+            }
+
+            toolResultObjects.append(.toolResult(pending.id, result.text, isError: result.isError ? true : nil))
+            toolResultObjects.append(contentsOf: result.mediaContent)
+
+            toolSpan.addMetadata("isError", value: result.isError)
+            toolSpan.addMetadata("outputLength", value: result.text.count)
+            toolSpan.end()
+        }
     }
 }
