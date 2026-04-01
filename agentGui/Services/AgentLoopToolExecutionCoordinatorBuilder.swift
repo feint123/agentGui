@@ -77,7 +77,8 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
         let evidenceStore = claudeService.verificationEvidenceStore(for: sessionId)
         hooks.append(VerificationEvidenceHook(sessionID: sessionId, evidenceStore: evidenceStore))
 
-        // F-C5 PayloadBudgetHook 将在此追加
+        // F-C5: PayloadBudgetHook — persists oversized tool results to ToolPayloadStore
+        hooks.append(PayloadBudgetHook(payloadStore: claudeService.toolPayloadStore))
 
         return ToolExecutionHookPipeline(hooks: hooks)
     }
