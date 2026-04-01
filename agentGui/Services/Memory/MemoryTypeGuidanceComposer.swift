@@ -92,8 +92,42 @@ struct MemoryTypeGuidanceComposer: Sendable {
         """
     }
 
-    /// 拼接 typesSection + whatNotToSaveSection，生成完整的记忆类型指导块。
+    /// 拼接 typesSection + whatNotToSaveSection + howToSaveSection，生成完整的记忆类型指导块。
     func compose() -> String {
-        [typesSection(), whatNotToSaveSection()].joined(separator: "\n\n")
+        [typesSection(), whatNotToSaveSection(), howToSaveSection()].joined(separator: "\n\n")
+    }
+
+    /// 生成 `## How to Save Memories` 节，描述两步保存流程。
+    /// memoryDir 默认从 ConfigDirectoryManager 读取（允许测试注入）。
+    func howToSaveSection(memoryDir: String? = nil) -> String {
+        let dir = memoryDir ?? ConfigDirectoryManager.shared.memoryDir.path
+        return """
+        ## How to Save Memories
+
+        Your persistent memory lives at `\(dir)/`.
+        This directory already exists — write directly without checking for its existence.
+
+        Saving a memory is a two-step process:
+
+        **Step 1** — write the memory to its own topic file (e.g., `user_role.md`, `feedback_testing.md`):
+        ```
+        ---
+        name: "Title of this memory"
+        description: "One-line description for the MEMORY.md index"
+        type: user | feedback | project | reference
+        ---
+
+        Body: the full memory content goes here.
+        ```
+
+        **Step 2** — add a one-line pointer to `MEMORY.md`:
+        `- [Title](filename.md) — one-line hook under ~150 chars`
+
+        Rules:
+        - `MEMORY.md` is an index only — never write memory content directly into it.
+        - `MEMORY.md` has no frontmatter.
+        - Lines after \(MemoryIndexWriter.maxLines) in `MEMORY.md` will be truncated — keep entries concise.
+        - Before writing a new memory, check if an existing file can be updated instead.
+        """
     }
 }

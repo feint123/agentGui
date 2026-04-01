@@ -262,11 +262,34 @@ extension ClaudeService {
         // Memory type guidance（对齐 Claude Code memoryTypes.ts）
         parts.append("## Memory System\n\n\(MemoryTypeGuidanceComposer().compose())")
 
+        // MEMORY.md 索引（同步读取，文件 ≤25KB，耗时可忽略）
+        let memoryIndexContent = MemoryIndexReader().read(
+            from: ConfigDirectoryManager.shared.memoryIndexURL
+        )?.content ?? ""
+        let indexSection = ClaudeService.memoryIndexSection(content: memoryIndexContent)
+        if !indexSection.isEmpty {
+            parts.append(indexSection)
+        }
+
         return parts.joined(separator: "\n\n")
     }
 
     /// 生成完整的 Memory System prompt 节（pure static，便于测试直接验证内容）。
     nonisolated static func memoryGuidanceSection() -> String {
         "## Memory System\n\n\(MemoryTypeGuidanceComposer().compose())"
+    }
+
+    /// 如果 MEMORY.md 有内容，生成 `## Your Memory Index` 节，否则返回空字符串。
+    /// 调用方负责提供正确的 content（通过 MemoryIndexReader 读取）。
+    nonisolated static func memoryIndexSection(content: String) -> String {
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
+        return """
+        ## Your Memory Index
+
+        The following is your current `MEMORY.md` index. Use it to discover which topic \
+        files are available — read them with the file tools when you need the full content.
+
+        \(content)
+        """
     }
 }
