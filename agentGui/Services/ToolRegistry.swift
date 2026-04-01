@@ -267,7 +267,17 @@ struct DefaultToolRegistry: ToolRegistry {
                     type: .object,
                     properties: [
                         "agent_name": .init(type: .string, description: "Identifier of the subagent to use. One of: \(context.agentNameListText)"),
-                        "task": .init(type: .string, description: "Detailed, self-contained task description for the subagent.")
+                        "task": .init(type: .string, description: "Detailed, self-contained task description for the subagent."),
+                        // S-A3: 可选模型 override，调用方可强制指定子代理使用的模型 ID
+                        "model": .init(
+                            type: .string,
+                            description: """
+                                Optional. Override the model used by this specific subagent invocation. \
+                                When omitted, the agent uses its configured model-preference \
+                                (or inherits the parent model). \
+                                Example: "claude-haiku-4-5" for fast/low-cost tasks.
+                                """
+                        )
                     ],
                     required: ["agent_name", "task"]
                 )
