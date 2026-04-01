@@ -9,6 +9,7 @@ user-invocable: false
 subagent-invocable: true
 output-contract: exploration_report
 one-shot: true
+model-preference: haiku
 ---
 
 # Role

@@ -287,9 +287,15 @@ final class AgentDefinitionLoaderOpenAgentTests: XCTestCase {
         let worker   = try XCTUnwrap(catalog.find(named: "worker"))
         let verifier = try XCTUnwrap(catalog.find(named: "verifier"))
 
+        // explore 使用 haiku（S-A3），worker/verifier 使用 inherit
+        XCTAssertEqual(explore.modelPreference, .haiku,
+                       "explore 代理应使用 haiku 以降低探索成本（S-A3）")
+        XCTAssertEqual(worker.modelPreference, .inherit,
+                       "worker modelPreference should default to .inherit")
+        XCTAssertEqual(verifier.modelPreference, .inherit,
+                       "verifier modelPreference should default to .inherit")
+
         for runtime in [explore, worker, verifier] {
-            XCTAssertEqual(runtime.modelPreference, .inherit,
-                           "\(runtime.name) modelPreference should default to .inherit")
             XCTAssertNil(runtime.effort,
                          "\(runtime.name) effort should default to nil")
             XCTAssertFalse(runtime.background,
@@ -344,5 +350,26 @@ final class AgentDefinitionLoaderOpenAgentTests: XCTestCase {
         let documents = try loader.loadBuiltInDocuments(from: Bundle(for: type(of: self)))
         let worker = try XCTUnwrap(documents.first { $0.name == "worker" })
         XCTAssertFalse(worker.isOneShot, "worker 代理不应标记为 one-shot")
+    }
+
+    // MARK: - S-A3 Model Preference
+
+    func test_builtInExploreAgentUsesHaikuModelPreference() throws {
+        let loader = AgentDefinitionLoader()
+        let documents = try loader.loadBuiltInDocuments(from: Bundle(for: type(of: self)))
+        let explore = try XCTUnwrap(documents.first { $0.name == "explore" })
+        XCTAssertEqual(explore.modelPreference, .haiku,
+                       "explore 代理应标记 model-preference: haiku 以降低 API 成本")
+    }
+
+    func test_builtInWorkerAndVerifierUseInheritModelPreference() throws {
+        let loader = AgentDefinitionLoader()
+        let documents = try loader.loadBuiltInDocuments(from: Bundle(for: type(of: self)))
+        let worker   = try XCTUnwrap(documents.first { $0.name == "worker" })
+        let verifier = try XCTUnwrap(documents.first { $0.name == "verifier" })
+        XCTAssertEqual(worker.modelPreference,   .inherit,
+                       "worker 应继承父代理模型")
+        XCTAssertEqual(verifier.modelPreference, .inherit,
+                       "verifier 应继承父代理模型")
     }
 }
