@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 为 agentGui 落地 Feature 3 的统一 mission brief 模型：把 Team Mode 启动时的 objective、constraints、acceptance criteria、mode、budget 和初始上下文摘要收敛成一份结构化 brief，并让 team session 的创建链路、Mission Header 展示链路和后续 provider 消费链路都从这一份 canonical brief 出发。
+**Goal:** 为 agentGui 落地 Feature 3 的统一 mission brief 模型：把 Team Mode 启动时的 objective、constraints、acceptance criteria、mode、budget、初始上下文摘要和 provider participation plan 收敛成一份结构化 brief，并让 team session 的创建链路、Mission Header 展示链路和后续 provider 消费链路都从这一份 canonical brief 出发。
 
-**Architecture:** 延续 Feature 1/2 已建立的 `Session(kind: .agentTeam)` + `AgentTeamSessionState` 壳层，不新增顶级 team run 实体，也不提前落地 Feature 4 的 claim、Feature 5 的 task cards 或 Feature 6 的 artifacts。Feature 3 采用“纯 Swift brief contract + SwiftData JSON 持久化 + 启动表单草稿模型”的增量方案：新增 `AgentTeamMissionBrief` / `AgentTeamBudget` 作为 runtime contract，把 brief JSON 挂在 `AgentTeamSessionState` 上，Team Mode 创建入口改为先收集 brief draft 再调用 `AgentTeamSessionFactory` 创建 session，Mission Header 和未来 team provider bootstrap 统一通过同一个 brief resolver 读取这份数据。
+**Architecture:** 延续 Feature 1/2 已建立的 `Session(kind: .agentTeam)` + `AgentTeamSessionState` 壳层，不新增顶级 team run 实体，也不提前落地 Feature 4 的 claim、Feature 5 的 task cards 或 Feature 6 的 artifacts。Feature 3 采用“纯 Swift brief contract + SwiftData JSON 持久化 + 启动表单草稿模型”的增量方案：新增 `AgentTeamMissionBrief` / `AgentTeamBudget` / `AgentTeamProviderPlan` 作为 runtime contract，把 provider participation plan 直接并入 brief JSON 持久化，Team Mode 创建入口改为先收集 brief draft 再调用 `AgentTeamSessionFactory` 创建 session，Mission Header 和未来 team provider bootstrap 统一通过同一个 brief resolver 读取这份数据。
 
 **Tech Stack:** Swift 6、SwiftUI for macOS、SwiftData、Observation、现有 `Session` / `AgentTeamSessionState` / `AgentTeamSessionFactory` / `NewSessionExecutionProviderMenu` / `AgentTeamWorkbenchPresentation` / ACP provider registry、Swift Testing、XCTest UI tests。
 
@@ -19,8 +19,11 @@
 - 不新增独立 team window，也不绕开现有 `Session(kind: .agentTeam)` 入口；brief 必须挂在当前 team session 生命周期上。
 - 不把复杂数组字段直接散落进 `Session` 顶层属性。这个仓库已经用 `Session.planJson`、`executionPreferencesJSON` 承载复杂结构，因此 brief 也应采用同类“typed runtime model + JSON persistence slot”的策略，避免过早把 SwiftData schema 扩成多层关系网。
 - Team Mode 创建链路不能继续“点击菜单立刻建一个空 team shell”。Feature 3 完成后，所有正常创建路径都必须先形成一份 draft，再生成统一 brief，再建 team session。
+- Feature 3 现在必须纳入 provider participation plan，但范围只到“显式选择并持久化 team provider 快照”，不提前实现 Feature 4 的 auto-claim 或 accepted-owner dispatch。
+- provider participation plan 不能依赖 legacy preset provider 常量；实现必须直接消费当前可用的 `ExecutionProviderReference` 列表，并兼容 built-in 与动态 ACP profiles。
 - Mission Header 不能继续依赖 Feature 2 的占位文案；objective、constraints、acceptance、budget、context summary 都必须来自实际 brief。
 - 所有 team-scoped 消费方都必须通过同一个 brief accessor / resolver 读数据，不能在 UI、factory、未来 provider bootstrap 里各自拼一套字段。
+- standalone Team Mode 创建时不能静默退化到 built-in provider；如果用户没有显式确认可参与 provider，则不能提交 brief。
 - 必须兼容已有 Feature 1/2 产生的无 brief 历史 `agentTeam` session 和 UI test fixture，不能因为 `briefJSON` 为空就让现有 Team Workbench 崩掉。缺少持久化 brief 时，应通过同一个 fallback resolver 给出可回显但明确受限的 legacy brief。
 - 遵循 @swiftui-expert-skill：表单状态和提交逻辑放在独立 draft/view-model 中，`View` 只负责渲染和事件回调，不把一堆字符串规范化逻辑塞进 `body`。
 - 严格按 @test-driven-development 执行：每个任务先写失败测试，再写最小实现，再回归验证。
@@ -36,6 +39,7 @@
 - 当前 [agentGui/Views/Team/AgentTeamMissionHeaderView.swift](../../agentGui/Views/Team/AgentTeamMissionHeaderView.swift) 只渲染 title、objective placeholder、source summary 和四个 chip，没有 constraints、acceptance criteria、initial context summary 的结构化承载位。
 - 当前 `agentGuiApp` 的 UI test fixture 只会种出一个 feature-2 级别的 team shell，不会预置 brief 数据，因此 Feature 3 需要同步升级 test launch options。
 - 当前还不存在任何 team provider 消费 brief 的统一入口。未来 conductor / worker / reviewer 如果各自读取 `Session` 和 `AgentTeamSessionState` 零碎字段，很容易重新形成多套“伪 brief”。Feature 3 必须先建立 canonical resolver，哪怕真正的多 provider 协作还在 Feature 4 之后。
+- 当前 brief composer 完全没有 provider 选择 UI，`AgentTeamSessionFactory` 只会在有 source session 时继承 `defaultExecutionProviderReference`，否则就回到 built-in。按最新设计，这已经不再满足 Feature 3。
 
 ## 2. Feature 3 目标态
 
@@ -44,10 +48,11 @@
 1. 用户从任意 Team Mode 入口创建 team session 时，都会先进入一个 brief composer，而不是直接生成空壳 team session。
 2. 提交 composer 后，系统会构建一份 `AgentTeamMissionBrief`，并把它持久化到 team session 关联的 `AgentTeamSessionState`。
 3. `AgentTeamMissionBrief` 至少包含：objective、constraints、acceptanceCriteria、mode、budget、initialContextSummary；这些字段均有统一 typed contract。
-4. Mission Header 直接渲染 brief 中的 objective、constraints、acceptance、budget、initial context summary，而不是继续展示 Feature 2 的 placeholder。
-5. 所有 team-scoped 消费方通过同一个 `AgentTeamMissionBriefResolver` 或等价单一入口读取 brief；UI 展示、session factory 结果回填和未来 provider bootstrap 都不再重复造 brief。
-6. 对于 Feature 1/2 已存在但没有持久化 brief 的 `agentTeam` session，系统能通过 canonical fallback brief 保持 UI 可用，并明确这是一份 legacy-derived brief，而不是静默崩溃或显示空白。
-7. UI 自动化可以验证：点击 Team Mode 会先看到 brief composer，填写并提交后 team session 被创建，Mission Header 出现真实 brief 内容。
+4. `AgentTeamMissionBrief` 必须同时携带 provider participation plan，至少能表达：eligible providers、preferred conductor、preferred reviewer 和 dispatch policy。
+5. Mission Header 直接渲染 brief 中的 objective、constraints、acceptance、budget、initial context summary，而不是继续展示 Feature 2 的 placeholder。
+6. 所有 team-scoped 消费方通过同一个 `AgentTeamMissionBriefResolver` 或等价单一入口读取 brief；UI 展示、session factory 结果回填和未来 provider bootstrap 都不再重复造 brief。
+7. 对于 Feature 1/2 已存在但没有持久化 brief 的 `agentTeam` session，系统能通过 canonical fallback brief 保持 UI 可用，并明确这是一份 legacy-derived brief，而不是静默崩溃或显示空白。
+8. 提交 Team brief 前，用户必须显式确认至少一个 eligible provider 和一个 preferred conductor；standalone 创建路径不再隐式使用 built-in。
 
 ## 3. Scope Guardrails
 
@@ -55,6 +60,7 @@
 - 不新增 `AgentTeamTaskCard`、`AgentTeamArtifact`、`AgentTeamMemo` 的 SwiftData 模型。
 - 不在这个 feature 里接入真实 token 计费系统；budget 先以 team 内部约束对象表示，例如 token/cost/provider 并发上限的文本或数值组合，但 contract 必须足够稳定，后续可直接演进。
 - 不在这个 feature 里让 built-in chat session 也使用 mission brief；brief 只对 `SessionKind.agentTeam` 生效。
+- 不在这个 feature 里实现 accepted-claim 驱动的自动 dispatch；Feature 3 只负责把 provider 参与范围输入并持久化，为 Feature 4 做准备。
 - 不顺手重构所有“新建会话”入口为一个总 coordinator，除非简化 Team Mode brief sheet 的复用是必须的。目标是把 Feature 3 增量接到现有三条入口上，而不是借机做大规模 session 创建架构重写。
 - 不要求 Feature 3 立即把 brief 发送给真正的远端 ACP 会话；但必须建立一个明确的、可测试的 resolver / bootstrap contract，保证 Feature 4 开始时所有 provider 能从同一 brief 出发。
 
@@ -75,6 +81,7 @@
 - `/Volumes/T7/文稿/Projects/agentGui/agentGui/ViewModels/AgentTeamWorkbenchPresentation.swift`
 - `/Volumes/T7/文稿/Projects/agentGui/agentGui/Views/Team/AgentTeamSessionView.swift`
 - `/Volumes/T7/文稿/Projects/agentGui/agentGui/Views/Team/AgentTeamMissionHeaderView.swift`
+- `/Volumes/T7/文稿/Projects/agentGui/agentGui/Views/Settings/SettingsStore.swift`
 
 ### 已有 ACP / provider 基础设施
 
@@ -113,9 +120,12 @@
 - `/Volumes/T7/文稿/Projects/agentGui/agentGui/Views/Workbench/WorkbenchConversationPane.swift`
 - `/Volumes/T7/文稿/Projects/agentGui/agentGui/Views/ChatView+Toolbar.swift`
 - `/Volumes/T7/文稿/Projects/agentGui/agentGui/Views/NewSessionExecutionProviderMenu.swift`
+- `/Volumes/T7/文稿/Projects/agentGui/agentGui/Views/Team/AgentTeamBriefComposerSheet.swift`
 - `/Volumes/T7/文稿/Projects/agentGui/agentGuiTests/AgentTeamSessionFactoryTests.swift`
 - `/Volumes/T7/文稿/Projects/agentGui/agentGuiTests/AgentTeamSessionStateTests.swift`
 - `/Volumes/T7/文稿/Projects/agentGui/agentGuiTests/AgentTeamWorkbenchPresentationTests.swift`
+- `/Volumes/T7/文稿/Projects/agentGui/agentGuiTests/AgentTeamMissionBriefDraftTests.swift`
+- `/Volumes/T7/文稿/Projects/agentGui/agentGuiTests/AgentTeamMissionBriefTests.swift`
 - `/Volumes/T7/文稿/Projects/agentGui/agentGui/Utilities/TestLaunchOptions.swift`
 - `/Volumes/T7/文稿/Projects/agentGui/agentGui/agentGuiApp.swift`
 - `/Volumes/T7/文稿/Projects/agentGui/README.md`
@@ -124,7 +134,7 @@
 
 ## 6. Implementation Order
 
-先建立 canonical brief contract，再改 session factory 和启动表单，再切换 Mission Header 到真实 brief，最后补 provider-facing resolver 和 UI fixture。
+先建立 canonical brief + provider plan contract，再改 session factory 和启动表单，再切换 Mission Header 到真实 brief，最后补 provider-facing resolver 和 UI fixture。
 
 ---
 
