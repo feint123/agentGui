@@ -150,6 +150,21 @@ extension ClaudeService {
                 return .missingParameter("skill")
             }
             let skillArgs = input["args"]?.stringValue
+
+            // Fork 路由：若 skill 声明了 fork context，走子代理执行路径
+            if let skill = skillService?.availableSkills.first(where: {
+                $0.name == skillName || $0.directoryName == skillName
+            }), skill.executionContext == .fork {
+                return await executeSkillInvokeForked(
+                    skill: skill,
+                    args: skillArgs,
+                    settings: settings,
+                    sessionId: sessionId,
+                    modelContext: modelContext
+                )
+            }
+
+            // Inline 路径（原有逻辑不变）
             let processor = SkillInvocationProcessor(
                 provider: skillService ?? NullSkillContentProvider(),
                 sessionId: sessionId
@@ -187,6 +202,55 @@ extension ClaudeService {
             return .detect(await executeVerifyCompletion(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         default:
             return .unknownTool(name)
+        }
+    }
+
+    // MARK: - Skill Invoke Fork Helper
+
+    /// `skill_invoke` 的 fork 执行路径：注入 SkillForkContext 后调用 SkillForkExecutor。
+    /// 两个 executeTool 重载均通过此方法执行 fork skill。
+    private func executeSkillInvokeForked(
+        skill: Skill,
+        args: String?,
+        settings: AppSettings,
+        sessionId: String,
+        modelContext: ModelContext
+    ) async -> ToolExecutionResult {
+        guard let svc = service else {
+            return .failure("Error: ClaudeService is not configured. Cannot execute fork skill '\(skill.directoryName)'.")
+        }
+        let modelId = currentModelID(for: sessionId)
+
+        // 读取并替换 skill 内容
+        guard let rawContent = await skillService?.readSkillContent(name: skill.directoryName) else {
+            return .failure("Error: skill '\(skill.directoryName)' content could not be loaded for fork execution.")
+        }
+        let processedContent = SkillArgumentSubstitution.substitute(
+            content: rawContent,
+            args: args,
+            skillDirectory: skill.path,
+            sessionId: sessionId
+        )
+
+        // 注入 fork context 供 runSkillSubagent 使用
+        currentSkillForkContext = SkillForkContext(
+            service: svc,
+            modelId: modelId,
+            settings: settings,
+            sessionId: sessionId,
+            modelContext: modelContext
+        )
+        defer { currentSkillForkContext = nil }
+
+        let executor = SkillForkExecutor(runner: self, defaultModelId: modelId)
+        do {
+            return try await executor.execute(
+                skill: skill,
+                processedContent: processedContent,
+                parentModelId: modelId
+            )
+        } catch {
+            return .failure("Fork skill '\(skill.directoryName)' failed: \(error.localizedDescription)")
         }
     }
 
@@ -250,6 +314,21 @@ extension ClaudeService {
                 return .missingParameter("skill")
             }
             let skillArgs = input["args"]?.stringValue
+
+            // Fork 路由：若 skill 声明了 fork context，走子代理执行路径
+            if let skill = skillService?.availableSkills.first(where: {
+                $0.name == skillName || $0.directoryName == skillName
+            }), skill.executionContext == .fork {
+                return await executeSkillInvokeForked(
+                    skill: skill,
+                    args: skillArgs,
+                    settings: settings,
+                    sessionId: sessionId,
+                    modelContext: modelContext
+                )
+            }
+
+            // Inline 路径（原有逻辑不变）
             let processor = SkillInvocationProcessor(
                 provider: skillService ?? NullSkillContentProvider(),
                 sessionId: sessionId
