@@ -1,18 +1,19 @@
 import Foundation
 
-/// 从 `MemoryRecord` 推导稳定的、文件系统安全的 `.md` 文件名。
+/// 文件系统安全的 `.md` 话题文件名工具。
 ///
 /// 规则：`<slug>_<id8>.md`
 /// - slug = lowercase(title)，将 `[^a-z0-9]+` 替换为 `_`，截断至 40 字符，去除首尾 `_`
-/// - id8 = record.id 前 8 个字符（若 id 不足 8 位则使用完整 id）
-/// - 若 slug 为空（如纯 Unicode 标题），fallback 为 `memory_<id8>.md`
+/// - id8 = id 前 8 个字符（若 id 不足 8 位则使用完整 id）
+/// - 若 slug 为空（如纽 Unicode 标题），fallback 为 `memory_<id8>.md`
 ///
+/// `filename(for record: MemoryRecord)` 已在 M-02 移除；使用 `filename(title:id:)` 替代。
 /// nonisolated enum，无副作用，可在任意并发上下文调用。
 enum MemoryTopicFilename {
 
-    static func filename(for record: MemoryRecord) -> String {
-        let slug = sanitizeTitle(record.title)
-        let id8 = String(record.id.prefix(8))
+    static func filename(title: String, id: String) -> String {
+        let slug = sanitizeTitle(title)
+        let id8 = String(id.prefix(8))
         if slug.isEmpty {
             return "memory_\(id8).md"
         }
