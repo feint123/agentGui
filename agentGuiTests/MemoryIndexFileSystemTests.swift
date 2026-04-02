@@ -146,5 +146,140 @@ final class MemoryIndexFileSystemTests: XCTestCase {
             content.contains("- [Bare Title](bare_title_12345678.md)"),
             "无描述文件应有简洁行，实际：\(content)")
     }
+
+    // MARK: - mtime 排序
+
+    func test_mtimeSorting_newerFileAppearsFirst() async throws {
+        // 写两个话题文件，间隔 1 秒以确保 mtime 差异
+        let olderContent = """
+        ---
+        name: "Older Topic"
+        description: "Written first"
+        type: project
+        created: 2025-01-01T00:00:00Z
+        ---
+        Body
+        """
+        let olderURL = tempDir.appendingPathComponent("older_abcd1234.md")
+        try olderContent.write(to: olderURL, atomically: true, encoding: .utf8)
+
+        // 人为设置旧 mtime（30 秒前）
+        let oldDate = Date(timeIntervalSinceNow: -30)
+        try FileManager.default.setAttributes(
+            [.modificationDate: oldDate], ofItemAtPath: olderURL.path)
+
+        let newerContent = """
+        ---
+        name: "Newer Topic"
+        description: "Written second"
+        type: project
+        created: 2025-01-01T00:00:00Z
+        ---
+        Body
+        """
+        let newerURL = tempDir.appendingPathComponent("newer_efgh5678.md")
+        try newerContent.write(to: newerURL, atomically: true, encoding: .utf8)
+        // newerURL 的 mtime 是当前时间，比 oldDate 更新
+
+        try await sut.rebuildFromDirectory()
+
+        let content = try String(
+            contentsOf: tempDir.appendingPathComponent("MEMORY.md"), encoding: .utf8)
+        let newerRange = content.range(of: "Newer Topic")
+        let olderRange = content.range(of: "Older Topic")
+        XCTAssertNotNil(newerRange, "MEMORY.md 应包含 Newer Topic")
+        XCTAssertNotNil(olderRange, "MEMORY.md 应包含 Older Topic")
+        XCTAssertLessThan(
+            newerRange!.lowerBound, olderRange!.lowerBound,
+            "较新文件应排在较旧文件前面")
+    }
+
+    // MARK: - 描述超长截断
+
+    func test_descriptionTruncation_over150Chars_appendsEllipsis() async throws {
+        let longDesc = String(repeating: "a", count: 200)  // 200 chars，远超 150
+        let topicContent = """
+        ---
+        name: "Long Desc"
+        description: "\(longDesc)"
+        type: project
+        created: 2025-01-01T00:00:00Z
+        ---
+        Body
+        """
+        try topicContent.write(
+            to: tempDir.appendingPathComponent("long_desc_12345678.md"),
+            atomically: true, encoding: .utf8)
+
+        try await sut.rebuildFromDirectory()
+
+        let content = try String(
+            contentsOf: tempDir.appendingPathComponent("MEMORY.md"), encoding: .utf8)
+        // 截断后应是 149 个 'a' + '…'
+        let expected = String(repeating: "a", count: 149) + "…"
+        XCTAssertTrue(
+            content.contains(expected),
+            "超过 150 字符的描述应在 149 处截断并附加 '…'")
+    }
+
+    // MARK: - 200 行截断
+
+    func test_200LineTruncation_appendsWarningAndCapsAtLimit() async throws {
+        // 写 201 个话题文件
+        for i in 1...201 {
+            let suffix = String(format: "%08d", i)
+            let content = """
+            ---
+            name: "Topic \(i)"
+            description: "Hook \(i)"
+            type: project
+            created: 2025-01-01T00:00:00Z
+            ---
+            Body
+            """
+            try content.write(
+                to: tempDir.appendingPathComponent("topic_\(suffix).md"),
+                atomically: true, encoding: .utf8)
+            // 人为设置不同 mtime，让排序稳定
+            let d = Date(timeIntervalSinceNow: Double(i) * -1)
+            try FileManager.default.setAttributes(
+                [.modificationDate: d],
+                ofItemAtPath: tempDir.appendingPathComponent("topic_\(suffix).md").path)
+        }
+
+        try await sut.rebuildFromDirectory()
+
+        let content = try String(
+            contentsOf: tempDir.appendingPathComponent("MEMORY.md"), encoding: .utf8)
+        let lines = content.components(separatedBy: "\n").filter { $0.hasPrefix("- [") }
+        XCTAssertLessThanOrEqual(lines.count, 200, "索引行数不应超过 200")
+        XCTAssertTrue(content.contains("WARNING"), "超出行数时应追加 WARNING 说明")
+    }
+
+    // MARK: - 无标题回退到文件名
+
+    func test_titleFallback_noNameInFrontmatter_usesFilename() async throws {
+        // frontmatter 没有 name: 字段
+        let topicContent = """
+        ---
+        description: "Some hook"
+        type: project
+        created: 2025-01-01T00:00:00Z
+        ---
+        Body
+        """
+        let filename = "no_name_abcd1234.md"
+        try topicContent.write(
+            to: tempDir.appendingPathComponent(filename),
+            atomically: true, encoding: .utf8)
+
+        try await sut.rebuildFromDirectory()
+
+        let content = try String(
+            contentsOf: tempDir.appendingPathComponent("MEMORY.md"), encoding: .utf8)
+        XCTAssertTrue(
+            content.contains("- [\(filename)](\(filename))"),
+            "无 name: 时应用文件名作为链接文本，实际：\(content)")
+    }
 }
 

@@ -14,13 +14,12 @@ struct MemoryTopicHeader: Sendable, Equatable {
 /// 扫描 `memoryDir` 下的 `.md` 话题文件并解析 frontmatter。
 ///
 /// - 排除 `MEMORY.md`（索引文件，由 bootstrap 注入，不参与 recall 选择）
-/// - 最多返回 200 条记录（按 mtime 降序）
+/// - 返回全部记录（按 mtime 降序），200 行截断由 `MemoryIndexWriter.truncate()` 统一负责
 /// - 每个文件只读前 `maxFrontmatterLines` 行，避免读取完整大文件
 ///
 /// nonisolated struct，内部使用 async file I/O，可在任意并发上下文调用。
 struct MemoryTopicScanner: Sendable {
 
-    private static let maxFiles = 200
     private static let maxFrontmatterLines = 30
 
     func scan(memoryDir: URL) async throws -> [MemoryTopicHeader] {
@@ -60,8 +59,6 @@ struct MemoryTopicScanner: Sendable {
         return headers
             .compactMap { $0 }
             .sorted { $0.mtimeMs > $1.mtimeMs }
-            .prefix(Self.maxFiles)
-            .map { $0 }
     }
 
     // MARK: - Private
