@@ -518,6 +518,9 @@ struct AgentLoopRoundExecutor {
         }
 
         messages.append(.init(role: .assistant, content: .list(assistantObjects)))
+        if let reminder = request.criticalReminder, !reminder.isEmpty {
+            toolResultObjects.append(.text(reminder))
+        }
         messages.append(.init(role: .user, content: .list(toolResultObjects)))
         await recordEpistemicInputEnvelope(
             sessionId: runtime.sessionId,
