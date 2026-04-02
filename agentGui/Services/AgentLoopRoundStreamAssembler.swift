@@ -42,6 +42,17 @@ struct AgentLoopRoundStreamSnapshot: Equatable {
     var thinkingSignature: String?
     var pendingTools: [AgentLoopPendingTool] = []
     var stopReason: String?
+    var usage: MessageResponse.Usage?
+
+    static func == (lhs: AgentLoopRoundStreamSnapshot, rhs: AgentLoopRoundStreamSnapshot) -> Bool {
+        lhs.text == rhs.text &&
+        lhs.thinkingContent == rhs.thinkingContent &&
+        lhs.thinkingSignature == rhs.thinkingSignature &&
+        lhs.pendingTools == rhs.pendingTools &&
+        lhs.stopReason == rhs.stopReason &&
+        lhs.usage?.inputTokens == rhs.usage?.inputTokens &&
+        lhs.usage?.outputTokens == rhs.usage?.outputTokens
+    }
 }
 
 enum AgentLoopRoundStreamSnapshotDelta: Equatable {
@@ -59,6 +70,7 @@ struct AgentLoopRoundStreamAssembler {
     private var pendingTools: [Int: AgentLoopPendingTool] = [:]
     private var currentBlockIndex: Int?
     private var stopReason: String?
+    private var usage: MessageResponse.Usage?
 
     var snapshot: AgentLoopRoundStreamSnapshot {
         AgentLoopRoundStreamSnapshot(
@@ -66,12 +78,17 @@ struct AgentLoopRoundStreamAssembler {
             thinkingContent: thinkingContent,
             thinkingSignature: thinkingSignature,
             pendingTools: pendingTools.sorted(by: { $0.key < $1.key }).map(\.value),
-            stopReason: stopReason
+            stopReason: stopReason,
+            usage: usage
         )
     }
 
     @discardableResult
     mutating func consume(_ event: MessageStreamResponse) -> AgentLoopRoundStreamSnapshotDelta {
+        if event.type == "message_start", let usageFromEvent = event.message?.usage {
+            usage = usageFromEvent
+        }
+
         if let block = event.contentBlock {
             if block.type == "tool_use", let id = block.id, let name = block.name {
                 let index = event.index ?? pendingTools.count
