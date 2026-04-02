@@ -176,16 +176,15 @@ extension ClaudeService {
         parts.append(runtimeContext.promptSection)
 
         if !skills.isEmpty {
-            var lines = [
+            let renderer = SkillCatalogPromptRenderer()
+            let listing = renderer.renderSkillListing(skills)
+            let section = [
                 "## Available Skills",
-                "Use the 'read_skill' tool to load a skill's full instructions when the user's request matches its purpose.",
-                ""
-            ]
-            for skill in skills {
-                let desc = skill.description.isEmpty ? "(no description)" : skill.description
-                lines.append("- **\(skill.name)**: \(desc)")
-            }
-            parts.append(lines.joined(separator: "\n"))
+                "Use the `skill_invoke` tool to run a skill, or the `read_skill` tool to inspect its full instructions.",
+                "",
+                listing
+            ].joined(separator: "\n")
+            parts.append(section)
         }
 
         if !explicitlyActivatedSkills.isEmpty {

@@ -161,4 +161,22 @@ final class SkillCatalogPromptRendererTests: XCTestCase {
         XCTAssertTrue(result.contains("Long bundled desc"))
         XCTAssertTrue(result.contains("Another bundled desc"))
     }
+
+    // MARK: - 输出格式与 buildSystemPrompt 预期对齐
+
+    func test_renderSkillListing_outputFormat_matchesSystemPromptExpectation() {
+        // 验证渲染器输出可以直接嵌入 buildSystemPrompt 的 skill 区段
+        let renderer = SkillCatalogPromptRenderer()
+        let skills = [
+            Skill.fixture(name: "code-review", description: "Reviews code", whenToUse: "PR 时使用"),
+            Skill.fixture(name: "debug", description: "Debugs issues"),
+        ]
+        let listing = renderer.renderSkillListing(skills)
+        // 验证格式是 "- name: desc" 每行
+        let lines = listing.components(separatedBy: "\n")
+        XCTAssertTrue(lines[0].hasPrefix("- code-review: "))
+        XCTAssertTrue(lines[0].contains("PR 时使用"),
+                      "whenToUse should be included in the description")
+        XCTAssertTrue(lines[1].hasPrefix("- debug: "))
+    }
 }
