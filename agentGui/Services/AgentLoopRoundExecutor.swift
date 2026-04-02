@@ -76,22 +76,26 @@ struct AgentLoopRoundExecutor {
             .prepareRun,
             state: state,
             messages: messages
-        ),
-        let patch = bootstrapResult.messagePatch,
-        !patch.insertions.isEmpty else {
-            return
+        ) else { return }
+
+        // 处理 messagePatch（保持向后兼容）
+        if let patch = bootstrapResult.messagePatch, !patch.insertions.isEmpty {
+            for insertion in patch.insertions.sorted(by: { $0.index < $1.index }) {
+                messages.insert(insertion.message, at: min(insertion.index, messages.count))
+            }
+            if !patch.metadata.isEmpty {
+                await emitter.emit(
+                    .didApplyBootstrap,
+                    state: state,
+                    messages: messages,
+                    overrides: .init(metadata: patch.metadata)
+                )
+            }
         }
 
-        for insertion in patch.insertions.sorted(by: { $0.index < $1.index }) {
-            messages.insert(insertion.message, at: min(insertion.index, messages.count))
-        }
-        if !patch.metadata.isEmpty {
-            await emitter.emit(
-                .didApplyBootstrap,
-                state: state,
-                messages: messages,
-                overrides: .init(metadata: patch.metadata)
-            )
+        // 处理 systemPromptAppend（M-05）
+        if let appendText = bootstrapResult.systemAppend, !appendText.isEmpty {
+            state.bootstrapSystemAppend = appendText
         }
     }
 
@@ -141,7 +145,13 @@ struct AgentLoopRoundExecutor {
         let perfLog = PerformanceMonitor.self
         let modelId = request.modelId
         let tools = request.tools
-        let system = request.system
+        // M-05: 若 bootstrap 阶段有系统提示追加内容（如 MEMORY.md），在此合并
+        let system: MessageParameter.System?
+        if let appendText = state.bootstrapSystemAppend, !appendText.isEmpty {
+            system = Self.appendToSystem(request.system, text: appendText)
+        } else {
+            system = request.system
+        }
         let sessionId = runtime.sessionId
         let modelContext = runtime.modelContext
 
@@ -1073,6 +1083,36 @@ struct AgentLoopRoundExecutor {
             toolSpan.addMetadata("isError", value: result.isError)
             toolSpan.addMetadata("outputLength", value: result.text.count)
             toolSpan.end()
+        }
+    }
+}
+
+// MARK: - System Prompt Extension
+
+extension AgentLoopRoundExecutor {
+    /// 将 `text` 作为新 ephemeral block 追加到系统提示列表末尾。
+    /// - 若 system 为 `.list`，直接追加
+    /// - 若 system 为 `.text`，包装为 list 再追加
+    /// - 若 system 为 nil，创建仅含 text 的单块 list
+    static func appendToSystem(
+        _ system: MessageParameter.System?,
+        text: String
+    ) -> MessageParameter.System {
+        let appendBlock = MessageParameter.Cache(
+            text: text,
+            cacheControl: .init(type: .ephemeral)
+        )
+        switch system {
+        case .list(let existing):
+            return .list(existing + [appendBlock])
+        case .text(let existingText):
+            let baseBlock = MessageParameter.Cache(
+                text: existingText,
+                cacheControl: .init(type: .ephemeral)
+            )
+            return .list([baseBlock, appendBlock])
+        case nil:
+            return .list([appendBlock])
         }
     }
 }
