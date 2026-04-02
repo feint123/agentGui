@@ -105,7 +105,7 @@ extension ClaudeService {
 
     /// 子代理的嵌套 agentic loop — 通过 runCoreAgentLoop 复用主代理的核心流程。
     /// 返回 AgentMessage：自动检测 JSON 结构化输出，并附带执行轮次等元数据。
-    private func runSubagentLoop(
+    func runSubagentLoop(
         task: String,
         definition: WorkflowRoleDefinition,
         toolCallRecord: ToolCall,

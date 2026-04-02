@@ -42,9 +42,9 @@ final class SkillForkExecutionTests: XCTestCase {
         Skill.fixture(
             directoryName: directoryName,
             name: directoryName,
-            executionContext: .fork,
             allowedTools: allowedTools,
-            model: model
+            model: model,
+            executionContext: .fork
         )
     }
 

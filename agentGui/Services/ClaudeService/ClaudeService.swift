@@ -95,6 +95,9 @@ final class ClaudeService {
     /// Skill service reference for tool dispatch and system prompt
     var skillService: SkillService?
 
+    /// Fork skill 执行上下文（由 ClaudeService+ToolDispatch 在 skill_invoke fork 路径中设置/清除）
+    var currentSkillForkContext: SkillForkContext?
+
     /// Shared payload store for large tool outputs that should not be injected inline.
     var toolPayloadStore = ToolPayloadStore()
 
