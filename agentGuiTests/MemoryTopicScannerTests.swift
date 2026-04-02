@@ -45,7 +45,24 @@ final class MemoryTopicScannerTests: XCTestCase {
         XCTAssertEqual(headers[0].filename, "my_title_abc12345.md")
         XCTAssertEqual(headers[0].title, "My Title")
         XCTAssertEqual(headers[0].description, "A summary of the topic")
-        XCTAssertEqual(headers[0].memoryType, "feedback")
+        XCTAssertEqual(headers[0].memoryType, .feedback)
+    }
+
+    func test_scan_unknownType_returnsNilType() async throws {
+        let content = """
+        ---
+        name: "Unknown Type Memory"
+        type: "bogus_type"
+        ---
+        Body.
+        """
+        let file = tempDir.appendingPathComponent("unknown_type_abc12345.md")
+        try content.write(to: file, atomically: true, encoding: .utf8)
+
+        let headers = try await MemoryTopicScanner().scan(memoryDir: tempDir)
+        XCTAssertEqual(headers.count, 1)
+        XCTAssertNil(headers[0].memoryType,
+                     "未知 type 值应静默降级为 nil，不报错")
     }
 
     func test_scan_fileMissingDescription_descriptionNil() async throws {

@@ -8,7 +8,7 @@ struct MemoryTopicHeader: Sendable, Equatable {
     var mtimeMs: Double         // 文件修改时间（毫秒），用于排序和 freshness
     var title: String?          // frontmatter `name:` 字段
     var description: String?    // frontmatter `description:` 字段
-    var memoryType: String?     // frontmatter `type:` 字段
+    var memoryType: MemoryTopicType?   // frontmatter `type:` 字段（类型安全枚举）
 }
 
 /// 扫描 `memoryDir` 下的 `.md` 话题文件并解析 frontmatter。
@@ -82,7 +82,7 @@ struct MemoryTopicScanner: Sendable {
             mtimeMs: mtimeMs,
             title: fm2["name"],
             description: fm2["description"],
-            memoryType: fm2["type"]
+            memoryType: MemoryTopicType.parse(fm2["type"])
         )
     }
 
