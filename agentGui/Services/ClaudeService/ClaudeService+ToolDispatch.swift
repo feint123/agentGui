@@ -503,16 +503,99 @@ extension ClaudeService {
 
     // MARK: - Memory Write (Stub)
 
-    /// M-04 占位实现。
-    /// Feature M-04 将替换此方法为直接写 .md 文件的实现。
+    // MARK: - Memory Write
+
+    /// 将 `memory_write` 工具输入直接持久化为 Markdown 话题文件。
+    ///
+    /// 流程：
+    /// 1. 解析 content（必填）、title（可选）、type（可选，默认 project）、description（可选）
+    /// 2. 生成文件名：`MemoryTopicFilename.filename(title:suffix:)`，suffix 取 UUID 前 8 位
+    /// 3. 构建 YAML frontmatter + body，写入 memoryDir/<filename>.md
+    /// 4. 调用 `MemoryIndexFileSystem.rebuildFromDirectory()` 重建 MEMORY.md 索引
+    /// 5. 返回 "Memory saved: <filename>"
     private func executeFileMemoryWrite(
         input: MessageResponse.Content.Input
     ) async -> String {
+        await executeFileMemoryWrite(
+            input: input,
+            memoryDir: ConfigDirectoryManager.shared.memoryDir
+        )
+    }
+
+    /// Testable overload allowing injection of a custom memoryDir.
+    func executeFileMemoryWriteForTests(
+        input: MessageResponse.Content.Input,
+        memoryDir: URL
+    ) async -> String {
+        await executeFileMemoryWrite(input: input, memoryDir: memoryDir)
+    }
+
+    private func executeFileMemoryWrite(
+        input: MessageResponse.Content.Input,
+        memoryDir: URL
+    ) async -> String {
         guard let content = input["content"]?.stringValue, !content.isEmpty else {
-            return "Error: missing parameter 'content'"
+            return "Error: missing required parameter 'content'"
         }
-        // TODO: M-04 将在此实现写 memoryDir/<topic>.md + 重建 MEMORY.md
-        return "⚠️ Memory write stub (M-04 not yet implemented). Content received: \(content.prefix(80))..."
+
+        let title = input["title"]?.stringValue ?? "Untitled Memory"
+        let type = input["type"]?.stringValue ?? "project"
+        let descriptionHint = input["description"]?.stringValue
+
+        // 1. 生成文件名（UUID prefix 8 位作为 suffix，保证唯一性）
+        let suffix = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))
+        let filename = MemoryTopicFilename.filename(title: title, suffix: suffix)
+
+        // 2. 构建 frontmatter description hook
+        let hookLine: String
+        if let d = descriptionHint, !d.isEmpty {
+            hookLine = d.count <= 150 ? d : String(d.prefix(149)) + "…"
+        } else {
+            let firstLine = content
+                .components(separatedBy: "\n")
+                .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+            hookLine = firstLine.count <= 150 ? firstLine : String(firstLine.prefix(149)) + "…"
+        }
+
+        let iso8601 = ISO8601DateFormatter()
+        iso8601.formatOptions = [.withInternetDateTime]
+        let createdAt = iso8601.string(from: Date())
+
+        // 转义 YAML 双引号字段中的 \ 和 "
+        func yamlEscape(_ s: String) -> String {
+            s.replacingOccurrences(of: "\\", with: "\\\\")
+             .replacingOccurrences(of: "\"", with: "\\\"")
+        }
+
+        let fileContent = """
+        ---
+        name: "\(yamlEscape(title))"
+        description: "\(yamlEscape(hookLine))"
+        type: \(type)
+        created: \(createdAt)
+        ---
+
+        \(content)
+        """
+
+        // 3. 写话题文件
+        do {
+            try FileManager.default.createDirectory(at: memoryDir, withIntermediateDirectories: true)
+            let fileURL = memoryDir.appendingPathComponent(filename)
+            try fileContent.write(to: fileURL, atomically: true, encoding: .utf8)
+        } catch {
+            return "Error: failed to write memory file '\(filename)': \(error.localizedDescription)"
+        }
+
+        // 4. 重建 MEMORY.md 索引
+        do {
+            try await MemoryIndexFileSystem(memoryDir: memoryDir).rebuildFromDirectory()
+        } catch {
+            // 索引重建失败不应阻断写入成功的响应，仅记录
+            return "Memory saved: \(filename) (warning: index rebuild failed: \(error.localizedDescription))"
+        }
+
+        return "Memory saved: \(filename)"
     }
 
     func ensureLSPServerStartedIfNeeded(

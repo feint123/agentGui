@@ -20,6 +20,20 @@ enum MemoryTopicFilename {
         return "\(slug)_\(id8).md"
     }
 
+    /// 从纯文本 `title` + 外部提供的 `suffix` 生成文件名。
+    /// 用于 `memory_write` 工具直接写文件时，无需构造 `MemoryRecord`。
+    ///
+    /// - Parameters:
+    ///   - title: 记忆标题（来自工具输入），可为任意 Unicode 字符串
+    ///   - suffix: 调用方提供的唯一后缀（如 UUID prefix 8 位）
+    static func filename(title: String, suffix: String) -> String {
+        let slug = sanitizeTitle(title)
+        if slug.isEmpty {
+            return "memory_\(suffix).md"
+        }
+        return "\(slug)_\(suffix).md"
+    }
+
     /// ASCII 化并 slug 化标题，截断至 40 字符。
     /// 安全保证：结果中不含 `/`、`..`、空字节。
     static func sanitizeTitle(_ title: String) -> String {

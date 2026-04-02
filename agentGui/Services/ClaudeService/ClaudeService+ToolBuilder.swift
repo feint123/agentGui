@@ -271,19 +271,35 @@ extension ClaudeService {
             )
         ))
 
-        // memory_write: always available — lets Claude persist governed long-term facts across sessions
+        // memory_write: always available — persist long-term facts as Markdown files to ~/agentgui/memory/
         tools.append(makeEphemeralTool(
             name: "memory_write",
             description: """
-            Persist important long-term RMS insights into the unified memory store for future task decisions. \
-            Use this for durable constraints, remembered failure modes, and reusable tactics that should affect later action selection. \
-            Keep entries concise, factual, and decision-relevant.
+            Persist an important long-term memory as a Markdown file in your persistent memory directory. \
+            Use this for user preferences, project decisions, feedback patterns, and reference information \
+            that should be available in future sessions. \
+            Keep entries concise, factual, and decision-relevant. \
+            Saves to ~/agentgui/memory/<filename>.md and updates the MEMORY.md index automatically.
             """,
             inputSchema: .init(
                 type: .object,
                 properties: [
-                    "content": .init(type: .string, description: "Concise decision-relevant insight content to persist into RMS long-term memory"),
-                    "mode": .init(type: .string, description: "Optional write mode hint. Accepted values: 'overwrite' or 'append'.")
+                    "content": .init(
+                        type: .string,
+                        description: "The memory content to save. Write clear, concise Markdown body text."
+                    ),
+                    "title": .init(
+                        type: .string,
+                        description: "Optional short title for this memory (e.g. 'User prefers bun over npm'). Used for filename and MEMORY.md index."
+                    ),
+                    "type": .init(
+                        type: .string,
+                        description: "Memory type: 'user' (preferences/profile), 'feedback' (corrections/patterns), 'project' (decisions/context), or 'reference' (external links/docs). Defaults to 'project'."
+                    ),
+                    "description": .init(
+                        type: .string,
+                        description: "Optional one-line hook for MEMORY.md index (≤ 150 chars). If omitted, first line of content is used."
+                    )
                 ],
                 required: ["content"]
             )

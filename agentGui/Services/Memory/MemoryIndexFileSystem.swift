@@ -7,15 +7,52 @@ struct MemoryIndexFileSystem: Sendable {
 
     let memoryDir: URL
     private let fileManager: FileManager
+    private let writer = MemoryIndexWriter()
 
     init(memoryDir: URL, fileManager: FileManager = .default) {
         self.memoryDir = memoryDir
         self.fileManager = fileManager
     }
 
-    /// M-07 占位实现。
-    /// Feature M-07 将替换此方法为从 memoryDir 扫描 .md 文件重建 MEMORY.md 的实现。
+    /// M-07 占位实现（保留向后兼容）。
     func rebuild() throws {
-        // TODO(M-07): scan memoryDir/*.md frontmatter → build index → write MEMORY.md
+        // no-op: replaced by rebuildFromDirectory()
+    }
+
+    /// 从 `memoryDir` 下的实际 `.md` 文件重建 `MEMORY.md` 索引。
+    ///
+    /// 流程：
+    /// 1. `MemoryTopicScanner` 扫描所有非 MEMORY.md 的 `.md` 文件并解析 frontmatter
+    /// 2. 按 mtime 降序排序
+    /// 3. 每个文件生成一行 `- [title](filename) — description`
+    /// 4. 应用 `MemoryIndexWriter.truncate(lines:)` 的 200 行 / 25KB 限制
+    /// 5. 写入 MEMORY.md
+    ///
+    /// 若扫描结果为空则不写 MEMORY.md（保留或不创建文件）。
+    func rebuildFromDirectory() async throws {
+        let headers = try await MemoryTopicScanner().scan(memoryDir: memoryDir)
+        guard !headers.isEmpty else { return }
+
+        try fileManager.createDirectory(at: memoryDir, withIntermediateDirectories: true)
+
+        // 构建索引行（mtime 已在 scanner 中降序排列）
+        let indexLines: [String] = headers.map { header in
+            let title = header.title ?? header.filename
+            let rawDesc = header.description ?? ""
+            let truncatedDesc: String
+            if rawDesc.count <= 150 {
+                truncatedDesc = rawDesc
+            } else {
+                truncatedDesc = String(rawDesc.prefix(149)) + "…"
+            }
+            return "- [\(title)](\(header.filename)) — \(truncatedDesc)"
+        }
+
+        // 应用截断规则（200 行 / 25KB）
+        let truncationResult = writer.truncate(lines: indexLines)
+
+        // 写入 MEMORY.md
+        let indexURL = memoryDir.appendingPathComponent("MEMORY.md")
+        try truncationResult.content.write(to: indexURL, atomically: true, encoding: .utf8)
     }
 }

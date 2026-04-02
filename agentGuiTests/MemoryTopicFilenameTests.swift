@@ -48,4 +48,23 @@ final class MemoryTopicFilenameTests: XCTestCase {
         let name = MemoryTopicFilename.filename(title: "Short ID Record", id: "ab12")
         XCTAssertTrue(name.hasSuffix("_ab12.md"), "ID 不足 8 位时使用完整 ID")
     }
+
+    // MARK: - filename(title:suffix:)
+
+    func test_filenameFromTitleAndSuffix_basic() {
+        let name = MemoryTopicFilename.filename(title: "User Role", suffix: "abcd1234")
+        XCTAssertEqual(name, "user_role_abcd1234.md")
+    }
+
+    func test_filenameFromTitleAndSuffix_emptyTitle_fallsBack() {
+        let name = MemoryTopicFilename.filename(title: "", suffix: "abcd1234")
+        XCTAssertEqual(name, "memory_abcd1234.md")
+    }
+
+    func test_filenameFromTitleAndSuffix_truncatesLongTitle() {
+        let longTitle = String(repeating: "x", count: 60)
+        let name = MemoryTopicFilename.filename(title: longTitle, suffix: "12345678")
+        XCTAssertTrue(name.hasSuffix("_12345678.md"))
+        XCTAssertTrue(name.count <= 56) // 40 slug + _ + 8 suffix + .md
+    }
 }
