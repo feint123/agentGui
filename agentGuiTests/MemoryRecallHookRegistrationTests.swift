@@ -12,9 +12,7 @@ final class MemoryRecallHookRegistrationTests: XCTestCase {
             updateToolCallRecord: { _, _ in },
             extractMemoriesCallback: { _ in },
             // M-05 新增
-            memoryRecallService: nil,
-            // M-06 新增
-            consolidationCallback: { _ in }
+            memoryRecallService: nil
         )
         let state = AgentLoopBuiltInHookFactory.State()
         let hooks = factory.makeHooks(dependencies: deps, state: state)

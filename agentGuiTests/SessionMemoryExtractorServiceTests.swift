@@ -24,8 +24,7 @@ final class SessionMemoryExtractorServiceTests: XCTestCase {
 
         // 间接验证：若意外触发 build，count=0 时 prompt 会包含 "0" 而不是合理计数
         let wouldBePrompt = MemoryExtractionPromptBuilder.build(
-            newMessageCount: context.messagesSnapshot.count,
-            existingInsights: []
+            newMessageCount: context.messagesSnapshot.count
         )
         // Prompt 包含 "0" 是无意义触发的信号
         XCTAssertTrue(wouldBePrompt.contains("0"),
@@ -37,8 +36,7 @@ final class SessionMemoryExtractorServiceTests: XCTestCase {
         let count = 5
         let context = makeContext(messageCount: count)
         let prompt = MemoryExtractionPromptBuilder.build(
-            newMessageCount: context.messagesSnapshot.count,
-            existingInsights: []
+            newMessageCount: context.messagesSnapshot.count
         )
         XCTAssertTrue(prompt.contains("\(count)"),
                       "Extraction prompt should reference the message count \(count)")
@@ -81,57 +79,6 @@ final class SessionMemoryExtractorServiceTests: XCTestCase {
             }
         }
         XCTAssertEqual(granted, 1, "Only 1 of 10 concurrent extractions should be granted")
-    }
-
-    // MARK: - RMSInsight.toMemoryRecord() (M-02 conversion used in rebuild trigger)
-
-    /// `toMemoryRecord()` 返回的 MemoryRecord 包含正确的基础映射。
-    func test_rmsInsightToMemoryRecord_mapsFieldsCorrectly() {
-        let insight = RMSInsight.constraint(
-            id: "test-id-01",
-            summary: "Always run tests before committing",
-            appliesWhen: "pre-commit",
-            changesDecision: "run tests first"
-        )
-
-        let record = insight.toMemoryRecord()
-
-        XCTAssertEqual(record.id, "test-id-01")
-        XCTAssertEqual(record.summary, insight.summary)
-        XCTAssertEqual(record.retentionPolicy, .persistent)
-        XCTAssertEqual(record.source, .tool(name: "memory_write"))
-    }
-
-    /// `toMemoryRecord()` 取 summary 第一行作为 title，截断至 80 字符。
-    func test_rmsInsightToMemoryRecord_titleFromFirstLine() {
-        let insight = RMSInsight.constraint(
-            id: "t2",
-            summary: "First line title\nSecond line details",
-            appliesWhen: "test",
-            changesDecision: "nothing"
-        )
-        let record = insight.toMemoryRecord()
-        XCTAssertEqual(record.title, "First line title")
-    }
-
-    /// 超长 summary 的 title 截断至 80 字符。
-    func test_rmsInsightToMemoryRecord_titleTruncatedAt80() {
-        let longTitle = String(repeating: "A", count: 120)
-        let insight = RMSInsight.constraint(
-            id: "t3", summary: longTitle, appliesWhen: "test", changesDecision: "nothing"
-        )
-        let record = insight.toMemoryRecord()
-        XCTAssertLessThanOrEqual(record.title.count, 80)
-    }
-
-    /// scope 为 nil 时，toMemoryRecord 使用 `.user` 作为默认 scope。
-    func test_rmsInsightToMemoryRecord_nilScopeDefaultsToUser() {
-        var insight = RMSInsight.constraint(
-            id: "t4", summary: "No scope", appliesWhen: "test", changesDecision: "nothing"
-        )
-        insight.scope = nil
-        let record = insight.toMemoryRecord()
-        XCTAssertEqual(record.scope, .user)
     }
 
     // MARK: - Helpers

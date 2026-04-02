@@ -120,16 +120,6 @@ final class AppSettings {
     /// Sparkle 更新渠道持久化值
     var sparkleUpdateChannelRaw: String = SparkleUpdateChannel.stable.rawValue
 
-    // MARK: - M-06 Memory Consolidation Daemon
-
-    /// 触发整合所需的最小间隔小时数（默认 24h）
-    var memoryConsolidationMinHours: Double = 0.1
-
-    /// 触发整合所需的最小累积 session 数（默认 5）
-    var memoryConsolidationMinSessions: Int = 1
-
-    /// 是否启用后台记忆整合 Daemon（默认开启，依赖 memoryEnabled）
-    var memoryConsolidationEnabled: Bool = true
 
 
     init() {
@@ -168,9 +158,6 @@ final class AppSettings {
         self.backgroundAgentMaximumConcurrentRuns = 1
         self.backgroundAgentObservationRetentionDays = 30
         self.lspManualWorkspaceBindingsJSON = "[]"
-        self.memoryConsolidationMinHours = 0.1
-        self.memoryConsolidationMinSessions = 1
-        self.memoryConsolidationEnabled = true
     }
 }
 

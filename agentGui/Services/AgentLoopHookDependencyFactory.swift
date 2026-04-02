@@ -26,9 +26,7 @@ struct AgentLoopHookDependencyFactory {
             // M-03
             extractMemoriesCallback: buildExtractionCallback(),
             // M-05
-            memoryRecallService: buildMemoryRecallService(),
-            // M-06
-            consolidationCallback: buildConsolidationCallback()
+            memoryRecallService: buildMemoryRecallService()
         )
     }
 
@@ -53,18 +51,6 @@ struct AgentLoopHookDependencyFactory {
             sessionState: sessionState,
             service: anthropicService
         )
-    }
-
-    /// 构建记忆整合 callback（M-06）。
-    ///
-    /// 若 `memoryConsolidationEnabled` 为 false，callback 直接返回（guard 在 service 内部处理）。
-    private func buildConsolidationCallback() -> @Sendable (AgentLoopHookContext) async -> Void {
-        MemoryConsolidationService(
-            claudeService: claudeService,
-            settings: runtime.settings,
-            sessionId: runtime.sessionId,
-            modelContext: runtime.modelContext
-        ).buildCallback()
     }
 
     private func loadMemoryBootstrap(

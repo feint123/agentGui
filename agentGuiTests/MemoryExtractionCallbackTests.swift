@@ -14,8 +14,7 @@ final class MemoryExtractionCallbackTests: XCTestCase {
             createToolCallRecord: { _, _ in fatalError() },
             updateToolCallRecord: { _, _ in },
             extractMemoriesCallback: { _ in },
-            memoryRecallService: nil,
-            consolidationCallback: { _ in }
+            memoryRecallService: nil
         )
         let hooks = AgentLoopBuiltInHookFactory().makeHooks(dependencies: deps, state: state)
         let hasExtractionHook = hooks.contains { $0.id == "memory-extraction" }
