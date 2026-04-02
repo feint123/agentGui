@@ -57,4 +57,38 @@ struct SkillCatalogPromptRenderer {
         let truncated = combined.prefix(Self.maxListingDescChars - 1)
         return truncated + "…"
     }
+
+    // MARK: - Public API
+
+    /// Renders the Available Skills listing segment within the character budget.
+    ///
+    /// Format: each entry `- name: description`
+    /// Result omits the "## Available Skills" header (caller's responsibility).
+    func renderSkillListing(_ skills: [Skill]) -> String {
+        guard !skills.isEmpty else { return "" }
+
+        let fullEntries = skills.map { skill -> (skill: Skill, entry: String) in
+            let desc = entryDescription(skill)
+            return (skill: skill, entry: "- \(skill.name): \(desc)")
+        }
+
+        // Newlines between entries: N-1 chars for N entries
+        let fullTotal = fullEntries.reduce(0) { $0 + $1.entry.count } + (fullEntries.count - 1)
+
+        if fullTotal <= charBudget {
+            return fullEntries.map(\.entry).joined(separator: "\n")
+        }
+
+        return truncateToBudget(fullEntries: fullEntries, skills: skills)
+    }
+
+    // MARK: - Private Helpers
+
+    private func truncateToBudget(
+        fullEntries: [(skill: Skill, entry: String)],
+        skills: [Skill]
+    ) -> String {
+        // TODO: implement in Task 4
+        return fullEntries.map(\.entry).joined(separator: "\n")
+    }
 }

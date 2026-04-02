@@ -57,4 +57,44 @@ final class SkillCatalogPromptRendererTests: XCTestCase {
         XCTAssertEqual(result.count, 250)
         XCTAssertFalse(result.hasSuffix("…"))
     }
+
+    // MARK: - renderSkillListing — 基础路径
+
+    func test_renderSkillListing_emptyList_returnsEmpty() {
+        let renderer = SkillCatalogPromptRenderer()
+        XCTAssertEqual(renderer.renderSkillListing([]), "")
+    }
+
+    func test_renderSkillListing_singleSkill_formattedCorrectly() {
+        let renderer = SkillCatalogPromptRenderer()
+        let skill = Skill.fixture(name: "code-review", description: "Reviews code quality")
+        let result = renderer.renderSkillListing([skill])
+        XCTAssertEqual(result, "- code-review: Reviews code quality")
+    }
+
+    func test_renderSkillListing_multipleSkills_separatedByNewlines() {
+        let renderer = SkillCatalogPromptRenderer()
+        let skills = [
+            Skill.fixture(name: "alpha", description: "Alpha skill"),
+            Skill.fixture(name: "beta",  description: "Beta skill"),
+        ]
+        let result = renderer.renderSkillListing(skills)
+        let lines = result.components(separatedBy: "\n")
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertEqual(lines[0], "- alpha: Alpha skill")
+        XCTAssertEqual(lines[1], "- beta: Beta skill")
+    }
+
+    func test_renderSkillListing_withinBudget_noTruncation() {
+        // budget = 1000 chars, two skills with short descriptions
+        let renderer = SkillCatalogPromptRenderer(charBudget: 1_000)
+        let skills = [
+            Skill.fixture(name: "a", description: "Short desc A"),
+            Skill.fixture(name: "b", description: "Short desc B"),
+        ]
+        let result = renderer.renderSkillListing(skills)
+        XCTAssertTrue(result.contains("Short desc A"))
+        XCTAssertTrue(result.contains("Short desc B"))
+        XCTAssertLessThanOrEqual(result.count, 1_000)
+    }
 }
