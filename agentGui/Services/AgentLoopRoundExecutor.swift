@@ -445,6 +445,12 @@ struct AgentLoopRoundExecutor {
             failedState.accumulatedText += notice
             runtime.parentMessage?.textContent = (runtime.parentMessage?.textContent ?? "") + notice
             await emitter.emit(
+                .willFinishRun,
+                state: failedState,
+                messages: messages,
+                overrides: .init(metadata: ["terminationReason": "maxRounds"])
+            )
+            await emitter.emit(
                 .didFailRun,
                 state: failedState,
                 messages: messages,
@@ -461,6 +467,12 @@ struct AgentLoopRoundExecutor {
             text: state.accumulatedText,
             completedSuccessfully: state.loopCtx.phase == .finalizing,
             terminationReason: state.loopCtx.phase == .finalizing ? nil : state.loopCtx.terminationReason
+        )
+        await emitter.emit(
+            .willFinishRun,
+            state: state,
+            messages: messages,
+            overrides: .init(metadata: ["terminationReason": result.terminationReason ?? "completed"])
         )
         await emitter.emit(
             result.completedSuccessfully ? .didFinishRun : .didFailRun,
