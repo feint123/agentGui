@@ -179,4 +179,23 @@ final class SkillCatalogPromptRendererTests: XCTestCase {
                       "whenToUse should be included in the description")
         XCTAssertTrue(lines[1].hasPrefix("- debug: "))
     }
+
+    // MARK: - contextWindowTokens 动态预算
+
+    func test_renderer_contextWindowTokens_200k_gives8000() {
+        // 200_000 × 4 × 0.01 = 8000
+        let renderer = SkillCatalogPromptRenderer(contextWindowTokens: 200_000)
+        XCTAssertEqual(renderer.charBudget, 8_000)
+    }
+
+    func test_renderer_contextWindowTokens_1M_gives40000() {
+        // 1_000_000 × 4 × 0.01 = 40_000
+        let renderer = SkillCatalogPromptRenderer(contextWindowTokens: 1_000_000)
+        XCTAssertEqual(renderer.charBudget, 40_000)
+    }
+
+    func test_renderer_contextWindowTokens_nil_usesDefault() {
+        let renderer = SkillCatalogPromptRenderer(contextWindowTokens: nil)
+        XCTAssertEqual(renderer.charBudget, 8_000)
+    }
 }

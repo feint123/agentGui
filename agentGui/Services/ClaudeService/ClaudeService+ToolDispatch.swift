@@ -472,6 +472,9 @@ extension ClaudeService {
             )
 
             try store.upsert(insight)
+            // M-02: 写入后异步重建 MEMORY.md，使系统 Prompt 的 `## Your Memory Index` 节
+            // 在下一个对话轮次即反映刚持久化的 insight。
+            triggerMemoryIndexRebuild(store: store)
             let actionDescription = existingInsight == nil ? "inserted" : "updated"
             return "Stored RMS insight (\(actionDescription)): \(normalizedTitle)"
         } catch {
@@ -479,9 +482,20 @@ extension ClaudeService {
         }
     }
 
-    /// Converts raw `memory_write` content into one of the supported `RMSInsight` kinds.
+    /// M-02 辅助：在 memory_write 写入 RMSInsightStore 后，异步重建 MEMORY.md 索引文件。
     ///
-    /// This method is intentionally heuristic and lightweight. The input is free-form text,
+    /// 重建在 background-priority detached task 中执行，不阻塞主 loop。
+    /// 失败时静默忽略——MEMORY.md 仍会在下次 `UnifiedMemoryFileStoreAdapter.persist()` 时重建。
+    private func triggerMemoryIndexRebuild(store: RMSInsightStore) {
+        let memoryDir = ConfigDirectoryManager.shared.memoryDir
+        Task.detached(priority: .background) {
+            guard let allInsights = try? store.all() else { return }
+            let records = allInsights.map { $0.toMemoryRecord() }
+            try? MemoryIndexFileSystem(memoryDir: memoryDir).rebuild(with: records)
+        }
+    }
+
+    /// Converts raw `memory_write` content into one of the supported `RMSInsight` kinds.
     /// so the classifier looks for a few high-signal phrases to decide whether the memory is:
     /// - a `counterexample`: text describes a regression, failure, avoidance rule, or "do X instead" pattern
     /// - a `tactic`: text describes a reusable action such as run/use/inspect/verify/rerun

@@ -29,99 +29,14 @@ struct AgentLoopHookDependencyFactory {
     }
 
     /// 构建 memory extraction 的执行闭包。
-    /// 闭包捕获 coordinator（actor 隔离），在 detached Task 中通过 actor isolated 调用安全执行。
+    /// 委托给 `SessionMemoryExtractorService` 处理，保持 factory 职责单一。
     private func buildExtractionCallback() -> @Sendable (AgentLoopHookContext) async -> Void {
-        let coordinator = MemoryExtractionCoordinator()
-        let service = claudeService
-        let settings = runtime.settings
-        let sessionId = runtime.sessionId
-        let modelContext = runtime.modelContext
-
-        return { @Sendable context in
-            // 守卫：已在运行中则跳过
-            guard await coordinator.beginExtraction() else { return }
-            defer { Task { await coordinator.finishExtraction() } }
-
-            do {
-                try await runMemoryExtraction(
-                    context: context,
-                    claudeService: service,
-                    settings: settings,
-                    sessionId: sessionId,
-                    modelContext: modelContext
-                )
-            } catch {
-                // 提取失败不影响主 loop，仅打印调试日志
-                #if DEBUG
-                print("[MemoryExtraction] error: \(error)")
-                #endif
-            }
-        }
-    }
-
-    /// 实际运行 extraction subagent 的私有方法。
-    /// 从 RMSInsightStore 读取现有 insights → 构建 prompt → 调用 runCoreAgentLoop
-    private func runMemoryExtraction(
-        context: AgentLoopHookContext,
-        claudeService: ClaudeService,
-        settings: AppSettings,
-        sessionId: String,
-        modelContext: ModelContext
-    ) async throws {
-        // 1. 读取现有 insights（防重复写入）
-        let existingInsights = (try? RMSInsightStore().load(scope: .user)) ?? []
-
-        // 2. 计算本轮新消息数（context.messagesSnapshot 是本次 run 的完整消息列表）
-        let messageCount = context.messagesSnapshot.count
-
-        guard messageCount > 0 else { return }
-
-        // 3. 构建提取 prompt
-        let extractionPrompt = MemoryExtractionPromptBuilder.build(
-            newMessageCount: messageCount,
-            existingInsights: existingInsights
-        )
-
-        // 4. 构建受限工具集（仅 memory_write + read_file）
-        let restrictedTools = await claudeService.buildExtractionTools(settings: settings)
-
-        // 5. 启动 extraction subagent（最多 5 轮）
-        var loopMessages: [MessageParameter.Message] = context.messagesSnapshot
-        loopMessages.append(.init(role: .user, content: .text(extractionPrompt)))
-
-        let extractionSystem = await claudeService.makeEphemeralSystemPrompt("")
-        let extractionService = await claudeService.service
-
-        guard let extractionService else { return }
-
-        let request = AgentLoopRunRequest(
-            service: extractionService,
-            modelId: settings.selectedModel,
-            tools: restrictedTools,
-            system: extractionSystem,
-            maxRounds: 5,
-            toolExecutionContext: .backgroundTask,
-            toolApprovalMode: .bypassApprovals,
-            runSource: "memoryExtraction",
-            runLabel: "Memory extraction",
-            requestedBudgetSeconds: nil
-        )
-        let runtime = AgentLoopRuntime(
-            settings: settings,
-            session: nil,
-            sessionId: sessionId,
-            modelContext: modelContext,
-            makeRound: { AgentRound(roundIndex: $0) },
-            parentMessage: nil,
-            streamProjectionTarget: .none,
-            toolInterceptor: nil,
-            remoteDeliveryHandle: nil
-        )
-        _ = try await claudeService.runCoreAgentLoop(
-            messages: &loopMessages,
-            request: request,
-            runtime: runtime
-        )
+        SessionMemoryExtractorService(
+            claudeService: claudeService,
+            settings: runtime.settings,
+            sessionId: runtime.sessionId,
+            modelContext: runtime.modelContext
+        ).buildCallback()
     }
 
     private func loadMemoryBootstrap(

@@ -68,6 +68,14 @@ struct RMSInsightStore: RMSInsightStoring {
         try save(insights)
     }
 
+    /// 返回全部已持久化的 insights，不做 scope 过滤。
+    ///
+    /// 主要供 MEMORY.md 索引重建使用：在 `memory_write` 写入后，
+    /// 调用方可通过此方法获取所有 insights 并生成文件系统索引。
+    func all() throws -> [RMSInsight] {
+        try loadAll()
+    }
+
     private func loadAll() throws -> [RMSInsight] {
         guard fileManager.fileExists(atPath: fileURL.path) else { return [] }
         let data = try Data(contentsOf: fileURL)

@@ -6,6 +6,10 @@
 import XCTest
 @testable import agentGui
 
+/// 测试 SkillService 的文件系统发现逻辑（nonisolated static 方法）。
+///
+/// 所有测试均为同步 throws，直接调用 nonisolated static 方法，
+/// 避免通过 @MainActor SkillService 实例 + async/await，防止 XCTest 死锁。
 final class SkillProjectDiscoveryTests: XCTestCase {
 
     // MARK: - gitRoot
@@ -28,11 +32,14 @@ final class SkillProjectDiscoveryTests: XCTestCase {
     func test_gitRoot_returnsNil_whenNoGit() throws {
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "gitRootNoGit-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
+        // 创建一个不在任何 git 仓库内的隔离目录
+        // 使用 /private/tmp 确保路径不在项目目录内
+        let isolatedDir = URL(fileURLWithPath: "/private/tmp/gitRootNoGit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: isolatedDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: isolatedDir) }
+        XCTAssertNil(try? tmp.checkResourceIsReachable())
 
-        // 孤立目录，无 .git
-        let result = SkillService.gitRoot(for: tmp)
+        let result = SkillService.gitRoot(for: isolatedDir)
         XCTAssertNil(result)
     }
 
@@ -60,14 +67,12 @@ final class SkillProjectDiscoveryTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         let result = SkillService.projectSkillDirs(startingAt: subB, home: homeDir)
-        // subB 无 skills，subA 有，repo 有，repo 是 git root 应包含，repo 的父是 home 停止
-        // 返回顺序：deep-first（subA 先于 repo）
         XCTAssertEqual(result.map(\.path), [skills2.path, skills1.path])
     }
 
     func test_projectSkillDirs_stopsAtHome() throws {
         // 目录树：
-        //   tmp/home/.claude/skills/   ← HOME 层不应收集（由 user source 负责）
+        //   tmp/home/.claude/skills/   ← HOME 层不应收集
         //   tmp/home/project/          ← start here（无 git）
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "projDirsHome-\(UUID().uuidString)")
@@ -80,7 +85,6 @@ final class SkillProjectDiscoveryTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         let result = SkillService.projectSkillDirs(startingAt: projectDir, home: homeDir)
-        // project 无 .claude/skills，HOME 本身不遍历 → 结果为空
         XCTAssertTrue(result.isEmpty)
     }
 
@@ -105,7 +109,6 @@ final class SkillProjectDiscoveryTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         let result = SkillService.projectSkillDirs(startingAt: nestedDir, home: homeDir)
-        // nested 无 skills，repo 有（且是 git root，包含后结束）
         XCTAssertEqual(result.map(\.path), [repoSkills.path])
     }
 
@@ -124,7 +127,6 @@ final class SkillProjectDiscoveryTests: XCTestCase {
     // MARK: - mergeAndDeduplicate
 
     func test_mergeAndDeduplicate_removesSymlinkDuplicates() throws {
-        // 创建真实 skill 目录和 symlink 指向同一目录
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "dedupTest-\(UUID().uuidString)")
         let realSkillDir = tmp.appending(path: "real-skill")
@@ -153,7 +155,6 @@ final class SkillProjectDiscoveryTests: XCTestCase {
         )
 
         let merged = SkillService.mergeAndDeduplicate([skill1, skill2])
-        // 仅保留 skill1（先出现）
         XCTAssertEqual(merged.count, 1)
         XCTAssertEqual(merged.first?.directoryName, "real-skill")
     }
@@ -176,9 +177,9 @@ final class SkillProjectDiscoveryTests: XCTestCase {
         XCTAssertEqual(merged.count, 2)
     }
 
-    // MARK: - SkillService multi-source integration
+    // MARK: - Multi-source integration（不使用 SkillService 实例，避免 @MainActor 死锁）
 
-    func test_loadSkills_discoversProjectSkills() async throws {
+    func test_discoversProjectSkills() throws {
         // 目录布局：
         //   tmp/home/.claude/skills/user-skill/SKILL.md    ← user source
         //   tmp/home/workspace/.git/                        ← git root
@@ -199,53 +200,48 @@ final class SkillProjectDiscoveryTests: XCTestCase {
             .write(to: projSkills.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let service = await SkillService(
-            skillsDirectory: homeDir.appending(path: ".claude/skills"),
-            workspaceURL: workspace
-        )
-        await service.loadSkills()
+        let userSource = SkillService.scanSkills(in: homeDir.appending(path: ".claude/skills"), source: .user)
+        let projectDirs = SkillService.projectSkillDirs(startingAt: workspace, home: homeDir)
+        let projectSource = projectDirs.flatMap { SkillService.scanSkills(in: $0, source: .project) }
+        let skills = SkillService.mergeAndDeduplicate(userSource + projectSource)
 
-        let skills = await service.availableSkills
         let names = skills.map(\.name)
         XCTAssertTrue(names.contains("User Skill"),    "User skill should be loaded")
         XCTAssertTrue(names.contains("Project Skill"), "Project skill should be loaded")
 
-        // 验证 loadedFrom
         let userSkill = skills.first { $0.name == "User Skill" }
         let projSkill = skills.first { $0.name == "Project Skill" }
         XCTAssertEqual(userSkill?.loadedFrom, .user)
         XCTAssertEqual(projSkill?.loadedFrom, .project)
     }
 
-    func test_loadSkills_projectSkillTakesPrecedenceOverUser_whenSameFile() async throws {
+    func test_userSkillTakesPrecedenceOverProject_whenSamePhysicalFile() throws {
         // 同一 SKILL.md 被 user 和 project 各引用（通过 symlink），只保留 user（先出现）
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "sameFilePriorityTest-\(UUID().uuidString)")
-        let homeDir    = tmp.appending(path: "home")
-        let workspace  = homeDir.appending(path: "workspace")
-        let gitDir     = workspace.appending(path: ".git")
-        let realSkills = homeDir.appending(path: ".claude/skills")
-        let sharedSkill = realSkills.appending(path: "shared-skill")
+        let homeDir       = tmp.appending(path: "home")
+        let workspace     = homeDir.appending(path: "workspace")
+        let gitDir        = workspace.appending(path: ".git")
+        let realSkills    = homeDir.appending(path: ".claude/skills")
+        let sharedSkill   = realSkills.appending(path: "shared-skill")
         let projSkillsDir = workspace.appending(path: ".claude/skills")
         try FileManager.default.createDirectory(at: sharedSkill, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: gitDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: projSkillsDir, withIntermediateDirectories: true)
         try "---\nname: Shared Skill\ndescription: shared\n---\nShared"
             .write(to: sharedSkill.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
-        // 在 project skills 中建立指向同一目录的 symlink
         let symlinkSkillDir = projSkillsDir.appending(path: "shared-skill")
         try FileManager.default.createSymbolicLink(at: symlinkSkillDir, withDestinationURL: sharedSkill)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let service = await SkillService(
-            skillsDirectory: realSkills,
-            workspaceURL: workspace
-        )
-        await service.loadSkills()
-        let skills = await service.availableSkills
-        // 通过 realpath 去重后只有一个
+        let userSource = SkillService.scanSkills(in: realSkills, source: .user)
+        let projectDirs = SkillService.projectSkillDirs(startingAt: workspace, home: homeDir)
+        let projectSource = projectDirs.flatMap { SkillService.scanSkills(in: $0, source: .project) }
+        let skills = SkillService.mergeAndDeduplicate(userSource + projectSource)
+
+        // realpath 去重后只有一个
         XCTAssertEqual(skills.filter { $0.name == "Shared Skill" }.count, 1)
-        // 先加载的是 user（managed 为空），因此保留的是 user
+        // user 先加载，first-wins 保留 user
         XCTAssertEqual(skills.first { $0.name == "Shared Skill" }?.loadedFrom, .user)
     }
 }
