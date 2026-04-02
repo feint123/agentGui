@@ -77,9 +77,16 @@ struct SessionMemoryExtractorService {
         let messageCount = context.messagesSnapshot.count
         guard messageCount > 0 else { return }
 
-        // 构建提取 prompt
+        // ── 扫描当前 memoryDir，构建 manifest 注入 prompt ──
+        let memoryDir = ConfigDirectoryManager.shared.memoryDir
+        let topicHeaders = (try? await MemoryTopicScanner().scan(memoryDir: memoryDir)) ?? []
+        let existingManifest = MemoryManifestFormatter().format(topicHeaders)
+        // ────────────────────────────────────────────────
+
+        // 构建提取 prompt（注入 manifest）
         let extractionPrompt = MemoryExtractionPromptBuilder.build(
-            newMessageCount: messageCount
+            newMessageCount: messageCount,
+            existingMemoriesManifest: existingManifest
         )
 
         // 构建受限工具集（仅 memory_write + read_file）

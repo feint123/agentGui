@@ -81,6 +81,32 @@ final class SessionMemoryExtractorServiceTests: XCTestCase {
         XCTAssertEqual(granted, 1, "Only 1 of 10 concurrent extractions should be granted")
     }
 
+    // MARK: - Manifest injection via MemoryExtractionPromptBuilder
+
+    /// 验证 MemoryExtractionPromptBuilder.build 对非空 manifest 的处理
+    /// （作为 runExtraction 注入路径的逻辑等价测试）
+    func test_promptBuilder_manifestPassthrough_emptyManifest() {
+        // 空 manifest → 不注入
+        let prompt = MemoryExtractionPromptBuilder.build(
+            newMessageCount: 3,
+            existingMemoriesManifest: ""
+        )
+        XCTAssertFalse(prompt.contains("Existing memory files"),
+                       "Empty manifest must not produce manifest section")
+    }
+
+    func test_promptBuilder_manifestPassthrough_nonEmptyManifest() {
+        let manifest = "- [project] swift_pref.md (2026-04-03T12:00:00Z): Prefers actor isolation"
+        let prompt = MemoryExtractionPromptBuilder.build(
+            newMessageCount: 3,
+            existingMemoriesManifest: manifest
+        )
+        XCTAssertTrue(prompt.contains("Existing memory files"),
+                      "Non-empty manifest must produce the section header in the prompt")
+        XCTAssertTrue(prompt.contains("swift_pref.md"),
+                      "Non-empty manifest content must appear verbatim in the prompt")
+    }
+
     // MARK: - Helpers
 
     private func makeContext(messageCount: Int) -> AgentLoopHookContext {
