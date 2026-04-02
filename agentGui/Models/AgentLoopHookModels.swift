@@ -72,6 +72,9 @@ enum AgentLoopHookResult: Equatable {
     case messagePatch(AgentLoopMessagePatch)
     case toolCallRecord(ToolCall)
     case failureTrigger(FailureTrigger)
+    /// Bootstrap 阶段专用：将 `section` 追加到本次 run 的系统提示末尾。
+    /// 不插入消息链。
+    case systemPromptAppend(String)
 
     static func == (lhs: AgentLoopHookResult, rhs: AgentLoopHookResult) -> Bool {
         switch (lhs, rhs) {
@@ -86,6 +89,8 @@ enum AgentLoopHookResult: Equatable {
             return lhsRecord.id == rhsRecord.id
         case (.failureTrigger(let lhsTrigger), .failureTrigger(let rhsTrigger)):
             return lhsTrigger == rhsTrigger
+        case (.systemPromptAppend(let lhs), .systemPromptAppend(let rhs)):
+            return lhs == rhs
         default:
             return false
         }
@@ -99,6 +104,9 @@ struct AgentLoopHookDispatchResult {
     var messagePatch: AgentLoopMessagePatch?
     var toolCallRecord: ToolCall?
     var failureTrigger: FailureTrigger?
+    /// 由 `.systemPromptAppend` hook result 聚合的系统提示附加文本。
+    /// 多个 hook 返回 systemPromptAppend 时，内容按 hook order 拼接（\n\n 分隔）。
+    var systemAppend: String?
 }
 
 struct AgentLoopHookContext {

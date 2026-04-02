@@ -39,6 +39,12 @@ struct AgentLoopHookDispatcher {
                     result.toolCallRecord = record
                 case .failureTrigger(let trigger):
                     result.failureTrigger = trigger
+                case .systemPromptAppend(let section):
+                    if result.systemAppend == nil {
+                        result.systemAppend = section
+                    } else {
+                        result.systemAppend! += "\n\n" + section
+                    }
                 }
             } catch {
                 result.failures.append(
