@@ -88,7 +88,49 @@ struct SkillCatalogPromptRenderer {
         fullEntries: [(skill: Skill, entry: String)],
         skills: [Skill]
     ) -> String {
-        // TODO: implement in Task 4
-        return fullEntries.map(\.entry).joined(separator: "\n")
+        // 1. 分区：bundled（始终保留完整）vs 其余
+        var bundledIndices = IndexSet()
+        var restSkills: [(index: Int, skill: Skill)] = []
+        for (i, skillTuple) in fullEntries.enumerated() {
+            if skillTuple.skill.loadedFrom == .bundled {
+                bundledIndices.insert(i)
+            } else {
+                restSkills.append((index: i, skill: skillTuple.skill))
+            }
+        }
+
+        // 2. bundled 占用的字符（含分隔符 +1 per entry）
+        let bundledChars = fullEntries.enumerated().reduce(0) { sum, pair in
+            bundledIndices.contains(pair.offset) ? sum + pair.element.entry.count + 1 : sum
+        }
+        let remainingBudget = charBudget - bundledChars
+
+        // 3. 若无非 bundled skill，直接返回 bundled 全量
+        if restSkills.isEmpty {
+            return fullEntries.map(\.entry).joined(separator: "\n")
+        }
+
+        // 4. 计算非 bundled 可用于描述的字符数
+        //    overhead = sum("- name: ".count) + (N-1 separators)
+        let nameOverhead = restSkills.reduce(0) { $0 + $1.skill.name.count + 4 }  // "- " + ": " = 4
+            + max(0, restSkills.count - 1)
+        let availableForDescs = remainingBudget - nameOverhead
+        let maxDescLen = restSkills.isEmpty ? 0 : availableForDescs / restSkills.count
+
+        if maxDescLen < Self.minDescLength {
+            // 极端超预算：非 bundled 退化为 names-only
+            return fullEntries.enumerated().map { (i, pair) in
+                bundledIndices.contains(i) ? pair.entry : "- \(pair.skill.name)"
+            }.joined(separator: "\n")
+        }
+
+        // 5. 按 maxDescLen 截断非 bundled 描述
+        return fullEntries.enumerated().map { (i, pair) in
+            if bundledIndices.contains(i) { return pair.entry }
+            let desc = entryDescription(pair.skill)
+            if desc.count <= maxDescLen { return "- \(pair.skill.name): \(desc)" }
+            let truncated = desc.prefix(maxDescLen - 1)
+            return "- \(pair.skill.name): \(truncated)…"
+        }.joined(separator: "\n")
     }
 }
