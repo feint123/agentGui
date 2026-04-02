@@ -11,6 +11,9 @@ struct AgentLoopRunState {
     var verificationState: VerificationState?
     let hookState: AgentLoopBuiltInHookFactory.State
     var budgetRunTracker: BudgetRunTracker    // F-B1: per-run diminishing returns tracker
+    /// Bootstrap 阶段 hook 通过 `.systemPromptAppend` 提交的系统提示追加内容。
+    /// 由 `applyBootstrap()` 写入，由 `executeStreamingRound()` 读取并合并到 API 请求。
+    var bootstrapSystemAppend: String?
 
     init(
         runID: String = UUID().uuidString,
@@ -20,7 +23,8 @@ struct AgentLoopRunState {
         executionEvidence: Set<ExecutionEvidenceKind> = [],
         verificationState: VerificationState? = nil,
         hookState: AgentLoopBuiltInHookFactory.State = AgentLoopBuiltInHookFactory.State(),
-        budgetRunTracker: BudgetRunTracker = BudgetRunTracker()   // F-B1
+        budgetRunTracker: BudgetRunTracker = BudgetRunTracker(),   // F-B1
+        bootstrapSystemAppend: String? = nil    // M-05
     ) {
         self.runID = runID
         self.accumulatedText = accumulatedText
@@ -30,5 +34,6 @@ struct AgentLoopRunState {
         self.verificationState = verificationState
         self.hookState = hookState
         self.budgetRunTracker = budgetRunTracker   // F-B1
+        self.bootstrapSystemAppend = bootstrapSystemAppend    // M-05
     }
 }
