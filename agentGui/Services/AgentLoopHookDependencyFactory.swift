@@ -55,9 +55,12 @@ struct AgentLoopHookDependencyFactory {
 
     private func loadMemoryBootstrap(
         state _: AgentLoopBuiltInHookFactory.State
-    ) async throws -> AgentLoopMessagePatch? {
-        // M-05: 将在 Feature M-05 中实现从 MEMORY.md 读取并注入
-        return nil
+    ) async throws -> String? {
+        guard runtime.settings.memoryEnabled else { return nil }
+        let composer = AgentLoopMemoryBootstrapComposer(
+            memoryDir: ConfigDirectoryManager.shared.memoryDir
+        )
+        return composer.compose().systemPromptSection
     }
 
     private func createToolCallRecord(

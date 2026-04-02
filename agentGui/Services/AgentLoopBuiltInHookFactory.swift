@@ -15,7 +15,8 @@ struct AgentLoopBuiltInHookFactory {
 
     struct Dependencies {
         let businessLogSink: BusinessLogSink?
-        let memoryBootstrapLoader: (State) async throws -> AgentLoopMessagePatch?
+        /// Bootstrap loader：返回要追加到系统提示的 Memory 节文本，nil 表示跳过注入。
+        let memoryBootstrapLoader: (State) async throws -> String?
         let createToolCallRecord: (AgentLoopHookContext, State) async throws -> ToolCall
         let updateToolCallRecord: (AgentLoopHookContext, State) async throws -> Void
         // M-03: 会话末记忆自动提取回调

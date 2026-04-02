@@ -6,7 +6,8 @@ struct MemoryBootstrapHook: AgentLoopHook {
     let kind: AgentLoopHookKind = .mutator
     let isRequired = false
 
-    let loader: (AgentLoopHookContext) async throws -> AgentLoopMessagePatch?
+    /// Loader 闭包：返回要追加到系统提示的 Memory 节文本，nil 表示跳过注入。
+    let loader: (AgentLoopHookContext) async throws -> String?
 
     func supports(_ stage: AgentLoopHookStage) -> Bool {
         stage == .prepareRun
@@ -16,10 +17,9 @@ struct MemoryBootstrapHook: AgentLoopHook {
         guard stage == .prepareRun else {
             return .continue
         }
-
-        guard let patch = try await loader(context), !patch.insertions.isEmpty else {
+        guard let section = try await loader(context), !section.isEmpty else {
             return .continue
         }
-        return .messagePatch(patch)
+        return .systemPromptAppend(section)
     }
 }
