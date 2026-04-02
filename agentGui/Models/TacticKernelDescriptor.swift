@@ -20,6 +20,6 @@ struct TacticKernelDescriptor: Codable, Equatable, Sendable {
 
 struct MemoryInvalidationAnalysis: Equatable, Sendable {
     var invalidatedRecordIDs: [String]
-    var generatedSignals: [MemoryCandidate]
+    var generatedSignals: [String]
     var reasonSummary: String
 }
