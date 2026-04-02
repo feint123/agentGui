@@ -125,7 +125,11 @@ extension ClaudeService {
             overrideModelId: overrideModelId
         )
 
-        var loopMessages: [MessageParameter.Message] = [.init(role: .user, content: .text(task))]
+        let firstTurnContent = ClaudeService.buildSubagentFirstTurnMessage(
+            task: task,
+            criticalReminder: definition.criticalReminder
+        )
+        var loopMessages: [MessageParameter.Message] = [.init(role: .user, content: .text(firstTurnContent))]
         let system = makeEphemeralSystemPrompt(definition.systemPrompt)
         let request = AgentLoopRunRequest(
             service: service,
@@ -137,7 +141,8 @@ extension ClaudeService {
             toolApprovalMode: .bypassApprovals,
             runSource: "subagent",
             runLabel: definition.name,
-            requestedBudgetSeconds: nil
+            requestedBudgetSeconds: nil,
+            criticalReminder: definition.criticalReminder
         )
         let runtime = AgentLoopRuntime(
             settings: settings,
@@ -221,5 +226,20 @@ extension ClaudeService {
     nonisolated static func applyTrailerToOutput(output: String, trailer: String?) -> String {
         guard let trailer else { return output }
         return output + trailer
+    }
+
+    // MARK: - S-A5 CriticalReminder first-turn injection
+
+    /// 根据 criticalReminder 构建首轮 task 消息文本。
+    /// - Parameters:
+    ///   - task: 子代理的原始任务描述
+    ///   - criticalReminder: 每轮提醒文本（nil = 不注入）
+    /// - Returns: 若 reminder 非空，返回 "reminder\n\n task"；否则原样返回 task。
+    nonisolated static func buildSubagentFirstTurnMessage(
+        task: String,
+        criticalReminder: String?
+    ) -> String {
+        guard let reminder = criticalReminder, !reminder.isEmpty else { return task }
+        return "\(reminder)\n\n\(task)"
     }
 }
