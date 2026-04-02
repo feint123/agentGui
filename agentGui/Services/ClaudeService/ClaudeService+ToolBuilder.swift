@@ -307,4 +307,39 @@ extension ClaudeService {
 
         return tools
     }
+
+    // MARK: - Extraction Tools
+
+    /// 构建 memory extraction subagent 的受限工具集。
+    ///
+    /// 从完整工具集中筛选出 `memory_write`（M-04 后直接写 `.md` 文件），
+    /// 供 `SessionMemoryExtractorService` 使用。
+    ///
+    /// 不包含：bash、run_subagent、str_replace_based_edit_tool 等重型工具，
+    /// 确保提取 subagent 不会产生副作用或创建递归 loop。
+    func buildExtractionTools(settings: AppSettings) -> [MessageParameter.Tool] {
+        let allowed: Set<String> = ["memory_write"]
+        let allTools = buildTools(modelId: settings.selectedModel, settings: settings)
+        return allTools.filter { tool in
+            toolNameForExtraction(from: tool).map { allowed.contains($0) } ?? false
+        }
+    }
+
+    /// 通过 Mirror 安全提取 MessageParameter.Tool 的工具名。
+    func toolNameForExtraction(from tool: MessageParameter.Tool) -> String? {
+        extractStringFromMirror(labeled: "name", from: Mirror(reflecting: tool))
+    }
+
+    private func extractStringFromMirror(labeled target: String, from mirror: Mirror) -> String? {
+        for child in mirror.children {
+            if child.label == target, let value = child.value as? String {
+                return value
+            }
+            let childMirror = Mirror(reflecting: child.value)
+            if let value = extractStringFromMirror(labeled: target, from: childMirror) {
+                return value
+            }
+        }
+        return nil
+    }
 }
