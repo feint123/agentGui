@@ -303,10 +303,13 @@ final class AgentDefinitionLoaderOpenAgentTests: XCTestCase {
             XCTAssertFalse(runtime.omitMainContext,
                            "\(runtime.name) omitMainContext should default to false")
             XCTAssertNil(runtime.initialPrompt)
-            XCTAssertNil(runtime.criticalReminder)
             XCTAssertNil(runtime.color)
             XCTAssertEqual(runtime.disallowedToolNames, [])
         }
+        // explore / worker 不应有 criticalReminder；verifier 由 S-A5 设置了 criticalReminder
+        XCTAssertNil(explore.criticalReminder, "explore 不应有 criticalReminder")
+        XCTAssertNil(worker.criticalReminder, "worker 不应有 criticalReminder")
+        XCTAssertNotNil(verifier.criticalReminder, "verifier 应有 criticalReminder（S-A5）")
     }
 
     // MARK: - S-A2 one-shot field

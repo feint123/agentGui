@@ -8,6 +8,7 @@ max-turns: 50
 user-invocable: false
 subagent-invocable: true
 output-contract: verification_report
+critical-reminder: "CRITICAL: This is VERIFICATION-ONLY. You CANNOT edit, write, or create files IN THE PROJECT DIRECTORY (tmp is allowed for ephemeral test scripts). You MUST end with VERDICT: PASS, VERDICT: FAIL, or VERDICT: PARTIAL."
 ---
 
 # Role
