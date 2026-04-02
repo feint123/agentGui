@@ -12,10 +12,11 @@ struct MemoryTopicFileComposer: Sendable {
         return f
     }()
 
-    func compose(record: MemoryRecord) -> String {
+    func compose(record: MemoryRecord, now: Date = .now) -> String {
         let created = Self.dateFormatter.string(from: record.createdAt)
         let updated = Self.dateFormatter.string(from: record.updatedAt)
         let body = bodyText(from: record)
+        let freshnessPrefix = MemoryFreshnessAnnotator().freshnessNote(updatedAt: record.updatedAt, now: now)
 
         return """
         ---
@@ -28,7 +29,7 @@ struct MemoryTopicFileComposer: Sendable {
         updated: \(updated)
         ---
 
-        \(body)
+        \(freshnessPrefix)\(body)
         """
     }
 

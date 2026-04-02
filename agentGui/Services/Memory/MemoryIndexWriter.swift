@@ -20,7 +20,7 @@ struct MemoryIndexWriter: Sendable {
 
     private let topicComposer = MemoryTopicFileComposer()
 
-    func build(records: [MemoryRecord]) -> Output {
+    func build(records: [MemoryRecord], now: Date = .now) -> Output {
         let active = records.filter { $0.retentionPolicy != .archiveOnly }
 
         guard !active.isEmpty else {
@@ -43,7 +43,7 @@ struct MemoryIndexWriter: Sendable {
             let hook = hookText(record)
             let entry = "- [\(record.title)](\(filename)) — \(hook)"
             indexLines.append(entry)
-            topicFiles.append((filename, topicComposer.compose(record: record)))
+            topicFiles.append((filename, topicComposer.compose(record: record, now: now)))
         }
 
         let truncated = truncate(lines: indexLines)

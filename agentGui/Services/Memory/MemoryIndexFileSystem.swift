@@ -20,8 +20,8 @@ struct MemoryIndexFileSystem: Sendable {
 
     /// 根据 `records` 重建 MEMORY.md 和话题文件。
     /// - Throws: 文件写入失败时抛出 `CocoaError`。
-    func rebuild(with records: [MemoryRecord]) throws {
-        let output = writer.build(records: records)
+    func rebuild(with records: [MemoryRecord], now: Date = .now) throws {
+        let output = writer.build(records: records, now: now)
         guard !output.indexContent.isEmpty else { return }
 
         try fileManager.createDirectory(at: memoryDir, withIntermediateDirectories: true)

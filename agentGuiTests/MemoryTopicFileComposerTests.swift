@@ -103,4 +103,52 @@ final class MemoryTopicFileComposerTests: XCTestCase {
         // 只要 frontmatter 不以裸 " 形式破坏 YAML 格式 — 使用 escaped 或单引号
         XCTAssertTrue(output.contains("name:"), "name 字段应始终存在")
     }
+
+    // MARK: - Freshness note (M-04)
+
+    func test_compose_freshRecord_noFreshnessNote() {
+        let now = Date(timeIntervalSince1970: 86_400 * 20_000)
+        let record = makeRecord(updatedAt: now)
+        let output = composer.compose(record: record, now: now)
+        XCTAssertFalse(output.contains("days old"),
+                       "今天更新的 topic 文件不应包含 freshness note")
+        XCTAssertFalse(output.contains("<system-reminder>"),
+                       "今天更新的 topic 文件不应有 <system-reminder> 节")
+    }
+
+    func test_compose_staleRecord_containsFreshnessNote() {
+        let now = Date(timeIntervalSince1970: 86_400 * 20_000)
+        let staleDate = now.addingTimeInterval(-86_400 * 5)  // 5 天前
+        let record = makeRecord(updatedAt: staleDate)
+        let output = composer.compose(record: record, now: now)
+        XCTAssertTrue(output.contains("5 days old"),
+                      "5 天前更新的话题文件应包含 '5 days old' 警告")
+        XCTAssertTrue(output.contains("<system-reminder>"),
+                      "freshness note 应用 <system-reminder> 包裹")
+        XCTAssertTrue(output.contains("</system-reminder>"),
+                      "freshness note 应包含闭合标签")
+    }
+
+    func test_compose_freshnessNoteAppearsBeforeBody() {
+        let now = Date(timeIntervalSince1970: 86_400 * 20_000)
+        let staleDate = now.addingTimeInterval(-86_400 * 3)
+        let record = makeRecord(payloadText: "BODYMARKER", updatedAt: staleDate)
+        let output = composer.compose(record: record, now: now)
+        guard let reminderRange = output.range(of: "<system-reminder>"),
+              let bodyRange = output.range(of: "BODYMARKER") else {
+            XCTFail("output 应同时包含 <system-reminder> 和 BODYMARKER")
+            return
+        }
+        XCTAssertLessThan(reminderRange.lowerBound, bodyRange.lowerBound,
+                          "<system-reminder> 应出现在正文之前")
+    }
+
+    func test_compose_freshnessBoundary_oneDay_noNote() {
+        let now = Date(timeIntervalSince1970: 86_400 * 20_000)
+        let yesterday = now.addingTimeInterval(-86_400)
+        let record = makeRecord(updatedAt: yesterday)
+        let output = composer.compose(record: record, now: now)
+        XCTAssertFalse(output.contains("days old"),
+                       "昨天更新（ageDays=1）不应触发 freshness note")
+    }
 }
