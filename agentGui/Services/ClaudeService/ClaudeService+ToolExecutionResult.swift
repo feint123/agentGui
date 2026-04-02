@@ -146,3 +146,39 @@ struct ToolExecutionResult {
         return ToolExecutionResult(text, status: .failure)
     }
 }
+
+// MARK: - SkillInvocationOutcome conversion
+
+extension ToolExecutionResult {
+
+    /// 将 SkillInvocationOutcome 转换为 API 层的 ToolExecutionResult。
+    ///
+    /// inline 成功情形：
+    /// - 主体：skill 内容（供模型作为执行指令读取）
+    /// - 若有 allowedTools：在末尾附加软约束提示
+    /// - 若有 modelOverride：在末尾附加模型提示
+    ///
+    /// 失败情形：返回 isError = true 的可读错误消息。
+    init(fromSkillInvocationOutcome outcome: SkillInvocationOutcome) {
+        switch outcome {
+        case .success(let r):
+            var parts: [String] = [r.content]
+            if !r.allowedTools.isEmpty {
+                parts.append("\n[Skill note: Prefer using only these tools for this skill: \(r.allowedTools.joined(separator: ", "))]")
+            }
+            if let model = r.modelOverride {
+                parts.append("[Skill note: This skill prefers model: \(model)]")
+            }
+            self = ToolExecutionResult(parts.joined(separator: "\n"))
+
+        case .notFound(let name):
+            self = .failure("Error: skill '\(name)' not found. Check available skills in the system prompt.")
+
+        case .disabled(let name):
+            self = .failure("Error: skill '\(name)' has model invocation disabled (disable-model-invocation: true).")
+
+        case .unreadable(let name):
+            self = .failure("Error: skill '\(name)' content could not be loaded.")
+        }
+    }
+}

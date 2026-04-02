@@ -145,6 +145,17 @@ extension ClaudeService {
                 return .success(content)
             }
             return .failure("Error: skill '\(skillName)' not found")
+        case "skill_invoke":
+            guard let skillName = input["skill"]?.stringValue else {
+                return .missingParameter("skill")
+            }
+            let skillArgs = input["args"]?.stringValue
+            let processor = SkillInvocationProcessor(
+                provider: skillService ?? NullSkillContentProvider(),
+                sessionId: sessionId
+            )
+            let outcome = await processor.invoke(skillName: skillName, args: skillArgs)
+            return ToolExecutionResult(fromSkillInvocationOutcome: outcome)
         case "update_todo_list":
             return .detect(executeUpdateTodoList(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "web_search":
@@ -234,6 +245,17 @@ extension ClaudeService {
                 return .success(content)
             }
             return .failure("Error: skill '\(skillName)' not found")
+        case "skill_invoke":
+            guard let skillName = input["skill"]?.stringValue else {
+                return .missingParameter("skill")
+            }
+            let skillArgs = input["args"]?.stringValue
+            let processor = SkillInvocationProcessor(
+                provider: skillService ?? NullSkillContentProvider(),
+                sessionId: sessionId
+            )
+            let outcome = await processor.invoke(skillName: skillName, args: skillArgs)
+            return ToolExecutionResult(fromSkillInvocationOutcome: outcome)
         case "update_todo_list":
             return .detect(executeUpdateTodoList(input: input, sessionId: sessionId, modelContext: modelContext), toolName: name)
         case "web_search":

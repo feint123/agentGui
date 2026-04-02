@@ -71,6 +71,40 @@ extension ClaudeService {
                     required: ["name"]
                 )
             ))
+
+            tools.append(makeEphemeralTool(
+                name: "skill_invoke",
+                description: """
+                Execute a skill within the main conversation.
+
+                When users ask you to perform tasks, check if any available skill matches. \
+                If a skill's purpose matches the user's request, invoke it BEFORE generating \
+                any other response about the task.
+
+                How to invoke:
+                - skill: the skill's name (e.g. "commit", "review-pr", "pdf")
+                - args: optional arguments string (passed to the skill as $ARGUMENTS)
+
+                Available skills are listed in the system prompt under "## Available Skills". \
+                Do NOT invoke a skill that is already running. \
+                If skill has already been invoked this turn (you see skill instructions in a \
+                prior tool_result), follow those instructions directly instead of calling again.
+                """,
+                inputSchema: .init(
+                    type: .object,
+                    properties: [
+                        "skill": .init(
+                            type: .string,
+                            description: "The skill name. E.g., \"commit\", \"review-pr\", or \"pdf\""
+                        ),
+                        "args": .init(
+                            type: .string,
+                            description: "Optional arguments for the skill, passed as $ARGUMENTS"
+                        )
+                    ],
+                    required: ["skill"]
+                )
+            ))
         }
 
         // run_subagent: only available to the main agent (not inside subagent loops)
