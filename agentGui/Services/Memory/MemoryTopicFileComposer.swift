@@ -1,8 +1,9 @@
 import Foundation
 
-/// 将 `MemoryRecord` 渲染成带 YAML frontmatter 的 `.md` 话题文件内容。
+/// 话题文件内容组合器。
 ///
-/// 对齐 Claude Code `MEMORY_FRONTMATTER_EXAMPLE`。
+/// `compose(record: MemoryRecord)` 已在 M-02 移除。
+/// M-04 将新增 `compose(title:description:type:content:now:)` 方法。
 /// nonisolated struct，无副作用，可在任意并发上下文调用。
 struct MemoryTopicFileComposer: Sendable {
 
@@ -12,42 +13,8 @@ struct MemoryTopicFileComposer: Sendable {
         return f
     }()
 
-    func compose(record: MemoryRecord, now: Date = .now) -> String {
-        let created = Self.dateFormatter.string(from: record.createdAt)
-        let updated = Self.dateFormatter.string(from: record.updatedAt)
-        let body = bodyText(from: record)
-        let freshnessPrefix = MemoryFreshnessAnnotator().freshnessNote(updatedAt: record.updatedAt, now: now)
-
-        return """
-        ---
-        name: \(yamlQuote(record.title))
-        description: \(yamlQuote(record.summary))
-        type: \(record.kind.rawValue)
-        id: \(record.id)
-        scope: \(record.scope.namespace)
-        created: \(created)
-        updated: \(updated)
-        ---
-
-        \(freshnessPrefix)\(body)
-        """
-    }
-
-    // MARK: - Private
-
-    private func bodyText(from record: MemoryRecord) -> String {
-        switch record.payload {
-        case .text(let text):
-            return text
-        case .structured(let dict):
-            return dict.sorted { $0.key < $1.key }
-                .map { "- **\($0.key)**: \($0.value)" }
-                .joined(separator: "\n")
-        }
-    }
-
     /// 对 YAML 字符串值进行双引号包裹并转义内部引号。
-    private func yamlQuote(_ value: String) -> String {
+    static func yamlQuote(_ value: String) -> String {
         let escaped = value.replacingOccurrences(of: "\\", with: "\\\\")
                            .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\""
