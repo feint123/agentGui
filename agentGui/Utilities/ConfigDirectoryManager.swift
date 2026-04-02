@@ -44,6 +44,20 @@ final class ConfigDirectoryManager {
         memoryDir.appendingPathComponent("MEMORY.md")
     }
 
+    /// `~/.agentgui/sessions/{sessionId}/session-memory/`
+    func sessionMemoryDir(sessionId: String) -> URL {
+        agentGuiDir
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent("session-memory", isDirectory: true)
+    }
+
+    /// `~/.agentgui/sessions/{sessionId}/session-memory/summary.md`
+    func sessionMemorySummaryURL(sessionId: String) -> URL {
+        sessionMemoryDir(sessionId: sessionId)
+            .appendingPathComponent("summary.md")
+    }
+
     // MARK: - Setup
 
     /// Creates `~/.agentgui/` and an empty legacy `memory.md` if they do not yet exist.
