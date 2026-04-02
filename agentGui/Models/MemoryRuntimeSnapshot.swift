@@ -23,12 +23,12 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
     var recordID: String
     var title: String
     var summary: String
-    var layer: MemoryLayer
-    var kind: MemoryKind
+    var layer: String
+    var kind: String
     var scope: MemoryScope
     var domainProfile: String
-    var verificationStatus: MemoryRecord.VerificationStatus
-    var retentionPolicy: MemoryRecord.RetentionPolicy
+    var verificationStatus: String
+    var retentionPolicy: String
     var sourceLabel: String
     var tags: [String]
     var confidence: Double
@@ -45,12 +45,12 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         recordID: String,
         title: String,
         summary: String,
-        layer: MemoryLayer,
-        kind: MemoryKind,
+        layer: String,
+        kind: String,
         scope: MemoryScope,
         domainProfile: String,
-        verificationStatus: MemoryRecord.VerificationStatus,
-        retentionPolicy: MemoryRecord.RetentionPolicy,
+        verificationStatus: String,
+        retentionPolicy: String,
         sourceLabel: String,
         tags: [String],
         confidence: Double,
@@ -85,31 +85,6 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         self.exclusionReason = exclusionReason
     }
 
-    init(record: MemoryRecord, promptOrder: Int? = nil, exclusionReason: MemoryRuntimeExclusionReason? = nil) {
-        self.init(
-            recordID: record.id,
-            title: record.title,
-            summary: record.summary,
-            layer: record.layer,
-            kind: record.kind,
-            scope: record.scope,
-            domainProfile: record.domainProfile,
-            verificationStatus: record.verificationStatus,
-            retentionPolicy: record.retentionPolicy,
-            sourceLabel: Self.describe(source: record.source),
-            tags: record.tags,
-            confidence: record.confidence,
-            createdAt: record.createdAt,
-            updatedAt: record.updatedAt,
-            lastAccessedAt: record.lastAccessedAt,
-            estimatedPromptChars: Self.estimatePromptChars(title: record.title, summary: record.summary),
-            evidenceAnchorCount: record.evidenceAnchors.count,
-            admissionExplanationSummary: record.admissionExplanation?.reasons.joined(separator: "; ") ?? "",
-            promptOrder: promptOrder,
-            exclusionReason: exclusionReason
-        )
-    }
-
     enum CodingKeys: String, CodingKey {
         case recordID
         case title
@@ -138,12 +113,12 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         self.recordID = try container.decode(String.self, forKey: .recordID)
         self.title = try container.decode(String.self, forKey: .title)
         self.summary = try container.decode(String.self, forKey: .summary)
-        self.layer = try container.decode(MemoryLayer.self, forKey: .layer)
-        self.kind = try container.decode(MemoryKind.self, forKey: .kind)
+        self.layer = try container.decode(String.self, forKey: .layer)
+        self.kind = try container.decode(String.self, forKey: .kind)
         self.scope = try container.decode(MemoryScope.self, forKey: .scope)
         self.domainProfile = try container.decode(String.self, forKey: .domainProfile)
-        self.verificationStatus = try container.decode(MemoryRecord.VerificationStatus.self, forKey: .verificationStatus)
-        self.retentionPolicy = try container.decode(MemoryRecord.RetentionPolicy.self, forKey: .retentionPolicy)
+        self.verificationStatus = try container.decode(String.self, forKey: .verificationStatus)
+        self.retentionPolicy = try container.decode(String.self, forKey: .retentionPolicy)
         self.sourceLabel = try container.decode(String.self, forKey: .sourceLabel)
         self.tags = try container.decode([String].self, forKey: .tags)
         self.confidence = try container.decode(Double.self, forKey: .confidence)
@@ -157,17 +132,6 @@ struct MemoryRuntimeSnapshotRecord: Codable, Equatable, Sendable, Identifiable {
         self.exclusionReason = try container.decodeIfPresent(MemoryRuntimeExclusionReason.self, forKey: .exclusionReason)
     }
 
-    private static func describe(source: MemoryRecord.Source) -> String {
-        switch source {
-        case .tool(let name):
-            return "tool:\(name)"
-        case .userInput:
-            return "userInput"
-        case .system(let name):
-            return "system:\(name)"
-        }
-    }
-
     private static func estimatePromptChars(title: String, summary: String) -> Int {
         let joined = summary.isEmpty ? title : "\(title)：\(summary)"
         return joined.count
@@ -179,12 +143,12 @@ extension MemoryRuntimeSnapshotRecord {
         recordID: String = UUID().uuidString,
         title: String = "Fixture Record",
         summary: String = "Fixture summary",
-        layer: MemoryLayer = .task,
-        kind: MemoryKind = .working,
+        layer: String = "task",
+        kind: String = "working",
         scope: MemoryScope = .session(id: "s1"),
         domainProfile: String = "coding-task",
-        verificationStatus: MemoryRecord.VerificationStatus = .verified,
-        retentionPolicy: MemoryRecord.RetentionPolicy = .sessionBound,
+        verificationStatus: String = "verified",
+        retentionPolicy: String = "sessionBound",
         sourceLabel: String = "system:tests",
         tags: [String] = [],
         confidence: Double = 1.0,
@@ -226,7 +190,7 @@ struct MemoryRuntimeSnapshotRequestSummary: Codable, Equatable, Sendable {
     var sessionId: String
     var threadId: String
     var workflowRunId: String?
-    var taskKind: MemoryTaskKind
+    var taskKind: String
     var projectId: String?
     var workspaceRoot: String?
     var contextBudget: Int
@@ -235,12 +199,11 @@ struct MemoryRuntimeSnapshotRequestSummary: Codable, Equatable, Sendable {
 
 struct MemoryRuntimeSnapshotPlanSummary: Codable, Equatable, Sendable {
     var profileIDs: [String]
-    var orderedLayers: [MemoryLayer]
-    var itemBudgetByLayer: [MemoryLayer: Int]
+    var orderedLayers: [String]
+    var itemBudgetByLayer: [String: Int]
     var candidateScopes: [String]
-    var candidateCountByLayer: [MemoryLayer: Int]
-    var selectedCountByLayer: [MemoryLayer: Int]
-    var retrievalIntent: MemoryRetrievalIntent?
+    var candidateCountByLayer: [String: Int]
+    var selectedCountByLayer: [String: Int]
 }
 
 struct MemoryRuntimeSnapshotMetrics: Codable, Equatable, Sendable {
@@ -405,22 +368,22 @@ extension MemoryRuntimeSnapshot {
         toolCallId: String? = nil,
         agentRoundId: UUID? = nil,
         createdAt: Date = Date(timeIntervalSince1970: 0),
-        taskKind: MemoryTaskKind = .coding,
+        taskKind: String = "coding",
         projectId: String? = nil,
         workspaceRoot: String? = "/tmp/repo",
         contextBudget: Int = 4000,
         userRequest: String = "Fix build",
         profileIDs: [String] = ["coding-task"],
-        orderedLayers: [MemoryLayer] = [.working, .task, .semantic, .episodic, .proceduralArchive],
-        itemBudgetByLayer: [MemoryLayer: Int] = [.task: 1],
+        orderedLayers: [String] = ["working", "task", "semantic", "episodic", "proceduralArchive"],
+        itemBudgetByLayer: [String: Int] = ["task": 1],
         candidateScopes: [String] = ["user", "session:s1", "thread:t1"],
-        candidateCountByLayer: [MemoryLayer: Int] = [.task: 1],
-        selectedCountByLayer: [MemoryLayer: Int] = [.task: 1],
+        candidateCountByLayer: [String: Int] = ["task": 1],
+        selectedCountByLayer: [String: Int] = ["task": 1],
         candidateCount: Int = 1,
         selectedRecords: [MemoryRuntimeSnapshotRecord] = [.fixture()],
         excludedRecords: [MemoryRuntimeSnapshotRecord] = [],
         dereferenceCount: Int = 0,
-        retrievalIntent: MemoryRetrievalIntent? = nil,
+        retrievalIntent: String? = nil,
         workingSetCost: Int = 0,
         renderedPrompt: String = "## 已验证事实\n- Fixture Record"
     ) -> MemoryRuntimeSnapshot {
@@ -448,7 +411,6 @@ extension MemoryRuntimeSnapshot {
             excludedRecords: excludedRecords,
             dereferenceCount: dereferenceCount,
             warnings: [],
-            retrievalIntent: retrievalIntent,
             workingSetCost: workingSetCost,
             postEnforcementPromptChars: nil,
             trimmedCharCount: 0,
@@ -465,23 +427,22 @@ extension MemoryRuntimeSnapshot {
         toolCallId: String? = nil,
         agentRoundId: UUID? = nil,
         createdAt: Date = Date(timeIntervalSince1970: 0),
-        taskKind: MemoryTaskKind = .coding,
+        taskKind: String = "coding",
         projectId: String? = nil,
         workspaceRoot: String? = "/tmp/repo",
         contextBudget: Int = 4000,
         userRequest: String = "Fix build",
         profileIDs: [String] = ["coding-task"],
-        orderedLayers: [MemoryLayer] = [.working, .task, .semantic, .episodic, .proceduralArchive],
-        itemBudgetByLayer: [MemoryLayer: Int] = [.task: 1],
+        orderedLayers: [String] = ["working", "task", "semantic", "episodic", "proceduralArchive"],
+        itemBudgetByLayer: [String: Int] = ["task": 1],
         candidateScopes: [String] = ["user", "session:s1", "thread:t1"],
-        candidateCountByLayer: [MemoryLayer: Int] = [.task: 1],
-        selectedCountByLayer: [MemoryLayer: Int] = [.task: 1],
+        candidateCountByLayer: [String: Int] = ["task": 1],
+        selectedCountByLayer: [String: Int] = ["task": 1],
         candidateCount: Int = 1,
         selectedRecords: [MemoryRuntimeSnapshotRecord] = [.fixture()],
         excludedRecords: [MemoryRuntimeSnapshotRecord] = [],
         dereferenceCount: Int = 0,
         warnings: [String] = [],
-        retrievalIntent: MemoryRetrievalIntent? = nil,
         workingSetCost: Int = 0,
         postEnforcementPromptChars: Int? = nil,
         trimmedCharCount: Int = 0,
@@ -526,8 +487,7 @@ extension MemoryRuntimeSnapshot {
                 itemBudgetByLayer: itemBudgetByLayer,
                 candidateScopes: candidateScopes,
                 candidateCountByLayer: candidateCountByLayer,
-                selectedCountByLayer: selectedCountByLayer,
-                retrievalIntent: retrievalIntent
+                selectedCountByLayer: selectedCountByLayer
             ),
             selectedRecords: selectedRecords,
             excludedRecords: excludedRecords,
@@ -578,10 +538,10 @@ extension MemoryRuntimeSnapshot {
         value: (MemoryRuntimeSnapshotRecord) -> Int
     ) -> [MemoryRuntimeSnapshotMetricDimension: [String: Int]] {
         let dimensions: [(MemoryRuntimeSnapshotMetricDimension, (MemoryRuntimeSnapshotRecord) -> String)] = [
-            (.layer, { $0.layer.rawValue }),
-            (.kind, { $0.kind.rawValue }),
+            (.layer, { $0.layer }),
+            (.kind, { $0.kind }),
             (.scope, { $0.scope.namespace }),
-            (.verificationStatus, { $0.verificationStatus.rawValue }),
+            (.verificationStatus, { $0.verificationStatus }),
             (.source, { $0.sourceLabel })
         ]
 
