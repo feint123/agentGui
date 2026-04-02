@@ -193,31 +193,6 @@ struct AgentLoopRoundExecutor {
             thinking: useThinking ? .init(budgetTokens: budget) : nil
         )
 
-        if let tokenCount = try? await request.service.countTokens(
-            parameter: MessageTokenCountParameter(
-                model: .other(modelId),
-                messages: messages,
-                system: system,
-                tools: tools.isEmpty ? nil : tools
-            )
-        ) {
-            let inputTokens = tokenCount.inputTokens
-            sharedState.setCurrentInputTokens(inputTokens)
-
-            // F-B1: 计算 context budget 级别并更新 session 上下文
-            let budgetTracker = ContextWindowBudgetTracker()
-            let windowSize = claudeService.contextWindowSize(for: modelId)
-            let budgetState = budgetTracker.evaluate(tokenUsage: inputTokens, contextWindow: windowSize)
-            sharedState.updateContextBudget(budgetState)
-
-            // F-B1: Diminishing returns 检测 — 每次 countTokens 后记录
-            let roundResult = state.budgetRunTracker.recordRound(currentGlobalTokens: inputTokens)
-            if roundResult.isDiminishing {
-                state.loopCtx.phase = .finalizing
-                state.loopCtx.terminationReason = "diminishing_returns (continuation: \(roundResult.continuationCount), delta: \(roundResult.currentDeltaTokens))"
-            }
-        }
-
         let stream = try await request.service.streamMessage(params)
         let roundIdx = state.loopCtx.nextRound()
 
@@ -274,6 +249,25 @@ struct AgentLoopRoundExecutor {
         }
 
         let streamSnapshot = streamAssembler.snapshot
+
+        // P-01: 从 message_start 事件读取 input token 统计（替代串行 countTokens 预检）
+        if let inputTokens = streamSnapshot.usage?.inputTokens {
+            sharedState.setCurrentInputTokens(inputTokens)
+
+            // F-B1: 计算 context budget 级别并更新 session 上下文
+            let budgetTracker = ContextWindowBudgetTracker()
+            let windowSize = claudeService.contextWindowSize(for: modelId)
+            let budgetState = budgetTracker.evaluate(tokenUsage: inputTokens, contextWindow: windowSize)
+            sharedState.updateContextBudget(budgetState)
+
+            // F-B1: Diminishing returns 检测 — 流结束后记录
+            let roundResult = state.budgetRunTracker.recordRound(currentGlobalTokens: inputTokens)
+            if roundResult.isDiminishing {
+                state.loopCtx.phase = .finalizing
+                state.loopCtx.terminationReason = "diminishing_returns (continuation: \(roundResult.continuationCount), delta: \(roundResult.currentDeltaTokens))"
+            }
+        }
+
         let currentRoundText = streamSnapshot.text
         let currentRoundThinkingContent = streamSnapshot.thinkingContent
         let currentRoundThinkingSignature = streamSnapshot.thinkingSignature
