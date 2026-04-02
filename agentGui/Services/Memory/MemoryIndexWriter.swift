@@ -1,8 +1,9 @@
 import Foundation
 
-/// MEMORY.md 索引写入器。
-/// `build(records:)` 已在 M-02 移除；M-07 将在 MemoryIndexFileSystem 中新增
-/// 从文件系统扫描驱动的 rebuild 路径。
+/// MEMORY.md 索引截断工具。
+///
+/// `build(records:)` 已在 M-02 移除。`MemoryIndexFileSystem.rebuildFromDirectory()`
+/// 从文件系统扫描驱动重建，内部通过此类的 `truncate(lines:)` 方法截断。
 struct MemoryIndexWriter: Sendable {
 
     static let maxLines = 200

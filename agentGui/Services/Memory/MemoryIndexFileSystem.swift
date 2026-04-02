@@ -14,11 +14,6 @@ struct MemoryIndexFileSystem: Sendable {
         self.fileManager = fileManager
     }
 
-    /// M-07 占位实现（保留向后兼容）。
-    func rebuild() throws {
-        // no-op: replaced by rebuildFromDirectory()
-    }
-
     /// 从 `memoryDir` 下的实际 `.md` 文件重建 `MEMORY.md` 索引。
     ///
     /// 流程：
