@@ -37,6 +37,7 @@ enum PersistenceSchema {
         BackgroundAgentTaskRun.self,
         ExecutionJob.self,
         ExecutionAttempt.self,
+        SubagentTaskRecord.self,
     ]
 
     static let sharedModelTypeNames: [String] = sharedModelTypes.map { String(describing: $0) }
