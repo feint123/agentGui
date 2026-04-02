@@ -138,6 +138,25 @@ final class SkillInvocationProcessorTests: XCTestCase {
             return XCTFail("Expected success with normalized name, got \(result)")
         }
     }
+
+    func test_invoke_bundledSkill_returnsBundledContent() async {
+        let skill = Skill.fixture(
+            directoryName: "bundled-invoke",
+            name: "bundled-invoke",
+            description: "Bundled invocation test",
+            loadedFrom: .bundled
+        )
+        let provider = makeProvider(skill: skill, content: "Bundled prompt content.")
+        let processor = SkillInvocationProcessor(provider: provider, sessionId: "s-bundled")
+
+        let result = await processor.invoke(skillName: "bundled-invoke", args: nil)
+
+        guard case .success(let r) = result else {
+            return XCTFail("Expected success, got \(result)")
+        }
+        XCTAssertTrue(r.content.contains("Bundled prompt content."))
+        XCTAssertEqual(r.commandName, "bundled-invoke")
+    }
 }
 
 // ─────────────────────────────────────────────

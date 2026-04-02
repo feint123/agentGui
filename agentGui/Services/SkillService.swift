@@ -72,6 +72,18 @@ final class SkillService {
             return cached
         }
 
+        // Bundled skills: get content from registry, skip disk read
+        if skill.loadedFrom == .bundled {
+            let content = await BuiltInSkillRegistry.shared.promptContent(skillName: skill.directoryName)
+            guard let content else {
+                print("[SkillService]  read_skill '\(name)' — bundled content not found in registry")
+                return nil
+            }
+            contentCache[key] = content
+            print("[SkillService] read_skill '\(name)' — loaded \(content.count) chars from bundled registry")
+            return content
+        }
+
         let loaded = await Task.detached(priority: .utility) {
             Self.loadSkillContent(skill)
         }.value
@@ -140,10 +152,12 @@ final class SkillService {
         return header + (mutable as String)
     }
 
-    /// Returns only the skills whose directoryName appears in `enabledNames`.
+    /// Returns only the skills whose directoryName appears in `enabledNames`,
+    /// plus all bundled skills (which bypass the user-controlled enabled gate).
     func enabledSkills(enabledNames: [String]) -> [Skill] {
-        guard !enabledNames.isEmpty else { return [] }
-        return availableSkills.filter { enabledNames.contains($0.directoryName) }
+        return availableSkills.filter {
+            $0.loadedFrom == .bundled || enabledNames.contains($0.directoryName)
+        }
     }
 
     /// Returns the first skill matching either the display name or directory name.
@@ -376,8 +390,16 @@ final class SkillService {
         }
 
         // 3. 合并去重（user 优先于 project）
-        let merged = mergeAndDeduplicate(userSkills + projectSkills)
-        return merged.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        let diskMerged = mergeAndDeduplicate(userSkills + projectSkills)
+
+        // 4. Bundled skills 追加（已存在同名磁盘技能时跳过）
+        let diskNames = Set(diskMerged.map(\.directoryName))
+        let bundledSkills = BuiltInSkillRegistry.shared.allSkills().filter {
+            !diskNames.contains($0.directoryName)
+        }
+
+        let all = diskMerged + bundledSkills
+        return all.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 
     /// 合并多个来源的 Skill 列表，通过 realpath 过滤 symlink 重复。
