@@ -147,7 +147,8 @@ struct AgentLoopRoundExecutor {
         let sessionId = runtime.sessionId
         let modelContext = runtime.modelContext
 
-        await emitter.emit(
+        // M-05: dispatch willStartRound 以支持 messagePatch（如记忆召回注入）
+        let willStartResult = try await emitter.dispatch(
             .willStartRound,
             state: state,
             messages: messages,
@@ -157,6 +158,11 @@ struct AgentLoopRoundExecutor {
                 "modelId": modelId
             ])
         )
+        if let patch = willStartResult.messagePatch, !patch.insertions.isEmpty {
+            for insertion in patch.insertions.sorted(by: { $0.index < $1.index }) {
+                messages.insert(insertion.message, at: min(insertion.index, messages.count))
+            }
+        }
         let accumulatedTextBeforeRound = state.accumulatedText
 
         let roundSpan = perfLog.startSpan("Round_\(state.loopCtx.roundIndex)", category: "Loop", level: .normal)

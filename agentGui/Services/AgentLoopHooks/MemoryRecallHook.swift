@@ -34,8 +34,10 @@ struct MemoryRecallHook: AgentLoopHook {
             return .continue
         }
 
-        // 注入方式：在消息链末尾插入 user+assistant 消息对（与 bootstrap 模式对齐）
-        let insertIndex = context.messagesSnapshot.count
+        // 注入方式：在最后一条 user 消息「之前」插入 user+assistant 消息对。
+        // 正确顺序：[recall user], [recall ack], [current user query]
+        // 错误顺序：[current user query], [recall user], ...  ← Anthropic API 会拒绝连续两条 user 消息
+        let insertIndex = max(0, context.messagesSnapshot.count - 1)
         let patch = AgentLoopMessagePatch(
             insertions: [
                 .init(

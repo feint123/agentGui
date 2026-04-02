@@ -38,16 +38,25 @@ final class MemoryRecallHookTests: XCTestCase {
         let injectionText = "<system-reminder>\n## Relevant Memory: foo_abc12345.md\n\nContent here\n</system-reminder>"
         let mockService = MockRecallService(injectText: injectionText)
         let hook = MemoryRecallHook(recallService: mockService)
-        let context = makeContext(executionContext: .mainAgent)
+        var context = makeContext(executionContext: .mainAgent)
+        // 模拟真实场景：messagesSnapshot 末尾为当前 user 消息
+        context.messagesSnapshot = [
+            .init(role: .user, content: .text("prior message")),
+            .init(role: .assistant, content: .text("prior reply")),
+            .init(role: .user, content: .text("current query")),
+        ]
         let result = try await hook.perform(stage: .willStartRound, context: context)
         if case .messagePatch(let patch) = result {
-            XCTAssertFalse(patch.insertions.isEmpty)
+            XCTAssertEqual(patch.insertions.count, 2)
             // 验证注入内容包含 system-reminder
             if case .text(let t) = patch.insertions[0].message.content {
                 XCTAssertTrue(t.contains("<system-reminder>"))
             } else {
                 XCTFail("注入消息应为 .text 内容")
             }
+            // 验证插入位置在最后一条 user 消息之前（count-1 = 2）
+            XCTAssertEqual(patch.insertions[0].index, 2, "应在 current query 之前插入")
+            XCTAssertEqual(patch.insertions[1].index, 3, "ack 跟随 recall 之后")
         } else {
             XCTFail("有召回内容时应返回 .messagePatch，got: \(result)")
         }

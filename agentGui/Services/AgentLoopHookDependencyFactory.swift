@@ -24,7 +24,9 @@ struct AgentLoopHookDependencyFactory {
                 try await updateToolCallRecord(context: context, state: hookState)
             },
             // M-03
-            extractMemoriesCallback: buildExtractionCallback()
+            extractMemoriesCallback: buildExtractionCallback(),
+            // M-05
+            memoryRecallService: buildMemoryRecallService()
         )
     }
 
@@ -37,6 +39,18 @@ struct AgentLoopHookDependencyFactory {
             sessionId: runtime.sessionId,
             modelContext: runtime.modelContext
         ).buildCallback()
+    }
+
+    /// 构建中段记忆召回服务（M-05）。
+    /// 若 Anthropic service 尚未就绪（未配置 API Key）则返回 nil，hook 将直接跳过。
+    private func buildMemoryRecallService() -> (any MemoryRecallServiceProtocol)? {
+        guard let anthropicService = claudeService.service else { return nil }
+        let sessionState = MemoryRecallSessionState()
+        return RelevantMemoryRecallService(
+            memoryDir: ConfigDirectoryManager.shared.memoryDir,
+            sessionState: sessionState,
+            service: anthropicService
+        )
     }
 
     private func loadMemoryBootstrap(

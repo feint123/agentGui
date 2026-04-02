@@ -20,6 +20,8 @@ struct AgentLoopBuiltInHookFactory {
         let updateToolCallRecord: (AgentLoopHookContext, State) async throws -> Void
         // M-03: 会话末记忆自动提取回调
         let extractMemoriesCallback: @Sendable (AgentLoopHookContext) async -> Void
+        // M-05: 中段记忆召回服务
+        let memoryRecallService: (any MemoryRecallServiceProtocol)?
     }
 
     func makeHooks(
@@ -45,6 +47,8 @@ struct AgentLoopBuiltInHookFactory {
             BusinessObservabilityHook(sink: dependencies.businessLogSink),
             // M-03: 会话末记忆自动提取
             MemoryExtractionHook(callback: dependencies.extractMemoriesCallback),
+            // M-05: 中段记忆召回
+            MemoryRecallHook(recallService: dependencies.memoryRecallService),
         ]
     }
 }
