@@ -539,7 +539,7 @@ extension ClaudeService {
         }
 
         let title = input["title"]?.stringValue ?? "Untitled Memory"
-        let type = input["type"]?.stringValue ?? "project"
+        let type = MemoryTopicType.parse(input["type"]?.stringValue) ?? .project
         let descriptionHint = input["description"]?.stringValue
 
         // 1. 生成文件名（UUID prefix 8 位作为 suffix，保证唯一性）
@@ -571,7 +571,7 @@ extension ClaudeService {
         ---
         name: "\(yamlEscape(title))"
         description: "\(yamlEscape(hookLine))"
-        type: \(type)
+        type: \(type.rawValue)
         created: \(createdAt)
         ---
 

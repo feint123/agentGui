@@ -121,4 +121,22 @@ final class MemoryWriteToFileTests: XCTestCase {
         XCTAssertTrue(content.contains("type: project"),
                       "未提供 type 时应默认为 project")
     }
+
+    func test_execute_invalidType_fallbacksToProject() async throws {
+        let service = ClaudeService()
+        _ = await service.executeFileMemoryWriteForTests(
+            input: buildInput(content: "Some content.", title: "Some Title", type: "bogus_invalid"),
+            memoryDir: tempMemoryDir
+        )
+        let files = try FileManager.default.contentsOfDirectory(
+            at: tempMemoryDir,
+            includingPropertiesForKeys: nil
+        ).filter { $0.pathExtension == "md" && $0.lastPathComponent != "MEMORY.md" }
+        XCTAssertEqual(files.count, 1, "应创建话题文件")
+        let content = try String(contentsOf: files[0], encoding: .utf8)
+        XCTAssertTrue(content.contains("type: project"),
+                      "无效 type 应 fallback 为 project，实际内容：\(content)")
+        XCTAssertFalse(content.contains("type: bogus_invalid"),
+                       "无效 type 不应写入 frontmatter")
+    }
 }
