@@ -28,6 +28,11 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     private let updateQueue = ACPExternalProviderUpdateQueue()
     private let sessionActorStepSink: (any ACPProviderSessionActorStepSink)?
 
+    /// Provider 级别的 bootstrap 缓存：由任意会话（含虚拟 probe session）的 initialize 成功后填充，
+    /// 不随会话 reset/discard 清除，供 InputArea 在真实会话尚未建连时回退读取。
+    private var latestBootstrapCommands: [ACPCommandDescriptor] = []
+    private var latestBootstrapConfiguration: ACPExternalAgentSessionConfigurationSnapshot?
+
     private struct StoredRemoteBinding {
         let remoteSessionID: String
         let agentVersion: String?
@@ -451,6 +456,11 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             modelContext: modelContext,
             removeBinding: false
         )
+    }
+
+    func discardWarmupState(localSessionID: String, modelContext: ModelContext) async {
+        debugLog("discardWarmupState localSession=\(localSessionID)")
+        await resetRuntime(for: localSessionID, modelContext: modelContext, removeBinding: true)
     }
 
     func resolveConfiguration(for session: Session, settings: AppSettings) -> Configuration {
@@ -1278,8 +1288,17 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             localSessionID: session.sessionId,
             modelContext: modelContext
         )
+        // 将 bootstrap 结果同步到 provider 级别缓存，以便虚拟 probe session 被 discard 后
+        // InputArea 仍可通过 fallback 路径读取 slash commands 和 configuration。
+        let freshCommands = remoteCommands(localSessionID: session.sessionId, remoteSessionID: prepared.handshake.remoteSessionID)
+        if !freshCommands.isEmpty {
+            latestBootstrapCommands = freshCommands
+        }
+        if let freshConf = sessionStateStore.existingState(for: session.sessionId)?.sessionConfiguration(for: reference) {
+            latestBootstrapConfiguration = freshConf
+        }
         debugLog(
-            "ensureRemoteSessionPrepared bootstrap applied localSession=\(session.sessionId) remoteSession=\(prepared.handshake.remoteSessionID) cachedCommands=\(remoteCommands(localSessionID: session.sessionId, remoteSessionID: prepared.handshake.remoteSessionID).count)"
+            "ensureRemoteSessionPrepared bootstrap applied localSession=\(session.sessionId) remoteSession=\(prepared.handshake.remoteSessionID) cachedCommands=\(freshCommands.count)"
         )
 
         return RemoteSessionActivation(
@@ -1363,15 +1382,26 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
             return cached
         }
 
-        guard let remoteSessionID = sessionStateStore.existingState(for: localSessionID)?.remoteSessionID else {
-            debugLog("remoteCommands miss localSession=\(localSessionID) reason=no-remote-session")
-            return []
+        if let remoteSessionID = sessionStateStore.existingState(for: localSessionID)?.remoteSessionID {
+            let commands = remoteCommands(localSessionID: localSessionID, remoteSessionID: remoteSessionID)
+            if !commands.isEmpty {
+                debugLog(
+                    "remoteCommands resolved via remote cache localSession=\(localSessionID) remoteSession=\(remoteSessionID) count=\(commands.count) names=\(commands.map(\.name).joined(separator: ","))"
+                )
+                return commands
+            }
         }
-        let commands = remoteCommands(localSessionID: localSessionID, remoteSessionID: remoteSessionID)
-        debugLog(
-            "remoteCommands resolved via remote cache localSession=\(localSessionID) remoteSession=\(remoteSessionID) count=\(commands.count) names=\(commands.map(\.name).joined(separator: ","))"
-        )
-        return commands
+
+        // 回退到 provider 级别 bootstrap 缓存（probe session discard 后仍可读）
+        if !latestBootstrapCommands.isEmpty {
+            debugLog(
+                "remoteCommands fallback to bootstrap cache localSession=\(localSessionID) count=\(latestBootstrapCommands.count)"
+            )
+            return latestBootstrapCommands
+        }
+
+        debugLog("remoteCommands miss localSession=\(localSessionID) reason=no-remote-session")
+        return []
     }
 
     func remotePlan(localSessionID: String) -> ACPPlanSnapshotDraft? {
@@ -1379,7 +1409,12 @@ class ACPExternalExecutionProviderBase<Configuration>: ConversationExecutionProv
     }
 
     func remoteSessionConfiguration(localSessionID: String) -> ACPExternalAgentSessionConfigurationSnapshot? {
-        sessionStateStore.existingState(for: localSessionID)?.sessionConfiguration(for: reference)
+        // 先尝试会话级别缓存
+        if let snap = sessionStateStore.existingState(for: localSessionID)?.sessionConfiguration(for: reference) {
+            return snap
+        }
+        // 回退到 provider 级别 bootstrap 缓存
+        return latestBootstrapConfiguration
     }
 
     func updateSessionMode(session: Session, modelContext: ModelContext, modeID: String) async throws {

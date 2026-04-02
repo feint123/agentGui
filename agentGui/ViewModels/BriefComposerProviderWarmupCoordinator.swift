@@ -55,10 +55,10 @@ final class BriefComposerProviderWarmupCoordinator {
     // MARK: - 真实 warm-up 入口（在 View 的 .task 中调用）
 
     /// 对单个 ACP provider 触发 warm-up，超时 8 秒后 markFailed。
+    /// 始终使用虚拟 probe session（不插入 modelContext），warm-up 结束后清理所有临时状态。
     func warmup(
         provider: ExecutionProviderReference,
         claudeService: ClaudeService,
-        sourceSession: Session?,
         modelContext: ModelContext
     ) async {
         guard states[provider] == nil || states[provider] == .idle else { return }
@@ -70,21 +70,8 @@ final class BriefComposerProviderWarmupCoordinator {
                     throw CancellationError()
                 }
                 group.addTask { @MainActor in
-                    let probeSession: Session
-                    let isTemporary: Bool
-                    if let existing = sourceSession {
-                        probeSession = existing
-                        isTemporary = false
-                    } else {
-                        probeSession = Session(title: "__warmup_probe__", kind: .local)
-                        modelContext.insert(probeSession)
-                        isTemporary = true
-                    }
-                    defer {
-                        if isTemporary {
-                            modelContext.delete(probeSession)
-                        }
-                    }
+                    // 始终使用不插入 modelContext 的虚拟 probe session，避免绑定真实 session
+                    let probeSession = Session(title: "__warmup_probe__", kind: .local)
                     await claudeService.handleExecutionProviderSelectionChange(
                         session: probeSession,
                         selectedProviderReference: provider,
@@ -95,6 +82,8 @@ final class BriefComposerProviderWarmupCoordinator {
                     let registry = claudeService.executionProviderRegistry
                     let acpProvider = registry?.providerIfAvailable(for: provider) as? ACPRemoteSessionConfigurationControlling
                     let snapshot = acpProvider?.remoteSessionConfiguration(localSessionID: probeSession.sessionId)
+                    // 清理 probe session 产生的临时运行时、binding 记录和 session state
+                    await acpProvider?.discardWarmupState(localSessionID: probeSession.sessionId, modelContext: modelContext)
                     let modes = snapshot?.modes?.availableModes.map {
                         ExecutionOptionItem(id: $0.id, title: $0.name)
                     } ?? []

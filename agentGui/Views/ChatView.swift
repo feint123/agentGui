@@ -241,13 +241,21 @@ extension ChatView {
         isExecutionRuntimeBootstrapInFlight = true
         defer { isExecutionRuntimeBootstrapInFlight = false }
 
+        // 使用虚拟 probe session 预热 ACP provider（填充 provider 级别 bootstrap 缓存），
+        // 不绑定真实会话，避免在用户发送首条消息前在 SwiftData 中写入 binding 记录。
+        // 真实会话的 ACP 连接将由 ConversationExecutionOrchestrator 在实际 send 时按需建立。
+        let providerReference = resolvedExecutionProviderReference
+        let probeSession = Session(title: "__warmup_probe__", kind: .local)
         await claudeService.handleExecutionProviderSelectionChange(
-            session: session,
-            selectedProviderReference: resolvedExecutionProviderReference,
-            modelContext: modelContext
-            ,
+            session: probeSession,
+            selectedProviderReference: providerReference,
+            modelContext: modelContext,
             trigger: .sessionBootstrap
         )
+        // 清理 probe session 的运行时和 binding（provider 级别 bootstrap 缓存不受影响）
+        let registry = claudeService.executionProviderRegistry
+        let acpProvider = registry?.providerIfAvailable(for: providerReference) as? ACPRemoteSessionConfigurationControlling
+        await acpProvider?.discardWarmupState(localSessionID: probeSession.sessionId, modelContext: modelContext)
 
         acpConfigurationRefreshToken &+= 1
         syncSlashState(with: inputText)

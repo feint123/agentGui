@@ -232,7 +232,6 @@ struct AgentTeamBriefComposerSheet: View {
                     await warmupCoordinator.warmup(
                         provider: ref,
                         claudeService: claudeService,
-                        sourceSession: nil,
                         modelContext: modelContext
                     )
                 }
