@@ -1,0 +1,49 @@
+//
+//  SkillCatalogPromptRenderer.swift
+//  agentGui
+//
+
+import Foundation
+
+/// Budget-aware renderer for the Available Skills section of the system prompt.
+///
+/// Algorithm mirrors Claude Code `src/tools/SkillTool/prompt.ts`:
+/// - skills 列表只注入 name + description + whenToUse 的摘要，不内联全文。
+/// - 总长度由 charBudget 控制（默认 1% context window = 8000 chars）。
+/// - bundled skills 始终保留完整描述；非 bundled 按比例截断。
+/// - 极端超预算时，非 bundled 退化为 names-only。
+struct SkillCatalogPromptRenderer {
+
+    // MARK: - Constants
+
+    static let skillBudgetContextPercent: Double = 0.01
+    static let charsPerToken: Int = 4
+    static let defaultCharBudget: Int = 8_000
+    static let maxListingDescChars: Int = 250
+    static let minDescLength: Int = 20
+
+    // MARK: - Properties
+
+    let charBudget: Int
+
+    // MARK: - Init
+
+    /// - Parameter contextWindowTokens: 当前模型的 context window token 数。若 nil，使用
+    ///   `defaultCharBudget`；若提供，动态计算 1% × tokens × 4 chars/token。
+    init(contextWindowTokens: Int? = nil) {
+        if let tokens = contextWindowTokens {
+            self.charBudget = max(
+                SkillCatalogPromptRenderer.defaultCharBudget,
+                Int(Double(tokens) * Double(SkillCatalogPromptRenderer.charsPerToken)
+                    * SkillCatalogPromptRenderer.skillBudgetContextPercent)
+            )
+        } else {
+            self.charBudget = SkillCatalogPromptRenderer.defaultCharBudget
+        }
+    }
+
+    /// Direct init for testing with a specific budget.
+    init(charBudget: Int) {
+        self.charBudget = charBudget
+    }
+}
