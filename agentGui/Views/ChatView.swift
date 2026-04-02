@@ -64,7 +64,6 @@ struct ChatView: View {
     @State var slashStateDebouncer = ChatComposerSlashDebouncer()
     @State var activeInputDirectives: [ChatInputDirective] = []
     @State var didApplyUITestInitialComposerText = false
-    @State var showingRMSPanel = false
     @State var voiceInputController = VoiceInputController()
     @State var pendingAgentTeamComposer: AgentTeamBriefComposerRequest?
 
@@ -196,9 +195,6 @@ struct ChatView: View {
     var navigationSubtitleText: String {
         if !claudeService.isConfigured {
             return "⚠️ 请先配置 API Key"
-        }
-        if rmsRuntimeEnabled {
-            return "RMS memory 已启用"
         }
         return ""
     }

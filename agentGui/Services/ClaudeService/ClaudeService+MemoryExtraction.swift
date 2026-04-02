@@ -6,7 +6,7 @@ extension ClaudeService {
     /// 构建 memory extraction subagent 的受限工具集。
     ///
     /// 只包含：
-    /// - `memory_write`（写入 RMSInsights）
+    /// - `memory_write`（写入长期记忆）
     /// - `read_file`（可选读取文件内容，减少幻觉）
     ///
     /// 不包含：bash、run_subagent、web_search、lsp_* 等重型工具，

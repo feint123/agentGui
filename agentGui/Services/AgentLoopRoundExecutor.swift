@@ -71,8 +71,6 @@ struct AgentLoopRoundExecutor {
         state: inout AgentLoopRunState,
         messages: inout [MessageParameter.Message]
     ) async throws {
-        persistBootstrapRMSStateIfNeeded(messages: messages)
-
         // bootstrap patch 只负责前置插入消息，不在这里决定 run 的开始/结束事件。
         guard let bootstrapResult = try? await emitter.dispatch(
             .prepareRun,
@@ -763,27 +761,6 @@ struct AgentLoopRoundExecutor {
         // P-02: 每轮 LLM 提取已移除。
         // 原因：本会话内无 prompt 注入回路（产物仅在下一会话 bootstrap 读取）。
         // M-03（SessionMemoryExtractorService）在会话末提供等效的全局视角提取。
-    }
-
-    private func persistBootstrapRMSStateIfNeeded(messages: [MessageParameter.Message]) {
-        let store = SessionTaskStateStore(modelContext: runtime.modelContext)
-        if store.rmsState(for: runtime.sessionId) != nil {
-            return
-        }
-
-        let summary = primaryUserTaskText(from: messages).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !summary.isEmpty else {
-            return
-        }
-
-        let bootstrapState = RMSState(
-            taskID: runtime.sessionId,
-            sessionID: runtime.sessionId,
-            threadID: runtime.sessionId,
-            summary: summary,
-            updatedAt: Date()
-        )
-        try? store.saveRMSState(bootstrapState, for: runtime.sessionId)
     }
 
     private func makeEpistemicInputEnvelope(

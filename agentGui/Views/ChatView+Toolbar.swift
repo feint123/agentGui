@@ -42,21 +42,6 @@ extension ChatView {
             }
             .help("新建对话")
         }
-
-        ToolbarItem(placement: .primaryAction) {
-            if rmsRuntimeEnabled {
-                Button {
-                    showingRMSPanel.toggle()
-                } label: {
-                    Image(systemName: "brain")
-                }
-                .help("查看当前会话的 RMS 状态")
-                .accessibilityIdentifier("chat.rmsPanelButton")
-                .popover(isPresented: $showingRMSPanel, arrowEdge: .bottom) {
-                    RMSPanel(sessionID: session.sessionId)
-                }
-            }
-        }
     }
 
 
