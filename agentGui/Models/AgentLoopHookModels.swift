@@ -21,6 +21,9 @@ enum AgentLoopHookStage {
     case didExecuteTool
     case didClassifyToolFailure
     case didAppendToolResults
+    /// 每个 agent round 完整结束后（executeStreamingRound + applyPhaseOutcome 均完成）。
+    /// 供 SessionMemoryHook 等需要 round 粒度触发的 hook 使用。
+    case willFinishRound
     case classifyFailureTrigger
     case prepareContinuation
     case prepareResumeAfterPause

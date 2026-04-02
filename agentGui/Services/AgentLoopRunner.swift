@@ -42,6 +42,17 @@ struct AgentLoopRunner {
 
 			let outcome = try await roundExecutor.executeStreamingRound(state: &state, messages: &messages)
 			try await roundExecutor.applyPhaseOutcome(outcome: outcome, state: &state, messages: &messages)
+
+			// Session Memory hook：每轮结束后检查阈值
+			await emitter.emit(
+				.willFinishRound,
+				state: state,
+				messages: messages,
+				overrides: .init(metadata: [
+					"roundIndex": state.loopCtx.roundIndex,
+					"toolCallsThisRound": outcome.pendingTools.count
+				])
+			)
 		}
 
 		return await roundExecutor.buildResult(state: state, messages: messages)
