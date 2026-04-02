@@ -97,15 +97,16 @@ struct RelevantMemoryRecallService: Sendable {
     }
 
     /// 格式化单个文件内容为 `<system-reminder>` 注入块，附加陈旧性警告。
+    ///
+    /// 使用 `memoryFreshnessNote(_:now:)` 自由函数（对齐 Claude Code `memoryAge.ts`），
+    /// 无需手动 Date 转换或实例化 MemoryFreshnessAnnotator。
     static func formatInjectionBlock(
         filename: String,
         content: String,
         mtimeMs: Double,
         now: Date = .now
     ) -> String {
-        let annotator = MemoryFreshnessAnnotator()
-        let updatedAt = Date(timeIntervalSince1970: mtimeMs / 1000)
-        let freshnessNote = annotator.freshnessNote(updatedAt: updatedAt, now: now)
+        let freshnessNote = memoryFreshnessNote(mtimeMs, now: now)
         let header = "## Relevant Memory: \(filename)\n"
         return "<system-reminder>\n\(header)\(freshnessNote)\(content)\n</system-reminder>"
     }
