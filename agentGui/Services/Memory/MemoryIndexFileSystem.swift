@@ -33,14 +33,14 @@ struct MemoryIndexFileSystem: Sendable {
         // 构建索引行（mtime 已在 scanner 中降序排列）
         let indexLines: [String] = headers.map { header in
             let title = header.title ?? header.filename
-            let rawDesc = header.description ?? ""
-            let truncatedDesc: String
-            if rawDesc.count <= 150 {
-                truncatedDesc = rawDesc
-            } else {
-                truncatedDesc = String(rawDesc.prefix(149)) + "…"
+            let baseLine = "- [\(title)](\(header.filename))"
+            guard let rawDesc = header.description, !rawDesc.isEmpty else {
+                return baseLine
             }
-            return "- [\(title)](\(header.filename)) — \(truncatedDesc)"
+            let hook = rawDesc.count <= 150
+                ? rawDesc
+                : String(rawDesc.prefix(149)) + "…"
+            return "\(baseLine) — \(hook)"
         }
 
         // 应用截断规则（200 行 / 25KB）

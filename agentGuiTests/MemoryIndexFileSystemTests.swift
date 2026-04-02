@@ -93,4 +93,58 @@ final class MemoryIndexFileSystemTests: XCTestCase {
             XCTFail("rebuildFromDirectory() 不应抛出错误: \(error)")
         }
     }
+
+    // MARK: - 行格式：无描述文件
+
+    func test_indexLine_withDescription_includesSeparatorAndDesc() async throws {
+        let topicContent = """
+        ---
+        name: "Auth Flow"
+        description: "OAuth 2.0 PKCE login flow"
+        type: project
+        created: 2025-01-01T00:00:00Z
+        ---
+
+        Details.
+        """
+        try topicContent.write(
+            to: tempDir.appendingPathComponent("auth_flow_12345678.md"),
+            atomically: true, encoding: .utf8)
+
+        try await sut.rebuildFromDirectory()
+
+        let content = try String(
+            contentsOf: tempDir.appendingPathComponent("MEMORY.md"), encoding: .utf8)
+        XCTAssertTrue(
+            content.contains("- [Auth Flow](auth_flow_12345678.md) — OAuth 2.0 PKCE login flow"),
+            "有描述时应包含 ' — description'，实际：\(content)")
+    }
+
+    func test_indexLine_withoutDescription_noTrailingSeparator() async throws {
+        let topicContent = """
+        ---
+        name: "Bare Title"
+        type: project
+        created: 2025-01-01T00:00:00Z
+        ---
+
+        No description in frontmatter.
+        """
+        try topicContent.write(
+            to: tempDir.appendingPathComponent("bare_title_12345678.md"),
+            atomically: true, encoding: .utf8)
+
+        try await sut.rebuildFromDirectory()
+
+        let content = try String(
+            contentsOf: tempDir.appendingPathComponent("MEMORY.md"), encoding: .utf8)
+        // 不应有尾迹 "— "
+        XCTAssertFalse(
+            content.contains("— \n") || content.hasSuffix("— "),
+            "无描述时行末不应有 '— '，实际：\(content)")
+        XCTAssertTrue(
+            content.contains("- [Bare Title](bare_title_12345678.md)"),
+            "无描述文件应有简洁行，实际：\(content)")
+    }
 }
+
