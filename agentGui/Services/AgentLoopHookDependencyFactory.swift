@@ -26,8 +26,22 @@ struct AgentLoopHookDependencyFactory {
             // M-03
             extractMemoriesCallback: buildExtractionCallback(),
             // M-05
-            memoryRecallService: buildMemoryRecallService()
+            memoryRecallService: buildMemoryRecallService(),
+            // M-11
+            sessionMemoryCallback: buildSessionMemoryCallback()
         )
+    }
+
+    /// 构建 session memory 更新闭包（M-11）。
+    private func buildSessionMemoryCallback() -> @Sendable (AgentLoopHookContext) async -> Void {
+        let sessionMemoryState = claudeService.sessionMemoryState(for: runtime.sessionId)
+        return SessionMemoryService(
+            claudeService: claudeService,
+            settings: runtime.settings,
+            sessionId: runtime.sessionId,
+            modelContext: runtime.modelContext,
+            sessionMemoryState: sessionMemoryState
+        ).buildCallback()
     }
 
     /// 构建 memory extraction 的执行闭包。

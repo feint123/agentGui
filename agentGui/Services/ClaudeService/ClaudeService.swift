@@ -104,6 +104,20 @@ final class ClaudeService {
     /// Session-scoped review projections produced by staged file edits.
     var changeReviewProjectionStore: ChangeReviewProjectionStore?
 
+    /// Per-session session memory 状态。
+    /// 跨 runCoreAgentLoop 调用持久驻留，key = sessionId。
+    ///
+    /// 对齐 Claude Code 的模块级 `sessionMemoryInitialized`、`tokensAtLastExtraction` 等变量。
+    private var sessionMemoryStates: [String: SessionMemoryState] = [:]
+
+    /// 获取或创建指定 session 的 `SessionMemoryState` actor。
+    func sessionMemoryState(for sessionId: String) -> SessionMemoryState {
+        if let existing = sessionMemoryStates[sessionId] { return existing }
+        let newState = SessionMemoryState()
+        sessionMemoryStates[sessionId] = newState
+        return newState
+    }
+
     /// Per-session stores of test-run verification evidence (keyed by sessionID).
     /// In-memory only; cleared on process restart.
     private var verificationEvidenceStores: [String: VerificationEvidenceStore] = [:]

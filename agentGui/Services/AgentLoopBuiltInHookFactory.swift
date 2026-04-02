@@ -23,6 +23,8 @@ struct AgentLoopBuiltInHookFactory {
         let extractMemoriesCallback: @Sendable (AgentLoopHookContext) async -> Void
         // M-05: 中段记忆召回服务
         let memoryRecallService: (any MemoryRecallServiceProtocol)?
+        // M-11: 会话内 session memory 自动更新回调
+        let sessionMemoryCallback: @Sendable (AgentLoopHookContext) async -> Void
     }
 
     func makeHooks(
@@ -46,6 +48,8 @@ struct AgentLoopBuiltInHookFactory {
             ),
             FailureClassificationHook(),
             BusinessObservabilityHook(sink: dependencies.businessLogSink),
+            // M-11: 每轮结束后更新 session memory notes（order=85，在 ExtractionHook(90) 前）
+            SessionMemoryHook(callback: dependencies.sessionMemoryCallback),
             // M-03: 会话末记忆自动提取
             MemoryExtractionHook(callback: dependencies.extractMemoriesCallback),
             // M-05: 中段记忆召回

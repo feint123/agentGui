@@ -325,6 +325,21 @@ extension ClaudeService {
         }
     }
 
+    /// 构建 session memory update subagent 的受限工具集。
+    ///
+    /// 仅包含：
+    /// - `str_replace_based_edit_tool`（EditTool，用于更新 summary.md 各节内容）
+    /// - `read_file`（ReadTool，用于读取 summary.md 当前内容作为上下文）
+    ///
+    /// 对齐 Claude Code 中 forked agent 使用 FileEditTool + FileReadTool 的模式。
+    func buildSessionMemoryTools(settings: AppSettings) -> [MessageParameter.Tool] {
+        let allowed: Set<String> = ["str_replace_based_edit_tool", "read_file"]
+        let allTools = buildTools(modelId: settings.selectedModel, settings: settings)
+        return allTools.filter { tool in
+            toolNameForExtraction(from: tool).map { allowed.contains($0) } ?? false
+        }
+    }
+
     /// 通过 Mirror 安全提取 MessageParameter.Tool 的工具名。
     func toolNameForExtraction(from tool: MessageParameter.Tool) -> String? {
         extractStringFromMirror(labeled: "name", from: Mirror(reflecting: tool))
