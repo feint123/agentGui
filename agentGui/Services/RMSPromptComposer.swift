@@ -90,10 +90,17 @@ struct RMSPromptComposer {
     }
 
     private func formattedInsightSummary(_ insight: RMSInsight) -> String {
-        guard !insight.evidenceRefs.isEmpty else {
-            return insight.summary
+        var base = insight.summary
+        if !insight.evidenceRefs.isEmpty {
+            base += " [evidence: \(insight.evidenceRefs.joined(separator: ", "))]"
         }
-        return "\(insight.summary) [evidence: \(insight.evidenceRefs.joined(separator: ", "))]"
+        if let updatedAt = insight.updatedAt {
+            let note = MemoryFreshnessAnnotator().freshnessText(updatedAt: updatedAt)
+            if !note.isEmpty {
+                base += " — ⚠️ \(note)"
+            }
+        }
+        return base
     }
 
     private func unique(_ values: [String]) -> [String] {
