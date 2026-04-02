@@ -4,33 +4,37 @@ import XCTest
 final class MemoryTopicFilenameTests: XCTestCase {
 
     func test_filename_normalCase() {
-        let record = MemoryRecord.fixture(id: "abcd1234-xxxx", title: "User Role")
-        XCTAssertEqual(MemoryTopicFilename.filename(for: record), "user_role_abcd1234.md")
+        XCTAssertEqual(
+            MemoryTopicFilename.filename(title: "User Role", id: "abcd1234-xxxx"),
+            "user_role_abcd1234.md"
+        )
     }
 
     func test_filename_specialCharsAreSlugified() {
-        let record = MemoryRecord.fixture(id: "abcd1234-xxxx", title: "Feedback: No mock DB!")
-        XCTAssertEqual(MemoryTopicFilename.filename(for: record), "feedback_no_mock_db_abcd1234.md")
+        XCTAssertEqual(
+            MemoryTopicFilename.filename(title: "Feedback: No mock DB!", id: "abcd1234-xxxx"),
+            "feedback_no_mock_db_abcd1234.md"
+        )
     }
 
     func test_filename_titleTruncatedAt40Chars() {
         let longTitle = String(repeating: "a", count: 60)
-        let record = MemoryRecord.fixture(id: "abcd1234-xxxx", title: longTitle)
-        let name = MemoryTopicFilename.filename(for: record)
+        let name = MemoryTopicFilename.filename(title: longTitle, id: "abcd1234-xxxx")
         // slug part ≤ 40 chars + "_" + 8 char id + ".md"
         let slugPart = name.replacingOccurrences(of: "_abcd1234.md", with: "")
         XCTAssertLessThanOrEqual(slugPart.count, 40)
     }
 
     func test_filename_emptyTitleFallsBackToMemoryPrefix() {
-        let record = MemoryRecord.fixture(id: "abcd1234-xxxx", title: "")
-        XCTAssertEqual(MemoryTopicFilename.filename(for: record), "memory_abcd1234.md")
+        XCTAssertEqual(
+            MemoryTopicFilename.filename(title: "", id: "abcd1234-xxxx"),
+            "memory_abcd1234.md"
+        )
     }
 
     func test_filename_unicodeTitleFallsBackToMemoryPrefix() {
         // 全 Unicode 字符（非 ASCII 字母数字）→ slug 为空 → fallback
-        let record = MemoryRecord.fixture(id: "abcd1234-xxxx", title: "纯中文标题")
-        let name = MemoryTopicFilename.filename(for: record)
+        let name = MemoryTopicFilename.filename(title: "纯中文标 题", id: "abcd1234-xxxx")
         XCTAssertTrue(name.hasPrefix("memory_"), "非 ASCII slug 应 fallback 到 memory_ 前缀")
     }
 
@@ -41,8 +45,7 @@ final class MemoryTopicFilenameTests: XCTestCase {
     }
 
     func test_filename_idShorterThan8UsesFullId() {
-        let record = MemoryRecord.fixture(id: "ab12", title: "Short ID Record")
-        let name = MemoryTopicFilename.filename(for: record)
+        let name = MemoryTopicFilename.filename(title: "Short ID Record", id: "ab12")
         XCTAssertTrue(name.hasSuffix("_ab12.md"), "ID 不足 8 位时使用完整 ID")
     }
 }
