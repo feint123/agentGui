@@ -14,7 +14,7 @@ final class MemoryManifestFormatterTests: XCTestCase {
             mtimeMs: 1_700_000_000_000,
             title: "Test Topic",
             description: "A brief description",
-            memoryType: "feedback"
+            memoryType: .feedback
         )
         let output = MemoryManifestFormatter().format([header])
         XCTAssertTrue(output.contains("[feedback]"), "应含 [type] 标签")
