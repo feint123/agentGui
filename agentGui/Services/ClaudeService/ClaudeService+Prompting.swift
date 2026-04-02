@@ -261,15 +261,6 @@ extension ClaudeService {
         // Memory type guidance（对齐 Claude Code memoryTypes.ts）
         parts.append("## Memory System\n\n\(MemoryTypeGuidanceComposer().compose())")
 
-        // MEMORY.md 索引（同步读取，文件 ≤25KB，耗时可忽略）
-        let memoryIndexContent = MemoryIndexReader().read(
-            from: ConfigDirectoryManager.shared.memoryIndexURL
-        )?.content ?? ""
-        let indexSection = ClaudeService.memoryIndexSection(content: memoryIndexContent)
-        if !indexSection.isEmpty {
-            parts.append(indexSection)
-        }
-
         return parts.joined(separator: "\n\n")
     }
 
