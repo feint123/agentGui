@@ -46,4 +46,15 @@ struct SkillCatalogPromptRenderer {
     init(charBudget: Int) {
         self.charBudget = charBudget
     }
+
+    // MARK: - Internal Helpers
+
+    /// Combines description and whenToUse into a single routing description.
+    /// Truncates to maxListingDescChars characters.
+    func entryDescription(_ skill: Skill) -> String {
+        let combined = skill.whenToUse.map { "\(skill.description) - \($0)" } ?? skill.description
+        guard combined.count > Self.maxListingDescChars else { return combined }
+        let truncated = combined.prefix(Self.maxListingDescChars - 1)
+        return truncated + "…"
+    }
 }

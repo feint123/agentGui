@@ -47,24 +47,3 @@ final class SkillManifestTests: XCTestCase {
         XCTAssertNil(skill.effort)
     }
 }
-
-// MARK: - Test Fixtures
-
-private extension Skill {
-    /// Minimal valid Skill for tests — uses default values for all new fields.
-    static func fixture(
-        directoryName: String = "test-skill",
-        name: String = "Test Skill",
-        description: String = "A test skill",
-        path: URL = URL(fileURLWithPath: "/tmp/test-skill"),
-        contentURL: URL = URL(fileURLWithPath: "/tmp/test-skill/SKILL.md")
-    ) -> Skill {
-        Skill(
-            directoryName: directoryName,
-            name: name,
-            description: description,
-            path: path,
-            contentURL: contentURL
-        )
-    }
-}
