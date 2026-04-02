@@ -760,32 +760,9 @@ struct AgentLoopRoundExecutor {
         envelopes.append(envelope)
         sharedState.writeEpistemicInputs(sessionId, envelopes)
 
-        let store = SessionTaskStateStore(modelContext: runtime.modelContext)
-        let existingState = store.rmsState(for: sessionId)
-
-        let insightStore = RMSInsightStore()
-        let generator = LLMRMSInsightGenerator(
-            service: request.service,
-            modelId: request.modelId
-        )
-        if let extraction = try? await RMSExtractor().extract(
-            existing: existingState,
-            envelope: envelope,
-            generator: generator
-        ) {
-            if let nextState = RMSStateReducer().reduce(
-                existing: existingState,
-                delta: extraction.delta,
-                sessionID: sessionId,
-                threadID: sessionId,
-                taskID: sessionId
-            ) {
-                try? store.saveRMSState(nextState, for: sessionId)
-            }
-            for proposal in extraction.proposals where proposal.insight.confidence >= 0.75 {
-                try? insightStore.upsert(proposal.insight)
-            }
-        }
+        // P-02: 每轮 LLM 提取已移除。
+        // 原因：本会话内无 prompt 注入回路（产物仅在下一会话 bootstrap 读取）。
+        // M-03（SessionMemoryExtractorService）在会话末提供等效的全局视角提取。
     }
 
     private func persistBootstrapRMSStateIfNeeded(messages: [MessageParameter.Message]) {
