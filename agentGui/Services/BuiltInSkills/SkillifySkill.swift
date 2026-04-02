@@ -39,7 +39,7 @@ enum SkillifyPromptBuilder {
     /// 组装最终注入给模型的 prompt 字符串。
     /// - Parameters:
     ///   - args: 用户/模型传入的可选描述（`$ARGUMENTS` 替换后的值）。
-    ///   - sessionMemoryLines: 来自 `RMSInsightStore` 的 insight 摘要行，逐行拼接。
+    ///   - sessionMemoryLines: 记忆摘要行，逐行拼接。
     ///   - userMessages: 已过滤的用户消息文本列表。
     static func buildPrompt(
         args: String?,
@@ -93,7 +93,7 @@ func registerSkillifySkill(into registry: BuiltInSkillRegistry = .shared) {
             // 但 getPromptContent 不接收 args 参数。
             // Skillify prompt 返回含 $ARGUMENTS 占位符的模板；
             // SkillArgumentSubstitution 在 SkillInvocationProcessor.invoke() 中完成替换。
-            // sessionMemory 和 userMessages 均由模型在执行时通过 read_file / RMS 工具自行获取，
+            // sessionMemory 和 userMessages 均由模型在执行时通过 read_file 工具自行获取，
             // 或从 prompt 中的占位符说明中了解如何读取。
             skillifyPromptTemplate
         }

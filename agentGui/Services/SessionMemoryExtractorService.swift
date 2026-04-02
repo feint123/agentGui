@@ -77,13 +77,9 @@ struct SessionMemoryExtractorService {
         let messageCount = context.messagesSnapshot.count
         guard messageCount > 0 else { return }
 
-        // 从 RMSInsightStore 读取现有 insights（防重复写入）
-        let existingInsights = (try? RMSInsightStore().load(scope: .user)) ?? []
-
         // 构建提取 prompt
         let extractionPrompt = MemoryExtractionPromptBuilder.build(
-            newMessageCount: messageCount,
-            existingInsights: existingInsights
+            newMessageCount: messageCount
         )
 
         // 构建受限工具集（仅 memory_write + read_file）

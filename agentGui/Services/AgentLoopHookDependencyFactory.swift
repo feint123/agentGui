@@ -68,60 +68,10 @@ struct AgentLoopHookDependencyFactory {
     }
 
     private func loadMemoryBootstrap(
-        state: AgentLoopBuiltInHookFactory.State
+        state _: AgentLoopBuiltInHookFactory.State
     ) async throws -> AgentLoopMessagePatch? {
-        let taskStateStore = SessionTaskStateStore(modelContext: runtime.modelContext)
-        let composer = AgentLoopMemoryBootstrapComposer(
-            dependencies: .init(
-                loadRMSState: {
-                    taskStateStore.rmsState(for: runtime.sessionId)
-                },
-                loadInsights: { state in
-                    try RMSInsightStore().load(
-                        scopes: insightScopes(
-                            for: state,
-                            fallbackSessionID: runtime.sessionId
-                        )
-                    )
-                }
-            )
-        )
-        let composition = try await composer.compose(
-            bootstrapMessageCount: bootstrapMessagesSnapshot.count,
-            insightBudget: max(1, runtime.settings.memoryContextBudget / 4)
-        )
-        state.memoryRuntimeProfiles = []
-        state.memoryRuntimeLayers = []
-        state.memoryRuntimeWarnings = composition.runtimeWarnings
-        state.memoryRuntimeSnapshotID = nil
-        state.memoryRuntimeIntentPhase = nil
-        state.memoryRuntimeWorkingSetCost = nil
-        state.memoryRuntimeDereferenceCount = nil
-        return composition.patch
-    }
-
-    private func insightScopes(for state: RMSState?, fallbackSessionID: String) -> [MemoryScope] {
-        let workspaceRoot = [runtime.session?.workingDirectory, runtime.settings.workingDirectory]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
-        let sessionID = [state?.sessionID, fallbackSessionID]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
-        let threadID = state?.threadID.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        var scopes: [MemoryScope] = [.user]
-        if let sessionID {
-            scopes.append(.session(id: sessionID))
-        }
-        if let threadID, !threadID.isEmpty {
-            scopes.append(.thread(id: threadID))
-        }
-        if let workspaceRoot {
-            scopes.append(.workspace(id: workspaceRoot))
-        }
-
-        var seen: Set<String> = []
-        return scopes.filter { seen.insert($0.namespace).inserted }
+        // M-05: 将在 Feature M-05 中实现从 MEMORY.md 读取并注入
+        return nil
     }
 
     private func createToolCallRecord(

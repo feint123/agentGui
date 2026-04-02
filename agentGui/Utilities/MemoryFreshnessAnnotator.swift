@@ -29,8 +29,6 @@ struct MemoryFreshnessAnnotator: Sendable {
     }
 
     /// 仅对 > 1 天的记忆返回纯文本陈旧性警告；否则返回空字符串。
-    ///
-    /// 用于 `RMSPromptComposer` 等已有 system-reminder 包裹的调用方。
     func freshnessText(updatedAt: Date, now: Date = .now) -> String {
         let d = ageDays(updatedAt: updatedAt, now: now)
         guard d > 1 else { return "" }

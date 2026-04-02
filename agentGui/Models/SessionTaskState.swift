@@ -7,7 +7,6 @@ final class SessionTaskState {
     var planJson: String
     var todoJson: String
     var verificationJson: String
-    var rmsStateJson: String=""
     var updatedAt: Date
 
     init(
@@ -15,14 +14,12 @@ final class SessionTaskState {
         planJson: String = "",
         todoJson: String = "[]",
         verificationJson: String = "",
-        rmsStateJson: String = "",
         updatedAt: Date = Date()
     ) {
         self.sessionId = sessionId
         self.planJson = planJson
         self.todoJson = todoJson
         self.verificationJson = verificationJson
-        self.rmsStateJson = rmsStateJson
         self.updatedAt = updatedAt
     }
 }
@@ -43,8 +40,4 @@ extension SessionTaskState {
         return try? JSONDecoder().decode(CompletionVerification.self, from: data)
     }
 
-    var rmsState: RMSState? {
-        guard !rmsStateJson.isEmpty, let data = rmsStateJson.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(RMSState.self, from: data)
-    }
 }

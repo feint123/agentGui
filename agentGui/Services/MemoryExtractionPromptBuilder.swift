@@ -10,8 +10,7 @@ import Foundation
 enum MemoryExtractionPromptBuilder {
 
     static func build(
-        newMessageCount: Int,
-        existingInsights: [RMSInsight]
+        newMessageCount: Int
     ) -> String {
         var lines: [String] = []
 
@@ -26,20 +25,6 @@ enum MemoryExtractionPromptBuilder {
             "",
             "You MUST only use content from the last ~\(newMessageCount) messages. Do not investigate or verify content further.",
         ]
-
-        // 现有 insights 摘要（防重复写入）
-        if !existingInsights.isEmpty {
-            lines += [
-                "",
-                "## Existing memories",
-                "",
-                "Before writing, check this list to avoid duplicates. Update an existing entry rather than creating a new one if the content is similar.",
-                "",
-            ]
-            for insight in existingInsights {
-                lines.append("- [\(insight.id)] \(insight.summary)")
-            }
-        }
 
         // 语义类型指导（四类型）
         lines += [
