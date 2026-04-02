@@ -177,4 +177,39 @@ extension WorkflowRoleDefinition {
     static var verifier: WorkflowRoleDefinition {
         AgentCatalog.shared.find(named: "verifier")!.workflowRoleDefinition
     }
+
+    // MARK: - M-06 Consolidation Daemon
+
+    /// 记忆整合 Daemon 专用角色。
+    ///
+    /// 工具权限：只允许文件读取（无 Bash，无写 Web）。
+    /// `enableTextEditor: true` 赋予写文件能力（写入 memory 话题文件）。
+    /// `omitMainContext: true`：不注入 CLAUDE.md / git status（整合任务不需要项目上下文）。
+    static var consolidationDaemon: WorkflowRoleDefinition {
+        WorkflowRoleDefinition(
+            name: "consolidation_daemon",
+            displayName: "Memory Consolidation Daemon",
+            description: "后台整合近期 session 的记忆，将多个 session 的知识蒸馏到持久话题文件。",
+            systemPrompt: """
+            You are a memory consolidation daemon. \
+            Your sole purpose is to read recent session activity and organize long-term memory files.
+
+            Rules:
+            - Only operate inside the memory directory you are given.
+            - Do not modify any files outside the memory directory.
+            - Prefer updating existing topic files over creating new ones.
+            - Use the file formats and type conventions specified in the user message.
+            - When done, output a concise summary of changes.
+            """,
+            enableTextEditor: true,
+            enableBash: false,
+            enableWebSearch: false,
+            enableWebFetch: false,
+            maxTurnsPerActivation: 30,
+            maxActivations: 1,
+            modelPreference: .sonnet,
+            omitMainContext: true,
+            isOneShot: false
+        )
+    }
 }
