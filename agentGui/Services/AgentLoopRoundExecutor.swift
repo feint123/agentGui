@@ -178,15 +178,6 @@ struct AgentLoopRoundExecutor {
             roundSpan.end()
         }
 
-        // 压缩发生在真正发起下一次模型调用之前，这样 token 统计和 stream 输入看到的是同一份 messages。
-        await claudeService.compressIfNeeded(
-            messages: &messages,
-            memory: &state.loopMemory,
-            service: request.service,
-            modelId: modelId,
-            sessionId: sessionId
-        )
-
         sharedState.setCurrentModelId(modelId)
         let useThinking = runtime.settings.enableExtendedThinking && claudeService.isThinkingCapable(modelId: modelId)
         let budget = runtime.settings.extendedThinkingBudget

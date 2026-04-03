@@ -261,4 +261,23 @@ extension ClaudeService {
         return thinkingModels.contains { modelId.contains($0) }
     }
 
+    // MARK: - Text Extraction Helpers
+
+    /// 从消息内容对象中提取纯文本（用于 task 文本摘要等场景）。
+    func extractText(from content: MessageParameter.Message.Content) -> String {
+        switch content {
+        case .text(let str):
+            return str
+        case .list(let objects):
+            return objects.compactMap { (obj: MessageParameter.Message.Content.ContentObject) -> String? in
+                switch obj {
+                case .text(let str): return str
+                case .toolUse(_, let name, _): return "[工具调用: \(name)]"
+                case .toolResult(_, let result, _, _): return "[工具结果: \(String(result.prefix(200)))]"
+                default: return nil
+                }
+            }.joined(separator: " ")
+        }
+    }
+
 }

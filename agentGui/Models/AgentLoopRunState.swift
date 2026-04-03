@@ -6,7 +6,6 @@ struct AgentLoopRunState {
     let runID: String
     var accumulatedText: String
     var loopCtx: AgentLoopContext
-    var loopMemory: ContextMemory
     var executionEvidence: Set<ExecutionEvidenceKind>
     var verificationState: VerificationState?
     let hookState: AgentLoopBuiltInHookFactory.State
@@ -19,7 +18,6 @@ struct AgentLoopRunState {
         runID: String = UUID().uuidString,
         accumulatedText: String = "",
         loopCtx: AgentLoopContext = AgentLoopContext(phase: .executing),
-        loopMemory: ContextMemory = ContextMemory(),
         executionEvidence: Set<ExecutionEvidenceKind> = [],
         verificationState: VerificationState? = nil,
         hookState: AgentLoopBuiltInHookFactory.State = AgentLoopBuiltInHookFactory.State(),
@@ -29,7 +27,6 @@ struct AgentLoopRunState {
         self.runID = runID
         self.accumulatedText = accumulatedText
         self.loopCtx = loopCtx
-        self.loopMemory = loopMemory
         self.executionEvidence = executionEvidence
         self.verificationState = verificationState
         self.hookState = hookState
