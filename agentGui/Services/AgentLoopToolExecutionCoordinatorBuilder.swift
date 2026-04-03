@@ -26,17 +26,99 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
             dependencies: .init(
                 sessionID: sessionId,
                 session: session,
-                launchSubagent: { [claudeService, service, modelId, settings] input, record, definitionResolver, backgroundExecutor, ctx in
-                    let agentName = input["agent_name"]?.stringValue ?? ""
+                launchSubagent: { [claudeService, service, modelId, settings] input, record, definitionResolver, backgroundExecutor, ctx, forkParentContext in
+                    let agentName = input["agent_name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
                     let task = input["task"]?.stringValue ?? ""
                     let overrideModelId = input["model"]?.stringValue.flatMap {
                         $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0
                     }
                     let runInBackground = input["run_in_background"]?.boolValue ?? false
 
-                    guard let definition = definitionResolver(agentName) else {
+                    // S-F2: implicit fork path — agent_name absent
+                    if agentName == nil {
+                        // S-F2/Task 5.1: 防递归 — fork child 不能再 fork
+                        let parentMessages = forkParentContext?.parentHistory ?? []
+                        if isInForkChild(parentMessages) {
+                            return .sync(message: .error(
+                                "Fork subagent cannot spawn another fork subagent.",
+                                sender: "system"
+                            ))
+                        }
+
+                        guard let forkCtx = forkParentContext else {
+                            return .sync(message: .error(
+                                "Implicit fork requires parent context; none was provided.",
+                                sender: "system"
+                            ))
+                        }
+
+                        let forkDefinition = ForkSubagentDefinition.makeWorkflowRoleDefinition()
+                        let initialMessages = ForkMessageBuilder().buildForkedMessages(
+                            directive: task,
+                            parentHistory: forkCtx.parentHistory,
+                            assistantMessage: forkCtx.assistantMessage
+                        )
+                        let taskDescription = String(task.prefix(50))
+                        let sessionUUID = UUID(uuidString: capturedSessionId) ?? UUID()
+
+                        // S-F2/Task 5.2: fork 路径强制后台执行
+                        if let parentSession = capturedSession, let ctx {
+                            let params = SubagentBackgroundLaunchParams(
+                                agentName: FORK_SUBAGENT_TYPE,
+                                task: task,
+                                taskDescription: taskDescription,
+                                toolCallRecord: record,
+                                sessionID: sessionUUID,
+                                session: parentSession,
+                                runInBackground: true,
+                                definition: forkDefinition,
+                                launchSubagent: { _, def, progressCallback in
+                                    do {
+                                        return try await .sync(message: claudeService.runSubagentLoop(
+                                            task: task,
+                                            definition: def,
+                                            toolCallRecord: record,
+                                            service: service,
+                                            modelId: modelId,
+                                            overrideModelId: overrideModelId,
+                                            settings: settings,
+                                            sessionId: capturedSessionId,
+                                            modelContext: capturedModelContext,
+                                            onProgressUpdate: progressCallback,
+                                            initialMessagesOverride: initialMessages
+                                        ))
+                                    } catch {
+                                        return .sync(message: .error(error.localizedDescription, sender: def.name))
+                                    }
+                                }
+                            )
+                            return await backgroundExecutor.launch(params: params, modelContext: ctx)
+                        } else {
+                            // 无 session／ctx 时同步降级执行（保留功能完整性）
+                            do {
+                                let msg = try await claudeService.runSubagentLoop(
+                                    task: task,
+                                    definition: forkDefinition,
+                                    toolCallRecord: record,
+                                    service: service,
+                                    modelId: modelId,
+                                    overrideModelId: overrideModelId,
+                                    settings: settings,
+                                    sessionId: capturedSessionId,
+                                    modelContext: capturedModelContext,
+                                    initialMessagesOverride: initialMessages
+                                )
+                                return .sync(message: msg)
+                            } catch {
+                                return .sync(message: .error(error.localizedDescription, sender: FORK_SUBAGENT_TYPE))
+                            }
+                        }
+                    }
+
+                    // Named subagent path (original behavior)
+                    guard let definition = definitionResolver(agentName!) else {
                         let available = AgentCatalog.shared.subagentInvocableAgents.map(\.name).joined(separator: ", ")
-                        return .sync(message: .error("unknown agent '\(agentName)'. Available: \(available)", sender: "system"))
+                        return .sync(message: .error("unknown agent '\(agentName!)'. Available: \(available)", sender: "system"))
                     }
 
                     let shouldRunBackground = runInBackground || definition.background
@@ -46,7 +128,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
 
                     if shouldRunBackground, let parentSession = capturedSession, let ctx {
                         let params = SubagentBackgroundLaunchParams(
-                            agentName: agentName,
+                            agentName: agentName!,
                             task: task,
                             taskDescription: taskDescription,
                             toolCallRecord: record,

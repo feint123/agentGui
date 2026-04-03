@@ -506,6 +506,22 @@ struct AgentLoopRoundExecutor {
         let batchPlanner = ToolConcurrencyBatchPlanner(registry: DefaultToolRegistry())
         let batches = batchPlanner.partition(outcome.pendingTools)
 
+        // S-F2: 构造本轮 ForkParentContext（fork child 初始消息构造所需）
+        // assistantMessage 包含本轮所有 tool_use，确保 cache prefix 最大化共享
+        let forkParentContext: ForkParentContext = {
+            var forkAssistantObjects = outcome.assistantObjects
+            if !outcome.currentRoundText.isEmpty {
+                forkAssistantObjects.append(.text(outcome.currentRoundText))
+            }
+            for tool in outcome.pendingTools {
+                forkAssistantObjects.append(.toolUse(tool.id, tool.name, tool.parsedInput))
+            }
+            return ForkParentContext(
+                parentHistory: messages,
+                assistantMessage: .init(role: .assistant, content: .list(forkAssistantObjects))
+            )
+        }()
+
         for batch in batches {
             switch batch {
             case .concurrent(let concurrentTools):
@@ -516,7 +532,8 @@ struct AgentLoopRoundExecutor {
                     messages: messages,
                     assistantObjects: &assistantObjects,
                     toolResultObjects: &toolResultObjects,
-                    toolObservations: &toolObservations
+                    toolObservations: &toolObservations,
+                    forkParentContext: forkParentContext
                 )
             case .serial(let serialTool):
                 try await executeSerialTool(
@@ -526,7 +543,8 @@ struct AgentLoopRoundExecutor {
                     messages: messages,
                     assistantObjects: &assistantObjects,
                     toolResultObjects: &toolResultObjects,
-                    toolObservations: &toolObservations
+                    toolObservations: &toolObservations,
+                    forkParentContext: forkParentContext
                 )
             }
         }
@@ -830,7 +848,8 @@ struct AgentLoopRoundExecutor {
         messages: [MessageParameter.Message],
         assistantObjects: inout [MessageParameter.Message.Content.ContentObject],
         toolResultObjects: inout [MessageParameter.Message.Content.ContentObject],
-        toolObservations: inout [String]
+        toolObservations: inout [String],
+        forkParentContext: ForkParentContext? = nil
     ) async throws {
         let input = pending.parsedInput
         let willExecuteHooks = (try? await emitter.dispatch(
@@ -863,7 +882,8 @@ struct AgentLoopRoundExecutor {
         let executionOutcome = await toolCoordinator.execute(
             pendingTool: pending,
             record: record,
-            interceptor: runtime.toolInterceptor
+            interceptor: runtime.toolInterceptor,
+            forkParentContext: forkParentContext
         )
         let result = executionOutcome.result
         // execution evidence 会驱动 finalization guard，因此必须在每个 tool 完成后立即写回共享状态。
@@ -948,7 +968,8 @@ struct AgentLoopRoundExecutor {
         messages: [MessageParameter.Message],
         assistantObjects: inout [MessageParameter.Message.Content.ContentObject],
         toolResultObjects: inout [MessageParameter.Message.Content.ContentObject],
-        toolObservations: inout [String]
+        toolObservations: inout [String],
+        forkParentContext: ForkParentContext? = nil
     ) async throws {
         // Phase 1: Pre-hooks（串行）— 发出 willExecuteTool，创建 ToolCall 记录
         // 串行是因为 willExecuteTool 钩子会写入 ModelContext 并创建持久化记录
@@ -1003,7 +1024,8 @@ struct AgentLoopRoundExecutor {
                     let ex = await self.toolCoordinator.execute(
                         pendingTool: pending,
                         record: record,
-                        interceptor: self.runtime.toolInterceptor
+                        interceptor: self.runtime.toolInterceptor,
+                        forkParentContext: forkParentContext
                     )
                     executionResults[index] = ex
                 }

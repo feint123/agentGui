@@ -115,7 +115,9 @@ extension ClaudeService {
         settings: AppSettings,
         sessionId: String,
         modelContext: ModelContext,
-        onProgressUpdate: (@MainActor @Sendable (SubagentProgress) -> Void)? = nil
+        onProgressUpdate: (@MainActor @Sendable (SubagentProgress) -> Void)? = nil,
+        /// S-F2: 当提供此参数时，跳过默认首轮消息构造，直接使用指定消息列表（用于 fork child）。
+        initialMessagesOverride: [MessageParameter.Message]? = nil
     ) async throws -> AgentMessage {
         let startTime = Date()
 
@@ -126,11 +128,17 @@ extension ClaudeService {
             overrideModelId: overrideModelId
         )
 
-        let firstTurnContent = ClaudeService.buildSubagentFirstTurnMessage(
-            task: task,
-            criticalReminder: definition.criticalReminder
-        )
-        var loopMessages: [MessageParameter.Message] = [.init(role: .user, content: .text(firstTurnContent))]
+        // S-F2: 若提供了 initialMessagesOverride（fork 路径），直接使用；否则按默认首轮构造
+        var loopMessages: [MessageParameter.Message]
+        if let override = initialMessagesOverride {
+            loopMessages = override
+        } else {
+            let firstTurnContent = ClaudeService.buildSubagentFirstTurnMessage(
+                task: task,
+                criticalReminder: definition.criticalReminder
+            )
+            loopMessages = [.init(role: .user, content: .text(firstTurnContent))]
+        }
         let system = makeEphemeralSystemPrompt(definition.systemPrompt)
         let request = AgentLoopRunRequest(
             service: service,

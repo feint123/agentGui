@@ -164,7 +164,7 @@ struct SubagentActivityClassifier: Sendable {
             return ToolActivity(toolName: toolName, activityDescription: "LSP: \(pretty)", isRead: true, isSearch: false)
 
         case "run_subagent":
-            let name = input["agent_name"]?.stringValue ?? "subagent"
+            let name = input["agent_name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? FORK_SUBAGENT_TYPE
             return ToolActivity(toolName: toolName, activityDescription: "Launching \(name)", isRead: false, isSearch: false)
 
         default:

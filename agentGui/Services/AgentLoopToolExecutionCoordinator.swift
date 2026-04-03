@@ -13,7 +13,8 @@ struct AgentLoopToolExecutionCoordinator {
         /// S-C2: 父代理 Session 对象（用于写入后台完成通知消息）
         let session: Session?
         /// S-C2: 替代原有 runSubagent 闭包，返回值改为 SubagentLaunchResult（区分同步/异步）
-        let launchSubagent: (MessageResponse.Content.Input, ToolCall, (String) -> WorkflowRoleDefinition?, SubagentBackgroundExecutor, ModelContext?) async -> SubagentLaunchResult
+        /// S-F2: 第 6 个参数为可选 ForkParentContext（fork 路径时提供）
+        let launchSubagent: (MessageResponse.Content.Input, ToolCall, (String) -> WorkflowRoleDefinition?, SubagentBackgroundExecutor, ModelContext?, ForkParentContext?) async -> SubagentLaunchResult
         let requestApprovalIfNeeded: (String, MessageResponse.Content.Input, ToolCall) async -> ToolExecutionResult?
         let executeTool: (String, MessageResponse.Content.Input) async -> ToolExecutionResult
         let normalizeBashRequest: (MessageResponse.Content.Input) throws -> BashToolRequest
@@ -31,7 +32,9 @@ struct AgentLoopToolExecutionCoordinator {
     func execute(
         pendingTool: AgentLoopPendingTool,
         record: ToolCall,
-        interceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)? = nil
+        interceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)? = nil,
+        /// S-F2: 当前轮次的 fork 上下文，用于构造 fork child 初始消息
+        forkParentContext: ForkParentContext? = nil
     ) async -> AgentLoopToolExecutionOutcome {
         let input = pendingTool.parsedInput
 
@@ -46,9 +49,12 @@ struct AgentLoopToolExecutionCoordinator {
                 record,
                 { name in AgentCatalog.shared.find(named: name)?.workflowRoleDefinition },
                 dependencies.backgroundExecutor,
-                dependencies.modelContext
+                dependencies.modelContext,
+                forkParentContext
             )
-            record.subagentAgentName = input["agent_name"]?.stringValue
+            // S-F2: for implicit fork, agent_name is absent; fall back to fork type
+            let resolvedAgentName = input["agent_name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? FORK_SUBAGENT_TYPE
+            record.subagentAgentName = resolvedAgentName
             if case .sync(let msg) = launchResult {
                 record.subagentResultKind = msg.content.kindLabel
                 if !msg.metadata.isEmpty {

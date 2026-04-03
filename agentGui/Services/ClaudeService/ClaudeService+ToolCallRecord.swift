@@ -72,8 +72,13 @@ extension ClaudeService {
         case "run_subagent":
             kind = .subagent
             let agentName = input["agent_name"]?.stringValue ?? ""
-            let definition = AgentCatalog.shared.find(named: agentName)
-            title = "子代理: \(definition?.displayName ?? agentName)"
+            if agentName.isEmpty {
+                // S-F2: implicit fork path — no named agent
+                title = "子代理: fork"
+            } else {
+                let definition = AgentCatalog.shared.find(named: agentName)
+                title = "子代理: \(definition?.displayName ?? agentName)"
+            }
         case "update_todo_list":
             kind = .todo
             let itemCount = input["items"]?.arrayValue?.count ?? 0

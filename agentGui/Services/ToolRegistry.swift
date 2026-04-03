@@ -273,7 +273,7 @@ struct DefaultToolRegistry: ToolRegistry {
                 .init(
                     type: .object,
                     properties: [
-                        "agent_name": .init(type: .string, description: "Identifier of the subagent to use. One of: \(context.agentNameListText)"),
+                        "agent_name": .init(type: .string, description: "Identifier of the subagent to use. One of: \(context.agentNameListText). Omit to trigger an implicit fork: the child inherits the parent's full conversation context and runs the task as a background fork."),
                         "task": .init(type: .string, description: "Detailed, self-contained task description for the subagent."),
                         // S-A3: 可选模型 override，调用方可强制指定子代理使用的模型 ID
                         "model": .init(
@@ -298,7 +298,7 @@ struct DefaultToolRegistry: ToolRegistry {
                                 """
                         )
                     ],
-                    required: ["agent_name", "task"]
+                    required: ["task"]
                 )
             }
         )
