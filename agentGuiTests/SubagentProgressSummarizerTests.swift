@@ -283,4 +283,43 @@ final class SubagentProgressSummarizerTests: XCTestCase {
         let prompt = SubagentProgressSummarizer.buildSummaryPrompt(previousSummary: "")
         XCTAssertFalse(prompt.contains("Previous:"))
     }
+
+    // MARK: - 集成：context 先于 messages 注入后仍能生成摘要
+
+    func test_contextInjectedAfterStart_stillGeneratesSummary() async throws {
+        let (record, ctx) = try makeRecord()
+        var summaryGenerated = false
+
+        let summarizer = makeSummarizer(
+            record: record,
+            modelContext: ctx,
+            apiProvider: { systemPrompt, messages, _ in
+                summaryGenerated = true
+                // context 为 nil 时也能工作（systemPrompt 为 nil，但不 crash）
+                return "Writing tests"
+            },
+            intervalSeconds: .milliseconds(50)
+        )
+
+        // 先 start，再更新 messages（模拟 context 还没注入的情况）
+        await summarizer.start()
+        await summarizer.updateMessages([
+            .init(role: .user,      content: .text("t1")),
+            .init(role: .assistant, content: .text("t2")),
+            .init(role: .user,      content: .text("t3"))
+        ])
+        // context 延迟注入（此时 timerTask 可能已触发，但 systemPrompt 为 nil 也不 crash）
+        await summarizer.updateContext(SubagentSummaryContext(
+            systemPrompt: nil,
+            modelId: "claude-sonnet-4-5",
+            service: AnthropicServiceFactory.service(apiKey: "test", betaHeaders: [String]?.none),
+            apiKey: "test-key"
+        ))
+
+        try await Task.sleep(for: .milliseconds(200))
+        await summarizer.stop()
+
+        XCTAssertTrue(summaryGenerated)
+        XCTAssertEqual(record.progressSummary, "Writing tests")
+    }
 }
