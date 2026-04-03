@@ -9,6 +9,7 @@ final class BuiltInSessionExecutionContext {
     var currentModelID: String = ""
     var pendingUserQuestion: AskUserQuestionRequest?
     var contextBudgetState: ContextBudgetState?    // F-B1: context window budget tracking
+    let compactionCoordinator: CompactionCoordinator = CompactionCoordinator()  // F-B3
 
     init(sessionID: String) {
         self.sessionID = sessionID
