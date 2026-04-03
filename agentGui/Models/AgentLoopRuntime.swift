@@ -13,6 +13,10 @@ struct AgentLoopRuntime {
     let streamProjectionTarget: AgentLoopStreamProjectionTarget
     let toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)?
     let remoteDeliveryHandle: (any RemoteTurnDeliveryHandle)?
+    /// S-C3: 子代理进度回调（nil = 主代理 loop，不追踪进度）。
+    /// 每轮 API 响应结束后由 `AgentLoopRoundExecutor.executeStreamingRound` 调用。
+    /// 标注 `@MainActor` 保证 SwiftData `@Model` 字段写入在主线程，且调用时无需 `await`。
+    let subagentProgressUpdate: (@MainActor @Sendable (SubagentProgress) -> Void)?
 
     init(
         settings: AppSettings,
@@ -23,7 +27,8 @@ struct AgentLoopRuntime {
         parentMessage: Message?,
         streamProjectionTarget: AgentLoopStreamProjectionTarget,
         toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)?,
-        remoteDeliveryHandle: (any RemoteTurnDeliveryHandle)? = nil
+        remoteDeliveryHandle: (any RemoteTurnDeliveryHandle)? = nil,
+        subagentProgressUpdate: (@MainActor @Sendable (SubagentProgress) -> Void)? = nil
     ) {
         self.settings = settings
         self.session = session
@@ -34,5 +39,6 @@ struct AgentLoopRuntime {
         self.streamProjectionTarget = streamProjectionTarget
         self.toolInterceptor = toolInterceptor
         self.remoteDeliveryHandle = remoteDeliveryHandle
+        self.subagentProgressUpdate = subagentProgressUpdate
     }
 }

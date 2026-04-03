@@ -13,6 +13,9 @@ struct AgentLoopRunState {
     /// Bootstrap 阶段 hook 通过 `.systemPromptAppend` 提交的系统提示追加内容。
     /// 由 `applyBootstrap()` 写入，由 `executeStreamingRound()` 读取并合并到 API 请求。
     var bootstrapSystemAppend: String?
+    /// S-C3: 子代理进度追踪器（nil = 非子代理 run）。
+    /// 由 `runCoreAgentLoop` 在检测到 `runtime.subagentProgressUpdate != nil` 时初始化。
+    var subagentProgressTracker: SubagentProgressTracker?
 
     init(
         runID: String = UUID().uuidString,
@@ -22,7 +25,8 @@ struct AgentLoopRunState {
         verificationState: VerificationState? = nil,
         hookState: AgentLoopBuiltInHookFactory.State = AgentLoopBuiltInHookFactory.State(),
         budgetRunTracker: BudgetRunTracker = BudgetRunTracker(),   // F-B1
-        bootstrapSystemAppend: String? = nil    // M-05
+        bootstrapSystemAppend: String? = nil,    // M-05
+        subagentProgressTracker: SubagentProgressTracker? = nil
     ) {
         self.runID = runID
         self.accumulatedText = accumulatedText
@@ -32,5 +36,6 @@ struct AgentLoopRunState {
         self.hookState = hookState
         self.budgetRunTracker = budgetRunTracker   // F-B1
         self.bootstrapSystemAppend = bootstrapSystemAppend    // M-05
+        self.subagentProgressTracker = subagentProgressTracker
     }
 }

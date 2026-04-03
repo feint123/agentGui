@@ -188,7 +188,13 @@ extension ClaudeService {
         request: AgentLoopRunRequest,
         runtime: AgentLoopRuntime
     ) async throws -> AgentLoopRunResult {
-        let initialState = AgentLoopRunState()
+        var initialState = AgentLoopRunState()
+
+        // S-C3: 当 runtime 携带进度回调时，说明本次 loop 以子代理身份运行，初始化进度追踪器
+        if runtime.subagentProgressUpdate != nil {
+            initialState.subagentProgressTracker = SubagentProgressTracker()
+        }
+
         let bootstrapMessagesSnapshot = messages
 
         let hookFactory = AgentLoopBuiltInHookFactory()
