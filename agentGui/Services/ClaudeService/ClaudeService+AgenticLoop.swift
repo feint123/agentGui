@@ -221,6 +221,45 @@ extension ClaudeService {
             setCurrentInputTokens: { self.builtInExecutionContext(for: runtime.sessionId).currentInputTokens = $0 },
             updateContextBudget: { [weak self] state in
                 self?.builtInExecutionContext(for: runtime.sessionId).contextBudgetState = state
+            },
+            readContextBudget: { [weak self] in
+                self?.builtInExecutionContext(for: runtime.sessionId).contextBudgetState
+            },
+            runCompactionIfNeeded: { [weak self] messages async -> [MessageParameter.Message]? in
+                guard let self else { return nil }
+
+                let context = self.builtInExecutionContext(for: runtime.sessionId)
+                guard let budget = context.contextBudgetState,
+                      budget.isAutoCompactReady else { return nil }
+
+                let coordinator = context.compactionCoordinator
+                guard await coordinator.beginCompaction() else { return nil }
+
+                let engine = CompactionEngine()
+                let cutIndex = engine.proposeCutIndex(in: messages)
+
+                // 读取 M-11 SessionMemoryService 写入的 summary.md，作为 session 历史上下文
+                // 对应 Claude Code trySessionMemoryCompaction() 的 agentGui 等价路径
+                let summaryURL = ConfigDirectoryManager.shared.sessionMemorySummaryURL(sessionId: runtime.sessionId)
+                let existingSessionSummary = (try? String(contentsOf: summaryURL, encoding: .utf8)) ?? ""
+
+                do {
+                    let summaryText = try await self.generateCompactionSummary(
+                        messages: Array(messages[..<cutIndex]),
+                        modelId: context.currentModelID
+                    )
+                    let newMessages = engine.buildCompactedMessages(
+                        original: messages,
+                        summaryText: summaryText,
+                        cutIndex: cutIndex,
+                        sessionSummary: existingSessionSummary.isEmpty ? nil : existingSessionSummary
+                    )
+                    await coordinator.recordSuccess()
+                    return newMessages
+                } catch {
+                    await coordinator.recordFailure()
+                    return nil
+                }
             }
         )
         let emitter = AgentLoopHookEmitter(
