@@ -131,7 +131,9 @@ extension ClaudeService {
         /// S-F2: 当提供此参数时，跳过默认首轮消息构造，直接使用指定消息列表（用于 fork child）。
         initialMessagesOverride: [MessageParameter.Message]? = nil,
         /// S-F3: fork 子代理覆盖参数（含预构建消息 + 父代理系统提示）；优先于 initialMessagesOverride。
-        forkOverride: ForkSubagentOverride? = nil
+        forkOverride: ForkSubagentOverride? = nil,
+        /// S-C4: 摘要器回调（nil = 不摘要）；由 SubagentBackgroundExecutor 在后台路径中提供。
+        summaryCallbacks: SubagentSummaryCallbacks? = nil
     ) async throws -> AgentMessage {
         let startTime = Date()
 
@@ -175,6 +177,18 @@ extension ClaudeService {
             requestedBudgetSeconds: nil,
             criticalReminder: definition.criticalReminder
         )
+
+        // S-C4: 捕获摘要上下文（在 loop 启动前触发一次，system + model 与子代理 loop 完全相同）
+        if let callbacks = summaryCallbacks {
+            let summaryCtx = SubagentSummaryContext(
+                systemPrompt: system,
+                modelId: resolvedModelId,
+                service: service,
+                apiKey: settings.apiKey
+            )
+            callbacks.onContextCaptured(summaryCtx)
+        }
+
         let runtime = AgentLoopRuntime(
             settings: settings,
             session: nil,
@@ -188,7 +202,10 @@ extension ClaudeService {
             parentMessage: nil,
             streamProjectionTarget: .none,
             toolInterceptor: nil,
-            subagentProgressUpdate: onProgressUpdate  // S-C3
+            subagentProgressUpdate: onProgressUpdate,  // S-C3
+            onMessagesSnapshot: summaryCallbacks.map { cb in  // S-C4
+                { msgs in cb.onMessagesUpdated(msgs) }
+            }
         )
         let result = try await runCoreAgentLoop(
             messages: &loopMessages,
