@@ -43,6 +43,9 @@ struct AgentLoopRunner {
 			let outcome = try await roundExecutor.executeStreamingRound(state: &state, messages: &messages)
 			try await roundExecutor.applyPhaseOutcome(outcome: outcome, state: &state, messages: &messages)
 
+			// S-C4: 每轮结束后向摘要器发送消息快照（nil-safe，主代理 loop 无回调）
+			runtime.onMessagesSnapshot?(messages)
+
 			// Session Memory hook：每轮结束后检查阈值
 			await emitter.emit(
 				.willFinishRound,

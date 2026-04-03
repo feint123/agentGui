@@ -17,6 +17,10 @@ struct AgentLoopRuntime {
     /// 每轮 API 响应结束后由 `AgentLoopRoundExecutor.executeStreamingRound` 调用。
     /// 标注 `@MainActor` 保证 SwiftData `@Model` 字段写入在主线程，且调用时无需 `await`。
     let subagentProgressUpdate: (@MainActor @Sendable (SubagentProgress) -> Void)?
+    /// S-C4: 消息快照回调（nil = 不追踪）。
+    /// 每轮 `applyPhaseOutcome` 完成后由 `AgentLoopRunner` 调用，提供当前完整消息数组。
+    /// 仅在后台子代理 loop（`SubagentSummaryCallbacks.onMessagesUpdated`）中设置。
+    let onMessagesSnapshot: (@Sendable ([MessageParameter.Message]) -> Void)?
 
     init(
         settings: AppSettings,
@@ -28,7 +32,8 @@ struct AgentLoopRuntime {
         streamProjectionTarget: AgentLoopStreamProjectionTarget,
         toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)?,
         remoteDeliveryHandle: (any RemoteTurnDeliveryHandle)? = nil,
-        subagentProgressUpdate: (@MainActor @Sendable (SubagentProgress) -> Void)? = nil
+        subagentProgressUpdate: (@MainActor @Sendable (SubagentProgress) -> Void)? = nil,
+        onMessagesSnapshot: (@Sendable ([MessageParameter.Message]) -> Void)? = nil
     ) {
         self.settings = settings
         self.session = session
@@ -40,5 +45,6 @@ struct AgentLoopRuntime {
         self.toolInterceptor = toolInterceptor
         self.remoteDeliveryHandle = remoteDeliveryHandle
         self.subagentProgressUpdate = subagentProgressUpdate
+        self.onMessagesSnapshot = onMessagesSnapshot
     }
 }
