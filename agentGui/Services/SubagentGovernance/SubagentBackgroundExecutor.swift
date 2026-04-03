@@ -1,6 +1,7 @@
 // agentGui/Services/SubagentGovernance/SubagentBackgroundExecutor.swift
 import Foundation
 import SwiftData
+import SwiftAnthropic
 
 // MARK: - Launch Params
 
@@ -165,8 +166,58 @@ actor SubagentBackgroundExecutor {
             record.lastActivity = progress.lastActivity?.activityDescription
         }
 
+        // S-C4: 创建进度摘要器（30s 间隔，仅后台子代理）
+        // 使用中间 actor 容器打破 summarizer 循环引用：apiProvider 通过 ctxHolder 读取 context
+        let ctxHolder = SubagentContextHolder()
+
+        let summarizer = SubagentProgressSummarizer(
+            record: record,
+            modelContext: modelContext,
+            apiProvider: { systemPrompt, messages, previousSummary in
+                let ctx = await ctxHolder.context
+                guard let service = ctx?.service else { return nil }
+
+                let summaryMsg = MessageParameter.Message(
+                    role: .user,
+                    content: .text(SubagentProgressSummarizer.buildSummaryPrompt(
+                        previousSummary: previousSummary
+                    ))
+                )
+                let allMessages = messages + [summaryMsg]
+                let params = MessageParameter(
+                    model: .other(ctx?.modelId ?? "claude-sonnet-4-5"),
+                    messages: allMessages,
+                    maxTokens: 50,
+                    system: systemPrompt,
+                    tools: [],
+                    toolChoice: nil
+                )
+                let response = try await service.createMessage(params)
+                for block in response.content {
+                    if case .text(let text, _) = block,
+                       !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        return text
+                    }
+                }
+                return nil
+            }
+        )
+
+        let summaryCallbacks = SubagentSummaryCallbacks(
+            onContextCaptured: { ctx in
+                Task { await ctxHolder.store(ctx) }
+            },
+            onMessagesUpdated: { msgs in
+                Task { await summarizer.updateMessages(msgs) }
+            }
+        )
+        await summarizer.start()
+
         // 执行子代理（可能长时间运行）
-        let result = await params.launchSubagent(params.task, params.definition, progressCallback, nil)
+        let result = await params.launchSubagent(params.task, params.definition, progressCallback, summaryCallbacks)
+
+        // S-C4: 子代理完成后立即停止摘要器
+        await summarizer.stop()
 
         // 检查 Task 取消
         if Task.isCancelled {
@@ -263,5 +314,17 @@ actor SubagentBackgroundExecutor {
         }
         body += "\n</task-notification>"
         return body
+    }
+}
+
+// MARK: - SubagentContextHolder
+
+/// S-C4: 轻量级 actor 容器，打破 SubagentProgressSummarizer apiProvider 闭包的循环引用。
+/// 在 `onContextCaptured` 回调触发时存储 context，apiProvider 通过 `await ctxHolder.context` 读取。
+private actor SubagentContextHolder {
+    private(set) var context: SubagentSummaryContext?
+
+    func store(_ ctx: SubagentSummaryContext) {
+        context = ctx
     }
 }
