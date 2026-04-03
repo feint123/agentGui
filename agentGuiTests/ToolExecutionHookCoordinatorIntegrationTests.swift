@@ -27,7 +27,7 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
             dependencies: .init(
                 sessionID: "test-session",
                 session: nil,
-                launchSubagent: { _, _, _, _, _ in .sync(message: AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:])) },
+                launchSubagent: { _, _, _, _, _, _ in .sync(message: AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:])) },
                 requestApprovalIfNeeded: { _, _, _ in nil },
                 executeTool: { _, _ in capturedResult },
                 normalizeBashRequest: { _ in throw NSError(domain: "test", code: 0) },
@@ -50,7 +50,7 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
             dependencies: .init(
                 sessionID: "test-session",
                 session: nil,
-                launchSubagent: { _, _, _, _, _ in .sync(message: AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:])) },
+                launchSubagent: { _, _, _, _, _, _ in .sync(message: AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:])) },
                 requestApprovalIfNeeded: { _, _, _ in nil },
                 executeTool: { _, _ in
                     executorCalled = true
@@ -154,7 +154,7 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
             dependencies: .init(
                 sessionID: "test-session",
                 session: nil,
-                launchSubagent: { _, _, _, _, _ in .sync(message: AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:])) },
+                launchSubagent: { _, _, _, _, _, _ in .sync(message: AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:])) },
                 requestApprovalIfNeeded: { _, _, _ in nil },
                 executeTool: { _, _ in .success("normal-result") },
                 normalizeBashRequest: { _ in throw NSError(domain: "test", code: 0) },
