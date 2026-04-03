@@ -35,7 +35,7 @@ final class SubagentBackgroundExecutorTests: XCTestCase {
             session: session,
             runInBackground: false, // 同步路径
             definition: WorkflowRoleDefinition.explorerFixture(),
-            launchSubagent: { _, _ in
+            launchSubagent: { _, _, _ in
                 .sync(message: .text("done", sender: "explore", metadata: [:]))
             }
         )
@@ -69,7 +69,7 @@ final class SubagentBackgroundExecutorTests: XCTestCase {
             session: session,
             runInBackground: true, // 后台路径
             definition: WorkflowRoleDefinition.verifierFixture(),
-            launchSubagent: { _, _ in
+            launchSubagent: { _, _, _ in
                 // 模拟耗时操作保证后台 Task 在 launch() 返回后才完成
                 try? await Task.sleep(for: .seconds(10))
                 return .sync(message: .text("VERDICT: PASS", sender: "verifier", metadata: [:]))
@@ -120,7 +120,7 @@ final class SubagentBackgroundExecutorTests: XCTestCase {
             session: session,
             runInBackground: true,
             definition: WorkflowRoleDefinition.verifierFixture(),
-            launchSubagent: { _, _ in
+            launchSubagent: { _, _, _ in
                 ranOnMainThread = Thread.isMainThread
                 started.fulfill()
                 return .sync(message: .text("VERDICT: PASS", sender: "verifier", metadata: [:]))
@@ -167,7 +167,7 @@ final class SubagentBackgroundExecutorTests: XCTestCase {
             session: session,
             runInBackground: true,
             definition: WorkflowRoleDefinition.workerFixture(),
-            launchSubagent: { _, _ in
+            launchSubagent: { _, _, _ in
                 started.fulfill()
                 try? await Task.sleep(for: .seconds(60)) // 会被取消
                 return .sync(message: .text("done", sender: "worker", metadata: [:]))
@@ -212,7 +212,7 @@ final class SubagentBackgroundExecutorTests: XCTestCase {
             session: session,
             runInBackground: true,
             definition: WorkflowRoleDefinition.explorerFixture(),
-            launchSubagent: { _, _ in
+            launchSubagent: { _, _, _ in
                 try? await Task.sleep(for: .seconds(10))
                 return .sync(message: .text("done", sender: "explore", metadata: [:]))
             },
