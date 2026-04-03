@@ -160,7 +160,11 @@ extension WorkflowRoleDefinition {
         all.first { $0.name == name }
     }
 
-    static var planner: WorkflowRoleDefinition { explore }
+    static var plan: WorkflowRoleDefinition {
+        AgentCatalog.shared.find(named: "plan")!.workflowRoleDefinition
+    }
+
+    static var planner: WorkflowRoleDefinition { plan }
     static var explorer: WorkflowRoleDefinition { explore }
     static var coder: WorkflowRoleDefinition { worker }
     static var reviewer: WorkflowRoleDefinition { verifier }

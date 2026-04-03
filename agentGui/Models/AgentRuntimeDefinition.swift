@@ -151,6 +151,34 @@ extension AgentRuntimeDefinition {
                 disallowedToolNames: document.disallowedToolNames,
                 isOneShot: document.isOneShot
             )
+        case "plan":
+            return AgentRuntimeDefinition(
+                name: document.name,
+                displayName: document.displayName,
+                description: document.description,
+                argumentHint: document.argumentHint,
+                systemPrompt: document.body,
+                toolGrants: toolGrants,
+                maxTurns: document.maxTurns,
+                userInvocable: document.userInvocable,
+                subagentInvocable: document.subagentInvocable,
+                outputContract: document.outputContract,
+                readableArtifacts: [.explorationReport],
+                writableArtifacts: [.plan],
+                subscribesTo: [.task],
+                defaultOutputMessageKind: .statusUpdate,
+                primaryOutputArtifactKind: .plan,
+                maxActivations: 3,
+                modelPreference: document.modelPreference,
+                effort: document.effort,
+                background: document.background,
+                omitMainContext: document.omitMainContext,
+                initialPrompt: document.initialPrompt,
+                criticalReminder: document.criticalReminder,
+                color: document.color,
+                disallowedToolNames: document.disallowedToolNames,
+                isOneShot: document.isOneShot
+            )
         default:
             return AgentRuntimeDefinition(
                 name: document.name,

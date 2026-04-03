@@ -1,7 +1,7 @@
 import Foundation
 
 struct AgentDefinitionLoader {
-    private static let builtInSortOrder = ["explore", "worker", "verifier"]
+    private static let builtInSortOrder = ["explore", "worker", "verifier", "plan"]
     private let requiredFields: Set<String> = [
         "name",
         "display-name",
