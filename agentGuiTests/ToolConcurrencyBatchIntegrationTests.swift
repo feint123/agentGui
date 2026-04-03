@@ -90,8 +90,8 @@ final class ToolConcurrencyBatchIntegrationTests: XCTestCase {
         let registry = DefaultToolRegistry()
         let safeCount = registry.allDefinitions().filter(\.isConcurrencySafe).count
         // 11 tools: web_search, web_fetch, read_tool_payload + 8 LSP tools
-        // (lsp_definition, lsp_references, lsp_hover, lsp_document_symbols,
-        //  lsp_workspace_symbols, lsp_diagnostics, lsp_list_servers, lsp_server_status)
-        XCTAssertEqual(safeCount, 11, "Expected exactly 11 concurrency-safe tools")
+        // Note: run_subagent is NOT in this count; fork subagents are handled via
+        // AgentLoopPendingTool.isForkSubagent flag checked BEFORE isConcurrencySafe (S-F3).
+        XCTAssertEqual(safeCount, 11, "Expected exactly 11 concurrency-safe tools in registry")
     }
 }

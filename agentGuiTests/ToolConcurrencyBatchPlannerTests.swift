@@ -182,4 +182,79 @@ final class ToolConcurrencyBatchPlannerTests: XCTestCase {
             return XCTFail("Expected serial batch after safety check exception")
         }
     }
+
+    // MARK: - S-F3: Fork subagent concurrency
+
+    func test_forkSubagent_treatedAsConcurrencySafe() {
+        let planner = makePlanner(safeToolNames: [])  // run_subagent NOT in safe set
+        var forkTool = AgentLoopPendingTool(id: "fork-id", name: "run_subagent")
+        forkTool.isForkSubagent = true
+        let batches = planner.partition([forkTool])
+        XCTAssertEqual(batches.count, 1)
+        guard case .concurrent(let tools) = batches[0] else {
+            return XCTFail("Fork subagent must produce concurrent batch")
+        }
+        XCTAssertEqual(tools[0].name, "run_subagent")
+    }
+
+    func test_multipleForkSubagents_mergeIntoConcurrentBatch() {
+        let planner = makePlanner(safeToolNames: [])
+        var fork1 = AgentLoopPendingTool(id: "f1", name: "run_subagent")
+        fork1.isForkSubagent = true
+        var fork2 = AgentLoopPendingTool(id: "f2", name: "run_subagent")
+        fork2.isForkSubagent = true
+        var fork3 = AgentLoopPendingTool(id: "f3", name: "run_subagent")
+        fork3.isForkSubagent = true
+
+        let batches = planner.partition([fork1, fork2, fork3])
+        XCTAssertEqual(batches.count, 1, "Three fork subagents should merge into one concurrent batch")
+        guard case .concurrent(let tools) = batches[0] else {
+            return XCTFail("Expected single concurrent batch")
+        }
+        XCTAssertEqual(tools.count, 3)
+    }
+
+    func test_forkSubagent_mergesWithOtherSafeTools() {
+        let planner = makePlanner(safeToolNames: ["web_search"])
+        var fork = AgentLoopPendingTool(id: "f1", name: "run_subagent")
+        fork.isForkSubagent = true
+        let webSearch = AgentLoopPendingTool(id: "ws-1", name: "web_search")
+
+        let batches = planner.partition([webSearch, fork])
+        XCTAssertEqual(batches.count, 1, "Fork subagent should merge with preceding safe tool")
+        guard case .concurrent(let tools) = batches[0] else {
+            return XCTFail("Expected concurrent batch")
+        }
+        XCTAssertEqual(tools.count, 2)
+    }
+
+    func test_nonForkRunSubagent_remainsSerial() {
+        // Non-fork run_subagent calls (standard subagents) must remain serial
+        // to preserve the existing synchronous execution semantics.
+        let planner = makePlanner(safeToolNames: [])
+        let subagent = AgentLoopPendingTool(id: "s1", name: "run_subagent")
+        // isForkSubagent defaults to false
+        let batches = planner.partition([subagent])
+        guard case .serial(let tool) = batches.first else {
+            return XCTFail("Non-fork run_subagent must remain serial")
+        }
+        XCTAssertEqual(tool.name, "run_subagent")
+    }
+
+    func test_serialToolBetweenForkTools_producesThreeBatches() {
+        let planner = makePlanner(safeToolNames: [])
+        var fork1 = AgentLoopPendingTool(id: "f1", name: "run_subagent")
+        fork1.isForkSubagent = true
+        let bash = AgentLoopPendingTool(id: "bash-1", name: "bash")
+        var fork2 = AgentLoopPendingTool(id: "f2", name: "run_subagent")
+        fork2.isForkSubagent = true
+
+        let batches = planner.partition([fork1, bash, fork2])
+        XCTAssertEqual(batches.count, 3)
+        guard case .concurrent = batches[0],
+              case .serial = batches[1],
+              case .concurrent = batches[2] else {
+            return XCTFail("Expected concurrent / serial / concurrent pattern")
+        }
+    }
 }

@@ -26,17 +26,16 @@ struct ToolConcurrencyBatchPlanner {
 
     /// Partition `tools` into an ordered sequence of execution batches.
     ///
-    /// - Note (S-F3 reservation): When the Fork concurrent subagent dispatcher
-    ///   (S-F3 in `2026-04-01-subagent-capability-enhancement-design.md`) is implemented,
-    ///   fork-mode subagents should be classified as concurrency-safe here by inspecting
-    ///   `tool.subagentType` (or an equivalent annotation on `AgentLoopPendingTool`).  
-    ///   Add a branch before the `isConcurrencySafe` check, e.g.:
-    ///   ```swift
-    ///   if tool.subagentType == .fork { /* treat as safe */ }
-    ///   ```
+    /// S-F3: Fork-mode subagents (`tool.isForkSubagent == true`) are treated as
+    /// concurrency-safe regardless of their tool name, enabling multiple fork children
+    /// dispatched in the same agent turn to execute in parallel (see S-F3 in
+    /// `2026-04-01-subagent-capability-enhancement-design.md`).
     func partition(_ tools: [AgentLoopPendingTool]) -> [ToolExecutionBatch] {
         tools.reduce(into: [ToolExecutionBatch]()) { batches, tool in
-            let safe = (try? isConcurrencySafe(tool.name)) ?? false
+            // S-F3: fork subagents are always concurrency-safe — checked BEFORE isConcurrencySafe
+            // to avoid relying on run_subagent's ToolRegistry entry (which remains serial-safe
+            // to keep non-fork subagents serialized).
+            let safe = tool.isForkSubagent || ((try? isConcurrencySafe(tool.name)) ?? false)
             if safe, case .concurrent(var existing) = batches.last {
                 // Merge into the current open concurrent batch.
                 existing.append(tool)

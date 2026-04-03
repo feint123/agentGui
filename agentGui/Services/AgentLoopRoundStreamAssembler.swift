@@ -1,10 +1,40 @@
 import Foundation
 import SwiftAnthropic
 
+// MARK: - S-F3 Fork Context
+
+/// S-F3: fork 子代理执行所需的父代理上下文，在 AgentLoopRoundExecutor.handleToolUseOutcome
+/// 中注入（batch planning 前）。
+///
+/// 使用独立类型而非直接扩展 AgentLoopPendingTool，避免将大型 MessageParameter.Message
+/// 数组带入 Equatable 语义，同时使 context 的生命周期与 pending tool 解耦。
+struct AgentLoopForkContext {
+    /// 当前 assistant 轮次开始前的完整对话历史（父代理视角）。
+    /// 用于构建 fork 子代理的初始消息前缀（拼在 buildForkedMessages 之前）。
+    let parentMessages: [MessageParameter.Message]
+    /// 当前 assistant 轮次的所有 content object（text + thinking + 所有 toolUse）。
+    /// 传给 ForkMessageBuilder.buildForkedMessages(directive:assistantObjects:)。
+    let assistantObjects: [MessageParameter.Message.Content.ContentObject]
+    /// 父代理当前使用的系统提示文本（已渲染字符串）。
+    /// fork 子代理使用此系统提示替代 WorkflowRoleDefinition.systemPrompt，
+    /// 确保与父代理 byte-identical 的 system prompt（最大化 prompt cache 命中）。
+    let parentSystemPromptText: String?
+}
+
 struct AgentLoopPendingTool: Equatable {
     let id: String
     let name: String
     var partialJson: String = ""
+
+    /// S-F1: Set to `true` when this pending tool represents a fork-mode subagent call.
+    /// Used by ToolConcurrencyBatchPlanner (S-F3) to mark fork subagents as concurrency-safe,
+    /// enabling parallel execution of multiple fork children in the same batch.
+    var isForkSubagent: Bool = false
+
+    /// S-F3: Fork 执行上下文（仅 isForkSubagent == true 时非 nil）。
+    /// 由 AgentLoopRoundExecutor.handleToolUseOutcome 在 batch planning 之前注入。
+    /// 不参与 Equatable 比较（不影响测试 snapshot 比较语义）。
+    var forkContext: AgentLoopForkContext? = nil
 
     var parsedInput: MessageResponse.Content.Input {
         guard let data = partialJson.data(using: .utf8),
@@ -33,6 +63,15 @@ struct AgentLoopPendingTool: Equatable {
         default:
             return .string(String(describing: value))
         }
+    }
+
+    // S-F3: forkContext 含 MessageParameter.Message（非 Equatable），手动实现 ==
+    static func == (lhs: AgentLoopPendingTool, rhs: AgentLoopPendingTool) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.name == rhs.name &&
+        lhs.partialJson == rhs.partialJson &&
+        lhs.isForkSubagent == rhs.isForkSubagent
+        // forkContext intentionally excluded — context is implementation detail, not stream state
     }
 }
 
