@@ -26,13 +26,16 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
         return AgentLoopToolExecutionCoordinator(
             dependencies: .init(
                 sessionID: "test-session",
-                runSubagent: { _, _ in AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:]) },
+                session: nil,
+                launchSubagent: { _, _, _, _, _ in .sync(message: AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:])) },
                 requestApprovalIfNeeded: { _, _, _ in nil },
                 executeTool: { _, _ in capturedResult },
                 normalizeBashRequest: { _ in throw NSError(domain: "test", code: 0) },
                 startForegroundBashObservation: { _, _ in nil },
                 finishBashObservation: { _, _, _ in },
-                hookPipeline: pipeline
+                hookPipeline: pipeline,
+                backgroundExecutor: SubagentBackgroundExecutor(),
+                modelContext: nil
             )
         )
     }
@@ -46,7 +49,8 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
         let coordinator = AgentLoopToolExecutionCoordinator(
             dependencies: .init(
                 sessionID: "test-session",
-                runSubagent: { _, _ in AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:]) },
+                session: nil,
+                launchSubagent: { _, _, _, _, _ in .sync(message: AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:])) },
                 requestApprovalIfNeeded: { _, _, _ in nil },
                 executeTool: { _, _ in
                     executorCalled = true
@@ -55,7 +59,9 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
                 normalizeBashRequest: { _ in throw NSError(domain: "test", code: 0) },
                 startForegroundBashObservation: { _, _ in nil },
                 finishBashObservation: { _, _, _ in },
-                hookPipeline: pipeline
+                hookPipeline: pipeline,
+                backgroundExecutor: SubagentBackgroundExecutor(),
+                modelContext: nil
             )
         )
 
@@ -147,13 +153,16 @@ final class ToolExecutionHookCoordinatorIntegrationTests: XCTestCase {
         let coordinator = AgentLoopToolExecutionCoordinator(
             dependencies: .init(
                 sessionID: "test-session",
-                runSubagent: { _, _ in AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:]) },
+                session: nil,
+                launchSubagent: { _, _, _, _, _ in .sync(message: AgentMessage(sender: "test", recipient: "main", content: .text(""), metadata: [:])) },
                 requestApprovalIfNeeded: { _, _, _ in nil },
                 executeTool: { _, _ in .success("normal-result") },
                 normalizeBashRequest: { _ in throw NSError(domain: "test", code: 0) },
                 startForegroundBashObservation: { _, _ in nil },
                 finishBashObservation: { _, _, _ in },
-                hookPipeline: nil
+                hookPipeline: nil,
+                backgroundExecutor: SubagentBackgroundExecutor(),
+                modelContext: nil
             )
         )
         let outcome = await coordinator.execute(

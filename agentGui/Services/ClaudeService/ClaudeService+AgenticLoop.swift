@@ -208,7 +208,8 @@ extension ClaudeService {
             toolApprovalMode: request.toolApprovalMode,
             settings: runtime.settings,
             sessionId: runtime.sessionId,
-            modelContext: runtime.modelContext
+            modelContext: runtime.modelContext,
+            session: runtime.session
         ).build()
         let sharedState = AgentLoopSharedStateAccess(
             readVerification: { self.sessionVerifications[$0] },

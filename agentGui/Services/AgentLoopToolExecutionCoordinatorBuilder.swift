@@ -13,21 +13,85 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
     let settings: AppSettings
     let sessionId: String
     let modelContext: ModelContext
+    /// S-C2: 父代理 Session 对象（用于后台通知消息写入目标）
+    let session: Session?
 
     func build() -> AgentLoopToolExecutionCoordinator {
-        AgentLoopToolExecutionCoordinator(
+        let executor = SubagentBackgroundExecutor()
+        let capturedSession = session
+        let capturedSessionId = sessionId
+        let capturedModelContext = modelContext
+
+        return AgentLoopToolExecutionCoordinator(
             dependencies: .init(
                 sessionID: sessionId,
-                runSubagent: { input, record in
-                    await claudeService.executeRunSubagentTool(
-                        input: input,
-                        toolCallRecord: record,
-                        service: service,
-                        modelId: modelId,
-                        settings: settings,
-                        sessionId: sessionId,
-                        modelContext: modelContext
-                    )
+                session: session,
+                launchSubagent: { [claudeService, service, modelId, settings] input, record, definitionResolver, backgroundExecutor, ctx in
+                    let agentName = input["agent_name"]?.stringValue ?? ""
+                    let task = input["task"]?.stringValue ?? ""
+                    let overrideModelId = input["model"]?.stringValue.flatMap {
+                        $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0
+                    }
+                    let runInBackground = input["run_in_background"]?.boolValue ?? false
+
+                    guard let definition = definitionResolver(agentName) else {
+                        let available = AgentCatalog.shared.subagentInvocableAgents.map(\.name).joined(separator: ", ")
+                        return .sync(message: .error("unknown agent '\(agentName)'. Available: \(available)", sender: "system"))
+                    }
+
+                    let shouldRunBackground = runInBackground || definition.background
+
+                    let taskDescription = String(task.prefix(50))
+                    let sessionUUID = UUID(uuidString: capturedSessionId) ?? UUID()
+
+                    if shouldRunBackground, let parentSession = capturedSession, let ctx {
+                        let params = SubagentBackgroundLaunchParams(
+                            agentName: agentName,
+                            task: task,
+                            taskDescription: taskDescription,
+                            toolCallRecord: record,
+                            sessionID: sessionUUID,
+                            session: parentSession,
+                            runInBackground: true,
+                            definition: definition,
+                            launchSubagent: { task, def in
+                                do {
+                                    return try await .sync(message: claudeService.runSubagentLoop(
+                                        task: task,
+                                        definition: def,
+                                        toolCallRecord: record,
+                                        service: service,
+                                        modelId: modelId,
+                                        overrideModelId: overrideModelId,
+                                        settings: settings,
+                                        sessionId: capturedSessionId,
+                                        modelContext: capturedModelContext
+                                    ))
+                                } catch {
+                                    return .sync(message: .error(error.localizedDescription, sender: def.name))
+                                }
+                            }
+                        )
+                        return await backgroundExecutor.launch(params: params, modelContext: ctx)
+                    } else {
+                        // 同步路径（无 session 或 ctx，或未请求后台）
+                        do {
+                            let msg = try await claudeService.runSubagentLoop(
+                                task: task,
+                                definition: definition,
+                                toolCallRecord: record,
+                                service: service,
+                                modelId: modelId,
+                                overrideModelId: overrideModelId,
+                                settings: settings,
+                                sessionId: capturedSessionId,
+                                modelContext: capturedModelContext
+                            )
+                            return .sync(message: msg)
+                        } catch {
+                            return .sync(message: .error(error.localizedDescription, sender: definition.name))
+                        }
+                    }
                 },
                 requestApprovalIfNeeded: { name, input, record in
                     await requestApprovalIfNeeded(
@@ -61,7 +125,9 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                         result: result
                     )
                 },
-                hookPipeline: buildHookPipeline()
+                hookPipeline: buildHookPipeline(),
+                backgroundExecutor: executor,
+                modelContext: modelContext
             )
         )
     }

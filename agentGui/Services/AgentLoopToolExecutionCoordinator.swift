@@ -1,5 +1,6 @@
 import Foundation
 import SwiftAnthropic
+import SwiftData
 
 struct AgentLoopToolExecutionOutcome {
     let result: ToolExecutionResult
@@ -9,13 +10,20 @@ struct AgentLoopToolExecutionOutcome {
 struct AgentLoopToolExecutionCoordinator {
     struct Dependencies {
         let sessionID: String                          // F-C4: propagated to hook pipeline
-        let runSubagent: (MessageResponse.Content.Input, ToolCall) async -> AgentMessage
+        /// S-C2: 父代理 Session 对象（用于写入后台完成通知消息）
+        let session: Session?
+        /// S-C2: 替代原有 runSubagent 闭包，返回值改为 SubagentLaunchResult（区分同步/异步）
+        let launchSubagent: (MessageResponse.Content.Input, ToolCall, (String) -> WorkflowRoleDefinition?, SubagentBackgroundExecutor, ModelContext?) async -> SubagentLaunchResult
         let requestApprovalIfNeeded: (String, MessageResponse.Content.Input, ToolCall) async -> ToolExecutionResult?
         let executeTool: (String, MessageResponse.Content.Input) async -> ToolExecutionResult
         let normalizeBashRequest: (MessageResponse.Content.Input) throws -> BashToolRequest
         let startForegroundBashObservation: (BashToolRequest, ToolCall) async -> Task<Void, Never>?
         let finishBashObservation: (BashToolRequest, ToolCall, ToolExecutionResult) async -> Void
         var hookPipeline: ToolExecutionHookPipeline?   // F-C3/C4/C5 will register hooks here
+        /// S-C2: 共享后台执行器
+        let backgroundExecutor: SubagentBackgroundExecutor
+        /// S-C2: ModelContext（用于 SubagentTaskRecord 持久化）
+        let modelContext: ModelContext?
     }
 
     let dependencies: Dependencies
@@ -33,13 +41,26 @@ struct AgentLoopToolExecutionCoordinator {
         }
 
         if pendingTool.name == "run_subagent" {
-            let agentMessage = await dependencies.runSubagent(input, record)
+            let launchResult = await dependencies.launchSubagent(
+                input,
+                record,
+                { name in AgentCatalog.shared.find(named: name)?.workflowRoleDefinition },
+                dependencies.backgroundExecutor,
+                dependencies.modelContext
+            )
             record.subagentAgentName = input["agent_name"]?.stringValue
-            record.subagentResultKind = agentMessage.content.kindLabel
-            if !agentMessage.metadata.isEmpty {
-                record.subagentMessageMetadata = agentMessage.metadata
+            if case .sync(let msg) = launchResult {
+                record.subagentResultKind = msg.content.kindLabel
+                if !msg.metadata.isEmpty {
+                    record.subagentMessageMetadata = msg.metadata
+                }
+            } else {
+                record.subagentResultKind = "async"
             }
-            return AgentLoopToolExecutionOutcome(result: agentMessage.toExecutionResult(), record: record)
+            return AgentLoopToolExecutionOutcome(
+                result: ToolExecutionResult(launchResult.toolResultText),
+                record: record
+            )
         }
 
         let isBash = pendingTool.name == "bash"
