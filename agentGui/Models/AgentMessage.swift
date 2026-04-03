@@ -48,6 +48,15 @@ enum MessageContent: Sendable {
         if case .error = self { return true }
         return false
     }
+
+    /// Raw underlying string value (without error prefix).
+    var rawText: String {
+        switch self {
+        case .text(let s):        return s
+        case .structured(let j): return j
+        case .error(let desc):   return desc
+        }
+    }
 }
 
 // MARK: - AgentMessage

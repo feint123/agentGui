@@ -277,6 +277,18 @@ struct DefaultToolRegistry: ToolRegistry {
                                 (or inherits the parent model). \
                                 Example: "claude-haiku-4-5" for fast/low-cost tasks.
                                 """
+                        ),
+                        // S-C2: 后台执行标志
+                        "run_in_background": .init(
+                            type: .boolean,
+                            description: """
+                                Optional. When true, the subagent runs asynchronously in the background. \
+                                The tool call returns immediately with a launch receipt \
+                                ({"status":"async_launched","agent_id":"...","poll_after":30}). \
+                                Use poll_subagent(agent_id:) to check progress or wait for the \
+                                task-notification system message. \
+                                Default: false (synchronous, blocks until completion).
+                                """
                         )
                     ],
                     required: ["agent_name", "task"]
