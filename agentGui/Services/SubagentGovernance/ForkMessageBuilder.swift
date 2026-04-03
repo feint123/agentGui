@@ -123,4 +123,50 @@ struct ForkMessageBuilder {
             return id
         }
     }
+
+    // MARK: - S-F3: assistantObjects overload
+
+    /// S-F3: Build the `[assistantMsg, userMsg]` pair using pre-extracted assistant content objects.
+    ///
+    /// Unlike the S-F2 overload, this variant does NOT embed `parentMessages` in its return
+    /// value. The caller must prepend them:
+    /// ```
+    /// let forked = builder.buildForkedMessages(directive:assistantObjects:)
+    /// let initialMessages = ctx.parentMessages + forked
+    /// ```
+    ///
+    /// This enables the `AgentLoopForkContext`-based (S-F3) concurrent dispatch path.
+    func buildForkedMessages(
+        directive: String,
+        assistantObjects: [MessageParameter.Message.Content.ContentObject]
+    ) -> [MessageParameter.Message] {
+        let toolUseIDs = assistantObjects.compactMap { obj -> String? in
+            if case .toolUse(let id, _, _) = obj { return id }
+            return nil
+        }
+
+        guard !toolUseIDs.isEmpty else {
+            return [MessageParameter.Message(
+                role: .user,
+                content: .list([.text(Self.buildChildMessage(directive: directive))])
+            )]
+        }
+
+        let assistantMsg = MessageParameter.Message(
+            role: .assistant,
+            content: .list(assistantObjects)
+        )
+
+        var userObjects: [MessageParameter.Message.Content.ContentObject] = toolUseIDs.map { id in
+            .toolResult(id, FORK_PLACEHOLDER_RESULT, isError: nil)
+        }
+        userObjects.append(.text(Self.buildChildMessage(directive: directive)))
+
+        let userMsg = MessageParameter.Message(
+            role: .user,
+            content: .list(userObjects)
+        )
+
+        return [assistantMsg, userMsg]
+    }
 }

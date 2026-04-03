@@ -7,6 +7,18 @@ import Foundation
 import SwiftAnthropic
 import SwiftData
 
+// MARK: - S-F3 Fork Override
+
+/// S-F3: fork 子代理执行参数，用于覆盖 runSubagentLoop 的默认消息构建和系统提示。
+struct ForkSubagentOverride {
+    /// 已由 ForkMessageBuilder 构建好的初始消息列表：[...parentHistory, assistantMsg, userMsg]
+    /// 替代默认的单条 task user 消息。
+    let initialMessages: [MessageParameter.Message]
+    /// 父代理已渲染的系统提示文本（byte-identical 确保 cache 命中）。
+    /// 替代 WorkflowRoleDefinition.systemPrompt。
+    let parentSystemPromptText: String?
+}
+
 // MARK: - Subagent Support
 
 extension ClaudeService {
@@ -117,7 +129,9 @@ extension ClaudeService {
         modelContext: ModelContext,
         onProgressUpdate: (@MainActor @Sendable (SubagentProgress) -> Void)? = nil,
         /// S-F2: 当提供此参数时，跳过默认首轮消息构造，直接使用指定消息列表（用于 fork child）。
-        initialMessagesOverride: [MessageParameter.Message]? = nil
+        initialMessagesOverride: [MessageParameter.Message]? = nil,
+        /// S-F3: fork 子代理覆盖参数（含预构建消息 + 父代理系统提示）；优先于 initialMessagesOverride。
+        forkOverride: ForkSubagentOverride? = nil
     ) async throws -> AgentMessage {
         let startTime = Date()
 
@@ -128,18 +142,26 @@ extension ClaudeService {
             overrideModelId: overrideModelId
         )
 
-        // S-F2: 若提供了 initialMessagesOverride（fork 路径），直接使用；否则按默认首轮构造
+        // S-F3 > S-F2 > default: 按优先级选择初始消息和系统提示
         var loopMessages: [MessageParameter.Message]
-        if let override = initialMessagesOverride {
+        let systemText: String
+        if let fork = forkOverride {
+            // S-F3: 使用预构建的 fork 消息和父代理系统提示
+            loopMessages = fork.initialMessages
+            systemText = fork.parentSystemPromptText ?? definition.systemPrompt
+        } else if let override = initialMessagesOverride {
+            // S-F2: 使用 implicit fork 构建的消息列表
             loopMessages = override
+            systemText = definition.systemPrompt
         } else {
             let firstTurnContent = ClaudeService.buildSubagentFirstTurnMessage(
                 task: task,
                 criticalReminder: definition.criticalReminder
             )
             loopMessages = [.init(role: .user, content: .text(firstTurnContent))]
+            systemText = definition.systemPrompt
         }
-        let system = makeEphemeralSystemPrompt(definition.systemPrompt)
+        let system = makeEphemeralSystemPrompt(systemText)
         let request = AgentLoopRunRequest(
             service: service,
             modelId: resolvedModelId,

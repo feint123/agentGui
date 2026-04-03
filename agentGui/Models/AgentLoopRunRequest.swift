@@ -16,6 +16,9 @@ struct AgentLoopRunRequest {
     let requestedBudgetSeconds: TimeInterval?
     /// 每轮 user-message 前重新注入的短提醒（nil = 不注入）。由 S-A5 引入。
     let criticalReminder: String?
+    /// S-F3: 主代理已渲染的系统提示文本，供 fork 子代理直接复用以命中 prompt cache。
+    /// 仅主代理 loop 设置此字段；subagent loop 保持 nil。
+    let renderedSystemPromptText: String?
 
     init(
         service: any AnthropicService,
@@ -28,7 +31,8 @@ struct AgentLoopRunRequest {
         runSource: String,
         runLabel: String?,
         requestedBudgetSeconds: TimeInterval?,
-        criticalReminder: String? = nil
+        criticalReminder: String? = nil,
+        renderedSystemPromptText: String? = nil   // S-F3
     ) {
         self.service = service
         self.modelId = modelId
@@ -41,5 +45,6 @@ struct AgentLoopRunRequest {
         self.runLabel = runLabel
         self.requestedBudgetSeconds = requestedBudgetSeconds
         self.criticalReminder = criticalReminder
+        self.renderedSystemPromptText = renderedSystemPromptText   // S-F3
     }
 }

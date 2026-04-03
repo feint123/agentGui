@@ -38,7 +38,8 @@ extension ClaudeService {
             toolApprovalMode: SessionExecutionPreferencesResolver.builtInApprovalMode(for: session, settings: settings),
             runSource: "mainAgent",
             runLabel: assistantMessage.textContent,
-            requestedBudgetSeconds: nil
+            requestedBudgetSeconds: nil,
+            renderedSystemPromptText: systemPrompt   // S-F3: fork 子代理可通过 request.renderedSystemPromptText 复用
         )
         let runtime = AgentLoopRuntime(
             settings: settings,
@@ -110,7 +111,8 @@ extension ClaudeService {
             toolApprovalMode: .bypassApprovals,
             runSource: "remoteChannel",
             runLabel: text,
-            requestedBudgetSeconds: nil
+            requestedBudgetSeconds: nil,
+            renderedSystemPromptText: systemPrompt   // S-F3: fork 子代理可通过 request.renderedSystemPromptText 复用
         )
         let runtime = AgentLoopRuntime(
             settings: runtimeSettings,

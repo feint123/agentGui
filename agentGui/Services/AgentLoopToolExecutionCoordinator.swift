@@ -13,8 +13,8 @@ struct AgentLoopToolExecutionCoordinator {
         /// S-C2: 父代理 Session 对象（用于写入后台完成通知消息）
         let session: Session?
         /// S-C2: 替代原有 runSubagent 闭包，返回值改为 SubagentLaunchResult（区分同步/异步）
-        /// S-F2: 第 6 个参数为可选 ForkParentContext（fork 路径时提供）
-        let launchSubagent: (MessageResponse.Content.Input, ToolCall, (String) -> WorkflowRoleDefinition?, SubagentBackgroundExecutor, ModelContext?, ForkParentContext?) async -> SubagentLaunchResult
+        /// S-F3: 第 6 个参数改为 ForkSubagentOverride?（统一 S-F2 隐式 fork 和 S-F3 命名 fork 路径）
+        let launchSubagent: (MessageResponse.Content.Input, ToolCall, (String) -> WorkflowRoleDefinition?, SubagentBackgroundExecutor, ModelContext?, ForkSubagentOverride?) async -> SubagentLaunchResult
         let requestApprovalIfNeeded: (String, MessageResponse.Content.Input, ToolCall) async -> ToolExecutionResult?
         let executeTool: (String, MessageResponse.Content.Input) async -> ToolExecutionResult
         let normalizeBashRequest: (MessageResponse.Content.Input) throws -> BashToolRequest
@@ -44,13 +44,42 @@ struct AgentLoopToolExecutionCoordinator {
         }
 
         if pendingTool.name == "run_subagent" {
+            // S-F3: 命名 fork 路径 — agent_name = "fork" 且 isForkSubagent == true
+            var forkOverride: ForkSubagentOverride? = nil
+            if pendingTool.isForkSubagent, let ctx = pendingTool.forkContext {
+                let directive = input["task"]?.stringValue ?? ""
+                let forkedMessages = ForkMessageBuilder().buildForkedMessages(
+                    directive: directive,
+                    assistantObjects: ctx.assistantObjects
+                )
+                let initialMessages = ctx.parentMessages + forkedMessages
+                forkOverride = ForkSubagentOverride(
+                    initialMessages: initialMessages,
+                    parentSystemPromptText: ctx.parentSystemPromptText
+                )
+            }
+            // S-F2: 隐式 fork 路径 — agent_name 缺失且提供了 ForkParentContext
+            else if (input["agent_name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }) == nil,
+                    let ctx = forkParentContext {
+                let directive = input["task"]?.stringValue ?? ""
+                let initialMessages = ForkMessageBuilder().buildForkedMessages(
+                    directive: directive,
+                    parentHistory: ctx.parentHistory,
+                    assistantMessage: ctx.assistantMessage
+                )
+                forkOverride = ForkSubagentOverride(
+                    initialMessages: initialMessages,
+                    parentSystemPromptText: nil
+                )
+            }
+
             let launchResult = await dependencies.launchSubagent(
                 input,
                 record,
                 { name in AgentCatalog.shared.find(named: name)?.workflowRoleDefinition },
                 dependencies.backgroundExecutor,
                 dependencies.modelContext,
-                forkParentContext
+                forkOverride   // S-F3: nil for normal subagent, non-nil for fork path
             )
             // S-F2: for implicit fork, agent_name is absent; fall back to fork type
             let resolvedAgentName = input["agent_name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? FORK_SUBAGENT_TYPE

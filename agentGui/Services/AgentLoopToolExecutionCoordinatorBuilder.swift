@@ -26,7 +26,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
             dependencies: .init(
                 sessionID: sessionId,
                 session: session,
-                launchSubagent: { [claudeService, service, modelId, settings] input, record, definitionResolver, backgroundExecutor, ctx, forkParentContext in
+                launchSubagent: { [claudeService, service, modelId, settings] input, record, definitionResolver, backgroundExecutor, ctx, forkOverride in
                     let agentName = input["agent_name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
                     let task = input["task"]?.stringValue ?? ""
                     let overrideModelId = input["model"]?.stringValue.flatMap {
@@ -34,34 +34,21 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                     }
                     let runInBackground = input["run_in_background"]?.boolValue ?? false
 
-                    // S-F2: implicit fork path — agent_name absent
-                    if agentName == nil {
-                        // S-F2/Task 5.1: 防递归 — fork child 不能再 fork
-                        let parentMessages = forkParentContext?.parentHistory ?? []
-                        if isInForkChild(parentMessages) {
+                    // S-F3/S-F2: fork path — forkOverride was pre-built by execute()
+                    if let forkOvr = forkOverride {
+                        // Anti-recursion guard: check if we're already inside a fork child
+                        if isInForkChild(forkOvr.initialMessages) {
                             return .sync(message: .error(
                                 "Fork subagent cannot spawn another fork subagent.",
                                 sender: "system"
                             ))
                         }
 
-                        guard let forkCtx = forkParentContext else {
-                            return .sync(message: .error(
-                                "Implicit fork requires parent context; none was provided.",
-                                sender: "system"
-                            ))
-                        }
-
                         let forkDefinition = ForkSubagentDefinition.makeWorkflowRoleDefinition()
-                        let initialMessages = ForkMessageBuilder().buildForkedMessages(
-                            directive: task,
-                            parentHistory: forkCtx.parentHistory,
-                            assistantMessage: forkCtx.assistantMessage
-                        )
                         let taskDescription = String(task.prefix(50))
                         let sessionUUID = UUID(uuidString: capturedSessionId) ?? UUID()
 
-                        // S-F2/Task 5.2: fork 路径强制后台执行
+                        // Fork path always runs in background
                         if let parentSession = capturedSession, let ctx {
                             let params = SubagentBackgroundLaunchParams(
                                 agentName: FORK_SUBAGENT_TYPE,
@@ -85,7 +72,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                                             sessionId: capturedSessionId,
                                             modelContext: capturedModelContext,
                                             onProgressUpdate: progressCallback,
-                                            initialMessagesOverride: initialMessages
+                                            forkOverride: forkOvr   // S-F3: pass pre-built override
                                         ))
                                     } catch {
                                         return .sync(message: .error(error.localizedDescription, sender: def.name))
@@ -94,7 +81,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                             )
                             return await backgroundExecutor.launch(params: params, modelContext: ctx)
                         } else {
-                            // 无 session／ctx 时同步降级执行（保留功能完整性）
+                            // Graceful fallback: no session/ctx — run synchronously
                             do {
                                 let msg = try await claudeService.runSubagentLoop(
                                     task: task,
@@ -106,7 +93,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                                     settings: settings,
                                     sessionId: capturedSessionId,
                                     modelContext: capturedModelContext,
-                                    initialMessagesOverride: initialMessages
+                                    forkOverride: forkOvr   // S-F3
                                 )
                                 return .sync(message: msg)
                             } catch {
