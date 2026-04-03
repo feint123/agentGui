@@ -28,7 +28,7 @@ final class SubagentCoordinatorIntegrationTests: XCTestCase {
             dependencies: .init(
                 sessionID: session.sessionId,
                 session: session,
-                launchSubagent: { input, record, definitionResolver, backgroundExecutor, ctx, forkParentContext in
+                launchSubagent: { input, record, definitionResolver, backgroundExecutor, ctx, forkOverride in
                     let msg = AgentMessage.text("explored!", sender: "explore", metadata: [:])
                     capturedResult = msg
                     return SubagentLaunchResult.sync(message: msg)
@@ -79,7 +79,7 @@ final class SubagentCoordinatorIntegrationTests: XCTestCase {
             dependencies: .init(
                 sessionID: session.sessionId,
                 session: session,
-                launchSubagent: { input, record, _, theExecutor, ctx, forkParentContext in
+                launchSubagent: { input, record, _, theExecutor, ctx, forkOverride in
                     // 手动解析 run_in_background 以避免类型推断歧义
                     let runInBg: Bool
                     if case .bool(let b) = input["run_in_background"] { runInBg = b } else { runInBg = false }
@@ -148,15 +148,15 @@ final class SubagentCoordinatorIntegrationTests: XCTestCase {
         context.insert(session)
 
         let executor = SubagentBackgroundExecutor()
-        var capturedForkContext: ForkParentContext?
+        var capturedForkOverride: ForkSubagentOverride?
 
         let coordinator = AgentLoopToolExecutionCoordinator(
             dependencies: .init(
                 sessionID: session.sessionId,
                 session: session,
-                launchSubagent: { input, record, definitionResolver, backgroundExecutor, ctx, forkParentContext in
+                launchSubagent: { input, record, definitionResolver, backgroundExecutor, ctx, forkOverride in
                     // fork 路径： agent_name 缺失
-                    capturedForkContext = forkParentContext
+                    capturedForkOverride = forkOverride
                     let msg = AgentMessage.text("fork result", sender: FORK_SUBAGENT_TYPE, metadata: [:])
                     return .sync(message: msg)
                 },
@@ -198,8 +198,8 @@ final class SubagentCoordinatorIntegrationTests: XCTestCase {
         )
 
         XCTAssertFalse(outcome.result.isError)
-        // fork context 应被传递
-        XCTAssertNotNil(capturedForkContext)
+        // fork override 应被传递（包含预构建的 initialMessages）
+        XCTAssertNotNil(capturedForkOverride)
         // record 中的 agentName 应为 fork 类型
         XCTAssertEqual(toolCallRecord.subagentAgentName, FORK_SUBAGENT_TYPE)
     }
@@ -217,7 +217,7 @@ final class SubagentCoordinatorIntegrationTests: XCTestCase {
             dependencies: .init(
                 sessionID: session.sessionId,
                 session: session,
-                launchSubagent: { input, record, definitionResolver, backgroundExecutor, ctx, forkParentContext in
+                launchSubagent: { input, record, definitionResolver, backgroundExecutor, ctx, forkOverride in
                     if case .string(let s) = input["agent_name"] { capturedAgentName = s } else { capturedAgentName = nil }
                     return .sync(message: .text("done", sender: capturedAgentName ?? "", metadata: [:]))
                 },

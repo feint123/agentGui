@@ -504,7 +504,34 @@ struct AgentLoopRoundExecutor {
 
         // 使用批次规划器分批执行：连续的只读工具并发，其余工具串行
         let batchPlanner = ToolConcurrencyBatchPlanner(registry: DefaultToolRegistry())
-        let batches = batchPlanner.partition(outcome.pendingTools)
+
+        // S-F3: 检测 fork 子代理工具，注入执行上下文（在 batch planning 前）。
+        // fullAssistantObjects 包含当前轮次 assistant 消息的所有 content（text + thinking + toolUse）。
+        // 它被用于 ForkMessageBuilder.buildForkedMessages 构建所有 fork 子代理共享的 assistant prefix。
+        let pendingToolsForBatch: [AgentLoopPendingTool]
+        if outcome.pendingTools.contains(where: { $0.name == "run_subagent" }) {
+            var fullAssistantObjects = outcome.assistantObjects
+            if !outcome.currentRoundText.isEmpty {
+                fullAssistantObjects.append(.text(outcome.currentRoundText))
+            }
+            pendingToolsForBatch = outcome.pendingTools.map { tool in
+                guard tool.name == "run_subagent",
+                      tool.parsedInput["agent_name"]?.stringValue == ForkSubagentDefinition.agentType
+                else { return tool }
+                var forkTool = tool
+                forkTool.isForkSubagent = true
+                forkTool.forkContext = AgentLoopForkContext(
+                    parentMessages: messages,   // 当前 assistant 轮次开始前的完整历史
+                    assistantObjects: fullAssistantObjects,
+                    parentSystemPromptText: request.renderedSystemPromptText
+                )
+                return forkTool
+            }
+        } else {
+            pendingToolsForBatch = outcome.pendingTools
+        }
+
+        let batches = batchPlanner.partition(pendingToolsForBatch)
 
         // S-F2: 构造本轮 ForkParentContext（fork child 初始消息构造所需）
         // assistantMessage 包含本轮所有 tool_use，确保 cache prefix 最大化共享
