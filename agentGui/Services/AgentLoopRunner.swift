@@ -53,6 +53,13 @@ struct AgentLoopRunner {
 					"toolCallsThisRound": outcome.pendingTools.count
 				])
 			)
+
+			// F-B3: AutoCompact — 若 budget 达到阈值，触发对话压缩
+			if let budget = sharedState.readContextBudget(), budget.isAutoCompactReady {
+				if let compactedMessages = await sharedState.runCompactionIfNeeded(messages) {
+					messages = compactedMessages
+				}
+			}
 		}
 
 		return await roundExecutor.buildResult(state: state, messages: messages)
