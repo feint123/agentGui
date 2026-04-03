@@ -4,10 +4,14 @@ import SwiftData
 
 // MARK: - Launch Params
 
+/// S-C2/C4: 子代理执行闭包类型。
+/// - `progressCallback`: S-C3 进度追踪回调（每轮触发）
+/// - `summaryCallbacks`: S-C4 摘要器回调（context 捕获一次 + 消息快照每轮触发），nil = 不摘要
 typealias SubagentLaunchClosure = @MainActor (
     _ task: String,
     _ definition: WorkflowRoleDefinition,
-    _ progressCallback: (@MainActor @Sendable (SubagentProgress) -> Void)?
+    _ progressCallback: (@MainActor @Sendable (SubagentProgress) -> Void)?,
+    _ summaryCallbacks: SubagentSummaryCallbacks?
 ) async -> SubagentLaunchResult
 
 /// S-C2: 后台子代理启动参数包（从 CoordinatorBuilder 传入，避免方法签名过长）。
@@ -92,7 +96,7 @@ actor SubagentBackgroundExecutor {
     ) async -> SubagentLaunchResult {
         // 同步路径：直接执行，不注册 Task
         guard params.runInBackground else {
-            let result = await params.launchSubagent(params.task, params.definition, nil)
+            let result = await params.launchSubagent(params.task, params.definition, nil, nil)
             return result
         }
 
@@ -162,7 +166,7 @@ actor SubagentBackgroundExecutor {
         }
 
         // 执行子代理（可能长时间运行）
-        let result = await params.launchSubagent(params.task, params.definition, progressCallback)
+        let result = await params.launchSubagent(params.task, params.definition, progressCallback, nil)
 
         // 检查 Task 取消
         if Task.isCancelled {

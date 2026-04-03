@@ -59,7 +59,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                                 session: parentSession,
                                 runInBackground: true,
                                 definition: forkDefinition,
-                                launchSubagent: { _, def, progressCallback in
+                                launchSubagent: { _, def, progressCallback, summaryCallbacks in
                                     do {
                                         return try await .sync(message: claudeService.runSubagentLoop(
                                             task: task,
@@ -123,7 +123,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                             session: parentSession,
                             runInBackground: true,
                             definition: definition,
-                            launchSubagent: { task, def, progressCallback in
+                            launchSubagent: { task, def, progressCallback, summaryCallbacks in
                                 do {
                                     return try await .sync(message: claudeService.runSubagentLoop(
                                         task: task,

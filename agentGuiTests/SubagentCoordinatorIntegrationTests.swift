@@ -103,7 +103,7 @@ final class SubagentCoordinatorIntegrationTests: XCTestCase {
                         session: capturedSession,
                         runInBackground: true,
                         definition: definition,
-                        launchSubagent: { _, _, _ in
+                        launchSubagent: { _, _, _, _ in
                             try? await Task.sleep(for: .seconds(10))
                             return .sync(message: .text("VERDICT: PASS", sender: agentNameStr, metadata: [:]))
                         },
