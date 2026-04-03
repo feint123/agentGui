@@ -250,16 +250,23 @@ struct DefaultToolRegistry: ToolRegistry {
                 its own agentic loop with the appropriate tools and returns a result string.
 
                 WHEN TO USE:
-                - Research, codebase discovery, or factual investigation → use "explore"
+                - Local codebase exploration: finding files by pattern, searching symbols, \
+                understanding module structure, or answering "how does X work?" → use "explore"
+                - External research: reports, comparisons, documentation lookup, current facts → use "explore"
                 - Implementing or modifying files, with targeted verification when needed → use "worker"
-                - Ranking open verification claims, residual risks, and the next best probe → use "verifier"
+                - Evidence review, ranking open risks, or final quality gate before finishing → use "verifier"
+
+                When NOT to use:
+                - Reading a single known file path — use str_replace_based_edit_tool (view) directly
+                - Searching within 1–3 specific files — use bash (grep/find) directly
+                - Simple single-step edits — implement directly without delegating
 
                 Available agents:
                 \(context.agentListText)
 
                 The task string must be self-contained: include all context the subagent needs \
-                (file paths, goals, constraints, relevant background). The subagent cannot ask \
-                follow-up questions.
+                (file paths, goals, constraints, relevant background, thoroughness level). \
+                The subagent cannot ask follow-up questions.
                 """
             },
             inputSchemaBuilder: { context in

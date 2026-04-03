@@ -96,6 +96,53 @@ final class SubagentBackgroundExecutorTests: XCTestCase {
         await executor.cancel(agentID: taskID)
     }
 
+    func test_launchAsync_invokesLaunchClosureOnMainActor() async throws {
+        let executor = SubagentBackgroundExecutor()
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let session = Session.fixture(title: "Test")
+        context.insert(session)
+
+        let toolCall = ToolCall(toolCallId: UUID().uuidString, kind: .subagent, message: nil)
+        context.insert(toolCall)
+
+        let started = expectation(description: "launch closure started")
+        let finished = expectation(description: "background task finished")
+        let taskID = UUID()
+        var ranOnMainThread = false
+
+        let params = SubagentBackgroundLaunchParams(
+            agentName: "verifier",
+            task: "Run tests",
+            taskDescription: "Running verifier",
+            toolCallRecord: toolCall,
+            sessionID: UUID(uuidString: session.sessionId) ?? UUID(),
+            session: session,
+            runInBackground: true,
+            definition: WorkflowRoleDefinition.verifierFixture(),
+            launchSubagent: { _, _ in
+                ranOnMainThread = Thread.isMainThread
+                started.fulfill()
+                return .sync(message: .text("VERDICT: PASS", sender: "verifier", metadata: [:]))
+            },
+            overrideTaskID: taskID
+        )
+
+        _ = await executor.launch(params: params, modelContext: context)
+        await fulfillment(of: [started], timeout: 2.0)
+
+        XCTAssertTrue(ranOnMainThread, "后台子代理闭包应在 MainActor 上执行")
+
+        let descriptor = FetchDescriptor<SubagentTaskRecord>()
+        let predicateTaskID = taskID
+        try await Task.sleep(for: .milliseconds(100))
+        let records = try context.fetch(descriptor)
+        XCTAssertEqual(records.first(where: { $0.id == predicateTaskID })?.status, .completed)
+
+        finished.fulfill()
+        await fulfillment(of: [finished], timeout: 0.1)
+    }
+
     // MARK: - cancel() 终止运行中的 Task
 
     func test_cancel_stopsRunningTask() async throws {

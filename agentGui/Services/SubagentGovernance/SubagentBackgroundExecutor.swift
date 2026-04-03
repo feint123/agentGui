@@ -4,6 +4,8 @@ import SwiftData
 
 // MARK: - Launch Params
 
+typealias SubagentLaunchClosure = @MainActor (String, WorkflowRoleDefinition) async -> SubagentLaunchResult
+
 /// S-C2: 后台子代理启动参数包（从 CoordinatorBuilder 传入，避免方法签名过长）。
 struct SubagentBackgroundLaunchParams: @unchecked Sendable {
     /// 代理类型名称（用于 SubagentTaskRecord.agentName）
@@ -22,8 +24,9 @@ struct SubagentBackgroundLaunchParams: @unchecked Sendable {
     let runInBackground: Bool
     /// 代理定义（用于传递给 launchSubagent，保存 modelID 等）
     let definition: WorkflowRoleDefinition
-    /// 执行子代理的闭包（注入依赖，方便测试 mock）
-    let launchSubagent: (String, WorkflowRoleDefinition) async -> SubagentLaunchResult
+    /// 执行子代理的闭包（注入依赖，方便测试 mock）。
+    /// 该闭包会触达 ClaudeService / SwiftData 等主 actor 资源，因此必须在 MainActor 上执行。
+    let launchSubagent: SubagentLaunchClosure
     /// 可选：测试中覆盖 agentID（默认 UUID()）
     let overrideTaskID: UUID?
 
@@ -36,7 +39,7 @@ struct SubagentBackgroundLaunchParams: @unchecked Sendable {
         session: Session,
         runInBackground: Bool,
         definition: WorkflowRoleDefinition,
-        launchSubagent: @escaping (String, WorkflowRoleDefinition) async -> SubagentLaunchResult,
+        launchSubagent: @escaping SubagentLaunchClosure,
         overrideTaskID: UUID? = nil
     ) {
         self.agentName = agentName

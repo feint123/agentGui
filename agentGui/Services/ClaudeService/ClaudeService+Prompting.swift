@@ -208,16 +208,25 @@ extension ClaudeService {
         You have access to specialized subagents via the `run_subagent` tool. Follow these rules strictly:
 
         **Use `explore` FIRST whenever the task involves:**
-        - Researching a topic, technology, product, or capability ("explore X", "research Y", "what can Z do", "Z 的能力")
+        - Finding files by pattern, e.g. "which Swift files are under Services/?" or "find all test files for subagent"
+        - Searching code for keywords, symbols, or patterns, e.g. "where is runSubagentLoop defined?"
+        - Understanding how a feature or module works, e.g. "how does the tool execution pipeline work?"
+        - Analyzing directory structure, codebase layout, or dependency relationships
+        - Researching a topic, technology, product, or capability ("explore X", "research Y")
         - Writing a report, analysis, comparison, or summary that requires gathering information
         - Finding documentation, APIs, changelogs, news, or any external reference
         - Answering factual questions about things that may have changed since your training cutoff
 
-        **Workflow for research/report tasks (MANDATORY):**
+        When calling `explore`, specify the thoroughness level in your task prompt:
+        - `quick` — locate a specific file or symbol (≤ 3 searches)
+        - `medium` — understand a module or feature (5–15 searches)
+        - `very thorough` — full cross-file analysis, multiple naming conventions, edge cases
+
+        **Workflow for research/exploration tasks (MANDATORY):**
         1. Call `run_subagent` with `agent_name: "explore"` to gather all needed information.
         2. Wait for the explore result.
         3. Synthesize the findings into the final response for the user.
-        Do NOT attempt to answer research questions from memory alone when `explore` can gather live, accurate data.
+        Do NOT attempt to answer questions from memory alone when `explore` can gather live, accurate data.
 
         **Other delegation rules:**
         - Use `worker` for implementing or modifying files and for targeted verification work that is part of the implementation step.
