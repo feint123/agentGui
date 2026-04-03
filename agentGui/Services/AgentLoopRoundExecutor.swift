@@ -349,6 +349,15 @@ struct AgentLoopRoundExecutor {
             } ?? []
         )
 
+        // S-C3: 更新子代理进度追踪器（仅子代理 run，同步无 IO）
+        if state.subagentProgressTracker != nil {
+            state.subagentProgressTracker!.update(
+                usage: streamSnapshot.usage,
+                pendingTools: pendingTools
+            )
+            runtime.subagentProgressUpdate?(state.subagentProgressTracker!.snapshot())
+        }
+
         return RoundOutcome(
             roundIndex: roundIdx,
             round: round,
