@@ -4,7 +4,11 @@ import SwiftData
 
 // MARK: - Launch Params
 
-typealias SubagentLaunchClosure = @MainActor (String, WorkflowRoleDefinition) async -> SubagentLaunchResult
+typealias SubagentLaunchClosure = @MainActor (
+    _ task: String,
+    _ definition: WorkflowRoleDefinition,
+    _ progressCallback: (@MainActor @Sendable (SubagentProgress) -> Void)?
+) async -> SubagentLaunchResult
 
 /// S-C2: 后台子代理启动参数包（从 CoordinatorBuilder 传入，避免方法签名过长）。
 struct SubagentBackgroundLaunchParams: @unchecked Sendable {
@@ -88,7 +92,7 @@ actor SubagentBackgroundExecutor {
     ) async -> SubagentLaunchResult {
         // 同步路径：直接执行，不注册 Task
         guard params.runInBackground else {
-            let result = await params.launchSubagent(params.task, params.definition)
+            let result = await params.launchSubagent(params.task, params.definition, nil)
             return result
         }
 
@@ -148,8 +152,17 @@ actor SubagentBackgroundExecutor {
         record: SubagentTaskRecord,
         modelContext: ModelContext
     ) async {
+        // S-C3: 构建进度回调，将 SubagentProgress 写入已持久化的 SubagentTaskRecord
+        // 注意：回调标注 @MainActor，由 AgentLoopRoundExecutor（@MainActor）直接调用，无需 await。
+        // 不在此处调用 modelContext.save()，避免每轮 IO；save 在 finalize 时统一执行。
+        let progressCallback: @MainActor @Sendable (SubagentProgress) -> Void = { [record] progress in
+            record.toolUseCount = progress.toolUseCount
+            record.tokenCount = progress.tokenCount
+            record.lastActivity = progress.lastActivity?.activityDescription
+        }
+
         // 执行子代理（可能长时间运行）
-        let result = await params.launchSubagent(params.task, params.definition)
+        let result = await params.launchSubagent(params.task, params.definition, progressCallback)
 
         // 检查 Task 取消
         if Task.isCancelled {

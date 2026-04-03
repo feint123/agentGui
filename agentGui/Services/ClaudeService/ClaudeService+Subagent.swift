@@ -114,7 +114,8 @@ extension ClaudeService {
         overrideModelId: String? = nil,
         settings: AppSettings,
         sessionId: String,
-        modelContext: ModelContext
+        modelContext: ModelContext,
+        onProgressUpdate: (@MainActor @Sendable (SubagentProgress) -> Void)? = nil
     ) async throws -> AgentMessage {
         let startTime = Date()
 
@@ -156,7 +157,8 @@ extension ClaudeService {
             },
             parentMessage: nil,
             streamProjectionTarget: .none,
-            toolInterceptor: nil
+            toolInterceptor: nil,
+            subagentProgressUpdate: onProgressUpdate  // S-C3
         )
         let result = try await runCoreAgentLoop(
             messages: &loopMessages,

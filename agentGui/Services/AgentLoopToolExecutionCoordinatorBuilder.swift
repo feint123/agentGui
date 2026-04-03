@@ -54,7 +54,7 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                             session: parentSession,
                             runInBackground: true,
                             definition: definition,
-                            launchSubagent: { task, def in
+                            launchSubagent: { task, def, progressCallback in
                                 do {
                                     return try await .sync(message: claudeService.runSubagentLoop(
                                         task: task,
@@ -65,7 +65,8 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                                         overrideModelId: overrideModelId,
                                         settings: settings,
                                         sessionId: capturedSessionId,
-                                        modelContext: capturedModelContext
+                                        modelContext: capturedModelContext,
+                                        onProgressUpdate: progressCallback  // S-C3
                                     ))
                                 } catch {
                                     return .sync(message: .error(error.localizedDescription, sender: def.name))
