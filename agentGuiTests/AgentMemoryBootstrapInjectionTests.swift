@@ -6,6 +6,8 @@
 //
 
 import XCTest
+import SwiftAnthropic
+import SwiftData
 @testable import agentGui
 
 final class AgentMemoryBootstrapInjectionTests: XCTestCase {
@@ -124,5 +126,64 @@ final class AgentMemoryBootstrapInjectionTests: XCTestCase {
             workspaceRoot: nil
         )
         XCTAssertNil(result, "非法代理名称应静默返回 nil，不崩溃")
+    }
+}
+
+// MARK: - loadMemoryBootstrap 子代理守护测试
+
+/// 验证 AgentLoopHookDependencyFactory 的 memoryBootstrapLoader 对子代理返回 nil，
+/// 防止全局主代理记忆泄漏到子代理系统提示。
+@MainActor
+final class SubagentGlobalMemoryGuardTests: XCTestCase {
+
+    func test_memoryBootstrapLoader_returnsNil_forSubagentRun() async throws {
+        // 准备：构建在内存中的 ModelContainer
+        let schema = Schema([AgentRound.self, Message.self, Session.self, ToolCall.self, AppSettings.self])
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [config])
+
+        let settings = AppSettings()
+        settings.memoryEnabled = true
+        container.mainContext.insert(settings)
+
+        // 构建 AgentLoopRuntime
+        let runtime = AgentLoopRuntime(
+            settings: settings,
+            session: nil,
+            sessionId: UUID().uuidString,
+            modelContext: container.mainContext,
+            makeRound: { AgentRound(roundIndex: $0) },
+            parentMessage: nil,
+            streamProjectionTarget: .none,
+            toolInterceptor: nil
+        )
+
+        // 构建 AgentLoopRunRequest，runSource = "subagent"
+        let request = AgentLoopRunRequest(
+            service: AnthropicServiceFactory.service(apiKey: "test", betaHeaders: [String]?.none),
+            modelId: "claude-3-5-haiku-latest",
+            tools: [],
+            system: nil,
+            maxRounds: 5,
+            toolExecutionContext: .subagent,
+            toolApprovalMode: .bypassApprovals,
+            runSource: "subagent",
+            runLabel: "test-agent",
+            requestedBudgetSeconds: nil
+        )
+
+        // 构建 factory
+        let factory = AgentLoopHookDependencyFactory(
+            claudeService: ClaudeService(),
+            request: request,
+            runtime: runtime,
+            bootstrapMessagesSnapshot: []
+        )
+        let deps = factory.build(state: .init())
+
+        // 验证：子代理 runSource → loader 返回 nil
+        let result = try await deps.memoryBootstrapLoader(.init())
+        XCTAssertNil(result,
+            "runSource='subagent' 时 memoryBootstrapLoader 必须返回 nil，防止全局主代理记忆泄漏")
     }
 }

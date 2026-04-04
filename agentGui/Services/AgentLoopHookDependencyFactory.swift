@@ -71,6 +71,9 @@ struct AgentLoopHookDependencyFactory {
         state _: AgentLoopBuiltInHookFactory.State
     ) async throws -> String? {
         guard runtime.settings.memoryEnabled else { return nil }
+        // S-D3: 子代理有自己专属的记忆目录（已在 runSubagentLoop 中注入到系统提示）。
+        // 全局主代理记忆不应泄漏到子代理，此处统一 guard。
+        guard request.runSource != "subagent" else { return nil }
         let composer = AgentLoopMemoryBootstrapComposer(
             memoryDir: ConfigDirectoryManager.shared.memoryDir
         )
