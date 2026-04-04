@@ -375,4 +375,167 @@ final class AgentDefinitionLoaderOpenAgentTests: XCTestCase {
         XCTAssertEqual(verifier.modelPreference, .inherit,
                        "verifier 应继承父代理模型")
     }
+
+    // MARK: - S-D2 memory scope
+
+    func test_documentDefaultMemoryScope_isNil() throws {
+        let loader = AgentDefinitionLoader()
+        let doc = try loader.parseDocument(named: "researcher.agent.md", raw: minimalFrontmatter)
+        XCTAssertNil(doc.memoryScope)
+    }
+
+    func test_memoryScope_project_parsedFromFrontmatter() throws {
+        let raw = """
+            ---
+            name: mem-agent
+            display-name: Memory Agent
+            description: Has project memory.
+            argument-hint: Task.
+            tools: [read_only_editor]
+            max-turns: 20
+            user-invocable: false
+            subagent-invocable: true
+            output-contract: mem_report
+            memory: project
+            ---
+            # Role
+            Agent with memory.
+            """
+        let doc = try AgentDefinitionLoader().parseDocument(named: "mem-agent.agent.md", raw: raw)
+        XCTAssertEqual(doc.memoryScope, .project)
+    }
+
+    func test_memoryScope_user_parsedFromFrontmatter() throws {
+        let raw = """
+            ---
+            name: mem-agent-user
+            display-name: Memory Agent User
+            description: Has user memory.
+            argument-hint: Task.
+            tools: [read_only_editor]
+            max-turns: 20
+            user-invocable: false
+            subagent-invocable: true
+            output-contract: mem_report
+            memory: user
+            ---
+            # Role
+            Agent.
+            """
+        let doc = try AgentDefinitionLoader().parseDocument(named: "mem-agent-user.agent.md", raw: raw)
+        XCTAssertEqual(doc.memoryScope, .user)
+    }
+
+    func test_memoryScope_local_parsedFromFrontmatter() throws {
+        let raw = """
+            ---
+            name: mem-agent-local
+            display-name: Memory Agent Local
+            description: Has local memory.
+            argument-hint: Task.
+            tools: [read_only_editor]
+            max-turns: 20
+            user-invocable: false
+            subagent-invocable: true
+            output-contract: mem_report
+            memory: local
+            ---
+            # Role
+            Agent.
+            """
+        let doc = try AgentDefinitionLoader().parseDocument(named: "mem-agent-local.agent.md", raw: raw)
+        XCTAssertEqual(doc.memoryScope, .local)
+    }
+
+    func test_memoryScope_invalidValue_isNilAndDoesNotThrow() throws {
+        let raw = """
+            ---
+            name: broken-mem
+            display-name: Broken
+            description: Invalid memory scope.
+            argument-hint: Task.
+            tools: [read_only_editor]
+            max-turns: 20
+            user-invocable: false
+            subagent-invocable: true
+            output-contract: broken_report
+            memory: workspace
+            ---
+            # Role
+            Broken.
+            """
+        let doc = try AgentDefinitionLoader().parseDocument(named: "broken-mem.agent.md", raw: raw)
+        XCTAssertNil(doc.memoryScope)
+    }
+
+    func test_memoryScope_absent_isNil() throws {
+        let doc = try AgentDefinitionLoader().parseDocument(named: "researcher.agent.md", raw: minimalFrontmatter)
+        XCTAssertNil(doc.memoryScope)
+    }
+
+    func test_runtimeDefinition_memoryScopePropagated() throws {
+        let raw = """
+            ---
+            name: rt-mem
+            display-name: RT Memory
+            description: Runtime memory agent.
+            argument-hint: Task.
+            tools: [read_only_editor]
+            max-turns: 10
+            user-invocable: false
+            subagent-invocable: true
+            output-contract: rt_report
+            memory: project
+            ---
+            # Role
+            RT.
+            """
+        let doc = try AgentDefinitionLoader().parseDocument(named: "rt-mem.agent.md", raw: raw)
+        let runtime = try AgentRuntimeDefinition.make(from: doc)
+        XCTAssertEqual(runtime.memoryScope, .project)
+    }
+
+    func test_runtimeDefinition_memoryScopeNil_whenAbsent() throws {
+        let doc = try AgentDefinitionLoader().parseDocument(named: "researcher.agent.md", raw: minimalFrontmatter)
+        let runtime = try AgentRuntimeDefinition.make(from: doc)
+        XCTAssertNil(runtime.memoryScope)
+    }
+
+    func test_workflowRoleDefinition_memoryScopePropagated() throws {
+        let raw = """
+            ---
+            name: wrd-mem
+            display-name: WRD Memory
+            description: Workflow memory agent.
+            argument-hint: Task.
+            tools: [read_only_editor]
+            max-turns: 10
+            user-invocable: false
+            subagent-invocable: true
+            output-contract: wrd_report
+            memory: user
+            ---
+            # Role
+            WRD.
+            """
+        let doc = try AgentDefinitionLoader().parseDocument(named: "wrd-mem.agent.md", raw: raw)
+        let runtime = try AgentRuntimeDefinition.make(from: doc)
+        let role = runtime.workflowRoleDefinition
+        XCTAssertEqual(role.memoryScope, .user)
+    }
+
+    func test_workflowRoleDefinition_memoryScopeNil_whenAbsent() throws {
+        let doc = try AgentDefinitionLoader().parseDocument(named: "researcher.agent.md", raw: minimalFrontmatter)
+        let runtime = try AgentRuntimeDefinition.make(from: doc)
+        let role = runtime.workflowRoleDefinition
+        XCTAssertNil(role.memoryScope)
+    }
+
+    func test_exploreBuiltInAgent_hasProjectMemoryScope() throws {
+        let docs = try AgentDefinitionLoader().loadBuiltInDocuments(from: .main)
+        let explore = try XCTUnwrap(docs.first(where: { $0.name == "explore" }),
+            "explore built-in agent should be present")
+        XCTAssertEqual(explore.memoryScope, .project,
+            "explore agent should declare memory: project per S-D2 spec")
+    }
 }

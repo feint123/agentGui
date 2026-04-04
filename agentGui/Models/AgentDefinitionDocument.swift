@@ -27,4 +27,9 @@ struct AgentDefinitionDocument: Sendable, Equatable {
     // MARK: - S-A2 One-Shot
     /// `true` 时子代理执行完成后不附加执行元数据 trailer，节省 token。
     let isOneShot: Bool                        // frontmatter: one-shot (default: false)
+
+    // MARK: - S-D2 Agent Memory Scope
+    /// 子代理持久记忆存储策略。`nil` 表示该代理不启用持久记忆。
+    /// frontmatter 字段: `memory` (可选，值: user｜project｜local)
+    let memoryScope: AgentMemoryScope?          // default: nil
 }
