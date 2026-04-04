@@ -301,6 +301,43 @@ extension ClaudeService {
         return nil
     }
 
+    // MARK: - S-D3 Subagent Memory Bootstrap Injection
+
+    /// 构造子代理专属 memory 引导注入节（对齐 Claude Code `loadAgentMemoryPrompt`）。
+    ///
+    /// - 当 `definition.memoryScope` 为 nil 时直接返回 nil（不注入）。
+    /// - 当代理记忆目录不存在时创建目录（`memory_write` 工具需要可写目录），
+    ///   若目录下 MEMORY.md 为空则返回 nil（不注入占位段）。
+    /// - 调用方负责将非 nil 的返回值以 `"\n\n"` 追加到 systemText。
+    ///
+    /// `nonisolated static` 便于单元测试中在不模拟 API 的前提下验证注入逻辑。
+    nonisolated static func composeSubagentMemorySection(
+        definition: WorkflowRoleDefinition,
+        agentguiBaseDir: URL,
+        workspaceRoot: URL?
+    ) -> String? {
+        guard let scope = definition.memoryScope else { return nil }
+
+        let resolver = AgentMemoryPathResolver(
+            agentguiBaseDir: agentguiBaseDir,
+            workspaceRoot: workspaceRoot
+        )
+
+        // 安全校验：非法代理名称静默跳过（路径遍历防护）
+        guard AgentMemoryPathResolver.sanitize(definition.name) != nil else { return nil }
+
+        let agentMemDir = resolver.memoryDir(agentType: definition.name, scope: scope)
+
+        // 确保目录存在，供 memory_write 工具写入（fire-and-forget）
+        try? FileManager.default.createDirectory(
+            at: agentMemDir,
+            withIntermediateDirectories: true
+        )
+
+        let composer = AgentLoopMemoryBootstrapComposer(memoryDir: agentMemDir)
+        return composer.compose().systemPromptSection
+    }
+
     // MARK: - S-A2 One-Shot Trailer
 
     /// 根据 isOneShot 标记生成执行元数据 trailer。
