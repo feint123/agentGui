@@ -206,6 +206,21 @@ extension ClaudeService {
             callbacks.onContextCaptured(summaryCtx)
         }
 
+        // S-D4: 计算子代理专属记忆目录（用于 memory_write 路由）。
+        // 与 S-D3 的 composeSubagentMemorySection 使用相同的 resolver 和 scope，
+        // 但返回 URL 而非系统提示片段，供 AgentLoopRuntime 携带给工具执行器。
+        let subagentMemoryDirForRuntime: URL? = {
+            guard let scope = definition.memoryScope,
+                  AgentMemoryPathResolver.sanitize(definition.name) != nil else {
+                return nil
+            }
+            let resolver = AgentMemoryPathResolver(
+                agentguiBaseDir: ConfigDirectoryManager.shared.agentGuiDir,
+                workspaceRoot: workspaceRootURL
+            )
+            return resolver.memoryDir(agentType: definition.name, scope: scope)
+        }()
+
         let runtime = AgentLoopRuntime(
             settings: settings,
             session: nil,
@@ -222,7 +237,8 @@ extension ClaudeService {
             subagentProgressUpdate: onProgressUpdate,  // S-C3
             onMessagesSnapshot: summaryCallbacks.map { cb in  // S-C4
                 { msgs in cb.onMessagesUpdated(msgs) }
-            }
+            },
+            subagentMemoryDir: subagentMemoryDirForRuntime  // S-D4
         )
         let result = try await runCoreAgentLoop(
             messages: &loopMessages,
