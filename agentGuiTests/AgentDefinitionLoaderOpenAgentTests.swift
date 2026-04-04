@@ -538,4 +538,23 @@ final class AgentDefinitionLoaderOpenAgentTests: XCTestCase {
         XCTAssertEqual(explore.memoryScope, .project,
             "explore agent should declare memory: project per S-D2 spec")
     }
+
+    // MARK: - S-D3: explore agent memory scope propagation (Task 4)
+
+    func test_exploreAgent_hasProjectMemoryScope() throws {
+        let loader = AgentDefinitionLoader()
+        let docs = try loader.loadBuiltInDocuments(from: .main)
+        let explore = try XCTUnwrap(docs.first { $0.name == "explore" })
+        XCTAssertEqual(explore.memoryScope, .project,
+            "explore.agent.md 应声明 memory: project，作为 S-D3 注入的触发条件")
+    }
+
+    func test_exploreAgent_workflowRoleDefinition_hasProjectMemoryScope() throws {
+        let loader = AgentDefinitionLoader()
+        let docs = try loader.loadBuiltInDocuments(from: .main)
+        let explore = try XCTUnwrap(docs.first { $0.name == "explore" })
+        let runtime = try AgentRuntimeDefinition.make(from: explore)
+        XCTAssertEqual(runtime.workflowRoleDefinition.memoryScope, .project,
+            "WorkflowRoleDefinition.memoryScope 应从 AgentDefinitionDocument 传播而来")
+    }
 }
