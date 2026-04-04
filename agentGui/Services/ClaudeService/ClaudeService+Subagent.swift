@@ -231,10 +231,55 @@ extension ClaudeService {
     }
 
     /// 为子代理构建工具列表（根据定义配置，不添加 run_subagent / ask_user_question）
+    ///
+    /// S-D2 扩展：当 `definition.memoryScope != nil` 时，自动追加 `memory_write`
+    /// 工具（若工具集中尚无此工具），无需在代理 `.agent.md` 的 `tools:` 字段手动声明。
     private func buildSubagentTools(definition: WorkflowRoleDefinition, settings: AppSettings) -> [MessageParameter.Tool] {
-        DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
+        var tools = DefaultToolsetResolver(registry: DefaultToolRegistry()).resolve(
             .init(context: .subagent, role: definition, settings: settings)
         ).tools
+
+        // S-D2：memory scope 已声明 → 自动注入 memory_write（幂等检查）
+        if definition.memoryScope != nil {
+            let alreadyHasMemoryWrite = tools.contains { tool in
+                toolName(from: tool) == "memory_write"
+            }
+            if !alreadyHasMemoryWrite {
+                tools.append(makeEphemeralTool(
+                    name: "memory_write",
+                    description: """
+                    Persist an important long-term memory as a Markdown file in your persistent memory directory. \
+                    Use this for project-specific patterns, codebase facts, and decisions that should be available \
+                    in future sessions about this project. Keep entries concise, factual, and decision-relevant. \
+                    Updates MEMORY.md index automatically.
+                    """,
+                    inputSchema: .init(
+                        type: .object,
+                        properties: [
+                            "content": .init(
+                                type: .string,
+                                description: "The memory content to save. Write clear, concise Markdown body text."
+                            ),
+                            "title": .init(
+                                type: .string,
+                                description: "Optional short title (e.g. 'ClaudeService pattern notes'). Used for filename and MEMORY.md index."
+                            ),
+                            "type": .init(
+                                type: .string,
+                                description: "Memory type: 'user', 'feedback', 'project', or 'reference'. Defaults to 'project'."
+                            ),
+                            "description": .init(
+                                type: .string,
+                                description: "Optional one-line summary for MEMORY.md index (≤ 150 chars)."
+                            )
+                        ],
+                        required: ["content"]
+                    )
+                ))
+            }
+        }
+
+        return tools
     }
 
     private func toolName(from tool: MessageParameter.Tool) -> String? {
