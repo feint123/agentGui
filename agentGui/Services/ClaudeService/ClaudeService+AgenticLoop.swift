@@ -217,7 +217,8 @@ extension ClaudeService {
             settings: runtime.settings,
             sessionId: runtime.sessionId,
             modelContext: runtime.modelContext,
-            session: runtime.session
+            session: runtime.session,
+            subagentMemoryDir: runtime.subagentMemoryDir   // S-D4: 传播子代理专属记忆目录
         ).build()
         let sharedState = AgentLoopSharedStateAccess(
             readVerification: { self.sessionVerifications[$0] },
