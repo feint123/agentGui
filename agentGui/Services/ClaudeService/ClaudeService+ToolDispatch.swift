@@ -538,6 +538,12 @@ extension ClaudeService {
             return "Error: missing required parameter 'content'"
         }
 
+        // S-D4: 凭证防护 — 防止将 API Key 等敏感信息持久化到记忆文件
+        if Self.containsLikelyCredential(content) {
+            return "Error: memory content appears to contain credentials or secrets. " +
+                   "Do not store API keys, passwords, or tokens in memory."
+        }
+
         let title = input["title"]?.stringValue ?? "Untitled Memory"
         let type = MemoryTopicType.parse(input["type"]?.stringValue) ?? .project
         let descriptionHint = input["description"]?.stringValue
@@ -714,5 +720,38 @@ extension ClaudeService {
         }
 
         return lspServerManager
+    }
+
+    // MARK: - S-D4 Credential Guard
+
+    /// 检测 `content` 是否包含明显的凭证模式。
+    /// 仅检测高置信度的凭证前缀/赋值模式，避免误判正常叙述。
+    ///
+    /// - `sk-ant-`：Anthropic API Key 前缀
+    /// - `Bearer `：HTTP Bearer token（值至少10字符）
+    /// - `api[_-]?key\s*[:=]`：API Key 赋值
+    /// - `password\s*[:=]`：密码赋值
+    /// - `token\s*[:=]`：token 赋值
+    /// - `secret\s*[:=]`：secret 赋值
+    ///
+    /// - Returns: `true` 表示检测到凭证，应拒绝写入。
+    nonisolated static func containsLikelyCredential(_ content: String) -> Bool {
+        let patterns = [
+            #"sk-ant-"#,                                       // Anthropic API key prefix
+            #"\bBearer\s+\S{10,}"#,                           // HTTP Bearer token（值至少10字符）
+            #"\bapi[_-]?key\s*[:=]\s*['"]?\S{6,}"#,          // api_key = '...' / apikey:xxx
+            #"\bpassword\s*[:=]\s*\S{4,}"#,                   // password = xxx
+            #"\btoken\s*[:=]\s*['"]?\S{8,}"#,                 // token = '...'
+            #"\bsecret\s*[:=]\s*['"]?\S{6,}"#,                // secret = '...'
+        ]
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+                let range = NSRange(content.startIndex..., in: content)
+                if regex.firstMatch(in: content, range: range) != nil {
+                    return true
+                }
+            }
+        }
+        return false
     }
 }
