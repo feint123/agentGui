@@ -15,12 +15,37 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
     let modelContext: ModelContext
     /// S-C2: 父代理 Session 对象（用于后台通知消息写入目标）
     let session: Session?
+    /// S-D4: 子代理专属记忆目录（nil = 主代理，使用全局路径）。
+    let subagentMemoryDir: URL?
+
+    init(
+        claudeService: ClaudeService,
+        service: any AnthropicService,
+        modelId: String,
+        toolApprovalMode: ToolApprovalMode,
+        settings: AppSettings,
+        sessionId: String,
+        modelContext: ModelContext,
+        session: Session?,
+        subagentMemoryDir: URL? = nil
+    ) {
+        self.claudeService = claudeService
+        self.service = service
+        self.modelId = modelId
+        self.toolApprovalMode = toolApprovalMode
+        self.settings = settings
+        self.sessionId = sessionId
+        self.modelContext = modelContext
+        self.session = session
+        self.subagentMemoryDir = subagentMemoryDir
+    }
 
     func build() -> AgentLoopToolExecutionCoordinator {
         let executor = SubagentBackgroundExecutor()
         let capturedSession = session
         let capturedSessionId = sessionId
         let capturedModelContext = modelContext
+        let capturedSubagentMemoryDir = subagentMemoryDir
 
         return AgentLoopToolExecutionCoordinator(
             dependencies: .init(
@@ -72,7 +97,8 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                                             sessionId: capturedSessionId,
                                             modelContext: capturedModelContext,
                                             onProgressUpdate: progressCallback,
-                                            forkOverride: forkOvr   // S-F3: pass pre-built override
+                                            forkOverride: forkOvr,   // S-F3: pass pre-built override
+                                            summaryCallbacks: summaryCallbacks  // S-C4
                                         ))
                                     } catch {
                                         return .sync(message: .error(error.localizedDescription, sender: def.name))
@@ -135,7 +161,8 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                                         settings: settings,
                                         sessionId: capturedSessionId,
                                         modelContext: capturedModelContext,
-                                        onProgressUpdate: progressCallback  // S-C3
+                                        onProgressUpdate: progressCallback,  // S-C3
+                                        summaryCallbacks: summaryCallbacks   // S-C4
                                     ))
                                 } catch {
                                     return .sync(message: .error(error.localizedDescription, sender: def.name))
@@ -171,7 +198,14 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
                     )
                 },
                 executeTool: { name, input in
-                    await claudeService.executeTool(
+                    // S-D4: 子代理专属目录路由 — 当 capturedSubagentMemoryDir 已设置时，将 memory_write 定向到代理专属目录
+                    if name == "memory_write", let agentMemDir = capturedSubagentMemoryDir {
+                        return .detect(
+                            await claudeService.executeFileMemoryWriteForTests(input: input, memoryDir: agentMemDir),
+                            toolName: name
+                        )
+                    }
+                    return await claudeService.executeTool(
                         name: name,
                         input: input,
                         settings: settings,
