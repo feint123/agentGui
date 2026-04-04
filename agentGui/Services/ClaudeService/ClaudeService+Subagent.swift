@@ -163,7 +163,24 @@ extension ClaudeService {
             loopMessages = [.init(role: .user, content: .text(firstTurnContent))]
             systemText = definition.systemPrompt
         }
-        let system = makeEphemeralSystemPrompt(systemText)
+        // S-D3: 将代理专属记忆节追加到系统提示。
+        // 当 memoryScope == nil 或记忆文件为空时，composeSubagentMemorySection 返回 nil，
+        // 系统提示不变，向后兼容。
+        let workspaceRootURL: URL? = settings.workingDirectory.isEmpty
+            ? nil
+            : URL(fileURLWithPath: settings.workingDirectory)
+        let memorySectionText = ClaudeService.composeSubagentMemorySection(
+            definition: definition,
+            agentguiBaseDir: ConfigDirectoryManager.shared.agentGuiDir,
+            workspaceRoot: workspaceRootURL
+        )
+        let finalSystemText: String
+        if let section = memorySectionText {
+            finalSystemText = systemText + "\n\n" + section
+        } else {
+            finalSystemText = systemText
+        }
+        let system = makeEphemeralSystemPrompt(finalSystemText)
         let request = AgentLoopRunRequest(
             service: service,
             modelId: resolvedModelId,
