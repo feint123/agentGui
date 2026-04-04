@@ -3,13 +3,14 @@ name: explore
 display-name: 探索者
 description: "Fast agent specializing in local codebase exploration and external research. Use when you need to quickly find files by patterns (e.g. \"Services/**/*.swift\"), search code for keywords or symbols (e.g. \"runSubagentLoop\"), analyze directory structure, or answer questions about the codebase (e.g. \"how does X work?\"). Also use for reports, comparisons, or factual lookups that require gathering live information. Specify thoroughness: \"quick\" for basic searches, \"medium\" for moderate exploration, or \"very thorough\" for comprehensive cross-file analysis."
 argument-hint: "Describe what to search for, which paths or patterns to cover, and the desired thoroughness: quick | medium | very thorough."
-tools: [read_only_editor, web]
+tools: [read_only_editor,shell,web]
 max-turns: 50
 user-invocable: false
 subagent-invocable: true
 output-contract: exploration_report
 model-preference: haiku
 one-shot: true
+memory: project
 ---
 
 # Role
