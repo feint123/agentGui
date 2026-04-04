@@ -23,6 +23,7 @@ struct AgentDefinitionLoader {
         "color",
         "disallowed-tools",
         "one-shot",      // S-A2
+        "memory",        // S-D2
         "tags",
         "examples",
         "notes"
@@ -138,6 +139,19 @@ struct AgentDefinitionLoader {
         // MARK: S-A2 — one-shot flag
         let isOneShot = parseBool(parsed.fields["one-shot"] ?? "false") ?? false
 
+        // MARK: S-D2 — agent memory scope
+        let memoryScope: AgentMemoryScope?
+        if let memoryRaw = parsed.fields["memory"] {
+            if let parsed = AgentMemoryScope(rawValue: memoryRaw) {
+                memoryScope = parsed
+            } else {
+                // 非法值静默忽略（对齐 Claude Code loadAgentsDir.ts 的行为）
+                memoryScope = nil
+            }
+        } else {
+            memoryScope = nil
+        }
+
         return AgentDefinitionDocument(
             name: name,
             displayName: displayName,
@@ -157,7 +171,8 @@ struct AgentDefinitionLoader {
             criticalReminder: criticalReminder,
             color: color,
             disallowedToolNames: disallowedToolNames,
-            isOneShot: isOneShot
+            isOneShot: isOneShot,
+            memoryScope: memoryScope
         )
     }
 
