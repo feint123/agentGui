@@ -82,6 +82,11 @@ struct WorkflowRoleDefinition: Sendable {
     /// `true` 时子代理结果不附加执行元数据 trailer。
     let isOneShot: Bool
 
+    // MARK: - S-D2 Agent Memory Scope
+    /// 子代理持久记忆存储策略。`nil` 表示不启用持久记忆。
+    /// 由 `AgentRuntimeDefinition.workflowRoleDefinition` 从 `document.memoryScope` 传入。
+    let memoryScope: AgentMemoryScope?
+
     // MARK: Adapter
 
     /// Alias used by the run_subagent path (maps to maxTurnsPerActivation).
@@ -116,7 +121,9 @@ struct WorkflowRoleDefinition: Sendable {
         color: String? = nil,
         disallowedToolNames: [String] = [],
         // S-A2 新增
-        isOneShot: Bool = false
+        isOneShot: Bool = false,
+        // S-D2 新增
+        memoryScope: AgentMemoryScope? = nil
     ) {
         self.name = name
         self.displayName = displayName
@@ -143,6 +150,7 @@ struct WorkflowRoleDefinition: Sendable {
         self.color = color
         self.disallowedToolNames = disallowedToolNames
         self.isOneShot = isOneShot
+        self.memoryScope = memoryScope
     }
 
 }
