@@ -31,6 +31,10 @@ struct AgentRuntimeDefinition: Sendable, Equatable {
     // MARK: - S-A2
     let isOneShot: Bool
 
+    // MARK: - S-D2 Agent Memory Scope
+    /// 子代理记忆存储策略。`nil` 表示该代理不启用持久记忆。
+    let memoryScope: AgentMemoryScope?
+
     var workflowRoleDefinition: WorkflowRoleDefinition {
         WorkflowRoleDefinition(
             name: name,
@@ -57,7 +61,8 @@ struct AgentRuntimeDefinition: Sendable, Equatable {
             criticalReminder: criticalReminder,
             color: color,
             disallowedToolNames: disallowedToolNames,
-            isOneShot: isOneShot
+            isOneShot: isOneShot,
+            memoryScope: memoryScope
         )
     }
 }
@@ -93,7 +98,8 @@ extension AgentRuntimeDefinition {
                 criticalReminder: document.criticalReminder,
                 color: document.color,
                 disallowedToolNames: document.disallowedToolNames,
-                isOneShot: document.isOneShot
+                isOneShot: document.isOneShot,
+                memoryScope: document.memoryScope
             )
         case "worker":
             return AgentRuntimeDefinition(
@@ -121,7 +127,8 @@ extension AgentRuntimeDefinition {
                 criticalReminder: document.criticalReminder,
                 color: document.color,
                 disallowedToolNames: document.disallowedToolNames,
-                isOneShot: document.isOneShot
+                isOneShot: document.isOneShot,
+                memoryScope: document.memoryScope
             )
         case "verifier":
             return AgentRuntimeDefinition(
@@ -149,7 +156,8 @@ extension AgentRuntimeDefinition {
                 criticalReminder: document.criticalReminder,
                 color: document.color,
                 disallowedToolNames: document.disallowedToolNames,
-                isOneShot: document.isOneShot
+                isOneShot: document.isOneShot,
+                memoryScope: document.memoryScope
             )
         case "plan":
             return AgentRuntimeDefinition(
@@ -177,7 +185,8 @@ extension AgentRuntimeDefinition {
                 criticalReminder: document.criticalReminder,
                 color: document.color,
                 disallowedToolNames: document.disallowedToolNames,
-                isOneShot: document.isOneShot
+                isOneShot: document.isOneShot,
+                memoryScope: document.memoryScope
             )
         default:
             return AgentRuntimeDefinition(
@@ -205,7 +214,8 @@ extension AgentRuntimeDefinition {
                 criticalReminder: document.criticalReminder,
                 color: document.color,
                 disallowedToolNames: document.disallowedToolNames,
-                isOneShot: document.isOneShot
+                isOneShot: document.isOneShot,
+                memoryScope: document.memoryScope
             )
         }
     }
