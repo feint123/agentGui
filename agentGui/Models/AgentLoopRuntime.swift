@@ -1,3 +1,4 @@
+import Foundation
 import SwiftAnthropic
 import SwiftData
 
@@ -21,6 +22,10 @@ struct AgentLoopRuntime {
     /// 每轮 `applyPhaseOutcome` 完成后由 `AgentLoopRunner` 调用，提供当前完整消息数组。
     /// 仅在后台子代理 loop（`SubagentSummaryCallbacks.onMessagesUpdated`）中设置。
     let onMessagesSnapshot: (@Sendable ([MessageParameter.Message]) -> Void)?
+    /// S-D4: 子代理专属记忆目录（由 runSubagentLoop 通过 AgentMemoryPathResolver 计算后注入）。
+    /// - `nil`：主代理 loop 或无 memoryScope 的子代理，memory_write 写入全局目录（向后兼容）。
+    /// - 非 nil：子代理 loop，memory_write 写入此目录（agent-memory/<agentType>/ 路径）。
+    let subagentMemoryDir: URL?
 
     init(
         settings: AppSettings,
@@ -33,7 +38,8 @@ struct AgentLoopRuntime {
         toolInterceptor: ((String, MessageResponse.Content.Input) async -> ToolExecutionResult?)?,
         remoteDeliveryHandle: (any RemoteTurnDeliveryHandle)? = nil,
         subagentProgressUpdate: (@MainActor @Sendable (SubagentProgress) -> Void)? = nil,
-        onMessagesSnapshot: (@Sendable ([MessageParameter.Message]) -> Void)? = nil
+        onMessagesSnapshot: (@Sendable ([MessageParameter.Message]) -> Void)? = nil,
+        subagentMemoryDir: URL? = nil
     ) {
         self.settings = settings
         self.session = session
@@ -46,5 +52,6 @@ struct AgentLoopRuntime {
         self.remoteDeliveryHandle = remoteDeliveryHandle
         self.subagentProgressUpdate = subagentProgressUpdate
         self.onMessagesSnapshot = onMessagesSnapshot
+        self.subagentMemoryDir = subagentMemoryDir
     }
 }
