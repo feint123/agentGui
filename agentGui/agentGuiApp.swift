@@ -32,6 +32,7 @@ enum PersistenceSchema {
         AgentRound.self,
         SessionTaskState.self,
         RecoverySnapshot.self,
+        ConversationCheckpoint.self,
         IntegrityIssue.self,
         BackgroundAgentTask.self,
         BackgroundAgentTaskRun.self,
