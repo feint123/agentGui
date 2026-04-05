@@ -236,4 +236,127 @@ struct FileSystemRewindCoordinatorTests {
         #expect(result.skippedFiles.isEmpty)
         #expect(result.failedFiles.isEmpty)
     }
+
+    // MARK: - Test 5: 部分文件恢复失败不影响其他文件
+
+    @Test
+    func rewind_partialFailure_otherFilesStillRestored() async throws {
+        // Arrange
+        let sessionID = "session-partial-\(UUID().uuidString)"
+        let tmpDir = try makeTempDir()
+        let backupBaseDir = tmpDir.appendingPathComponent("checkpoints")
+        let workspaceRoot = tmpDir.appendingPathComponent("workspace").path
+        try FileManager.default.createDirectory(atPath: workspaceRoot, withIntermediateDirectories: true)
+
+        let store = FileBackupStore(baseURL: backupBaseDir)
+
+        // 文件 A：正常修改，备份存在 → 应该被恢复
+        let relPathA = "file_a.txt"
+        let absPathA = workspaceRoot + "/" + relPathA
+        try "original A".write(toFile: absPathA, atomically: true, encoding: .utf8)
+        let entryA = try await store.createBackup(filePath: absPathA, sessionID: sessionID, version: 1)
+        try "modified A".write(toFile: absPathA, atomically: true, encoding: .utf8)
+
+        // 文件 B：backupKey 指向一个不存在的备份文件（模拟备份损坏）→ 应进入 failedFiles
+        let relPathB = "file_b.txt"
+        let absPathB = workspaceRoot + "/" + relPathB
+        try "some content B".write(toFile: absPathB, atomically: true, encoding: .utf8)
+        let brokenEntry = FileBackupEntry(
+            backupKey: "nonexistent_hash.v1",   // 不存在的 backupKey
+            version: 1,
+            backupTime: Date(),
+            originalRelativePath: relPathB
+        )
+
+        let fullEntryA = FileBackupEntry(
+            backupKey: entryA.backupKey,
+            version: 1,
+            backupTime: entryA.backupTime,
+            originalRelativePath: relPathA
+        )
+
+        let container = try makeContainer()
+        let ctx = ModelContext(container)
+        let checkpoint = try makeCheckpoint(
+            sessionID: sessionID,
+            workspaceRoot: workspaceRoot,
+            entries: [relPathA: fullEntryA, relPathB: brokenEntry],
+            in: ctx
+        )
+
+        let coordinator = FileSystemRewindCoordinator(fileBackupStore: store)
+
+        // Act
+        let result = try await coordinator.rewind(to: checkpoint)
+
+        // Assert: 文件 A 已恢复
+        let contentA = try String(contentsOfFile: absPathA, encoding: .utf8)
+        #expect(contentA == "original A")
+        #expect(result.restoredFiles.contains(absPathA))
+
+        // Assert: 文件 B 进入 failedFiles（备份不存在）
+        #expect(result.failedFiles.map(\.path).contains(absPathB))
+
+        // Assert: 失败的文件数量为 1
+        #expect(result.failedFiles.count == 1)
+    }
+
+    // MARK: - Test 6: rewindDidRestoreFiles 通知在完成后发出
+
+    @Test
+    func rewind_postsRewindDidRestoreFilesNotification() async throws {
+        // Arrange
+        let sessionID = "session-notif-\(UUID().uuidString)"
+        let tmpDir = try makeTempDir()
+        let backupBaseDir = tmpDir.appendingPathComponent("checkpoints")
+        let workspaceRoot = tmpDir.appendingPathComponent("workspace").path
+        try FileManager.default.createDirectory(atPath: workspaceRoot, withIntermediateDirectories: true)
+
+        let store = FileBackupStore(baseURL: backupBaseDir)
+
+        let relPath = "notify_me.txt"
+        let absPath = workspaceRoot + "/" + relPath
+        try "before".write(toFile: absPath, atomically: true, encoding: .utf8)
+        let entry = try await store.createBackup(filePath: absPath, sessionID: sessionID, version: 1)
+        try "after".write(toFile: absPath, atomically: true, encoding: .utf8)
+
+        let fullEntry = FileBackupEntry(
+            backupKey: entry.backupKey,
+            version: 1,
+            backupTime: entry.backupTime,
+            originalRelativePath: relPath
+        )
+
+        let container = try makeContainer()
+        let ctx = ModelContext(container)
+        let checkpoint = try makeCheckpoint(
+            sessionID: sessionID,
+            workspaceRoot: workspaceRoot,
+            entries: [relPath: fullEntry],
+            in: ctx
+        )
+
+        let coordinator = FileSystemRewindCoordinator(fileBackupStore: store)
+
+        // 监听通知
+        var receivedSessionID: String?
+        var receivedRestoredFiles: [String]?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .rewindDidRestoreFiles,
+            object: nil,
+            queue: .main
+        ) { notification in
+            receivedSessionID = notification.object as? String
+            receivedRestoredFiles = notification.userInfo?["restoredFiles"] as? [String]
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        // Act
+        _ = try await coordinator.rewind(to: checkpoint)
+
+        // Assert: 通知已发出，sessionID 和 restoredFiles 正确
+        #expect(receivedSessionID == sessionID)
+        let restoredInNotif = try #require(receivedRestoredFiles)
+        #expect(restoredInNotif.contains(absPath))
+    }
 }
