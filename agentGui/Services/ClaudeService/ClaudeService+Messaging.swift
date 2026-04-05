@@ -541,6 +541,16 @@ extension ClaudeService {
             modelContext: modelContext
         )
 
+        // R-B1 pre-loop: 找到触发此 loop 的用户消息 ID，创建 accumulator
+        let userMsgID = session.messages
+            .sorted { $0.sequence < $1.sequence }
+            .last(where: { $0.direction == .user })?.id ?? UUID()
+        let wsRoot = settings.workingDirectory.isEmpty
+            ? FileManager.default.currentDirectoryPath
+            : settings.workingDirectory
+        let checkpointAcc = ActiveCheckpointAccumulator(messageID: userMsgID, workspaceRoot: wsRoot)
+        sessionCheckpointAccumulators[session.sessionId] = checkpointAcc
+
         do {
             let result = try await runAgenticLoop(
                 apiMessages: apiMessages,
@@ -557,7 +567,20 @@ extension ClaudeService {
             if assistantMessage.textContent?.isEmpty ?? true {
                 assistantMessage.textContent = "(无响应)"
             }
+
+            // R-B1 post-loop: 将本轮 accumulator 条目持久化为 ConversationCheckpoint
+            try? await checkpointService.makeSnapshot(
+                accumulator: checkpointAcc,
+                sessionID: session.sessionId,
+                modelContext: modelContext
+            )
         } catch is CancellationError {
+            // 取消时仍尝试保存已收集的快照（loop 可能已完成部分工具调用）
+            try? await checkpointService.makeSnapshot(
+                accumulator: checkpointAcc,
+                sessionID: session.sessionId,
+                modelContext: modelContext
+            )
             assistantMessage.status = .cancelled
             if assistantMessage.textContent?.isEmpty ?? true {
                 assistantMessage.textContent = "(已取消)"
