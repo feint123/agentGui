@@ -5,7 +5,7 @@ import Testing
 @MainActor
 struct SessionDeletionCoordinatorTests {
     @Test
-    func deleteRemovesAgentTeamSessionAndState() throws {
+    func deleteRemovesAgentTeamSessionAndState() async throws {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [configuration])
@@ -18,7 +18,7 @@ struct SessionDeletionCoordinatorTests {
         context.insert(teamState)
         try context.save()
 
-        try SessionDeletionCoordinator().delete(teamSession, modelContext: context)
+        try await SessionDeletionCoordinator().delete(teamSession, modelContext: context)
 
         let remainingSessions = try context.fetch(FetchDescriptor<Session>())
         let remainingStates = try context.fetch(FetchDescriptor<AgentTeamSessionState>())
@@ -27,7 +27,7 @@ struct SessionDeletionCoordinatorTests {
     }
 
     @Test
-    func deleteStillRejectsChannelSession() throws {
+    func deleteStillRejectsChannelSession() async throws {
         let schema = Schema(PersistenceSchema.sharedModelTypes)
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [configuration])
@@ -37,8 +37,8 @@ struct SessionDeletionCoordinatorTests {
         context.insert(channelSession)
         try context.save()
 
-        #expect(throws: SessionDeletionCoordinatorError.readOnlySession(channelSession.sessionId)) {
-            try SessionDeletionCoordinator().delete(channelSession, modelContext: context)
+        await #expect(throws: SessionDeletionCoordinatorError.readOnlySession(channelSession.sessionId)) {
+            try await SessionDeletionCoordinator().delete(channelSession, modelContext: context)
         }
     }
 }

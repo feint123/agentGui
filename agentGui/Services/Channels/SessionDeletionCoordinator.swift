@@ -3,13 +3,26 @@ import SwiftData
 
 @MainActor
 struct SessionDeletionCoordinator {
-    func delete(_ session: Session, modelContext: ModelContext) throws {
+    // R-B2: 可选的检查点 GC 服务注入，nil 时不执行 checkpoint purge（向后兼容）
+    private let checkpointGCService: CheckpointGCService?
+
+    init(checkpointGCService: CheckpointGCService? = nil) {
+        self.checkpointGCService = checkpointGCService
+    }
+
+    func delete(_ session: Session, modelContext: ModelContext) async throws {
         guard SessionInteractionPolicy(session: session).canDelete else {
             throw SessionDeletionCoordinatorError.readOnlySession(session.sessionId)
         }
+        let sessionID = session.sessionId
         pruneChannelResources(for: session, modelContext: modelContext)
         modelContext.delete(session)
         try modelContext.save()
+
+        // R-B2: 清理检查点和备份文件
+        if let gc = checkpointGCService {
+            await gc.purgeSession(sessionID: sessionID, modelContext: modelContext)
+        }
     }
 
     func deleteAllSessions(
@@ -20,11 +33,14 @@ struct SessionDeletionCoordinator {
         let sessions = explicitSessions ?? ((try? modelContext.fetch(FetchDescriptor<Session>())) ?? [])
         let effectiveBatchSize = max(1, batchSize)
         var pendingDeletes = 0
+        var purgedIDs: [String] = []
 
         for session in sessions {
             guard SessionInteractionPolicy(session: session).canDelete else { continue }
+            let sid = session.sessionId
             pruneChannelResources(for: session, modelContext: modelContext)
             modelContext.delete(session)
+            purgedIDs.append(sid)
             pendingDeletes += 1
 
             if pendingDeletes == effectiveBatchSize {
@@ -36,6 +52,13 @@ struct SessionDeletionCoordinator {
 
         if pendingDeletes > 0 {
             try? modelContext.save()
+        }
+
+        // R-B2: 批量 purge
+        if let gc = checkpointGCService {
+            for sid in purgedIDs {
+                await gc.purgeSession(sessionID: sid, modelContext: modelContext)
+            }
         }
     }
 

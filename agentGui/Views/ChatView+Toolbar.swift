@@ -105,14 +105,16 @@ extension ChatView {
     }
 
     private func deleteCurrentSession() {
-        do {
-            let deleted = try SessionToolbarActions(modelContext: modelContext, workspaceState: workspaceState)
-                .deleteCurrentSessionIfAllowed()
-            if deleted == false {
-                errorMessage = sessionInteractionPolicy.readOnlyReason
+        Task {
+            do {
+                let deleted = try await SessionToolbarActions(modelContext: modelContext, workspaceState: workspaceState)
+                    .deleteCurrentSessionIfAllowed()
+                if deleted == false {
+                    errorMessage = sessionInteractionPolicy.readOnlyReason
+                }
+            } catch {
+                errorMessage = error.localizedDescription
             }
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 
@@ -184,17 +186,19 @@ struct SessionToolbarActions {
     }
 
     func deleteCurrentSession() {
-        _ = try? deleteCurrentSessionIfAllowed()
+        Task {
+            _ = try? await deleteCurrentSessionIfAllowed()
+        }
     }
 
     @discardableResult
-    func deleteCurrentSessionIfAllowed() throws -> Bool {
+    func deleteCurrentSessionIfAllowed() async throws -> Bool {
         guard let current = workspaceState.selectedSession else { return false }
         guard SessionInteractionPolicy(session: current).canDelete else {
             return false
         }
 
-        try SessionDeletionCoordinator().delete(current, modelContext: modelContext)
+        try await SessionDeletionCoordinator().delete(current, modelContext: modelContext)
         workspaceState.selectedSession = fetchMostRecentSession()
         return true
     }

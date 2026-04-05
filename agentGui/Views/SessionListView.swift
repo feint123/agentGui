@@ -270,13 +270,15 @@ struct SessionListView: View {
 
     private func deleteConfirmedSession() {
         guard let session = sessionToDelete else { return }
-        do {
-            try SessionDeletionCoordinator().delete(session, modelContext: modelContext)
-            viewModel.reload()
-        } catch {
-            errorMessage = "删除对话失败: \(error.localizedDescription)"
-        }
         sessionToDelete = nil
+        Task {
+            do {
+                try await SessionDeletionCoordinator().delete(session, modelContext: modelContext)
+                viewModel.reload()
+            } catch {
+                errorMessage = "删除对话失败: \(error.localizedDescription)"
+            }
+        }
     }
 
     private func cloneSession(_ session: Session) {
