@@ -7,7 +7,6 @@
 
 import SwiftUI
 import AppKit
-import BeautifulMermaid
 
 // MARK: - Markdown Message View
 
@@ -485,7 +484,7 @@ private struct MarkdownTableView: View {
             availableWidth: max(availableWidth, 0)
         )
 
-        ScrollView(.horizontal) {
+        HorizontalScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
                 tableRow(
                     cells: layout.headerCells,
@@ -511,7 +510,6 @@ private struct MarkdownTableView: View {
             }
             .frame(width: layout.totalWidth, alignment: .leading)
         }
-        .scrollIndicators(.hidden)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12)
@@ -600,105 +598,6 @@ private extension HorizontalAlignment {
     }
 }
 
-// MARK: - Mermaid Diagram View
-
-private struct MermaidNSView: NSViewRepresentable {
-    let source: String
-    let theme: DiagramTheme
-
-    func makeNSView(context: Context) -> MermaidView {
-        MermaidView(frame: .zero)
-    }
-
-    func updateNSView(_ nsView: MermaidView, context: Context) {
-        nsView.source = source
-        nsView.theme = theme
-    }
-}
-
-private struct MermaidBlockView: View {
-    let source: String
-    @Environment(\.colorScheme) private var colorScheme
-    @SwiftUI.State private var showSource = false
-    @SwiftUI.State private var diagramWidth: CGFloat = 600
-
-    private var theme: DiagramTheme {
-        colorScheme == .dark ? .zincDark : .zincLight
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Toolbar
-            HStack(spacing: 8) {
-                Text("mermaid")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                // Width stepper (only shown in diagram mode)
-                if !showSource {
-                    HStack(spacing: 2) {
-                        Button { diagramWidth = max(200, diagramWidth - 100) } label: {
-                            Image(systemName: "minus")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.plain)
-                        Text("\(Int(diagramWidth))px")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(minWidth: 50)
-                        Button { diagramWidth = min(1600, diagramWidth + 100) } label: {
-                            Image(systemName: "plus")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.primary.opacity(0.05))
-                    .clipShape(RoundedRectangle(cornerRadius: 5))
-                }
-                // Toggle source / diagram
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { showSource.toggle() }
-                } label: {
-                    Label(showSource ? "图表" : "源码",
-                          systemImage: showSource ? "chart.xyaxis.line" : "chevron.left.forwardslash.chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.ultraThinMaterial)
-
-            Divider()
-
-            if showSource {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(source.trimmingCharacters(in: .newlines))
-                        .font(.system(.footnote, design: .monospaced))
-                        .textSelection(.enabled)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                ScrollView(.horizontal, showsIndicators: true) {
-                    MermaidNSView(source: source, theme: theme)
-                        .frame(width: diagramWidth, height: 250)
-                        .padding(8)
-                }
-            }
-        }
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-    }
-}
-
 // MARK: - Code Block View
 
 struct CodeBlockView: View {
@@ -730,11 +629,10 @@ struct CodeBlockView: View {
 
             Divider()
 
-            ScrollView(.horizontal) {
+            HorizontalScrollView(showsIndicators: false) {
                 SyntaxHighlightedCodeTextView(attributedString: highlightedCode)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .scrollIndicators(.hidden)
         }
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -765,6 +663,83 @@ struct CodeBlockView: View {
     private var displayLanguage: String {
         let trimmed = language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? "code" : trimmed
+    }
+}
+
+// MARK: - Scroll-Event-Isolated Horizontal Scroll View
+// Prevents block elements' inner horizontal scroll views from stealing vertical scroll
+// events that belong to the enclosing message List.
+
+private final class DirectionalNSScrollView: NSScrollView {
+    /// Only consumes scroll events that are primarily horizontal.
+    /// Vertical events are forwarded to the next responder so the
+    /// enclosing List / ScrollView can scroll without conflict.
+    override func scrollWheel(with event: NSEvent) {
+        let dx = abs(event.scrollingDeltaX)
+        let dy = abs(event.scrollingDeltaY)
+        if dy > dx {
+            nextResponder?.scrollWheel(with: event)
+        } else {
+            super.scrollWheel(with: event)
+        }
+    }
+}
+
+private struct HorizontalScrollView<Content: View>: NSViewRepresentable {
+    let showsIndicators: Bool
+    @ViewBuilder let content: () -> Content
+
+    final class Coordinator {
+        var hostingController: NSHostingController<Content>?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> DirectionalNSScrollView {
+        let sv = DirectionalNSScrollView()
+        sv.hasHorizontalScroller = showsIndicators
+        sv.autohidesScrollers = true
+        sv.hasVerticalScroller = false
+        sv.verticalScrollElasticity = .none
+        sv.drawsBackground = false
+        sv.borderType = .noBorder
+
+        let hc = NSHostingController(rootView: content())
+        hc.view.translatesAutoresizingMaskIntoConstraints = false
+        context.coordinator.hostingController = hc
+        sv.documentView = hc.view
+        return sv
+    }
+
+    func updateNSView(_ nsView: DirectionalNSScrollView, context: Context) {
+        guard let hc = context.coordinator.hostingController else { return }
+        hc.rootView = content()
+        let vw = nsView.contentView.bounds.width
+        layoutDocumentView(nsView, hostingController: hc, viewportWidth: vw > 0 ? vw : nsView.frame.width)
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: DirectionalNSScrollView,
+        context: Context
+    ) -> CGSize? {
+        guard let hc = context.coordinator.hostingController else { return nil }
+        let viewportWidth = proposal.replacingUnspecifiedDimensions().width
+        let contentSize = hc.sizeThatFits(in: CGSize(width: viewportWidth, height: .greatestFiniteMagnitude))
+        layoutDocumentView(nsView, hostingController: hc, viewportWidth: viewportWidth)
+        return CGSize(width: viewportWidth, height: max(contentSize.height, 1))
+    }
+
+    private func layoutDocumentView(
+        _ nsView: DirectionalNSScrollView,
+        hostingController hc: NSHostingController<Content>,
+        viewportWidth: CGFloat
+    ) {
+        let docSize = hc.sizeThatFits(in: CGSize(width: viewportWidth, height: .greatestFiniteMagnitude))
+        guard docSize.width > 0, docSize.height > 0,
+              docSize != hc.view.frame.size else { return }
+        hc.view.frame.size = docSize
+        nsView.reflectScrolledClipView(nsView.contentView)
     }
 }
 
