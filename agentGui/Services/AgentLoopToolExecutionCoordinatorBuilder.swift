@@ -245,8 +245,15 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
             if !settings.workingDirectory.isEmpty { return settings.workingDirectory }
             return FileManager.default.currentDirectoryPath
         }()
-        let acc = ActiveCheckpointAccumulator(messageID: UUID(), workspaceRoot: workspaceRoot)
-        claudeService.sessionCheckpointAccumulators[sessionId] = acc
+        // R-B1: 复用 resumeSendBuiltIn 预先安装的 accumulator（含正确的 messageID）；
+        // 若不存在（子代理路径），则创建新实例（messageID 不影响子代理场景）。
+        let acc: ActiveCheckpointAccumulator
+        if let existing = claudeService.sessionCheckpointAccumulators[sessionId] {
+            acc = existing
+        } else {
+            acc = ActiveCheckpointAccumulator(messageID: UUID(), workspaceRoot: workspaceRoot)
+            claudeService.sessionCheckpointAccumulators[sessionId] = acc
+        }
         hooks.append(FileCheckpointHook(
             fileBackupStore: claudeService.fileBackupStore,
             accumulator: acc,

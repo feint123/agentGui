@@ -107,6 +107,9 @@ final class ClaudeService {
     /// R-A2: 文件备份 store，为 Rewind 功能提供内容寻址备份能力。
     let fileBackupStore: FileBackupStore = FileBackupStore()
 
+    /// R-B1: 快照服务，在每次 agent loop 前后创建/更新 ConversationCheckpoint。
+    var checkpointService: ConversationCheckpointService!
+
     /// R-A3: 当前 loop 轮次的文件检查点 accumulator（key = sessionID）。
     /// 每次 buildHookPipeline() 在 loop 开始前替换；由 R-B1 ConversationCheckpointService 消费。
     var sessionCheckpointAccumulators: [String: ActiveCheckpointAccumulator] = [:]
@@ -226,6 +229,7 @@ final class ClaudeService {
         executionRuntimeCoordinator = ConversationExecutionRuntimeCoordinator(
             runtimeSnapshotStore: runtimeSnapshotStore
         )
+        checkpointService = ConversationCheckpointService(fileBackupStore: fileBackupStore)
         bindLSPInstallPresentationObserver()
     }
 
