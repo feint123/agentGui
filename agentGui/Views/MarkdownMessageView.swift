@@ -670,7 +670,7 @@ struct CodeBlockView: View {
 // Prevents block elements' inner horizontal scroll views from stealing vertical scroll
 // events that belong to the enclosing message List.
 
-private final class DirectionalNSScrollView: NSScrollView {
+final class DirectionalNSScrollView: NSScrollView {
     /// Only consumes scroll events that are primarily horizontal.
     /// Vertical events are forwarded to the next responder so the
     /// enclosing List / ScrollView can scroll without conflict.
@@ -685,7 +685,7 @@ private final class DirectionalNSScrollView: NSScrollView {
     }
 }
 
-private struct HorizontalScrollView<Content: View>: NSViewRepresentable {
+struct HorizontalScrollView<Content: View>: NSViewRepresentable {
     let showsIndicators: Bool
     @ViewBuilder let content: () -> Content
 
@@ -705,17 +705,33 @@ private struct HorizontalScrollView<Content: View>: NSViewRepresentable {
         sv.borderType = .noBorder
 
         let hc = NSHostingController(rootView: content())
-        hc.view.translatesAutoresizingMaskIntoConstraints = false
+        // Use intrinsicContentSize so Auto Layout drives the document view size
+        // entirely via SwiftUI's ideal size — avoids manual frame.size assignment
+        // which triggers AppKit constraint re-evaluation cycles.
+        hc.sizingOptions = .intrinsicContentSize
         context.coordinator.hostingController = hc
-        sv.documentView = hc.view
+
+        let docView = hc.view
+        docView.translatesAutoresizingMaskIntoConstraints = false
+        // Raise priorities so the AL intrinsic-size constraints win decisively
+        // (default hugging/resistance is 250/750; .required = 1000).
+        docView.setContentHuggingPriority(.required, for: .horizontal)
+        docView.setContentHuggingPriority(.required, for: .vertical)
+        docView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        docView.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        sv.documentView = docView
+        // Pin to top-left; width and height are owned by the intrinsic-size constraints.
+        NSLayoutConstraint.activate([
+            docView.topAnchor.constraint(equalTo: sv.contentView.topAnchor),
+            docView.leadingAnchor.constraint(equalTo: sv.contentView.leadingAnchor),
+        ])
         return sv
     }
 
     func updateNSView(_ nsView: DirectionalNSScrollView, context: Context) {
-        guard let hc = context.coordinator.hostingController else { return }
-        hc.rootView = content()
-        let vw = nsView.contentView.bounds.width
-        layoutDocumentView(nsView, hostingController: hc, viewportWidth: vw > 0 ? vw : nsView.frame.width)
+        // Only propagate content changes; Auto Layout handles the document view sizing.
+        context.coordinator.hostingController?.rootView = content()
     }
 
     func sizeThatFits(
@@ -724,22 +740,9 @@ private struct HorizontalScrollView<Content: View>: NSViewRepresentable {
         context: Context
     ) -> CGSize? {
         guard let hc = context.coordinator.hostingController else { return nil }
-        let viewportWidth = proposal.replacingUnspecifiedDimensions().width
-        let contentSize = hc.sizeThatFits(in: CGSize(width: viewportWidth, height: .greatestFiniteMagnitude))
-        layoutDocumentView(nsView, hostingController: hc, viewportWidth: viewportWidth)
-        return CGSize(width: viewportWidth, height: max(contentSize.height, 1))
-    }
-
-    private func layoutDocumentView(
-        _ nsView: DirectionalNSScrollView,
-        hostingController hc: NSHostingController<Content>,
-        viewportWidth: CGFloat
-    ) {
-        let docSize = hc.sizeThatFits(in: CGSize(width: viewportWidth, height: .greatestFiniteMagnitude))
-        guard docSize.width > 0, docSize.height > 0,
-              docSize != hc.view.frame.size else { return }
-        hc.view.frame.size = docSize
-        nsView.reflectScrolledClipView(nsView.contentView)
+        let w = max(proposal.replacingUnspecifiedDimensions().width, 1)
+        let fitting = hc.sizeThatFits(in: CGSize(width: w, height: .greatestFiniteMagnitude))
+        return CGSize(width: w, height: max(fitting.height, 1))
     }
 }
 

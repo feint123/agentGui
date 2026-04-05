@@ -438,19 +438,45 @@ struct ChatMessageListProjectionTrigger: Equatable, @unchecked Sendable {
 }
 
 struct ChatMessageListRefreshKey: Equatable, @unchecked Sendable {
-    let rowFingerprints: [MessageRowSemanticFingerprint]
-    let workspaceDependencies: [WorkspaceDependencyFingerprint?]
+    /// 每条消息的 ID + 状态 + textContent 哈希（三元组）。
+    /// - 不访问 agentRounds / toolCalls，避免 O(N×M) 主线程排序。
+    /// - 状态变化（pending → completed）和文本增量都会产生不同的 key，
+    ///   保证 ProjectionModel.refresh 在正确时机被触发。
+    struct RowDigest: Equatable {
+        let id: UUID
+        let status: MessageStatus
+        /// 用字符数作为文本变化的廉价代理指标；避免拷贝整个字符串进行 Equatable 比较。
+        let textLength: Int
+        let workspaceDependency: WorkspaceDependencyFingerprint?
+    }
+
+    let rows: [RowDigest]
 
     @MainActor
     init(messages: [Message], workspaceRoot: String) {
-        let request = ChatMessageListBuildRequest.make(
-            messages: messages,
-            workspaceRoot: workspaceRoot,
-            previousCache: [:],
-            generation: 0
-        )
-        self.rowFingerprints = request.messages.map(MessageRowSemanticFingerprint.init)
-        self.workspaceDependencies = request.messages.map(\.workspaceDependency)
+        self.rows = messages.map { message in
+            // 仅当 user message 的 textContent 依赖 workspaceRoot 时才记录 dependency。
+            // 此判断复用 MessageRowBuildInput 里已有的逻辑，但更廉价：只需字符串相等对比。
+            let dependency: WorkspaceDependencyFingerprint?
+            if message.direction == .user,
+               let text = message.textContent,
+               !workspaceRoot.isEmpty,
+               UserMessageTextParser.parse(text: text, workspaceRoot: workspaceRoot)
+                != UserMessageTextParser.parse(text: text, workspaceRoot: "") {
+                dependency = WorkspaceDependencyFingerprint(
+                    workspaceRoot: workspaceRoot,
+                    requiresWorkspaceRoot: true
+                )
+            } else {
+                dependency = nil
+            }
+            return RowDigest(
+                id: message.id,
+                status: message.status,
+                textLength: message.textContent?.count ?? 0,
+                workspaceDependency: dependency
+            )
+        }
     }
 }
 

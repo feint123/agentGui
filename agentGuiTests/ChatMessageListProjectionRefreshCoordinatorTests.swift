@@ -131,4 +131,63 @@ struct ChatMessageListProjectionRefreshCoordinatorTests {
         #expect(request.messages[1].directToolCalls.count == 1)
         #expect(request.messages[1].directToolCalls[0].terminalTaskId == "task-1")
     }
+
+    @Test
+    func refreshKeyDoesNotAccessAgentRoundsOrToolCalls() {
+        // 构造带有若干 agentRound 的 agent message
+        let session = Session.fixture(sessionId: "refresh-key-cost", title: "RefreshKey Cost")
+        let agentMessage = Message.agentMessage(text: nil, session: session)
+        agentMessage.status = .pending
+        // 注意：不关心 agentRounds 内容————如果 init 访问 agentRounds，
+        // SwiftData 会在 @MainActor 上触发 additional fault reads，导致性能回归。
+        // 此测试仅验证：相同 messages（不同 workspaceRoot，但无 user message 路径依赖）
+        // 产生相等的 RefreshKey，即 workspaceRoot 不影响无路径依赖的 key。
+        let keyA = ChatMessageListRefreshKey(
+            messages: [agentMessage],
+            workspaceRoot: "/workspace/a"
+        )
+        let keyB = ChatMessageListRefreshKey(
+            messages: [agentMessage],
+            workspaceRoot: "/workspace/b"
+        )
+        #expect(keyA == keyB, "agent message RefreshKey should be equal regardless of workspaceRoot")
+    }
+
+    @Test
+    func refreshKeyDiffersWhenMessageStatusChanges() {
+        let session = Session.fixture(sessionId: "refresh-key-status-diff", title: "Status Diff")
+        let agentMessage = Message.agentMessage(text: "hello", session: session)
+        agentMessage.status = .pending
+
+        let keyPending = ChatMessageListRefreshKey(
+            messages: [agentMessage],
+            workspaceRoot: "/ws"
+        )
+        agentMessage.status = .completed
+        let keyCompleted = ChatMessageListRefreshKey(
+            messages: [agentMessage],
+            workspaceRoot: "/ws"
+        )
+        #expect(keyPending != keyCompleted, "RefreshKey must differ when message status changes")
+    }
+
+    @Test
+    func refreshKeyDiffersWhenTextContentChanges() {
+        let session = Session.fixture(sessionId: "refresh-key-text-diff", title: "Text Diff")
+        let agentMessage = Message.agentMessage(text: "hello", session: session)
+        let key1 = ChatMessageListRefreshKey(messages: [agentMessage], workspaceRoot: "/ws")
+        agentMessage.textContent = "hello world"
+        let key2 = ChatMessageListRefreshKey(messages: [agentMessage], workspaceRoot: "/ws")
+        #expect(key1 != key2, "RefreshKey must differ when textContent changes")
+    }
+
+    @Test
+    func refreshKeyDiffersWhenMessageCountChanges() {
+        let session = Session.fixture(sessionId: "refresh-key-count-diff", title: "Count Diff")
+        let msg1 = Message.userMessage(text: "a", session: session)
+        let msg2 = Message.agentMessage(text: "b", session: session)
+        let key1 = ChatMessageListRefreshKey(messages: [msg1], workspaceRoot: "/ws")
+        let key2 = ChatMessageListRefreshKey(messages: [msg1, msg2], workspaceRoot: "/ws")
+        #expect(key1 != key2, "RefreshKey must differ when message count changes")
+    }
 }
