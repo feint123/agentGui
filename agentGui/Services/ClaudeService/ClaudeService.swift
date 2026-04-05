@@ -107,6 +107,10 @@ final class ClaudeService {
     /// R-A2: 文件备份 store，为 Rewind 功能提供内容寻址备份能力。
     let fileBackupStore: FileBackupStore = FileBackupStore()
 
+    /// R-A3: 当前 loop 轮次的文件检查点 accumulator（key = sessionID）。
+    /// 每次 buildHookPipeline() 在 loop 开始前替换；由 R-B1 ConversationCheckpointService 消费。
+    var sessionCheckpointAccumulators: [String: ActiveCheckpointAccumulator] = [:]
+
     /// Per-session session memory 状态。
     /// 跨 runCoreAgentLoop 调用持久驻留，key = sessionId。
     ///

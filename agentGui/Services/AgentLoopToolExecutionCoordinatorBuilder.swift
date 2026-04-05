@@ -239,6 +239,20 @@ struct AgentLoopToolExecutionCoordinatorBuilder {
     private func buildHookPipeline() -> ToolExecutionHookPipeline {
         var hooks: [any ToolExecutionHook] = []
 
+        // R-A3: FileCheckpointHook — 必须在 ChangeReviewHook 之前（preExecute 备份原始内容）
+        let workspaceRoot: String = {
+            if let wd = session?.workingDirectory, !wd.isEmpty { return wd }
+            if !settings.workingDirectory.isEmpty { return settings.workingDirectory }
+            return FileManager.default.currentDirectoryPath
+        }()
+        let acc = ActiveCheckpointAccumulator(messageID: UUID(), workspaceRoot: workspaceRoot)
+        claudeService.sessionCheckpointAccumulators[sessionId] = acc
+        hooks.append(FileCheckpointHook(
+            fileBackupStore: claudeService.fileBackupStore,
+            accumulator: acc,
+            workspaceRoot: workspaceRoot
+        ))
+
         if let projectionStore = claudeService.changeReviewProjectionStore {
             hooks.append(ChangeReviewHook(projectionStore: projectionStore))
         }
