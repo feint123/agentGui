@@ -55,7 +55,51 @@ final class FileSystemRewindCoordinator {
     /// - Returns: 包含已恢复、已跳过、已失败文件列表的结构体。
     /// - Throws: `ConversationCheckpointError` 若 JSON 解码失败（极少，备份元数据损坏）。
     func rewind(to checkpoint: ConversationCheckpoint) async throws -> RewindResult {
-        fatalError("Not implemented")
+        // 1. 解码 trackedFileBackupsJSON（若 JSON 损坏则 throw，这是唯一 throw 路径）
+        let trackedFileBackups = try checkpoint.decodedTrackedFileBackups()
+
+        var restoredFiles: [String] = []
+        var skippedFiles: [String] = []
+        var failedFiles: [(path: String, error: Error)] = []
+
+        // 2. 逐文件处理（non-atomic：单文件失败不影响其他文件）
+        for (relativePath, entry) in trackedFileBackups {
+            let absPath = absolutePath(for: relativePath, workspaceRoot: checkpoint.workspaceRoot)
+
+            do {
+                let changed = await fileBackupStore.hasFileChanged(
+                    filePath: absPath,
+                    sessionID: checkpoint.sessionID,
+                    entry: entry
+                )
+
+                if changed {
+                    try await fileBackupStore.restoreFile(
+                        filePath: absPath,
+                        sessionID: checkpoint.sessionID,
+                        from: entry
+                    )
+                    restoredFiles.append(absPath)
+                } else {
+                    skippedFiles.append(absPath)
+                }
+            } catch {
+                failedFiles.append((path: absPath, error: error))
+            }
+        }
+
+        // 3. 发出通知，让 Editor 视图、ChangeReview 视图刷新
+        NotificationCenter.default.post(
+            name: .rewindDidRestoreFiles,
+            object: checkpoint.sessionID,
+            userInfo: ["restoredFiles": restoredFiles]
+        )
+
+        return RewindResult(
+            restoredFiles: restoredFiles,
+            skippedFiles: skippedFiles,
+            failedFiles: failedFiles
+        )
     }
 }
 
