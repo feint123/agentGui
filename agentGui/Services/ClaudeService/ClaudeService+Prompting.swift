@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import SwiftAnthropic
 
 struct ExplicitlyActivatedSkill: Hashable {
     let skill: Skill
@@ -82,7 +83,8 @@ struct SystemPromptRuntimeContext: Equatable {
             "- Operating system: \(operatingSystemText)",
             "- Host: \(hostName)",
             "- Working directory: \(workingDirectory) (source: \(workingDirectorySource))",
-            "- Reality constraints: You are running inside a macOS app. Use the actual current date, OS, locale, and working directory above when reasoning about commands, files, timestamps, or environment-sensitive behavior. Do not assume a different platform or stale date."
+            "- Reality constraints: You are running inside a macOS app. Use the actual current date, OS, locale, and working directory above when reasoning about commands, files, timestamps, or environment-sensitive behavior. Do not assume a different platform or stale date.",
+            "- Temporal reasoning: When the user uses relative time expressions — 最近、近期、最新、近来、今年、this year、recent、latest、newest、current — interpret them relative to the current date/time listed above. Your training data has a knowledge cutoff that is earlier than today's date. When answering questions about recent events, latest software versions, newest models, current prices, or recent news, proactively acknowledge your knowledge cutoff and note that information after your training cutoff may be outdated or unavailable."
         ]
 
         if let proxySummary {
@@ -90,6 +92,25 @@ struct SystemPromptRuntimeContext: Equatable {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    /// 构建 <system-reminder> 时序上下文前置消息（对应 Claude Code prependUserContext 中的 currentDate 条目）。
+    /// 作为 apiMessages 的第一条 user 消息追加，使模型在对话 context window 中更靠近用户输入处看到当前日期。
+    static func makeTemporalContextPreamble(
+        currentDateTimeText: String,
+        timezoneIdentifier: String
+    ) -> MessageParameter.Message {
+        let content = """
+        <system-reminder>
+        # currentDate
+        Today's date and time: \(currentDateTimeText) (\(timezoneIdentifier)).
+
+        When the user uses relative time expressions — 最近、近期、最新、近来、今年、this year、recent、latest、newest、current — always interpret them relative to the date above. Your training data has a knowledge cutoff that may be significantly earlier than today. When answering questions about recent events, latest software versions, newest AI models, current prices, recent news, or any topic that changes over time, proactively state your knowledge cutoff and note that more recent information may exist beyond your training data.
+
+        IMPORTANT: This reminder is injected automatically. Do not respond to it directly — only apply it when the user's query is time-sensitive.
+        </system-reminder>
+        """
+        return MessageParameter.Message(role: .user, content: .text(content))
     }
 }
 

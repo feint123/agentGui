@@ -516,6 +516,29 @@ extension ClaudeService {
         modelContext: ModelContext
     ) async throws {
         let settings = AppSettings.getOrCreate(in: modelContext)
+
+        // Layer 2 temporal injection: 仅当 apiMessages 头部尚无 system-reminder 时追加时序上下文前置消息
+        // 对应 Claude Code 的 prependUserContext({ currentDate: "Today's date is ..." })
+        let messagesWithTemporalContext: [MessageParameter.Message]
+        let alreadyHasTemporalPreamble = apiMessages.first.map { msg -> Bool in
+            if case .text(let t) = msg.content { return t.contains("<system-reminder>") }
+            return false
+        } ?? false
+        if !alreadyHasTemporalPreamble {
+            let runtimeCtx = SystemPromptRuntimeContext.live(
+                workingDirectory: settings.workingDirectory,
+                settings: settings,
+                session: session
+            )
+            let preamble = SystemPromptRuntimeContext.makeTemporalContextPreamble(
+                currentDateTimeText: runtimeCtx.currentDateTimeText,
+                timezoneIdentifier: runtimeCtx.timezoneIdentifier
+            )
+            messagesWithTemporalContext = [preamble] + apiMessages
+        } else {
+            messagesWithTemporalContext = apiMessages
+        }
+
         let turnSkillContext = try await resolveTurnSkillContext(
             enabledSkillNames: settings.enabledSkillNames,
             directives: directives
@@ -553,7 +576,7 @@ extension ClaudeService {
 
         do {
             let result = try await runAgenticLoop(
-                apiMessages: apiMessages,
+                apiMessages: messagesWithTemporalContext,
                 assistantMessage: assistantMessage,
                 service: service,
                 modelId: modelId,
