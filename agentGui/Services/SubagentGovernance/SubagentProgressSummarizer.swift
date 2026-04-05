@@ -68,8 +68,9 @@ actor SubagentProgressSummarizer {
 
     // MARK: - State
 
-    private let record: SubagentTaskRecord
-    private let modelContext: ModelContext
+    /// S-C4: MainActor 写入回调，由调用方捕获 record/modelContext，
+    /// 避免非 MainActor actor 持有 @MainActor 绑定的 @Model / ModelContext 类型。
+    private let onSummaryGenerated: @MainActor @Sendable (String) -> Void
     private let apiProvider: APIProvider
     private let intervalSeconds: Duration
 
@@ -83,18 +84,15 @@ actor SubagentProgressSummarizer {
     // MARK: - Init
 
     /// - Parameters:
-    ///   - record: 目标 SubagentTaskRecord（写入 progressSummary 字段）
-    ///   - modelContext: 用于触发 save 的 ModelContext（MainActor 上下文）
+    ///   - onSummaryGenerated: 摘要写入回调（`@MainActor`，由调用方捕获 record/modelContext）
     ///   - apiProvider: 可注入的 API 调用闭包（生产中由工厂方法构建，测试中 mock）
     ///   - intervalSeconds: 摘要间隔（默认 30s，测试可缩短）
     init(
-        record: SubagentTaskRecord,
-        modelContext: ModelContext,
+        onSummaryGenerated: @escaping @MainActor @Sendable (String) -> Void,
         apiProvider: @escaping APIProvider,
         intervalSeconds: Duration = .seconds(30)
     ) {
-        self.record = record
-        self.modelContext = modelContext
+        self.onSummaryGenerated = onSummaryGenerated
         self.apiProvider = apiProvider
         self.intervalSeconds = intervalSeconds
     }
@@ -167,11 +165,10 @@ actor SubagentProgressSummarizer {
             debugLog("[S-C4] Summary: \(trimmed)")
             previousSummary = trimmed
 
-            // 写入 SwiftData @Model（必须在 MainActor 上）
-            let rec = record
+            // 写入 SwiftData @Model（回调在 @MainActor 上执行，持有 record/modelContext 的是调用方）
+            let callback = onSummaryGenerated
             await MainActor.run {
-                rec.progressSummary = trimmed
-                try? modelContext.save()
+                callback(trimmed)
             }
         } catch {
             // 静默降级

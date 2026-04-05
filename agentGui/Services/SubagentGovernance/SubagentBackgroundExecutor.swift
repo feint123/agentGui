@@ -119,7 +119,11 @@ actor SubagentBackgroundExecutor {
         )
         await MainActor.run {
             modelContext.insert(record)
-            try? modelContext.save()
+            do { try modelContext.save() } catch {
+                #if DEBUG
+                print("[S-C2] Insert record save failed: \(error)")
+                #endif
+            }
         }
 
         // 2. Fire-and-forget Task（独立生命周期，不绑定父 Task）
@@ -171,8 +175,14 @@ actor SubagentBackgroundExecutor {
         let ctxHolder = SubagentContextHolder()
 
         let summarizer = SubagentProgressSummarizer(
-            record: record,
-            modelContext: modelContext,
+            onSummaryGenerated: { [record, modelContext] summary in
+                record.progressSummary = summary
+                do { try modelContext.save() } catch {
+                    #if DEBUG
+                    print("[S-C4] Progress summary save failed: \(error)")
+                    #endif
+                }
+            },
             apiProvider: { systemPrompt, messages, previousSummary in
                 let ctx = await ctxHolder.context
                 guard let service = ctx?.service else { return nil }
@@ -273,7 +283,11 @@ actor SubagentBackgroundExecutor {
             )
             let notification = Message.systemMessage(text: notificationText, session: session)
             modelContext.insert(notification)
-            try? modelContext.save()
+            do { try modelContext.save() } catch {
+                #if DEBUG
+                print("[S-C2] Finalize save failed: \(error)")
+                #endif
+            }
         }
 
         // 注销 Task 注册表

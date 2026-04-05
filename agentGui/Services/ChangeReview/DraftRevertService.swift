@@ -57,16 +57,14 @@ final class DraftRevertService {
         let fileURL = URL(fileURLWithPath: change.absolutePath)
         let currentHash = try conflictResolver.currentContentHash(at: fileURL)
 
+        // Already at base state — nothing to revert (idempotent).
         if currentHash == change.baseContentHash {
             return
         }
 
-        if currentHash == change.stagedContentHash {
-            try workspaceSyncService.revertDraft(change.draftWorkspaceFileChange)
-            return
-        }
-
-        throw ChangeReviewConflictError.draftChanged(change.absolutePath)
+        // Restore base content unconditionally. The user clicked "Revert":
+        // they want the pre-edit state regardless of any later modifications.
+        try workspaceSyncService.revertDraft(change.draftWorkspaceFileChange)
     }
 
     private func refreshProjection(proposalID: UUID) async throws {

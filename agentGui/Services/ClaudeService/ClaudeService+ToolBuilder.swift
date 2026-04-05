@@ -57,54 +57,12 @@ extension ClaudeService {
         }
 
         if !enabledSkills.isEmpty {
-            tools.append(makeEphemeralTool(
-                name: "read_skill",
-                description: "Load the full instructions of a skill by name. Use when the user's request matches a skill's purpose.",
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "name": .init(
-                            type: .string,
-                            description: "The skill name, e.g. 'brainstorming'"
-                        )
-                    ],
-                    required: ["name"]
-                )
-            ))
-
-            tools.append(makeEphemeralTool(
-                name: "skill_invoke",
-                description: """
-                Execute a skill within the main conversation.
-
-                When users ask you to perform tasks, check if any available skill matches. \
-                If a skill's purpose matches the user's request, invoke it BEFORE generating \
-                any other response about the task.
-
-                How to invoke:
-                - skill: the skill's name (e.g. "commit", "review-pr", "pdf")
-                - args: optional arguments string (passed to the skill as $ARGUMENTS)
-
-                Available skills are listed in the system prompt under "## Available Skills". \
-                Do NOT invoke a skill that is already running. \
-                If skill has already been invoked this turn (you see skill instructions in a \
-                prior tool_result), follow those instructions directly instead of calling again.
-                """,
-                inputSchema: .init(
-                    type: .object,
-                    properties: [
-                        "skill": .init(
-                            type: .string,
-                            description: "The skill name. E.g., \"commit\", \"review-pr\", or \"pdf\""
-                        ),
-                        "args": .init(
-                            type: .string,
-                            description: "Optional arguments for the skill, passed as $ARGUMENTS"
-                        )
-                    ],
-                    required: ["skill"]
-                )
-            ))
+            if let definition = registry.definition(for: "read_skill") {
+                tools.append(definition.makeAnthropicTool())
+            }
+            if let definition = registry.definition(for: "skill_invoke") {
+                tools.append(definition.makeAnthropicTool())
+            }
         }
 
         // run_subagent: only available to the main agent (not inside subagent loops)
@@ -116,194 +74,37 @@ extension ClaudeService {
         }
 
         // update_todo_list: available to all agents (main and subagent)
-        tools.append(makeEphemeralTool(
-            name: "update_todo_list",
-            description: """
-            Update the current task list shown in the workspace panel. \
-            Use this to track progress on complex, multi-step tasks. \
-            Each call REPLACES the entire todo list for the current session. \
-            Call early to lay out planned steps, and update status as tasks progress.
-
-            Statuses:
-            - pending: not yet started
-            - in_progress: currently working on it (at most one at a time)
-            - done: completed successfully
-            - cancelled: skipped or no longer needed
-            """,
-            inputSchema: .init(
-                type: .object,
-                properties: [
-                    "items": .init(
-                        type: .array,
-                        description: #"Full list of todo items. Each item: { "id": string, "title": string, "status": "pending"|"in_progress"|"done"|"cancelled", "notes": string (optional) }"#
-                    )
-                ],
-                required: ["items"]
-            )
-        ))
+        if let definition = registry.definition(for: "update_todo_list") {
+            tools.append(definition.makeAnthropicTool())
+        }
 
         // create_execution_plan: records a structured plan before tackling complex tasks
-        tools.append(makeEphemeralTool(
-            name: "create_execution_plan",
-            description: """
-            Record a structured execution plan before starting a complex task. \
-            Use this when a task requires 3+ distinct steps, touches multiple files or systems, \
-            or involves research followed by implementation. \
-            The plan is shown in the workspace panel and helps verify completion afterwards.
-            """,
-            inputSchema: .init(
-                type: .object,
-                properties: [
-                    "goal": .init(type: .string, description: "One-sentence description of what needs to be achieved"),
-                    "steps": .init(
-                        type: .array,
-                        description: #"Ordered list of steps. Each: { "id": string, "title": string } — title must be verb-first and specific"#
-                    ),
-                    "assumptions": .init(type: .array, description: "Optional list of assumptions, risks, or open questions (strings)"),
-                    "success_criteria": .init(type: .array, description: "Optional list of objectively checkable success criteria (strings)")
-                ],
-                required: ["goal", "steps"]
-            )
-        ))
+        if let definition = registry.definition(for: "create_execution_plan") {
+            tools.append(definition.makeAnthropicTool())
+        }
 
         // verify_completion: explicitly states what was and wasn't verified before finishing
-        tools.append(makeEphemeralTool(
-            name: "verify_completion",
-            description: """
-            Optionally record explicit completion claims for the host verify state to inspect. \
-            Use this when you want to preserve a structured list of what was actually verified, what remains unverified, and the overall conclusion. \
-            Do not claim tests or execution results unless they were actually observed.
-            """,
-            inputSchema: .init(
-                type: .object,
-                properties: [
-                    "verified": .init(type: .array, description: "List of things that were confirmed to work (strings)"),
-                    "not_verified": .init(type: .array, description: "List of things that were NOT verified and why (strings)"),
-                    "conclusion": .init(type: .string, description: "Optional one-sentence overall verdict")
-                ],
-                required: ["verified", "not_verified"]
-            )
-        ))
+        if let definition = registry.definition(for: "verify_completion") {
+            tools.append(definition.makeAnthropicTool())
+        }
 
         // ask_user_question is always available to the main agent only
-        tools.append(makeEphemeralTool(
-            name: "ask_user_question",
-            description: """
-            Ask the user one or more questions with structured multiple-choice options. \
-            Execution pauses until the user submits answers. \
-            Use this when you need clarification or a decision before proceeding.
+        if let definition = registry.definition(for: "ask_user_question") {
+            tools.append(definition.makeAnthropicTool())
+        }
 
-            Each element in `questions` must follow this exact shape:
-            {
-              "question":   string  — the question sentence shown to the user,
-              "header":     string  — short section label displayed above the question (e.g. "Language", "Confirm"),
-              "options":    array of { "label": string, "description": string } — the selectable choices,
-              "multiSelect": bool  — true to allow multiple selections, false for single choice
-            }
+        if let definition = registry.definition(for: "analyze_image") {
+            tools.append(definition.makeAnthropicTool())
+        }
 
-            Example call:
-            {
-              "questions": [
-                {
-                  "question": "Which programming language should I use?",
-                  "header": "Language",
-                  "options": [
-                    { "label": "Swift",  "description": "Apple platforms, type-safe" },
-                    { "label": "Python", "description": "Scripting, data science" },
-                    { "label": "Rust",   "description": "Systems, performance" }
-                  ],
-                  "multiSelect": false
-                }
-              ]
-            }
-
-            The tool returns JSON:
-            {
-              "answers": [
-                { "question": "...", "header": "...", "selected": ["Swift"] }
-              ]
-            }
-            If the user cancels, "selected" will be an empty array [].
-            """,
-            inputSchema: .init(
-                type: .object,
-                properties: [
-                    "questions": .init(
-                        type: .array,
-                        description: "Array of question objects. Each must have: question (string), header (string), options (array of {label, description}), multiSelect (bool)."
-                    )
-                ],
-                required: ["questions"]
-            )
-        ))
-
-        tools.append(makeEphemeralTool(
-            name: "analyze_image",
-            description: """
-            Load a local image file and analyze its visual content. \
-            Provides the image directly to Claude's vision capabilities. \
-            Supports png, jpg, jpeg, gif, webp (max 20 MB). \
-            Use this when the user references an image file or you need to understand visual content.
-            """,
-            inputSchema: .init(
-                type: .object,
-                properties: [
-                    "file_path": .init(type: .string, description: "Absolute path to the image file")
-                ],
-                required: ["file_path"]
-            )
-        ))
-
-        tools.append(makeEphemeralTool(
-            name: "read_pdf",
-            description: """
-            Extract all text content from a local PDF file using PDFKit. \
-            Returns the text page-by-page so you can read, summarize, or answer questions about it. \
-            For scanned PDFs without selectable text, use bash with pdftotext or similar. \
-            Max 50 MB.
-            """,
-            inputSchema: .init(
-                type: .object,
-                properties: [
-                    "file_path": .init(type: .string, description: "Absolute path to the PDF file")
-                ],
-                required: ["file_path"]
-            )
-        ))
+        if let definition = registry.definition(for: "read_pdf") {
+            tools.append(definition.makeAnthropicTool())
+        }
 
         // memory_write: always available — persist long-term facts as Markdown files to ~/agentgui/memory/
-        tools.append(makeEphemeralTool(
-            name: "memory_write",
-            description: """
-            Persist an important long-term memory as a Markdown file in your persistent memory directory. \
-            Use this for user preferences, project decisions, feedback patterns, and reference information \
-            that should be available in future sessions. \
-            Keep entries concise, factual, and decision-relevant. \
-            Saves to ~/agentgui/memory/<filename>.md and updates the MEMORY.md index automatically.
-            """,
-            inputSchema: .init(
-                type: .object,
-                properties: [
-                    "content": .init(
-                        type: .string,
-                        description: "The memory content to save. Write clear, concise Markdown body text."
-                    ),
-                    "title": .init(
-                        type: .string,
-                        description: "Optional short title for this memory (e.g. 'User prefers bun over npm'). Used for filename and MEMORY.md index."
-                    ),
-                    "type": .init(
-                        type: .string,
-                        description: "Memory type: 'user' (preferences/profile), 'feedback' (corrections/patterns), 'project' (decisions/context), or 'reference' (external links/docs). Defaults to 'project'."
-                    ),
-                    "description": .init(
-                        type: .string,
-                        description: "Optional one-line hook for MEMORY.md index (≤ 150 chars). If omitted, first line of content is used."
-                    )
-                ],
-                required: ["content"]
-            )
-        ))
+        if let definition = registry.definition(for: "memory_write") {
+            tools.append(definition.makeAnthropicTool())
+        }
 
         return tools
     }

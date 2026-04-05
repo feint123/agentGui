@@ -34,8 +34,10 @@ final class SubagentProgressSummarizerTests: XCTestCase {
         intervalSeconds: Duration = .seconds(30)
     ) -> SubagentProgressSummarizer {
         SubagentProgressSummarizer(
-            record: record,
-            modelContext: modelContext,
+            onSummaryGenerated: { summary in
+                record.progressSummary = summary
+                try? modelContext.save()
+            },
             apiProvider: apiProvider,
             intervalSeconds: intervalSeconds
         )

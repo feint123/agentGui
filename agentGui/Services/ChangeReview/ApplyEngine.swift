@@ -57,16 +57,18 @@ final class ApplyEngine {
         let fileURL = URL(fileURLWithPath: change.absolutePath)
         let currentHash = try conflictResolver.currentContentHash(at: fileURL)
 
+        // Already at the desired state — nothing to write (idempotent).
         if currentHash == change.stagedContentHash {
             return
         }
 
-        if currentHash == change.baseContentHash {
-            try workspaceSyncService.writeDraft(change.draftWorkspaceFileChange)
-            return
-        }
-
-        throw ChangeReviewConflictError.draftChanged(change.absolutePath)
+        // Write the staged content unconditionally. Following mainstream agent
+        // conventions (Cursor, Copilot, Claude Code): when the user reviews a
+        // diff and confirms "Apply", the staged content should be written
+        // regardless of any subsequent modifications to the file. This allows
+        // multi-round agent edits to the same file to all be applied without
+        // false conflicts.
+        try workspaceSyncService.writeDraft(change.draftWorkspaceFileChange)
     }
 
     private func refreshProjection(proposalID: UUID) async throws {

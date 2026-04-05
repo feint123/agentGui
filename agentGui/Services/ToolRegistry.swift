@@ -37,7 +37,16 @@ struct DefaultToolRegistry: ToolRegistry {
             lspDiagnosticsToolDefinition(),
             lspListServersToolDefinition(),
             lspServerStatusToolDefinition(),
-            runSubagentDefinition()
+            runSubagentDefinition(),
+            readSkillDefinition(),
+            skillInvokeDefinition(),
+            updateTodoListDefinition(),
+            createExecutionPlanDefinition(),
+            verifyCompletionDefinition(),
+            askUserQuestionDefinition(),
+            analyzeImageDefinition(),
+            readPdfDefinition(),
+            memoryWriteDefinition()
         ]
     }
 
@@ -477,6 +486,355 @@ struct DefaultToolRegistry: ToolRegistry {
                         "character": .init(type: .integer, description: "Zero-based character offset.")
                     ],
                     required: ["workspace_root", "server_id", "uri", "line", "character"]
+                )
+            }
+        )
+    }
+
+    // MARK: - Skill Tools
+
+    private static func readSkillDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "read_skill",
+            displayName: "Read Skill",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent],
+            isConcurrencySafe: true,
+            executorKey: "builtin.readSkill",
+            descriptionBuilder: { _ in
+                "Load the full instructions of a skill by name. Use when the user's request matches a skill's purpose."
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "name": .init(type: .string, description: "The skill name, e.g. 'brainstorming'")
+                    ],
+                    required: ["name"]
+                )
+            }
+        )
+    }
+
+    private static func skillInvokeDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "skill_invoke",
+            displayName: "Skill Invoke",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent],
+            executorKey: "builtin.skillInvoke",
+            descriptionBuilder: { _ in
+                """
+                Execute a skill within the main conversation.
+
+                When users ask you to perform tasks, check if any available skill matches. \
+                If a skill's purpose matches the user's request, invoke it BEFORE generating \
+                any other response about the task.
+
+                How to invoke:
+                - skill: the skill's name (e.g. "commit", "review-pr", "pdf")
+                - args: optional arguments string (passed to the skill as $ARGUMENTS)
+
+                Available skills are listed in the system prompt under "## Available Skills". \
+                Do NOT invoke a skill that is already running. \
+                If skill has already been invoked this turn (you see skill instructions in a \
+                prior tool_result), follow those instructions directly instead of calling again.
+                """
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "skill": .init(type: .string, description: "The skill name. E.g., \"commit\", \"review-pr\", or \"pdf\""),
+                        "args": .init(type: .string, description: "Optional arguments for the skill, passed as $ARGUMENTS")
+                    ],
+                    required: ["skill"]
+                )
+            }
+        )
+    }
+
+    // MARK: - Task Management Tools
+
+    private static func updateTodoListDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "update_todo_list",
+            displayName: "Update Todo List",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent, .backgroundTask],
+            executorKey: "builtin.updateTodoList",
+            descriptionBuilder: { _ in
+                """
+                Update the current task list shown in the workspace panel. \
+                Use this to track progress on complex, multi-step tasks. \
+                Each call REPLACES the entire todo list for the current session. \
+                Call early to lay out planned steps, and update status as tasks progress.
+
+                Statuses:
+                - pending: not yet started
+                - in_progress: currently working on it (at most one at a time)
+                - done: completed successfully
+                - cancelled: skipped or no longer needed
+                """
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "items": .init(
+                            type: .array,
+                            description: #"Full list of todo items. Each item: { "id": string, "title": string, "status": "pending"|"in_progress"|"done"|"cancelled", "notes": string (optional) }"#
+                        )
+                    ],
+                    required: ["items"]
+                )
+            }
+        )
+    }
+
+    private static func createExecutionPlanDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "create_execution_plan",
+            displayName: "Create Execution Plan",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent],
+            executorKey: "builtin.createExecutionPlan",
+            descriptionBuilder: { _ in
+                """
+                Record a structured execution plan before starting a complex task. \
+                Use this when a task requires 3+ distinct steps, touches multiple files or systems, \
+                or involves research followed by implementation. \
+                The plan is shown in the workspace panel and helps verify completion afterwards.
+                """
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "goal": .init(type: .string, description: "One-sentence description of what needs to be achieved"),
+                        "steps": .init(
+                            type: .array,
+                            description: #"Ordered list of steps. Each: { "id": string, "title": string } — title must be verb-first and specific"#
+                        ),
+                        "assumptions": .init(type: .array, description: "Optional list of assumptions, risks, or open questions (strings)"),
+                        "success_criteria": .init(type: .array, description: "Optional list of objectively checkable success criteria (strings)")
+                    ],
+                    required: ["goal", "steps"]
+                )
+            }
+        )
+    }
+
+    private static func verifyCompletionDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "verify_completion",
+            displayName: "Verify Completion",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent],
+            executorKey: "builtin.verifyCompletion",
+            descriptionBuilder: { _ in
+                """
+                Optionally record explicit completion claims for the host verify state to inspect. \
+                Use this when you want to preserve a structured list of what was actually verified, what remains unverified, and the overall conclusion. \
+                Do not claim tests or execution results unless they were actually observed.
+                """
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "verified": .init(type: .array, description: "List of things that were confirmed to work (strings)"),
+                        "not_verified": .init(type: .array, description: "List of things that were NOT verified and why (strings)"),
+                        "conclusion": .init(type: .string, description: "Optional one-sentence overall verdict")
+                    ],
+                    required: ["verified", "not_verified"]
+                )
+            }
+        )
+    }
+
+    // MARK: - Interaction Tools
+
+    private static func askUserQuestionDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "ask_user_question",
+            displayName: "Ask User Question",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent],
+            executorKey: "builtin.askUserQuestion",
+            descriptionBuilder: { _ in
+                """
+                Ask the user one or more questions with structured multiple-choice options. \
+                Execution pauses until the user submits answers. \
+                Use this when you need clarification or a decision before proceeding.
+
+                Each element in `questions` must follow this exact shape:
+                {
+                  "question":   string  — the question sentence shown to the user,
+                  "header":     string  — short section label displayed above the question (e.g. "Language", "Confirm"),
+                  "options":    array of { "label": string, "description": string } — the selectable choices,
+                  "multiSelect": bool  — true to allow multiple selections, false for single choice
+                }
+
+                Example call:
+                {
+                  "questions": [
+                    {
+                      "question": "Which programming language should I use?",
+                      "header": "Language",
+                      "options": [
+                        { "label": "Swift",  "description": "Apple platforms, type-safe" },
+                        { "label": "Python", "description": "Scripting, data science" },
+                        { "label": "Rust",   "description": "Systems, performance" }
+                      ],
+                      "multiSelect": false
+                    }
+                  ]
+                }
+
+                The tool returns JSON:
+                {
+                  "answers": [
+                    { "question": "...", "header": "...", "selected": ["Swift"] }
+                  ]
+                }
+                If the user cancels, "selected" will be an empty array [].
+                """
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "questions": .init(
+                            type: .array,
+                            description: "Array of question objects. Each must have: question (string), header (string), options (array of {label, description}), multiSelect (bool)."
+                        )
+                    ],
+                    required: ["questions"]
+                )
+            }
+        )
+    }
+
+    // MARK: - Media Tools
+
+    private static func analyzeImageDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "analyze_image",
+            displayName: "Analyze Image",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent],
+            authorization: ToolAuthorizationDescriptor(
+                requirements: [ToolCapabilityRequirement(capabilityID: .fileSystem, minimumLevel: .observe)],
+                riskTier: .low
+            ),
+            isConcurrencySafe: true,
+            executorKey: "builtin.analyzeImage",
+            descriptionBuilder: { _ in
+                """
+                Load a local image file and analyze its visual content. \
+                Provides the image directly to Claude's vision capabilities. \
+                Supports png, jpg, jpeg, gif, webp (max 20 MB). \
+                Use this when the user references an image file or you need to understand visual content.
+                """
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "file_path": .init(type: .string, description: "Absolute path to the image file")
+                    ],
+                    required: ["file_path"]
+                )
+            }
+        )
+    }
+
+    private static func readPdfDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "read_pdf",
+            displayName: "Read PDF",
+            category: .system,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent],
+            authorization: ToolAuthorizationDescriptor(
+                requirements: [ToolCapabilityRequirement(capabilityID: .fileSystem, minimumLevel: .observe)],
+                riskTier: .low
+            ),
+            isConcurrencySafe: true,
+            executorKey: "builtin.readPdf",
+            descriptionBuilder: { _ in
+                """
+                Extract all text content from a local PDF file using PDFKit. \
+                Returns the text page-by-page so you can read, summarize, or answer questions about it. \
+                For scanned PDFs without selectable text, use bash with pdftotext or similar. \
+                Max 50 MB.
+                """
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "file_path": .init(type: .string, description: "Absolute path to the PDF file")
+                    ],
+                    required: ["file_path"]
+                )
+            }
+        )
+    }
+
+    // MARK: - Memory Tools
+
+    private static func memoryWriteDefinition() -> ToolDefinition {
+        ToolDefinition(
+            id: "memory_write",
+            displayName: "Memory Write",
+            category: .memory,
+            schemaVersion: 1,
+            supportedContexts: [.mainAgent, .subagent],
+            authorization: ToolAuthorizationDescriptor(
+                requirements: [ToolCapabilityRequirement(capabilityID: .fileSystem, minimumLevel: .mutate)],
+                riskTier: .low
+            ),
+            executorKey: "builtin.memoryWrite",
+            descriptionBuilder: { _ in
+                """
+                Persist an important long-term memory as a Markdown file in your persistent memory directory. \
+                Use this for user preferences, project decisions, feedback patterns, and reference information \
+                that should be available in future sessions. \
+                Keep entries concise, factual, and decision-relevant. \
+                Saves to ~/agentgui/memory/<filename>.md and updates the MEMORY.md index automatically.
+                """
+            },
+            inputSchemaBuilder: { _ in
+                .init(
+                    type: .object,
+                    properties: [
+                        "content": .init(
+                            type: .string,
+                            description: "The memory content to save. Write clear, concise Markdown body text."
+                        ),
+                        "title": .init(
+                            type: .string,
+                            description: "Optional short title for this memory (e.g. 'User prefers bun over npm'). Used for filename and MEMORY.md index."
+                        ),
+                        "type": .init(
+                            type: .string,
+                            description: "Memory type: 'user' (preferences/profile), 'feedback' (corrections/patterns), 'project' (decisions/context), or 'reference' (external links/docs). Defaults to 'project'."
+                        ),
+                        "description": .init(
+                            type: .string,
+                            description: "Optional one-line hook for MEMORY.md index (≤ 150 chars). If omitted, first line of content is used."
+                        )
+                    ],
+                    required: ["content"]
                 )
             }
         )
