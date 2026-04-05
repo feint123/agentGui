@@ -273,7 +273,7 @@ struct SessionListView: View {
         sessionToDelete = nil
         Task {
             do {
-                try await SessionDeletionCoordinator().delete(session, modelContext: modelContext)
+                try await SessionDeletionCoordinator(checkpointGCService: .shared).delete(session, modelContext: modelContext)
                 viewModel.reload()
             } catch {
                 errorMessage = "删除对话失败: \(error.localizedDescription)"

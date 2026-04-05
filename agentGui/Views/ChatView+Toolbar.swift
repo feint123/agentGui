@@ -198,7 +198,7 @@ struct SessionToolbarActions {
             return false
         }
 
-        try await SessionDeletionCoordinator().delete(current, modelContext: modelContext)
+        try await SessionDeletionCoordinator(checkpointGCService: .shared).delete(current, modelContext: modelContext)
         workspaceState.selectedSession = fetchMostRecentSession()
         return true
     }

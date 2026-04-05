@@ -228,6 +228,10 @@ struct agentGuiApp: App {
                     Task { @MainActor in
                         await runtimeRecoveryService.scheduleBootstrapRefresh()
                     }
+                    // R-B2: 低优先级后台 GC，清理超限检查点和孤立备份文件
+                    Task.detached(priority: .utility) {
+                        await CheckpointGCService.shared.pruneAllSessions(modelContext: context)
+                    }
                     reliabilityCenterViewModel.refresh(using: context)
                 }
                 .environment(PersistenceCoordinator.shared)

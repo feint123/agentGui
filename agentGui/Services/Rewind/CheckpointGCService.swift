@@ -10,6 +10,12 @@ import SwiftData
 /// - `purgeSession`           — session 删除时全量清理（SwiftData + 磁盘）
 actor CheckpointGCService: Sendable {
 
+    // MARK: - Shared Singleton
+
+    /// App 全局共享实例，供 SessionDeletionCoordinator 等调用。
+    /// 测试代码应创建独立实例以保证隔离性。
+    static let shared = CheckpointGCService()
+
     // MARK: - Configuration
 
     let defaultMaxCheckpoints: Int
