@@ -104,6 +104,9 @@ final class ClaudeService {
     /// Session-scoped review projections produced by staged file edits.
     var changeReviewProjectionStore: ChangeReviewProjectionStore?
 
+    /// R-A2: 文件备份 store，为 Rewind 功能提供内容寻址备份能力。
+    let fileBackupStore: FileBackupStore = FileBackupStore()
+
     /// Per-session session memory 状态。
     /// 跨 runCoreAgentLoop 调用持久驻留，key = sessionId。
     ///
