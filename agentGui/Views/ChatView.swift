@@ -68,6 +68,9 @@ struct ChatView: View {
     @State var voiceInputController = VoiceInputController()
     @State var pendingAgentTeamComposer: AgentTeamBriefComposerRequest?
 
+    // MARK: - Rewind
+    @State var isRewindSelectorPresented = false
+
     @FocusState var isInputFocused: Bool
 
     // MARK: - Initializer
@@ -159,6 +162,9 @@ struct ChatView: View {
                 }
             )
         }
+        .sheet(isPresented: $isRewindSelectorPresented) {
+            makeRewindSelectorView()
+        }
         .confirmationDialog(
             "删除此消息及之后的所有对话？",
             isPresented: Binding(
@@ -224,6 +230,15 @@ struct ChatView: View {
 
     var sessionInteractionPolicy: SessionInteractionPolicy {
         SessionInteractionPolicy(session: session)
+    }
+
+    var rewindSelectorDisabled: Bool {
+        // 无可回滚的用户消息（< 2 条）
+        let userMessageCount = allMessages.filter { $0.direction == .user }.count
+        guard userMessageCount >= 2 else { return true }
+        // session 为只读或 agent loop 正在运行
+        guard sessionInteractionPolicy.canSend else { return true }
+        return false
     }
 }
 

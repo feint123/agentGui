@@ -478,3 +478,36 @@ extension ChatView {
         }
     }
 }
+
+// MARK: - Rewind Factory
+
+extension ChatView {
+    /// 构造 MessageRewindSelectorView 所需的依赖。
+    /// cancelLoop 捕获 claudeService，以闭包形式注入 RewindTransactionCoordinator（保持可测试性）。
+    func makeRewindSelectorView() -> MessageRewindSelectorView {
+        let backupBaseURL = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("agentGui/checkpoints")
+        let store = FileBackupStore(baseURL: backupBaseURL)
+        let checkpointService = ConversationCheckpointService(fileBackupStore: store)
+        let inspector = RewindPreflightInspector(fileBackupStore: store)
+        let convCoord = ConversationRewindCoordinator(modelContext: modelContext)
+        let fsCoord = FileSystemRewindCoordinator(fileBackupStore: store)
+        let cs = claudeService
+        let txCoord = RewindTransactionCoordinator(
+            conversationRewindCoordinator: convCoord,
+            fileSystemRewindCoordinator: fsCoord,
+            cancelLoop: { [cs] sessionID, ctx in
+                await cs.cancelExecution(session: session, modelContext: ctx)
+            },
+            modelContext: modelContext
+        )
+        return MessageRewindSelectorView(
+            session: session,
+            allMessages: Array(allMessages),
+            transactionCoordinator: txCoord,
+            checkpointService: checkpointService,
+            preflightInspector: inspector
+        )
+    }
+}

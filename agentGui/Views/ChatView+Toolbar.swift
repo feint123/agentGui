@@ -16,6 +16,11 @@ extension ChatView {
             Menu {
                 Button("复制为本地会话") { cloneCurrentSessionAsLocal() }
                     .disabled(sessionInteractionPolicy.canCloneAsLocal == false)
+                Button("回滚到历史消息...") {
+                    isRewindSelectorPresented = true
+                }
+                .disabled(rewindSelectorDisabled)
+                Divider()
                 Button("清除对话") { clearMessages() }
                     .disabled(sessionInteractionPolicy.canClearMessages == false)
                 Divider()
