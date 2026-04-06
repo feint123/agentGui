@@ -79,7 +79,29 @@ final class MessageRewindSelectorViewModel {
     /// 加载 checkpoints 并构建 userMessages 列表。
     /// 应在 `.task(id: session.sessionId)` 或视图 onAppear 中调用。
     func loadData(messages: [Message], modelContext: ModelContext) async {
-        // TODO: Task 2 实现
+        phase = .loading
+
+        // 1. 筛选用户消息，按 sequence 倒序
+        let sorted = messages
+            .filter { $0.direction == .user }
+            .sorted { $0.sequence > $1.sequence }
+
+        // 2. 获取本 session 的所有 checkpoints（最多 50 个）
+        let checkpoints = (try? await checkpointService.fetchCheckpoints(
+            sessionID: session.sessionId,
+            limit: 50,
+            modelContext: modelContext
+        )) ?? []
+
+        // 3. 构建 messageID → checkpoint 映射
+        var map: [UUID: ConversationCheckpoint] = [:]
+        for cp in checkpoints {
+            map[cp.messageID] = cp
+        }
+
+        userMessages = sorted
+        checkpointMap = map
+        phase = .ready
     }
 
     /// 用户点击某条消息时触发，决定走哪条路径。
