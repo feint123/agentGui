@@ -106,7 +106,45 @@ final class MessageRewindSelectorViewModel {
 
     /// 用户点击某条消息时触发，决定走哪条路径。
     func selectMessage(_ message: Message) async {
-        // TODO: Task 3 实现
+        phase = .executing
+        errorMessage = nil
+
+        let checkpoint = checkpointMap[message.id]
+
+        // 判断是否有文件变化（快速路径：先检查 hasFileChanges 标志，再调用 inspector）
+        let hasChanges: Bool
+        if let cp = checkpoint, cp.hasFileChanges {
+            // checkpoint 声明有文件变化，调用 inspector 精确验证（当前文件是否仍与备份不同）
+            hasChanges = (try? await preflightInspector.hasAnyFileChanges(checkpoint: cp)) ?? false
+        } else {
+            // 无 checkpoint 或 checkpoint.hasFileChanges == false → 无需验证
+            hasChanges = false
+        }
+
+        if !hasChanges {
+            // Lossless fast path: 仅截断对话，不动文件
+            do {
+                try await transactionCoordinator.execute(
+                    targetMessage: message,
+                    checkpoint: nil,
+                    option: .conversationOnly,
+                    repopulateInput: true
+                )
+                shouldDismiss = true
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        } else {
+            // Confirmation path（Task 4 实现）
+            let diffStats = (try? await preflightInspector.computeDiffStats(checkpoint: checkpoint!)) ?? .empty
+            pendingConfirmation = PendingConfirmation(
+                message: message,
+                checkpoint: checkpoint,
+                diffStats: diffStats
+            )
+        }
+
+        phase = .ready
     }
 
     /// 确认 sheet 批准后执行回滚（由 RewindConfirmationSheet 回调）。
