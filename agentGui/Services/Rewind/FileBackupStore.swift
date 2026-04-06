@@ -169,6 +169,13 @@ actor FileBackupStore: Sendable {
         try? FileManager.default.removeItem(at: sessionDir)
     }
 
+    /// 读取备份文件内容（文本）。若备份文件不存在或无法读取，返回 nil。
+    /// 用于 RewindPreflightInspector 计算 diff stats。
+    func readBackupContent(backupKey: String, sessionID: String) async -> String? {
+        let url = backupURL(backupKey: backupKey, sessionID: sessionID)
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
     // MARK: - Internal Path Helpers
 
     private func backupURL(backupKey: String, sessionID: String) -> URL {
