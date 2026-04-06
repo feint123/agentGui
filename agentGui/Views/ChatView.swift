@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import Combine
 import UniformTypeIdentifiers
 
 /// 聊天界面视图 — 使用 SwiftAnthropic 与 Claude 实时对话
@@ -185,6 +186,14 @@ struct ChatView: View {
         }
         .task(id: session.sessionId) {
             await bootstrapSessionViewState()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .rewindDidComplete)
+                .filter { ($0.object as? String) == session.sessionId }
+        ) { notification in
+            if let text = notification.userInfo?["repopulateText"] as? String {
+                inputText = text
+            }
         }
     }
 
