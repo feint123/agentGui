@@ -149,6 +149,23 @@ final class MessageRewindSelectorViewModel {
 
     /// 确认 sheet 批准后执行回滚（由 RewindConfirmationSheet 回调）。
     func executeConfirmation(pending: PendingConfirmation, option: RewindOption) async {
-        // TODO: Task 4 实现
+        phase = .executing
+        errorMessage = nil
+
+        do {
+            try await transactionCoordinator.execute(
+                targetMessage: pending.message,
+                checkpoint: pending.checkpoint,
+                option: option,
+                repopulateInput: true
+            )
+            pendingConfirmation = nil
+            shouldDismiss = true
+        } catch {
+            errorMessage = error.localizedDescription
+            pendingConfirmation = nil
+        }
+
+        phase = .ready
     }
 }
