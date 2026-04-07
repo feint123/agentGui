@@ -42,6 +42,9 @@ final class WorkspaceTreeRefreshCoordinator {
     private var pendingPaths: Set<String> = []
     private var generation: Int = 0
 
+    /// Auto-fold 开关（FT-U1）。与 AppSettings.compactFolders 同步，由 ViewModel 赋值。
+    var compactFolders: Bool = true
+
     init(
         observationFactory: WorkspaceDirectoryObservationFactory = .live,
         debounceNanoseconds: UInt64 = 150_000_000,
@@ -148,32 +151,64 @@ final class WorkspaceTreeRefreshCoordinator {
     }
 
     /// 按需加载指定目录的 1 层子项。
-    /// 当 NSOutlineView 展开一个 .notLoaded 目录时，由 ViewModel 调用此方法。
+    /// 若该节点是折叠节点（foldedTerminalURL 非空），则扫描链尾目录而非 id 所在目录。
     /// 扫描完成后通过 onNodesChanged 推送更新。
     func demandLoad(directoryID: URL) {
-        let targetURL = directoryID.standardizedFileURL
+        let nodeID = directoryID.standardizedFileURL
         let snapshot = currentNodes
         let generation = self.generation
         let shallowScan = shallowScanClosure
+        let shouldCompact = compactFolders
+
+        // 从快照中取出该节点，获取真正的扫描目标（folded 节点扫链尾，普通节点扫自身）
+        let existingNode = WorkspaceTreeSnapshotOps.findNode(in: snapshot, id: nodeID)
+        let scanURL = existingNode?.foldedTerminalURL?.standardizedFileURL ?? nodeID
 
         scanTask?.cancel()
         scanTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard !Task.isCancelled else { return }
 
-            // 扫描目标目录的 1 层子项
-            let freshEntries = await shallowScan(targetURL)
+            // 扫描目标目录（链尾）的 1 层子项
+            let freshEntries = await shallowScan(scanURL)
             let freshChildren: [FileNode] = freshEntries.map { entry in
                 if entry.isDirectory {
-                    return FileNode(id: entry.url, name: entry.name, isDirectory: true, children: nil, childrenLoadState: .notLoaded)
+                    // 子目录也应用折叠（FT-U1）
+                    if shouldCompact,
+                       let chain = WorkspaceTreeSnapshotOps.compactSingleChildChain(startingAt: entry.url) {
+                        return FileNode(
+                            id: entry.url,
+                            name: entry.name,
+                            isDirectory: true,
+                            children: nil,
+                            childrenLoadState: .notLoaded,
+                            foldedSegments: chain.segments,
+                            foldedTerminalURL: chain.terminalURL
+                        )
+                    }
+                    return FileNode(
+                        id: entry.url,
+                        name: entry.name,
+                        isDirectory: true,
+                        children: nil,
+                        childrenLoadState: .notLoaded
+                    )
                 }
                 return FileNode(id: entry.url, name: entry.name, isDirectory: false, children: nil)
             }
 
             guard !Task.isCancelled else { return }
 
-            // 在树中找到目标节点并替换为 .loaded 状态
-            let updated = WorkspaceTreeSnapshotOps.replaceNode(in: snapshot, id: targetURL) { node in
-                FileNode(id: node.id, name: node.name, isDirectory: true, children: freshChildren, childrenLoadState: .loaded)
+            // 在树中找到目标节点（以 nodeID 查找），替换为 .loaded 状态，保留折叠字段
+            let updated = WorkspaceTreeSnapshotOps.replaceNode(in: snapshot, id: nodeID) { node in
+                FileNode(
+                    id: node.id,
+                    name: node.name,
+                    isDirectory: true,
+                    children: freshChildren,
+                    childrenLoadState: .loaded,
+                    foldedSegments: node.foldedSegments,       // 保留
+                    foldedTerminalURL: node.foldedTerminalURL  // 保留
+                )
             }
 
             await MainActor.run {
@@ -200,9 +235,10 @@ final class WorkspaceTreeRefreshCoordinator {
     }
 
     private func scheduleFullReload(for url: URL, generation: Int) {
+        let shouldCompact = compactFolders          // 捕获（Sendable Bool）
         scanTask?.cancel()
         scanTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let nodes = await WorkspaceTreeSnapshotOps.buildNodesShallow(at: url)
+            let nodes = await WorkspaceTreeSnapshotOps.buildNodesShallow(at: url, compactFolders: shouldCompact)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self, self.generation == generation, self.currentDirectory == url else { return }
@@ -372,7 +408,12 @@ enum WorkspaceTreeSnapshotOps {
                 }
                 let freshScan = shallowScan(at: node.id)
                 let mergedNodes = mergeNodes(existing: node.children ?? [], freshScan: freshScan)
-                return FileNode(id: node.id, name: node.name, isDirectory: true, children: mergedNodes, childrenLoadState: .loaded)
+                return FileNode(
+                    id: node.id, name: node.name, isDirectory: true,
+                    children: mergedNodes, childrenLoadState: .loaded,
+                    foldedSegments: node.foldedSegments,
+                    foldedTerminalURL: node.foldedTerminalURL
+                )
             }
             if targetPath.hasPrefix(nodePath + "/") {
                 // 尚未加载的目录：FSEvent 到来时无需更新，用户展开时会触发按需扫描。
@@ -380,7 +421,12 @@ enum WorkspaceTreeSnapshotOps {
                     return node
                 }
                 let updatedChildren = applyPartialUpdate(to: node.children ?? [], at: targetURL)
-                return FileNode(id: node.id, name: node.name, isDirectory: true, children: updatedChildren, childrenLoadState: node.childrenLoadState)
+                return FileNode(
+                    id: node.id, name: node.name, isDirectory: true,
+                    children: updatedChildren, childrenLoadState: node.childrenLoadState,
+                    foldedSegments: node.foldedSegments,
+                    foldedTerminalURL: node.foldedTerminalURL
+                )
             }
             return node
         }
