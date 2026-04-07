@@ -66,6 +66,7 @@ final class CodeEditorGutterView: NSView {
         super.init(frame: .zero)
 
         // Register built-in lanes (left → right order)
+        register(lane: GitDiffStripeLane())
         register(lane: CodeEditorLineNumberLane())
         register(lane: CodeEditorDiagnosticDotLane())
     }
