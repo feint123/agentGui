@@ -16,6 +16,9 @@ final class GitPanelViewModel {
     var currentWorkingDirectory: URL?
     var operationState: GitOperationState = .idle
     var stashEntries: [GitStashEntry] = []
+    var historyEntries: [GitCommit] = []
+    var isLoadingHistory = false
+    private var historyPageSize = 50
 
     private let gitService: GitServicing
 
@@ -35,6 +38,12 @@ final class GitPanelViewModel {
             self.snapshot = snapshot
             availableBranches = branches
             stashEntries = stashes
+            let historyLoad = try? await gitService.listCommits(
+                repositoryRoot: snapshot.repositoryRoot,
+                maxCount: historyPageSize,
+                skip: 0
+            )
+            historyEntries = historyLoad ?? []
             reconcileSelection(with: workspaceState)
             loadError = nil
             branchActionError = nil
@@ -43,6 +52,7 @@ final class GitPanelViewModel {
             snapshot = nil
             availableBranches = []
             stashEntries = []
+            historyEntries = []
             loadError = nil
             branchActionError = nil
             operationState = .idle
@@ -51,10 +61,24 @@ final class GitPanelViewModel {
             snapshot = nil
             availableBranches = []
             stashEntries = []
+            historyEntries = []
             loadError = error.localizedDescription
             branchActionError = nil
             clearSelection(in: workspaceState)
         }
+    }
+
+    func loadMoreHistory() async {
+        guard let repositoryRoot = snapshot?.repositoryRoot,
+              !isLoadingHistory else { return }
+        isLoadingHistory = true
+        defer { isLoadingHistory = false }
+        let moreCommits = (try? await gitService.listCommits(
+            repositoryRoot: repositoryRoot,
+            maxCount: historyPageSize,
+            skip: historyEntries.count
+        )) ?? []
+        historyEntries.append(contentsOf: moreCommits)
     }
 
     func switchBranch(to branchName: String) async {
