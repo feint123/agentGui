@@ -353,4 +353,46 @@ struct CodeEditorViewModelTests {
         #expect(nodes[1].siblings.count == 2)
         #expect(nodes[1].siblings.map(\.name).sorted() == ["alpha()", "beta()"])
     }
+
+    // MARK: - F17 Symbol Breadcrumb Integration
+
+    @Test
+    func symbolBreadcrumbNodesHandlesNestedEnumCasesCorrectly() {
+        // 模拟 Swift 枚举 + case 的 LSP 输出
+        let caseA = LSPDocumentSymbol(name: "caseA", detail: nil, kind: 22,
+                                      line: 3, character: 4, endLine: 3, endCharacter: 10)
+        let caseB = LSPDocumentSymbol(name: "caseB", detail: nil, kind: 22,
+                                      line: 4, character: 4, endLine: 4, endCharacter: 10)
+        let enumSym = LSPDocumentSymbol(
+            name: "MyError", detail: nil, kind: 10,
+            line: 2, character: 0, endLine: 5, endCharacter: 1,
+            children: [caseA, caseB]
+        )
+        let url = URL(fileURLWithPath: "/tmp/MyError.swift")
+
+        // cursor on caseB (0-based line 4 = line: 4 in LSP)
+        let nodes = CodeEditorViewModel.symbolBreadcrumbNodes(for: 4, in: [enumSym], fileURL: url)
+        #expect(nodes.count == 2)
+        #expect(nodes[0].name == "MyError")
+        #expect(nodes[1].name == "caseB")
+        #expect(nodes[1].siblings.count == 2)
+    }
+
+    @Test
+    func symbolBreadcrumbNodesReturnsEmptyForCursorAfterLastSymbol() {
+        let sym = LSPDocumentSymbol(name: "Foo", detail: nil, kind: 5,
+                                    line: 0, character: 0, endLine: 10, endCharacter: 1)
+        let url = URL(fileURLWithPath: "/tmp/Foo.swift")
+        let after = CodeEditorViewModel.symbolBreadcrumbNodes(for: 20, in: [sym], fileURL: url)
+        #expect(after.isEmpty)
+    }
+
+    @Test
+    func symbolKindIconNameCoversAllLSPKinds() {
+        // LSP SymbolKind 1–26 should all return non-nil
+        for kind in 1...26 {
+            #expect(CodeEditorViewModel.symbolKindIconName(for: kind) != nil,
+                    "Missing icon for kind \(kind)")
+        }
+    }
 }
