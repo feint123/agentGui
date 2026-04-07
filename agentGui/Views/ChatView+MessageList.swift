@@ -193,7 +193,7 @@ extension ChatView {
 
     func scrollToBottom(proxy: ScrollViewProxy) {
         isProgrammaticMessageListScrollInFlight = true
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(ChatMotion.scrollToBottom) {
             proxy.scrollTo(ChatMessageListAutoScrollPolicy.bottomAnchorID, anchor: .bottom)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
