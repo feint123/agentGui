@@ -64,19 +64,19 @@ struct GitDiffEmptyStateDescriptor: Equatable {
     }
 }
 
-struct GitDiffPresentation: Equatable {
-    struct ChangeSummary: Equatable {
+struct GitDiffPresentation: Equatable, Sendable {
+    struct ChangeSummary: Equatable, Sendable {
         let additions: Int
         let deletions: Int
     }
 
-    struct Section: Equatable, Identifiable {
+    struct Section: Equatable, Identifiable, Sendable {
         let id: String
         let header: String
         let rows: [Row]
     }
 
-    enum Row: Equatable, Identifiable {
+    enum Row: Equatable, Identifiable, Sendable {
         case context(oldLineNumber: Int?, newLineNumber: Int?, text: String)
         case addition(oldLineNumber: Int?, newLineNumber: Int?, text: String)
         case deletion(oldLineNumber: Int?, newLineNumber: Int?, text: String)
