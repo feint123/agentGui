@@ -29,6 +29,9 @@ struct WorkspaceTreeRowContent: View {
                     onCancel: onInlineEditCancel
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
+            } else if node.isFolded {
+                // FT-U1：折叠路径分段渲染 — "src / main / java"
+                foldedLabel
             } else {
                 Text(node.name)
                     .font(.system(size: 12))
@@ -82,6 +85,27 @@ struct WorkspaceTreeRowContent: View {
 
     private func fileIcon(for name: String) -> String {
         FileIconSymbolResolver.symbol(forFileName: name)
+    }
+
+    // MARK: - Auto-fold rendering (FT-U1)
+
+    /// 折叠链分段标签："src / main / java"，"/"呈灰色，其余段与普通目录样式一致。
+    @ViewBuilder
+    private var foldedLabel: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(node.foldedSegments.enumerated()), id: \.offset) { index, segment in
+                if index > 0 {
+                    Text(" / ")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)   // 灰色分隔符
+                }
+                Text(segment)
+                    .font(.system(size: 12))
+                    .foregroundStyle(isSelected ? Color.accentColor : .primary)
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.middle)
     }
 
     private func statusColor(for status: GitChangeStatus) -> Color {
