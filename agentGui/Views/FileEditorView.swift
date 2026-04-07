@@ -28,6 +28,7 @@ struct FileEditorView: View {
     @State private var hoverPresentation: CodeEditorHoverPresentation?
     @State private var referencesPresentation: CodeEditorReferencePresentation?
     @State private var documentSymbolItems: [CodeEditorDocumentSymbolItem] = []
+    @State private var rawDocumentSymbols: [LSPDocumentSymbol] = []
     @State private var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     private let gitDiffService = GitLineDiffService()
     private let launchOptions = TestLaunchOptions.current
@@ -62,6 +63,7 @@ struct FileEditorView: View {
             hoverPresentation = nil
             referencesPresentation = nil
             documentSymbolItems = []
+            rawDocumentSymbols = []
             workspaceState.editorSelection = nil
             Task {
                 await sessionController.open(newURL)
@@ -294,11 +296,22 @@ struct FileEditorView: View {
                             scheduleViewStateMutation {
                                 lspDocumentVersion = change.version
                                 documentSymbolItems = []
+                                rawDocumentSymbols = []
                             }
                             lspCoordinator?.handleTextChange(text: newValue, change: change)
                         },
                         gitDiffByLine: gitDiffByLine,
-                        isBracketPairColorizationEnabled: AppSettings.getOrCreate(in: modelContext).isBracketPairColorizationEnabled
+                        isBracketPairColorizationEnabled: AppSettings.getOrCreate(in: modelContext).isBracketPairColorizationEnabled,
+                        documentSymbols: rawDocumentSymbols,
+                        isSymbolBreadcrumbVisible: !rawDocumentSymbols.isEmpty,
+                        onSymbolNavigate: { request in
+                            executeNavigationAction(
+                                CodeEditorViewModel.navigationAction(
+                                    currentFileURL: url,
+                                    revealRequest: request
+                                )
+                            )
+                        }
                     )
                 }
             }
@@ -545,6 +558,7 @@ struct FileEditorView: View {
         let documentVersion = lspDocumentVersion
         guard let requestCoordinator = lspCoordinator else {
             documentSymbolItems = []
+            rawDocumentSymbols = []
             return
         }
 
@@ -558,6 +572,7 @@ struct FileEditorView: View {
 
                 scheduleViewStateMutation {
                     documentSymbolItems = items
+                    rawDocumentSymbols = symbols
                 }
             }
         }
