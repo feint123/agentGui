@@ -41,9 +41,9 @@ struct AgentMessageStepFlowView: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             AuditTraceDisclosureView(presentation: projection.audit)
         }
-        .animation(.spring(response: 0.42, dampingFraction: 0.84), value: projection.header.isLive)
-        .animation(.easeInOut(duration: 0.24), value: projection.theater.cards.map(\.id))
-        .animation(.easeInOut(duration: 0.24), value: pendingPermissionRequests.map(\.id))
+        .animation(ChatMotion.enterSpring, value: projection.header.isLive)
+        .animation(ChatMotion.theaterStateChange, value: projection.theater.cards.map(\.id))
+        .animation(ChatMotion.theaterStateChange, value: pendingPermissionRequests.map(\.id))
     }
 
     private var pendingPermissionRequests: [ACPPermissionCenter.PendingRequest] {
