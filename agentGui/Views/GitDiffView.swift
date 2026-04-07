@@ -260,37 +260,44 @@ struct GitDiffView: View {
         self.onBack = onBack
     }
 
-    private var presentation: GitDiffPresentation {
-        GitDiffPresentation.build(title: title, diffText: diffText)
-    }
+    @State private var presentation: GitDiffPresentation?
+    @State private var isParsing: Bool = false
 
     private var emptyStateDescriptor: GitDiffEmptyStateDescriptor {
         GitDiffEmptyStateDescriptor.make(title: title, diffText: diffText)
     }
 
     var body: some View {
+        let resolved = presentation ?? GitDiffPresentation(
+            filePath: title,
+            changeSummary: .init(additions: 0, deletions: 0),
+            sections: []
+        )
         VStack(spacing: 0) {
-            header
+            header(using: resolved)
             Divider()
-            if presentation.sections.isEmpty {
+            if isParsing || presentation == nil {
+                parsingSkeleton
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if resolved.sections.isEmpty {
                 emptyState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { proxy in
                     ScrollView(.vertical) {
                         VStack(alignment: .leading, spacing: 12) {
-                            summaryCard
+                            summaryCard(using: resolved)
 
                             ScrollView(.horizontal) {
                                 VStack(alignment: .leading, spacing: 12) {
-                                    ForEach(presentation.sections) { section in
+                                    ForEach(resolved.sections) { section in
                                         hunkSection(section)
                                     }
                                 }
                                 .frame(
                                     minWidth: GitDiffLayoutMetrics.contentWidth(
                                         viewportWidth: max(proxy.size.width - 28, 0),
-                                        longestLineCharacterCount: presentation.longestLineCharacterCount
+                                        longestLineCharacterCount: resolved.longestLineCharacterCount
                                     ),
                                     alignment: .leading
                                 )
@@ -305,9 +312,32 @@ struct GitDiffView: View {
             }
         }
         .accessibilityIdentifier("git.diff")
+        .task(id: diffText) {
+            isParsing = true
+            let result = await parsePresentation(diffText)
+            presentation = result
+            isParsing = false
+        }
     }
 
-    private var header: some View {
+    private func parsePresentation(_ text: String) async -> GitDiffPresentation {
+        await Task.detached(priority: .userInitiated) { [title] in
+            GitDiffPresentation.build(title: title, diffText: text)
+        }.value
+    }
+
+    private var parsingSkeleton: some View {
+        VStack(spacing: 12) {
+            ForEach(0..<3, id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.primary.opacity(0.06))
+                    .frame(height: 80)
+            }
+        }
+        .padding(14)
+    }
+
+    private func header(using resolved: GitDiffPresentation) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Button {
@@ -330,7 +360,7 @@ struct GitDiffView: View {
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(presentation.filePath)
+                    Text(resolved.filePath)
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -350,8 +380,8 @@ struct GitDiffView: View {
                 }
 
                 Spacer(minLength: 0)
-                summaryBadge(title: "+\(presentation.changeSummary.additions)", tint: .green)
-                summaryBadge(title: "-\(presentation.changeSummary.deletions)", tint: .red)
+                summaryBadge(title: "+\(resolved.changeSummary.additions)", tint: .green)
+                summaryBadge(title: "-\(resolved.changeSummary.deletions)", tint: .red)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -360,21 +390,21 @@ struct GitDiffView: View {
         }
     }
 
-    private var summaryCard: some View {
+    private func summaryCard(using resolved: GitDiffPresentation) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(lastPathComponent)
+                Text(lastPathComponent(from: resolved))
                     .font(.headline)
-                Text(presentation.filePath)
+                Text(resolved.filePath)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             Spacer(minLength: 0)
-            diffMetric(title: "新增", value: presentation.changeSummary.additions, tint: .green)
-            diffMetric(title: "删除", value: presentation.changeSummary.deletions, tint: .red)
-            diffMetric(title: "Hunks", value: presentation.sections.count, tint: .secondary)
+            diffMetric(title: "新增", value: resolved.changeSummary.additions, tint: .green)
+            diffMetric(title: "删除", value: resolved.changeSummary.deletions, tint: .red)
+            diffMetric(title: "Hunks", value: resolved.sections.count, tint: .secondary)
         }
         .padding(12)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
@@ -490,8 +520,8 @@ struct GitDiffView: View {
         .frame(minWidth: 48, alignment: .leading)
     }
 
-    private var lastPathComponent: String {
-        URL(fileURLWithPath: presentation.filePath).lastPathComponent
+    private func lastPathComponent(from resolved: GitDiffPresentation) -> String {
+        URL(fileURLWithPath: resolved.filePath).lastPathComponent
     }
 
     private var diffSourceLabel: String? {
