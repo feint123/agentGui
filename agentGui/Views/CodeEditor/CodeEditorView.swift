@@ -19,6 +19,7 @@ struct CodeEditorView: View {
     var highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
     var highlightExecutionDelayNanoseconds: UInt64 = 0
+    var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
 
     @State private var document: CodeEditorDocument
     @State private var findState = CodeEditorFindState.inactive
@@ -41,7 +42,8 @@ struct CodeEditorView: View {
         onFindStateChange: ((CodeEditorFindState) -> Void)? = nil,
         highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared,
         highlightDebounceNanoseconds: UInt64 = 75_000_000,
-        highlightExecutionDelayNanoseconds: UInt64 = 0
+        highlightExecutionDelayNanoseconds: UInt64 = 0,
+        gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     ) {
         self._text = text
         self.persistedText = persistedText
@@ -60,6 +62,7 @@ struct CodeEditorView: View {
         self.highlighter = highlighter
         self.highlightDebounceNanoseconds = highlightDebounceNanoseconds
         self.highlightExecutionDelayNanoseconds = highlightExecutionDelayNanoseconds
+        self.gitDiffByLine = gitDiffByLine
         self._document = State(initialValue: CodeEditorDocument(text: text.wrappedValue, persistedText: persistedText))
     }
 
@@ -91,6 +94,7 @@ struct CodeEditorView: View {
                 onFindIntent: handleFindIntent,
                 decorations: decorationSnapshot,
                 diagnosticsByLine: diagnosticsByLine,
+                gitDiffByLine: gitDiffByLine,
                 onChangeSet: { change in
                     onTextChange?(text, change)
                 },

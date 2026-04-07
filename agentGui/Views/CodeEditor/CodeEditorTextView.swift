@@ -15,6 +15,7 @@ struct CodeEditorTextView: NSViewRepresentable {
     var onFindIntent: ((CodeEditorFindIntent) -> Void)? = nil
     var decorations: CodeEditorDecorationSnapshot = .empty(version: 0, lineRange: 1...1)
     var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary] = [:]
+    var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     var onChangeSet: ((EditorChangeSet) -> Void)? = nil
     var highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
@@ -310,7 +311,8 @@ extension CodeEditorTextView {
                 visibleLineRange: visibleRange,
                 currentLine: textView.highlightedLineNumber,
                 lineMetrics: lineMetrics,
-                diagnosticsByLine: parent.diagnosticsByLine
+                diagnosticsByLine: parent.diagnosticsByLine,
+                gitDiffByLine: parent.gitDiffByLine
             )
             gutterView.updateLayoutState(snapshot)
         }
