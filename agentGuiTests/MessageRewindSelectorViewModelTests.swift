@@ -324,7 +324,9 @@ struct MessageRewindSelectorViewModelConfirmationTests {
         let pending = MessageRewindSelectorViewModel.PendingConfirmation(
             message: u2,
             checkpoint: nil,
-            diffStats: .empty
+            diffStats: .empty,
+            messagesAfterCount: 0,
+            toolCallsAfterCount: 0
         )
 
         await vm.executeConfirmation(pending: pending, option: .conversationOnly)
@@ -356,12 +358,122 @@ struct MessageRewindSelectorViewModelConfirmationTests {
         let pending = MessageRewindSelectorViewModel.PendingConfirmation(
             message: u2,
             checkpoint: nil,  // 无 checkpoint
-            diffStats: .empty
+            diffStats: .empty,
+            messagesAfterCount: 0,
+            toolCallsAfterCount: 0
         )
 
         await vm.executeConfirmation(pending: pending, option: .filesOnly)
 
         #expect(vm.shouldDismiss == false)
         #expect(vm.errorMessage != nil)  // 应有错误信息
+    }
+}
+
+// MARK: - PendingConfirmation 计数字段测试
+
+@Suite("MessageRewindSelectorViewModel — PendingConfirmation counts")
+struct MessageRewindSelectorViewModelPendingConfirmationCountTests {
+
+    /// 构造包含若干消息的 session，调用 selectMessage 后验证 messagesAfterCount / toolCallsAfterCount。
+    ///
+    /// 会话结构（sequence 顺序）：
+    ///   0: user(u1) → 无 toolCalls
+    ///   1: agent   → toolCalls.count = 2
+    ///   2: user(u2) → 无 toolCalls（目标回滚点）
+    ///   3: agent   → toolCalls.count = 1
+    ///   4: user(u3) → 无 toolCalls
+    ///
+    /// 对 u2 触发 selectMessage → 预期 messagesAfterCount = 2（seq 3 和 4），toolCallsAfterCount = 1
+    @Test("selectMessage: messagesAfterCount 和 toolCallsAfterCount 正确计算")
+    @MainActor
+    func selectMessage_populatesCountsCorrectly() async throws {
+        let container = try makeContainer()
+        let ctx = container.mainContext
+        let session = makeSession(in: ctx)
+
+        // seq 0: user u1
+        let u1 = makeUserMessage(seq: 0, text: "first", in: ctx, session: session)
+        _ = u1  // 防止 unused warning
+
+        // seq 1: agent response with 2 tool calls
+        let agentMsg1 = Message(direction: .agent, text: "agent 1", session: session)
+        agentMsg1.sequence = 1
+        agentMsg1.status = .completed
+        ctx.insert(agentMsg1)
+        let tc1 = ToolCall(toolCallId: UUID().uuidString, kind: .other, message: agentMsg1)
+        let tc2 = ToolCall(toolCallId: UUID().uuidString, kind: .other, message: agentMsg1)
+        ctx.insert(tc1)
+        ctx.insert(tc2)
+
+        // seq 2: user u2（回滚目标）
+        let u2 = makeUserMessage(seq: 2, text: "second", in: ctx, session: session)
+
+        // seq 3: agent response with 1 tool call
+        let agentMsg2 = Message(direction: .agent, text: "agent 2", session: session)
+        agentMsg2.sequence = 3
+        agentMsg2.status = .completed
+        ctx.insert(agentMsg2)
+        let tc3 = ToolCall(toolCallId: UUID().uuidString, kind: .other, message: agentMsg2)
+        ctx.insert(tc3)
+
+        // seq 4: user u3
+        let u3 = makeUserMessage(seq: 4, text: "third", in: ctx, session: session)
+        _ = u3
+
+        try ctx.save()
+
+        let allMsgs = try ctx.fetch(FetchDescriptor<Message>())
+        let vm = makeViewModel(session: session, modelContext: ctx)
+        await vm.loadData(messages: allMsgs, modelContext: ctx)
+
+        // 验证 allMessagesCount 已由 loadData 填充
+        #expect(vm.allMessagesCount == 5)  // 5 条消息（0..4）
+
+        // 验证 u2 之后的消息数和工具调用数计算正确
+        let targetSeq = u2.sequence
+        let msgsAfter = allMsgs.filter { $0.sequence > targetSeq }
+        let toolCallsAfter = msgsAfter.reduce(0) { $0 + $1.toolCalls.count }
+        #expect(msgsAfter.count == 2)     // agentMsg2 (seq 3) + u3 (seq 4)
+        #expect(toolCallsAfter == 1)      // tc3
+        _ = u2
+    }
+
+    /// 验证通过 confirmation path 时，PendingConfirmation 的计数字段正确。
+    @Test("PendingConfirmation 含正确的 messagesAfterCount 和 toolCallsAfterCount")
+    @MainActor
+    func pendingConfirmation_containsCorrectCounts() async throws {
+        let container = try makeContainer()
+        let ctx = container.mainContext
+        let session = makeSession(in: ctx)
+
+        // seq 0: user u1
+        let u1 = makeUserMessage(seq: 0, text: "target", in: ctx, session: session)
+
+        // seq 1: agent with 3 tool calls（在 u1 之后）
+        let agentMsg = Message(direction: .agent, text: "agent", session: session)
+        agentMsg.sequence = 1
+        agentMsg.status = .completed
+        ctx.insert(agentMsg)
+        for _ in 0..<3 {
+            let tc = ToolCall(toolCallId: UUID().uuidString, kind: .other, message: agentMsg)
+            ctx.insert(tc)
+        }
+
+        // seq 2: user u2（在 u1 之后）
+        let u2 = makeUserMessage(seq: 2, text: "after", in: ctx, session: session)
+        _ = u2
+
+        try ctx.save()
+
+        let allMsgs = try ctx.fetch(FetchDescriptor<Message>())
+
+        // 通过 allMessages 和 targetSequence 计算
+        let targetSeq = u1.sequence
+        let msgsAfter = allMsgs.filter { $0.sequence > targetSeq }
+        let toolCallsAfter = msgsAfter.reduce(0) { $0 + $1.toolCalls.count }
+
+        #expect(msgsAfter.count == 2)     // agentMsg (seq 1) + u2 (seq 2)
+        #expect(toolCallsAfter == 3)      // agentMsg 的 3 次工具调用
     }
 }

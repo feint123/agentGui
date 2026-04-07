@@ -21,6 +21,10 @@ extension MessageRewindSelectorViewModel {
         let message: Message
         let checkpoint: ConversationCheckpoint?
         let diffStats: RewindDiffStats
+        /// 目标消息之后的消息总数（用于显示"将移除 N 条消息"）
+        let messagesAfterCount: Int
+        /// 目标消息之后的工具调用总次数（用于显示"含 M 次工具调用"）
+        let toolCallsAfterCount: Int
     }
 }
 
@@ -52,6 +56,11 @@ final class MessageRewindSelectorViewModel {
     private(set) var userMessages: [Message] = []
     /// messageID → checkpoint 映射，由 loadData 填充
     private(set) var checkpointMap: [UUID: ConversationCheckpoint] = [:]
+    /// 全部消息（所有方向），由 loadData 填充，供计算 messagesAfterCount 使用
+    private var allMessages: [Message] = []
+
+    /// 对外暴露的消息总数（仅供测试断言，不用于 UI）
+    var allMessagesCount: Int { allMessages.count }
 
     // MARK: - Dependencies
 
@@ -101,6 +110,7 @@ final class MessageRewindSelectorViewModel {
 
         userMessages = sorted
         checkpointMap = map
+        allMessages = messages
         phase = .ready
     }
 
@@ -135,12 +145,17 @@ final class MessageRewindSelectorViewModel {
                 errorMessage = error.localizedDescription
             }
         } else {
-            // Confirmation path（Task 4 实现）
+            // Confirmation path
             let diffStats = (try? await preflightInspector.computeDiffStats(checkpoint: checkpoint!)) ?? .empty
+            let targetSeq = message.sequence
+            let msgsAfter = allMessages.filter { $0.sequence > targetSeq }
+            let toolCallsAfterCount = msgsAfter.reduce(0) { $0 + $1.toolCalls.count }
             pendingConfirmation = PendingConfirmation(
                 message: message,
                 checkpoint: checkpoint,
-                diffStats: diffStats
+                diffStats: diffStats,
+                messagesAfterCount: msgsAfter.count,
+                toolCallsAfterCount: toolCallsAfterCount
             )
         }
 
