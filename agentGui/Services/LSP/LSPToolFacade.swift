@@ -1,5 +1,16 @@
 import Foundation
 
+enum LSPToolError: Error, LocalizedError {
+    case capabilityNotSupported(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .capabilityNotSupported(let capability):
+            return "LSP capability '\(capability)' is not supported by the server"
+        }
+    }
+}
+
 struct LSPToolFacade {
     let registry: LSPServerRegistry
     let serverManager: LSPServerManager?
@@ -42,6 +53,10 @@ struct LSPToolFacade {
             return "Error: no active LSP session for \(serverID) in \(workspaceRoot)"
         }
 
+        guard serverManager?.capabilities(for: workspaceRoot, serverID: serverID)?.supportsDefinition == true else {
+            throw LSPToolError.capabilityNotSupported("definition")
+        }
+
         guard let location = try await serverManager?.definition(
             workspaceRoot: workspaceRoot,
             serverID: serverID,
@@ -58,6 +73,10 @@ struct LSPToolFacade {
     func references(workspaceRoot: String, serverID: String, uri: String, line: Int, character: Int) async throws -> String {
         guard serverManager?.state(for: workspaceRoot, serverID: serverID) != nil else {
             return "Error: no active LSP session for \(serverID) in \(workspaceRoot)"
+        }
+
+        guard serverManager?.capabilities(for: workspaceRoot, serverID: serverID)?.supportsReferences == true else {
+            throw LSPToolError.capabilityNotSupported("references")
         }
 
         let locations = try await serverManager?.references(
@@ -81,6 +100,10 @@ struct LSPToolFacade {
             return "Error: no active LSP session for \(serverID) in \(workspaceRoot)"
         }
 
+        guard serverManager?.capabilities(for: workspaceRoot, serverID: serverID)?.supportsHover == true else {
+            throw LSPToolError.capabilityNotSupported("hover")
+        }
+
         return try await serverManager?.hover(
             workspaceRoot: workspaceRoot,
             serverID: serverID,
@@ -93,6 +116,10 @@ struct LSPToolFacade {
     func documentSymbols(workspaceRoot: String, serverID: String, uri: String) async throws -> String {
         guard serverManager?.state(for: workspaceRoot, serverID: serverID) != nil else {
             return "Error: no active LSP session for \(serverID) in \(workspaceRoot)"
+        }
+
+        guard serverManager?.capabilities(for: workspaceRoot, serverID: serverID)?.supportsDocumentSymbols == true else {
+            throw LSPToolError.capabilityNotSupported("documentSymbols")
         }
 
         let symbols = try await serverManager?.documentSymbols(

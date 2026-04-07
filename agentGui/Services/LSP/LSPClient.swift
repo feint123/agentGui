@@ -200,8 +200,87 @@ final class LSPClient {
                 "version": "1"
             ],
             "capabilities": [
-                "workspace": [:],
-                "textDocument": [:]
+                "workspace": [
+                    "applyEdit": true,
+                    "workspaceEdit": [
+                        "documentChanges": true
+                    ],
+                    "symbol": [
+                        "symbolKind": [
+                            "valueSet": Array(1...26)
+                        ]
+                    ]
+                ],
+                "textDocument": [
+                    "synchronization": [
+                        "dynamicRegistration": false,
+                        "willSave": false,
+                        "didSave": true
+                    ],
+                    "hover": [
+                        "contentFormat": ["markdown", "plaintext"]
+                    ],
+                    "completion": [
+                        "completionItem": [
+                            "snippetSupport": false,
+                            "documentationFormat": ["markdown", "plaintext"],
+                            "insertReplaceSupport": true
+                        ],
+                        "contextSupport": true
+                    ],
+                    "signatureHelp": [
+                        "signatureInformation": [
+                            "documentationFormat": ["markdown", "plaintext"],
+                            "parameterInformation": ["labelOffsetSupport": true]
+                        ],
+                        "contextSupport": true
+                    ],
+                    "definition": ["linkSupport": false],
+                    "declaration": ["linkSupport": false],
+                    "typeDefinition": ["linkSupport": false],
+                    "implementation": ["linkSupport": false],
+                    "references": [:] as [String: Any],
+                    "documentHighlight": [:] as [String: Any],
+                    "documentSymbol": [
+                        "hierarchicalDocumentSymbolSupport": true,
+                        "symbolKind": ["valueSet": Array(1...26)]
+                    ],
+                    "codeAction": [
+                        "codeActionLiteralSupport": [
+                            "codeActionKind": [
+                                "valueSet": ["", "quickfix", "refactor", "refactor.extract",
+                                             "refactor.inline", "refactor.rewrite",
+                                             "source", "source.organizeImports"]
+                            ]
+                        ],
+                        "resolveSupport": ["properties": ["edit"]]
+                    ],
+                    "rename": [
+                        "prepareSupport": true
+                    ],
+                    "formatting": [:] as [String: Any],
+                    "rangeFormatting": [:] as [String: Any],
+                    "onTypeFormatting": [:] as [String: Any],
+                    "foldingRange": [
+                        "rangeLimit": 5000,
+                        "lineFoldingOnly": true
+                    ],
+                    "semanticTokens": [
+                        "requests": ["full": true, "range": false],
+                        "tokenTypes": [String](),
+                        "tokenModifiers": [String](),
+                        "formats": ["relative"],
+                        "multilineTokenSupport": false
+                    ],
+                    "inlayHint": [
+                        "resolveSupport": ["properties": ["tooltip", "textEdits", "label.tooltip"]]
+                    ],
+                    "publishDiagnostics": [
+                        "relatedInformation": true,
+                        "versionSupport": true,
+                        "tagSupport": ["valueSet": [1, 2]]
+                    ]
+                ]
             ]
         ]
     }
@@ -212,6 +291,41 @@ final class LSPClient {
             return fallback
         }
 
+        // Helper: extract trigger character array from an options dict
+        func triggerChars(_ key: String, in opts: [String: Any]) -> [String] {
+            (opts[key] as? [String]) ?? []
+        }
+
+        // completion
+        let completionOpts = capabilities["completionProvider"] as? [String: Any]
+        let supportsCompletion: Bool = completionOpts != nil
+            || (capabilities["completionProvider"] as? Bool ?? false)
+        let completionTriggers: [String] = completionOpts.map { triggerChars("triggerCharacters", in: $0) } ?? []
+
+        // signatureHelp
+        let sigOpts = capabilities["signatureHelpProvider"] as? [String: Any]
+        let supportsSignatureHelp = sigOpts != nil || (capabilities["signatureHelpProvider"] as? Bool ?? false)
+        let sigTriggers: [String] = sigOpts.map { triggerChars("triggerCharacters", in: $0) } ?? []
+        let sigRetriggers: [String] = sigOpts.map { triggerChars("retriggerCharacters", in: $0) } ?? []
+
+        // onTypeFormatting — firstTriggerCharacter + moreTriggerCharacter
+        var onTypeTriggers: [String] = []
+        var supportsOnTypeFormatting = false
+        if let onTypeOpts = capabilities["documentOnTypeFormattingProvider"] as? [String: Any] {
+            supportsOnTypeFormatting = true
+            if let first = onTypeOpts["firstTriggerCharacter"] as? String {
+                onTypeTriggers.append(first)
+            }
+            if let more = onTypeOpts["moreTriggerCharacter"] as? [String] {
+                onTypeTriggers.append(contentsOf: more)
+            }
+        }
+
+        // rename — bool | { prepareProvider: bool }
+        let renameRaw = capabilities["renameProvider"]
+        let supportsRename: Bool = (renameRaw as? Bool) ?? (renameRaw is [String: Any])
+        let supportsPrepareRename: Bool = (renameRaw as? [String: Any])?["prepareProvider"] as? Bool ?? false
+
         return LSPServerCapabilityHints(
             supportsHover: boolCapability(capabilities["hoverProvider"], fallback: fallback.supportsHover),
             supportsDefinition: boolCapability(capabilities["definitionProvider"], fallback: fallback.supportsDefinition),
@@ -221,7 +335,29 @@ final class LSPClient {
                 capabilities["workspaceSymbolProvider"] ?? (capabilities["workspace"] as? [String: Any])?["symbolProvider"],
                 fallback: fallback.supportsWorkspaceSymbols
             ),
-            supportsDiagnostics: fallback.supportsDiagnostics
+            supportsDiagnostics: boolCapability(
+                capabilities["diagnosticProvider"],
+                fallback: fallback.supportsDiagnostics
+            ),
+            supportsCompletion: supportsCompletion,
+            completionTriggerCharacters: completionTriggers,
+            supportsSignatureHelp: supportsSignatureHelp,
+            signatureHelpTriggerCharacters: sigTriggers,
+            signatureHelpRetriggerCharacters: sigRetriggers,
+            supportsCodeActions: boolCapability(capabilities["codeActionProvider"], fallback: fallback.supportsCodeActions),
+            supportsDocumentFormatting: boolCapability(capabilities["documentFormattingProvider"], fallback: fallback.supportsDocumentFormatting),
+            supportsRangeFormatting: boolCapability(capabilities["documentRangeFormattingProvider"], fallback: fallback.supportsRangeFormatting),
+            supportsOnTypeFormatting: supportsOnTypeFormatting,
+            onTypeFormattingTriggerCharacters: onTypeTriggers,
+            supportsRename: supportsRename,
+            supportsPrepareRename: supportsPrepareRename,
+            supportsDocumentHighlights: boolCapability(capabilities["documentHighlightProvider"], fallback: fallback.supportsDocumentHighlights),
+            supportsDeclaration: boolCapability(capabilities["declarationProvider"], fallback: fallback.supportsDeclaration),
+            supportsTypeDefinition: boolCapability(capabilities["typeDefinitionProvider"], fallback: fallback.supportsTypeDefinition),
+            supportsImplementation: boolCapability(capabilities["implementationProvider"], fallback: fallback.supportsImplementation),
+            supportsFoldingRange: boolCapability(capabilities["foldingRangeProvider"], fallback: fallback.supportsFoldingRange),
+            supportsSemanticTokens: (capabilities["semanticTokensProvider"] as? [String: Any]) != nil,
+            supportsInlayHints: boolCapability(capabilities["inlayHintProvider"], fallback: fallback.supportsInlayHints)
         )
     }
 
@@ -417,5 +553,34 @@ final class LSPClient {
             endLine: number(from: end?["line"]),
             endCharacter: number(from: end?["character"])
         )
+    }
+}
+
+// MARK: - Testing Hooks
+
+final class _NoOpLSPAdapter: LSPServerAdapter {
+    func initialize(server: LSPServerDefinition, workspaceRoot: String) async throws -> LSPServerCapabilityHints {
+        .allDisabled
+    }
+}
+
+extension LSPClient {
+    @MainActor
+    static func negotiatedCapabilitiesForTesting(
+        from rawResult: Any?,
+        fallback: LSPServerCapabilityHints
+    ) -> LSPServerCapabilityHints {
+        let dummy = LSPClient(
+            transport: LSPJSONRPCTransport(),
+            documentStore: LSPDocumentStore(),
+            diagnosticsStore: LSPDiagnosticsStore(),
+            adapter: _NoOpLSPAdapter()
+        )
+        return dummy.negotiatedCapabilities(from: rawResult, fallback: fallback)
+    }
+
+    @MainActor
+    func initializeParamsForTesting(workspaceRoot: String) -> [String: Any] {
+        initializeParams(workspaceRoot: workspaceRoot)
     }
 }
