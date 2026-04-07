@@ -170,19 +170,28 @@ final class DirectIntentBackend {
         let fileURL = URL(fileURLWithPath: draft.absolutePath).standardizedFileURL
         let workspaceRootURL = Self.resolveWorkspaceRoot(for: fileURL, explicitRoot: baseWorkspaceRoot)
         let relativePath = Self.relativePath(for: fileURL, workspaceRootURL: workspaceRootURL)
-        let proposal = try await proposalStore.createProposal(
+
+        // 复用同 session 下已有的 collecting 提案，避免同一文件多次编辑时生成多条提案记录。
+        let proposal = try proposalStore.findOrCreateCollectingProposal(
             sessionID: sessionID,
-            jobID: nil,
-            messageID: nil,
             providerID: providerID,
             baseWorkspaceRoot: workspaceRootURL.path
         )
+
+        // 若该文件在本提案内已有记录，使用其原始 baseContentSnapshot 作为 diff 的基底，
+        // 确保最终 diff 反映的是"会话开始前"到"当前最新修改"的完整差异，而不是相邻两次
+        // 工具调用之间的增量差异。
+        let existingChange = try proposalStore.existingFileChange(
+            proposalID: proposal.id,
+            relativePath: relativePath
+        )
+        let effectiveBaseContent = existingChange?.baseContentSnapshot ?? draft.originalText
 
         let artifact = try ChangeReviewArtifactBuilder.build(
             relativePath: relativePath,
             absolutePath: fileURL.path,
             changeKind: draft.changeKind,
-            baseContent: draft.originalText,
+            baseContent: effectiveBaseContent,
             stagedContent: draft.updatedText
         )
 

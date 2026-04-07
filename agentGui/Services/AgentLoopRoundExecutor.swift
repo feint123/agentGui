@@ -154,7 +154,6 @@ struct AgentLoopRoundExecutor {
         }
         let sessionId = runtime.sessionId
         let modelContext = runtime.modelContext
-        let throttledSave = StreamingThrottledSave(modelContext: modelContext)
 
         // M-05: dispatch willStartRound 以支持 messagePatch（如记忆召回注入）
         let willStartResult = try await emitter.dispatch(
@@ -222,8 +221,7 @@ struct AgentLoopRoundExecutor {
                     messages: messages,
                     overrides: .init(metadata: [
                         "length": joined.count,
-                        "agentRound": round,
-                        "throttledSave": throttledSave
+                        "agentRound": round
                     ], projectedText: joined, currentRoundText: snapshot.text)
                 )
 

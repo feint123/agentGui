@@ -65,11 +65,6 @@ struct StreamProjectionHook: AgentLoopHook {
                 }
             }
 
-            // 通知 throttledSave：流式 delta 已写入，如果距上次 save 超过阈值则持久化。
-            if let throttledSave = context.metadata["throttledSave"] as? StreamingThrottledSave {
-                throttledSave.saveIfNeeded()
-            }
-
         case .didReceiveThinkingDelta:
             guard shouldProject(
                 currentLength: context.currentRoundThinking.count,

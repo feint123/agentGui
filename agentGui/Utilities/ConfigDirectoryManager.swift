@@ -24,11 +24,6 @@ final class ConfigDirectoryManager {
         return home.appendingPathComponent(".agentgui", isDirectory: true)
     }()
 
-    /// `~/.agentgui/memory.md`
-    var memoryFileURL: URL {
-        agentGuiDir.appendingPathComponent("memory.md")
-    }
-
     /// `~/.agentgui/lsp-server/`
     var lspServerDirectoryURL: URL {
         agentGuiDir.appendingPathComponent("lsp-server", isDirectory: true)
@@ -69,14 +64,6 @@ final class ConfigDirectoryManager {
         } catch {
             print("[ConfigDirectoryManager] Failed to create config directory: \(error)")
             return
-        }
-
-        if !fm.fileExists(atPath: memoryFileURL.path) {
-            let placeholder = """
-            # Long-term Memory
-            <!-- Legacy compatibility file retained for migration-safe startup. -->
-            """
-            try? placeholder.write(to: memoryFileURL, atomically: true, encoding: .utf8)
         }
 
         do {
