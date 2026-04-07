@@ -104,7 +104,8 @@ struct CodeEditorView: View {
                 highlighter: highlighter,
                 highlightDebounceNanoseconds: highlightDebounceNanoseconds,
                 highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds,
-                isBracketPairColorizationEnabled: isBracketPairColorizationEnabled
+                isBracketPairColorizationEnabled: isBracketPairColorizationEnabled,
+                indentationStatus: statusBarState.indentation
             )
             .background(Color(NSColor.textBackgroundColor))
 

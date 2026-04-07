@@ -21,6 +21,7 @@ struct CodeEditorTextView: NSViewRepresentable {
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
     var highlightExecutionDelayNanoseconds: UInt64 = 0
     var isBracketPairColorizationEnabled: Bool = false
+    var indentationStatus: CodeEditorIndentationStatus = CodeEditorIndentationStatus(kind: .unknown, width: 0)
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -103,6 +104,9 @@ struct CodeEditorTextView: NSViewRepresentable {
         textView.highlightedLineNumber = textView.displayedLocation(ofUTF16Offset: textView.selectedRange().location).line
         context.coordinator.updateGutterState(for: textView)
         context.coordinator.applyCachedHighlightPresentation(to: textView)
+
+        (textView as? CodeEditorPlatformTextView)?.indentGuideConfig =
+            CodeEditorIndentGuideConfig(from: indentationStatus)
 
         context.coordinator.schedulePostUpdateRefresh(for: textView, dirtyLineRange: dirtyLineRange)
 
@@ -829,9 +833,46 @@ enum CodeEditorHighlightApplicator {
     }
 }
 
+// MARK: - Indent Guide Config
+
+/// 缩进参考线所需配置，从 CodeEditorIndentationStatus 派生。
+struct CodeEditorIndentGuideConfig: Equatable, Sendable {
+    let indentWidth: Int   // 每级缩进的字符数，<=0 时禁用
+    let useTabs: Bool
+
+    static let disabled = CodeEditorIndentGuideConfig(indentWidth: 0, useTabs: false)
+
+    init(indentWidth: Int, useTabs: Bool) {
+        self.indentWidth = indentWidth
+        self.useTabs = useTabs
+    }
+
+    init(from status: CodeEditorIndentationStatus) {
+        switch status.kind {
+        case .spaces:
+            self.init(indentWidth: max(1, status.width), useTabs: false)
+        case .tabs:
+            self.init(indentWidth: max(1, status.width), useTabs: true)
+        case .unknown:
+            self.init(indentWidth: 4, useTabs: false) // 默认 4 spaces
+        }
+    }
+}
+
 final class CodeEditorPlatformTextView: NSTextView {
     var latestAppliedHighlightVersion: Int?
     var latestHighlightResult: CodeEditorHighlightResult?
+
+    // MARK: - Indent Guides
+
+    /// 缩进参考线配置，由 Coordinator 在 updateNSView 时写入。
+    /// indentWidth <= 0 时不绘制参考线。
+    var indentGuideConfig: CodeEditorIndentGuideConfig = .disabled {
+        didSet {
+            guard indentGuideConfig != oldValue else { return }
+            setNeedsDisplay(visibleRect)
+        }
+    }
 
     // MARK: - Bracket Match Highlight
     /// 当前已应用的括号高亮范围（用于后续清除）
@@ -906,11 +947,16 @@ final class CodeEditorPlatformTextView: NSTextView {
         guard let line = highlightedLineNumber,
               let lineRect = backgroundRect(forLine: line),
               lineRect.intersects(rect) else {
+            // 即使无高亮行，也尝试绘制 indent guides
+            drawIndentGuides(in: rect)
             return
         }
 
         NSColor.selectedTextBackgroundColor.withAlphaComponent(0.10).setFill()
         lineRect.fill()
+
+        // 绘制缩进参考线（在当前行高亮之上，参考线可见）
+        drawIndentGuides(in: rect)
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -1270,6 +1316,145 @@ final class CodeEditorPlatformTextView: NSTextView {
         let location = Swift.max(0, Swift.min(range.location, length))
         let safeLength = Swift.max(0, Swift.min(range.length, length - location))
         return NSRange(location: location, length: safeLength)
+    }
+
+    // MARK: - Indent Guide Drawing
+
+    private static let indentGuideInactiveColor = NSColor.separatorColor.withAlphaComponent(0.35)
+    private static let indentGuideActiveColor   = NSColor.separatorColor.withAlphaComponent(0.70)
+
+    private func drawIndentGuides(in rect: NSRect) {
+        let config = indentGuideConfig
+        guard config.indentWidth > 0, !hasMarkedText() else { return }
+
+        // 1. 取可见行 metrics
+        let metrics = visibleLineMetrics(in: rect)
+        guard !metrics.isEmpty else { return }
+
+        // 2. 字符宽度：用等宽字体测量单个空格
+        guard let font else { return }
+        let charWidth = measureCharWidth(font: font)
+        guard charWidth > 0 else { return }
+
+        let insetX = textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0)
+        let nsStr = string as NSString
+
+        // 3. 收集可见行的行首文本用于扫描层级（仅取前 200 个字符，性能保护）
+        let lineTexts: [String] = metrics.map { metric in
+            let lineRange = displayedUTF16LineRange(forLine: metric.line)
+            let safeLength = min(200, lineRange.length)
+            guard lineRange.location != NSNotFound,
+                  safeLength >= 0,
+                  lineRange.location + safeLength <= nsStr.length else { return "" }
+            return nsStr.substring(with: NSRange(location: lineRange.location, length: safeLength))
+        }
+
+        let levels = CodeEditorIndentGuideScanner.computeLevels(
+            forLines: lineTexts,
+            indentWidth: config.indentWidth,
+            useTabs: config.useTabs
+        )
+
+        // 4. 计算 active indent guide 范围
+        let activeGuideRange = computeActiveIndentGuideRange(
+            metrics: metrics,
+            levels: levels
+        )
+
+        // 5. 绘制
+        let scaleFactor = window?.backingScaleFactor ?? 1.0
+        let lineWidth: CGFloat = 1.0 / max(1.0, scaleFactor)
+
+        NSGraphicsContext.saveGraphicsState()
+        for (i, metric) in metrics.enumerated() {
+            guard i < levels.count else { break }
+            let levelInfo = levels[i]
+            guard levelInfo.level > 0 else { continue }
+            guard metric.rect.intersects(rect) else { continue }
+
+            for depthIdx in 0 ..< levelInfo.level {
+                let xPos = insetX + CGFloat(depthIdx) * CGFloat(config.indentWidth) * charWidth
+                let guideRect = NSRect(
+                    x: xPos,
+                    y: metric.rect.minY,
+                    width: lineWidth,
+                    height: metric.rect.height
+                )
+
+                if guideRect.maxX < rect.minX || guideRect.minX > rect.maxX { continue }
+
+                let isActive: Bool
+                if let activeRange = activeGuideRange,
+                   activeRange.lineRange.contains(metric.line),
+                   depthIdx == activeRange.depth {
+                    isActive = true
+                } else {
+                    isActive = false
+                }
+
+                let color = isActive
+                    ? CodeEditorPlatformTextView.indentGuideActiveColor
+                    : CodeEditorPlatformTextView.indentGuideInactiveColor
+                color.setFill()
+                guideRect.fill()
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    /// 测量等宽字体的单个字符宽度。
+    private func measureCharWidth(font: NSFont) -> CGFloat {
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        let size = (" " as NSString).size(withAttributes: attrs)
+        return size.width
+    }
+
+    private struct IndentGuideActiveRange {
+        let lineRange: ClosedRange<Int>  // 1-indexed 逻辑行
+        let depth: Int                    // 0-indexed depth（对应 indentLevel - 1）
+    }
+
+    private func computeActiveIndentGuideRange(
+        metrics: [CodeEditorVisibleLineMetric],
+        levels: [CodeEditorIndentGuideLevel]
+    ) -> IndentGuideActiveRange? {
+        guard !hasMarkedText() else { return nil }
+
+        // 光标当前行（1-indexed）
+        let cursorLine = highlightedLineNumber ?? 1
+
+        // 找光标行在可见 metrics 中的 index
+        guard let cursorIdx = metrics.firstIndex(where: { $0.line == cursorLine }),
+              cursorIdx < levels.count else {
+            return nil
+        }
+
+        let cursorLevel = levels[cursorIdx].level
+        guard cursorLevel > 0 else { return nil }
+
+        // active guide：光标行所在缩进块（最深级）
+        // targetDepth 是 0-indexed，画在 cursorLevel 级的列
+        let targetDepth = cursorLevel - 1
+
+        var startLine = cursorLine
+        var endLine   = cursorLine
+
+        // 向上扩展：找到所有 level >= cursorLevel 的连续行
+        for i in stride(from: cursorIdx - 1, through: 0, by: -1) {
+            let lvl = levels[i]
+            if !lvl.isBlankLine && lvl.level < cursorLevel { break }
+            startLine = metrics[i].line
+        }
+
+        // 向下扩展
+        let upperBound = min(metrics.count, levels.count)
+        for i in (cursorIdx + 1) ..< upperBound {
+            let lvl = levels[i]
+            if !lvl.isBlankLine && lvl.level < cursorLevel { break }
+            endLine = metrics[i].line
+        }
+
+        return IndentGuideActiveRange(lineRange: startLine...endLine, depth: targetDepth)
     }
 }
 
