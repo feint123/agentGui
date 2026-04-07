@@ -21,6 +21,9 @@ struct CodeEditorView: View {
     var highlightExecutionDelayNanoseconds: UInt64 = 0
     var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     var isBracketPairColorizationEnabled: Bool = false
+    var documentSymbols: [LSPDocumentSymbol] = []
+    var isSymbolBreadcrumbVisible: Bool = false
+    var onSymbolNavigate: ((CodeEditorRevealRequest) -> Void)? = nil
 
     @State private var document: CodeEditorDocument
     @State private var findState = CodeEditorFindState.inactive
@@ -45,7 +48,10 @@ struct CodeEditorView: View {
         highlightDebounceNanoseconds: UInt64 = 75_000_000,
         highlightExecutionDelayNanoseconds: UInt64 = 0,
         gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:],
-        isBracketPairColorizationEnabled: Bool = false
+        isBracketPairColorizationEnabled: Bool = false,
+        documentSymbols: [LSPDocumentSymbol] = [],
+        isSymbolBreadcrumbVisible: Bool = false,
+        onSymbolNavigate: ((CodeEditorRevealRequest) -> Void)? = nil
     ) {
         self._text = text
         self.persistedText = persistedText
@@ -66,6 +72,9 @@ struct CodeEditorView: View {
         self.highlightExecutionDelayNanoseconds = highlightExecutionDelayNanoseconds
         self.gitDiffByLine = gitDiffByLine
         self.isBracketPairColorizationEnabled = isBracketPairColorizationEnabled
+        self.documentSymbols = documentSymbols
+        self.isSymbolBreadcrumbVisible = isSymbolBreadcrumbVisible
+        self.onSymbolNavigate = onSymbolNavigate
         self._document = State(initialValue: CodeEditorDocument(text: text.wrappedValue, persistedText: persistedText))
     }
 
@@ -82,6 +91,18 @@ struct CodeEditorView: View {
                     onNext: { handleFindIntent(.nextMatch) },
                     onClose: { handleFindIntent(.dismiss) }
                 )
+            }
+
+            if isSymbolBreadcrumbVisible {
+                CodeEditorSymbolBreadcrumbBar(
+                    path: symbolBreadcrumbPath,
+                    onNavigate: onSymbolNavigate
+                )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 2)
+                .background(.bar)
+
+                Divider()
             }
 
             CodeEditorTextView(
@@ -147,6 +168,17 @@ struct CodeEditorView: View {
             fileURL: fileURL,
             lspStatus: lspStatus,
             diagnostics: diagnostics
+        )
+    }
+
+    private var symbolBreadcrumbPath: [CodeEditorSymbolPathNode] {
+        // document.location 返回 1-based line；转为 0-based 传给 symbolBreadcrumbNodes
+        let line1 = document.location(ofUTF16Offset: document.selectedRange.location).line
+        let line0 = max(0, line1 - 1)
+        return CodeEditorViewModel.symbolBreadcrumbNodes(
+            for: line0,
+            in: documentSymbols,
+            fileURL: fileURL
         )
     }
 
