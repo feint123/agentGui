@@ -44,6 +44,7 @@ struct WorkspacePanelView: View {
                     await gitPanelViewModel.refresh(for: url, workspaceState: workspaceState)
                 }
             )
+            treeViewModel.compactFolders = settings.compactFolders
             triggerWorkspaceLSPBootstrap()
         }
         .onChange(of: workspaceState.selectedSession?.persistentModelID) { _, _ in

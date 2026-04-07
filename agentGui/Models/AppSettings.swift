@@ -123,6 +123,9 @@ final class AppSettings {
     /// 括号对着色（Bracket Pair Colorization）开关，默认 false（opt-in）。
     var isBracketPairColorizationEnabled: Bool = false
 
+    /// 文件树 Auto-fold：自动压缩单子目录链（FT-U1）
+    var compactFolders: Bool = true
+
 
 
     init() {

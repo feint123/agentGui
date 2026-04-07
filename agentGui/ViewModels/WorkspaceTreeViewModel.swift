@@ -21,6 +21,13 @@ final class WorkspaceTreeViewModel {
     var pendingDeleteNodeIDs: Set<URL> = []
     var errorMessage: String?
 
+    /// 与 AppSettings.compactFolders 同步，设置时同步到 refreshCoordinator。
+    var compactFolders: Bool = true {
+        didSet {
+            refreshCoordinator.compactFolders = compactFolders
+        }
+    }
+
     private let actionHandler: WorkspaceTreeActionHandler
     private var refreshCoordinator: WorkspaceTreeRefreshCoordinator
     private let revealService: WorkspaceRevealServing
