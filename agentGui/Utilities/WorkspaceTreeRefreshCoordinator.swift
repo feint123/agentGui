@@ -388,9 +388,22 @@ enum WorkspaceTreeSnapshotOps {
 
     /// 浅扫描：只扫描 1 层，子目录标记为 .notLoaded，不递归。
     /// 初始加载和按需加载的"扫描该目录 1 层"逻辑均由此方法驱动。
-    static func buildNodesShallow(at url: URL) -> [FileNode] {
+    /// - `compactFolders`：若为 `true`，对单子目录链应用折叠压缩（FT-U1）。
+    static func buildNodesShallow(at url: URL, compactFolders: Bool = true) -> [FileNode] {
         shallowScan(at: url).map { entry in
             if entry.isDirectory {
+                if compactFolders,
+                   let chain = compactSingleChildChain(startingAt: entry.url) {
+                    return FileNode(
+                        id: entry.url,
+                        name: entry.name,
+                        isDirectory: true,
+                        children: nil,
+                        childrenLoadState: .notLoaded,
+                        foldedSegments: chain.segments,
+                        foldedTerminalURL: chain.terminalURL
+                    )
+                }
                 return FileNode(
                     id: entry.url,
                     name: entry.name,
@@ -401,6 +414,48 @@ enum WorkspaceTreeSnapshotOps {
             }
             return FileNode(id: entry.url, name: entry.name, isDirectory: false, children: nil)
         }
+    }
+
+    // MARK: - FT-U1: Auto-fold 工具
+
+    /// 从 `startURL` 沿单子目录链追踪，返回所有段名称和链尾 URL。
+    ///
+    /// 条件：该目录仅有一个可见子项，且该子项为目录。
+    /// - 若链长度 == 1（`startURL` 自身无单子子目录）→ 返回 `nil`（不折叠）。
+    /// - 若追踪链长度 >= 2 → 返回 `(segments, terminalURL)`。
+    ///
+    /// 性能：每步调用 `shallowScan`（I/O）。链深度通常 2–6，可接受。
+    static func compactSingleChildChain(startingAt startURL: URL) -> (segments: [String], terminalURL: URL)? {
+        var segments: [String] = [startURL.lastPathComponent]
+        var current = startURL
+
+        while true {
+            let entries = shallowScan(at: current)
+            // 可折叠条件：恰好 1 个可见条目，且该条目是目录
+            guard entries.count == 1, let onlyChild = entries.first, onlyChild.isDirectory else {
+                break
+            }
+            current = onlyChild.url
+            segments.append(onlyChild.name)
+        }
+
+        guard segments.count > 1 else { return nil }
+        return (segments: segments, terminalURL: current)
+    }
+
+    /// 在节点树中按 `id` 查找节点。
+    /// 只递归进入 `childrenLoadState == .loaded` 的节点（未加载的子树不遍历）。
+    /// 复杂度 O(已加载节点数)。
+    static func findNode(in nodes: [FileNode], id: URL) -> FileNode? {
+        let targetPath = id.standardizedFileURL.path
+        for node in nodes {
+            if node.id.standardizedFileURL.path == targetPath { return node }
+            guard node.isDirectory,
+                  node.childrenLoadState == .loaded,
+                  let children = node.children else { continue }
+            if let found = findNode(in: children, id: id) { return found }
+        }
+        return nil
     }
 
     /// 在树中递归找到 id 匹配的节点，用 transform 的返回值替换它。
