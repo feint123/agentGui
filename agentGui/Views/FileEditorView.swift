@@ -28,6 +28,8 @@ struct FileEditorView: View {
     @State private var hoverPresentation: CodeEditorHoverPresentation?
     @State private var referencesPresentation: CodeEditorReferencePresentation?
     @State private var documentSymbolItems: [CodeEditorDocumentSymbolItem] = []
+    @State private var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
+    private let gitDiffService = GitLineDiffService()
     private let launchOptions = TestLaunchOptions.current
 
     // MARK: - Body
@@ -45,6 +47,7 @@ struct FileEditorView: View {
             }
             consumePendingRevealRequestIfNeeded(for: fileURL)
             syncLSPCoordinator(for: fileURL)
+            refreshGitDiff(for: fileURL)
         }
         .onDisappear {
             lspCoordinator?.cancelHover()
@@ -65,6 +68,8 @@ struct FileEditorView: View {
             }
             consumePendingRevealRequestIfNeeded(for: newURL)
             triggerWorkspaceLSPBootstrap(for: newURL)
+            gitDiffByLine = [:]
+            refreshGitDiff(for: newURL)
         }
         .onChange(of: sessionController.document.phase) { _, _ in
             syncLSPCoordinator(for: fileURL)
@@ -77,6 +82,12 @@ struct FileEditorView: View {
         }
         .onChange(of: claudeService.lspPresentationRevision) { _, _ in
             syncLSPCoordinator(for: fileURL)
+        }
+        .onChange(of: sessionController.document.hasUnsavedChanges) { _, isDirty in
+            // 文件从修改状态变为已保存（dirty → clean）时刷新 diff
+            if !isDirty {
+                refreshGitDiff(for: fileURL)
+            }
         }
         .alert("错误", isPresented: Binding(
             get: { sessionController.document.errorMessage != nil },
@@ -285,7 +296,8 @@ struct FileEditorView: View {
                                 documentSymbolItems = []
                             }
                             lspCoordinator?.handleTextChange(text: newValue, change: change)
-                        }
+                        },
+                        gitDiffByLine: gitDiffByLine
                     )
                 }
             }
@@ -311,6 +323,24 @@ struct FileEditorView: View {
     }
 
     // MARK: - File I/O
+
+    // MARK: - Git Diff
+
+    private func refreshGitDiff(for fileURL: URL) {
+        guard let rootURL = resolveWorkspaceRoot() else { return }
+        Task { @MainActor in
+            let result = await gitDiffService.fetchLineDiff(
+                fileURL: fileURL.standardizedFileURL,
+                workspaceRoot: rootURL
+            )
+            gitDiffByLine = result
+        }
+    }
+
+    private func resolveWorkspaceRoot() -> URL? {
+        let settings = AppSettings.getOrCreate(in: modelContext)
+        return workspaceState.effectiveWorkingDirectoryURL(globalDefault: settings.workingDirectory)
+    }
 
     private func triggerWorkspaceLSPBootstrap(for url: URL) {
         let settings = AppSettings.getOrCreate(in: modelContext)
