@@ -331,7 +331,7 @@ extension ChatView {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .accessibilityIdentifier("chat.readOnlyBanner")
-            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+            .transition(ChatMotion.bannerTransition)
         }
     }
 
