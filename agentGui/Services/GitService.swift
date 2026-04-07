@@ -21,6 +21,7 @@ protocol GitServicing {
     func listStashes(repositoryRoot: URL) async throws -> [GitStashEntry]
     func saveStash(message: String?, repositoryRoot: URL) async throws
     func applyStash(id: String, pop: Bool, repositoryRoot: URL) async throws
+    func listCommits(repositoryRoot: URL, maxCount: Int, skip: Int) async throws -> [GitCommit]
 }
 
 struct GitCommandResult: Equatable {
@@ -199,6 +200,17 @@ final class GitService: GitServicing {
 
     func applyStash(id: String, pop: Bool, repositoryRoot: URL) async throws {
         try await runMutation(["stash", pop ? "pop" : "apply", id], repositoryRoot: repositoryRoot)
+    }
+
+    func listCommits(repositoryRoot: URL, maxCount: Int, skip: Int) async throws -> [GitCommit] {
+        let formatString = "---COMMIT---%n%H%n%s%n%an%n%ae%n%aI%n%B%n---END---"
+        var arguments = ["log", "--format=\(formatString)", "-n", "\(maxCount)"]
+        if skip > 0 {
+            arguments += ["--skip", "\(skip)"]
+        }
+        let result = try await commandRunner.run(arguments: arguments, workingDirectory: repositoryRoot)
+        try validate(result)
+        return (try? GitLogParser.parseRich(result.stdout)) ?? []
     }
 
     private func resolveRepositoryRoot(for workingDirectory: URL) async throws -> URL {
