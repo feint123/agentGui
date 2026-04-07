@@ -326,4 +326,31 @@ struct CodeEditorViewModelTests {
         #expect(CodeEditorViewModel.symbolKindIconName(for: 13) != nil)  // Variable
         #expect(CodeEditorViewModel.symbolKindIconName(for: 999) == nil) // unknown
     }
+
+    @Test
+    func symbolBreadcrumbNodesIncludeSiblingsForEachLevel() {
+        let method1 = LSPDocumentSymbol(name: "alpha()", detail: nil, kind: 12,
+                                        line: 2, character: 4, endLine: 4, endCharacter: 5)
+        let method2 = LSPDocumentSymbol(name: "beta()", detail: nil, kind: 12,
+                                        line: 6, character: 4, endLine: 8, endCharacter: 5)
+        let classSymbol = LSPDocumentSymbol(
+            name: "MyClass", detail: nil, kind: 5,
+            line: 0, character: 0, endLine: 10, endCharacter: 1,
+            children: [method1, method2]
+        )
+        let url = URL(fileURLWithPath: "/tmp/Foo.swift")
+        let nodes = CodeEditorViewModel.symbolBreadcrumbNodes(for: 3, in: [classSymbol], fileURL: url)
+
+        // path depth: MyClass > alpha()
+        #expect(nodes.count == 2)
+        #expect(nodes[0].name == "MyClass")
+        #expect(nodes[1].name == "alpha()")
+
+        // top-level siblings list contains only MyClass
+        #expect(nodes[0].siblings.count == 1)
+
+        // method-level siblings: alpha() + beta()
+        #expect(nodes[1].siblings.count == 2)
+        #expect(nodes[1].siblings.map(\.name).sorted() == ["alpha()", "beta()"])
+    }
 }

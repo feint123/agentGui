@@ -456,6 +456,83 @@ enum CodeEditorViewModel {
         return fallback.map { [$0] } ?? []
     }
 
+    /// 将 symbolBreadcrumbPath 的原始 LSP 结果包装为带 siblings 的 PathNode 数组。
+    /// - Parameters:
+    ///   - cursorLine: 0-based 行号（与 LSP 坐标系一致）
+    ///   - symbols: 当前文件的 documentSymbols
+    ///   - fileURL: 用于构造 revealRequest
+    static func symbolBreadcrumbNodes(
+        for cursorLine: Int,
+        in symbols: [LSPDocumentSymbol],
+        fileURL: URL
+    ) -> [CodeEditorSymbolPathNode] {
+        buildNodes(cursorLine: cursorLine, symbols: symbols, fileURL: fileURL)
+    }
+
+    private static func buildNodes(
+        cursorLine: Int,
+        symbols: [LSPDocumentSymbol],
+        fileURL: URL
+    ) -> [CodeEditorSymbolPathNode] {
+        // 计算同级 siblings
+        let siblings = symbols.map { sym in
+            CodeEditorSymbolSiblingItem(
+                name: sym.name,
+                symbolKind: sym.kind,
+                revealRequest: CodeEditorRevealRequest(
+                    fileURL: fileURL,
+                    line: sym.line + 1,
+                    column: sym.character + 1,
+                    reason: .documentSymbol
+                )
+            )
+        }
+
+        // 找到包含 cursorLine 的那一个（精确 range）
+        let symbolsWithRange = symbols.filter { $0.endLine != nil }
+        if !symbolsWithRange.isEmpty {
+            for sym in symbolsWithRange {
+                guard let endLine = sym.endLine else { continue }
+                guard (sym.line...endLine).contains(cursorLine) else { continue }
+                let node = CodeEditorSymbolPathNode(
+                    name: sym.name,
+                    detail: sym.detail,
+                    symbolKind: sym.kind,
+                    line: sym.line + 1,
+                    revealRequest: CodeEditorRevealRequest(
+                        fileURL: fileURL,
+                        line: sym.line + 1,
+                        column: sym.character + 1,
+                        reason: .documentSymbol
+                    ),
+                    siblings: siblings
+                )
+                let childNodes = buildNodes(cursorLine: cursorLine, symbols: sym.children, fileURL: fileURL)
+                return [node] + childNodes
+            }
+            return []
+        }
+
+        // 回退：无 endLine
+        guard let best = symbols.filter({ $0.line <= cursorLine }).max(by: { $0.line < $1.line }) else {
+            return []
+        }
+        let node = CodeEditorSymbolPathNode(
+            name: best.name,
+            detail: best.detail,
+            symbolKind: best.kind,
+            line: best.line + 1,
+            revealRequest: CodeEditorRevealRequest(
+                fileURL: fileURL,
+                line: best.line + 1,
+                column: best.character + 1,
+                reason: .documentSymbol
+            ),
+            siblings: siblings
+        )
+        return [node]
+    }
+
     /// LSP SymbolKind 整数 → SF Symbols 名称（用于面包屑图标）。
     /// 返回 nil 表示未识别的 kind，调用方可用通用图标替代。
     /// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#symbolKind
