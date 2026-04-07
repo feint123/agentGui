@@ -401,12 +401,23 @@ enum WorkspaceTreeSnapshotOps {
         return nodes.map { node in
             guard node.isDirectory else { return node }
             let nodePath = node.id.path
-            if nodePath == targetPath {
+            let terminalPath = node.foldedTerminalURL?.standardizedFileURL.path
+
+            // 直接匹配或折叠链匹配（目标是链尾或链中间段）
+            let matchesSelf = nodePath == targetPath
+            let matchesFoldedTerminal = terminalPath != nil && terminalPath == targetPath
+            let matchesFoldChain = terminalPath != nil
+                && targetPath.hasPrefix(nodePath + "/")
+                && terminalPath!.hasPrefix(targetPath + "/")
+
+            if matchesSelf || matchesFoldedTerminal || matchesFoldChain {
                 // 尚未加载的目录：直接返回原节点，用户展开时 demandLoad 会拿到最新状态。
                 if node.childrenLoadState == .notLoaded {
                     return node
                 }
-                let freshScan = shallowScan(at: node.id)
+                // 折叠节点：扫描链尾目录；普通节点：扫描自身
+                let scanURL = node.foldedTerminalURL?.standardizedFileURL ?? node.id
+                let freshScan = shallowScan(at: scanURL)
                 let mergedNodes = mergeNodes(existing: node.children ?? [], freshScan: freshScan)
                 return FileNode(
                     id: node.id, name: node.name, isDirectory: true,
@@ -415,7 +426,11 @@ enum WorkspaceTreeSnapshotOps {
                     foldedTerminalURL: node.foldedTerminalURL
                 )
             }
-            if targetPath.hasPrefix(nodePath + "/") {
+
+            // 目标在子树中：递归处理（也检查折叠节点的链尾路径前缀）
+            let isDescendant = targetPath.hasPrefix(nodePath + "/")
+                || (terminalPath != nil && targetPath.hasPrefix(terminalPath! + "/"))
+            if isDescendant {
                 // 尚未加载的目录：FSEvent 到来时无需更新，用户展开时会触发按需扫描。
                 if node.childrenLoadState == .notLoaded {
                     return node
@@ -518,7 +533,12 @@ enum WorkspaceTreeSnapshotOps {
                 return node
             }
             let updatedChildren = replaceNode(in: children, id: id, transform: transform)
-            return FileNode(id: node.id, name: node.name, isDirectory: true, children: updatedChildren, childrenLoadState: .loaded)
+            return FileNode(
+                id: node.id, name: node.name, isDirectory: true,
+                children: updatedChildren, childrenLoadState: .loaded,
+                foldedSegments: node.foldedSegments,
+                foldedTerminalURL: node.foldedTerminalURL
+            )
         }
     }
 
@@ -553,14 +573,12 @@ enum WorkspaceTreeSnapshotOps {
     }
 
     private static func shouldIncludeInTree(isDirectory: Bool, isHidden: Bool) -> Bool {
-        if isDirectory {
-            return true
-        }
         return !isHidden
     }
 
     private static func filter(node: FileNode, query: String) -> FileNode? {
         let matchesSelf = node.name.localizedCaseInsensitiveContains(query)
+            || (node.isFolded && node.foldedSegments.contains { $0.localizedCaseInsensitiveContains(query) })
 
         if !node.isDirectory {
             return matchesSelf ? node : nil
@@ -573,7 +591,9 @@ enum WorkspaceTreeSnapshotOps {
             id: node.id,
             name: node.name,
             isDirectory: true,
-            children: matchesSelf ? node.children : filteredChildren
+            children: matchesSelf ? node.children : filteredChildren,
+            foldedSegments: node.foldedSegments,
+            foldedTerminalURL: node.foldedTerminalURL
         )
     }
 }

@@ -73,17 +73,29 @@ enum WorkspaceTreeInlineEditApplier {
     private static func injectPlaceholder(_ placeholderNode: FileNode, into nodes: [FileNode], parentDirectory: URL) -> [FileNode] {
         nodes.map { node in
             guard node.isDirectory else { return node }
-            if node.id == parentDirectory {
+            // 折叠节点的实际子项在 foldedTerminalURL，两者都需要匹配
+            let matchesParent = node.id == parentDirectory
+                || (node.foldedTerminalURL != nil && node.foldedTerminalURL! == parentDirectory)
+            if matchesParent {
                 return FileNode(
                     id: node.id,
                     name: node.name,
                     isDirectory: true,
-                    children: [placeholderNode] + (node.children ?? [])
+                    children: [placeholderNode] + (node.children ?? []),
+                    foldedSegments: node.foldedSegments,
+                    foldedTerminalURL: node.foldedTerminalURL
                 )
             }
 
             let updatedChildren = injectPlaceholder(placeholderNode, into: node.children ?? [], parentDirectory: parentDirectory)
-            return FileNode(id: node.id, name: node.name, isDirectory: true, children: updatedChildren)
+            return FileNode(
+                id: node.id,
+                name: node.name,
+                isDirectory: true,
+                children: updatedChildren,
+                foldedSegments: node.foldedSegments,
+                foldedTerminalURL: node.foldedTerminalURL
+            )
         }
     }
 }

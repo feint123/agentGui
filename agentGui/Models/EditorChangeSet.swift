@@ -11,4 +11,5 @@ struct EditorChangeSet: Equatable {
     let insertedText: String
     let selectedRange: NSRange
     let origin: EditorChangeOrigin
+    var isMultiCursorEdit: Bool = false
 }

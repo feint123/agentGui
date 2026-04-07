@@ -539,7 +539,10 @@ final class WorkspaceTreeViewModel {
 
     private func targetDirectory(for node: FileNode?) -> URL? {
         guard let node else { return currentDirectory }
-        return node.isDirectory ? node.id : node.id.deletingLastPathComponent()
+        if node.isDirectory {
+            return node.foldedTerminalURL ?? node.id
+        }
+        return node.id.deletingLastPathComponent()
     }
 
     private func findNode(in nodes: [FileNode], matching id: URL) -> FileNode? {

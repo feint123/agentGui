@@ -140,6 +140,7 @@ extension CodeEditorTextView {
         private var selectionObserver: NSObjectProtocol?
         private var viewportObserver: NSObjectProtocol?
         private var pendingEdit: PendingEdit?
+        private var isMultiCursorEdit = false
         private let highlightScheduler = CodeEditorHighlightScheduler()
         private let highlightPipeline = CodeEditorHighlightPipeline()
         private var lastScheduledHighlightVersion: Int?
@@ -167,6 +168,7 @@ extension CodeEditorTextView {
         func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
             guard !isApplyingProgrammaticUpdate else {
                 pendingEdit = nil
+                isMultiCursorEdit = false
                 return true
             }
 
@@ -179,10 +181,40 @@ extension CodeEditorTextView {
             return true
         }
 
+        func textView(
+            _ textView: NSTextView,
+            shouldChangeTextInRanges affectedRanges: [NSValue],
+            replacementStrings: [String]?
+        ) -> Bool {
+            guard !isApplyingProgrammaticUpdate else {
+                pendingEdit = nil
+                isMultiCursorEdit = false
+                return true
+            }
+
+            (textView as? CodeEditorPlatformTextView)?.emitSemanticIntent(.cancelHover)
+
+            if affectedRanges.count > 1 {
+                // 多光标编辑：标记回退到全文差分路径
+                isMultiCursorEdit = true
+                pendingEdit = nil
+            } else {
+                isMultiCursorEdit = false
+                if let range = affectedRanges.first?.rangeValue {
+                    pendingEdit = PendingEdit(
+                        replacedRange: range,
+                        insertedText: replacementStrings?.first ?? ""
+                    )
+                }
+            }
+            return true
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? CodeEditorPlatformTextView else { return }
             guard !isApplyingProgrammaticUpdate else {
                 pendingEdit = nil
+                isMultiCursorEdit = false
                 return
             }
 
@@ -278,19 +310,43 @@ extension CodeEditorTextView {
             let snapshot = selectionSnapshot(for: textView, text: textView.string, range: selectedRange)
             parent.onSelectionChange?(snapshot)
             parent.onCursorLocationChange?(cursorLocation)
-            (textView as? CodeEditorPlatformTextView)?.highlightedLineNumber = cursorLocation.line
-            updateGutterState(for: textView)
-            parent.document.markSelection(selectedRange)
 
-            // 括号高亮
+            // 多光标行高亮
+            if let platformTextView = textView as? CodeEditorPlatformTextView {
+                let cursorLines = Set(
+                    platformTextView.selectedRanges.map { $0.rangeValue }.map { range -> Int in
+                        platformTextView.displayedLocation(ofUTF16Offset: range.location + range.length).line
+                    }
+                )
+                platformTextView.highlightedLineNumbers = cursorLines
+            } else {
+                (textView as? CodeEditorPlatformTextView)?.highlightedLineNumber = cursorLocation.line
+            }
+
+            updateGutterState(for: textView)
+
+            // 多光标时更新全选区快照
+            let allRanges = textView.selectedRanges.map { $0.rangeValue }
+            if allRanges.count > 1 {
+                parent.document.markMultiSelection(allRanges)
+            } else {
+                parent.document.markSelection(selectedRange)
+            }
+
+            // 括号高亮（仅单光标时处理）
             if let platformTextView = textView as? CodeEditorPlatformTextView,
-               !platformTextView.hasMarkedText() {
+               !platformTextView.hasMarkedText(),
+               platformTextView.selectedRanges.count <= 1 {
                 let cursorOffset = textView.selectedRange().location
                 let matchResult = CodeEditorBracketScanner.findMatch(
                     in: platformTextView.string,
                     cursorOffset: cursorOffset
                 )
                 platformTextView.applyBracketMatchHighlight(matchResult)
+            } else if let platformTextView = textView as? CodeEditorPlatformTextView,
+                      platformTextView.selectedRanges.count > 1 {
+                // 多光标时清除括号高亮
+                platformTextView.applyBracketMatchHighlight(nil)
             }
         }
 
@@ -330,6 +386,7 @@ extension CodeEditorTextView {
                 lineCount: textView.displayedLineCount,
                 visibleLineRange: visibleRange,
                 currentLine: textView.highlightedLineNumber,
+                cursorLineNumbers: textView.highlightedLineNumbers,
                 lineMetrics: lineMetrics,
                 diagnosticsByLine: parent.diagnosticsByLine,
                 gitDiffByLine: parent.gitDiffByLine
@@ -472,6 +529,24 @@ extension CodeEditorTextView {
         ) {
             let currentText = textView.string
             let selectedRange = textView.selectedRange()
+
+            // 多光标编辑：pendingEdit 无效，直接全文更新
+            if isMultiCursorEdit {
+                isMultiCursorEdit = false
+                pendingEdit = nil
+                let changeSet = parent.document.replaceAllForMultiCursorEdit(
+                    text: currentText,
+                    selectedRange: selectedRange
+                )
+                parent.text = currentText
+                parent.onChangeSet?(changeSet)
+                publishSelection(for: textView)
+                publishVisibleLineRange(for: textView)
+                updateGutterState(for: textView)
+                scheduleHighlight(for: textView, dirtyLineRange: nil)
+                return
+            }
+
             let committedEdit = resolvedCommittedEdit(
                 from: parent.document.text,
                 to: currentText,
@@ -887,14 +962,23 @@ final class CodeEditorPlatformTextView: NSTextView {
     var findIntentHandler: ((CodeEditorFindIntent) -> Void)?
     var appliedLinePresentationFingerprints: [Int: Int] = [:]
     var lastReappliedLines: [Int] = []
-    var highlightedLineNumber: Int? {
+    var highlightedLineNumbers: Set<Int> = [] {
         didSet {
-            guard highlightedLineNumber != oldValue else {
-                return
-            }
+            guard highlightedLineNumbers != oldValue else { return }
+            for line in oldValue { invalidateLine(line) }
+            for line in highlightedLineNumbers { invalidateLine(line) }
+        }
+    }
 
-            invalidateLine(oldValue)
-            invalidateLine(highlightedLineNumber)
+    /// 向后兼容：单光标读写单个行
+    var highlightedLineNumber: Int? {
+        get { highlightedLineNumbers.first }
+        set {
+            if let n = newValue {
+                highlightedLineNumbers = [n]
+            } else {
+                highlightedLineNumbers = []
+            }
         }
     }
     private var displayedLineIndex = CodeEditorLineIndex(text: "")
@@ -944,16 +1028,13 @@ final class CodeEditorPlatformTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
 
-        guard let line = highlightedLineNumber,
-              let lineRect = backgroundRect(forLine: line),
-              lineRect.intersects(rect) else {
-            // 即使无高亮行，也尝试绘制 indent guides
-            drawIndentGuides(in: rect)
-            return
+        // 为所有光标行绘制高亮背景
+        for line in highlightedLineNumbers {
+            if let lineRect = backgroundRect(forLine: line), lineRect.intersects(rect) {
+                NSColor.selectedTextBackgroundColor.withAlphaComponent(0.10).setFill()
+                lineRect.fill()
+            }
         }
-
-        NSColor.selectedTextBackgroundColor.withAlphaComponent(0.10).setFill()
-        lineRect.fill()
 
         // 绘制缩进参考线（在当前行高亮之上，参考线可见）
         drawIndentGuides(in: rect)
@@ -977,9 +1058,41 @@ final class CodeEditorPlatformTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.option),
-           let position = semanticPosition(at: convert(event.locationInWindow, from: nil)) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let localPt = convert(event.locationInWindow, from: nil)
+
+        // ⌘+Click → Go to Definition（替换旧的 Option+Click）
+        if modifiers.contains(.command), !modifiers.contains(.option),
+           let position = semanticPosition(at: localPt) {
             emitSemanticIntent(.requestDefinition(position))
+            return
+        }
+
+        // Option+Click → 多光标 toggle（IME 期间跳过）
+        if modifiers.contains(.option), !modifiers.contains(.command), !hasMarkedText() {
+            guard let layoutManager, let textContainer else {
+                super.mouseDown(with: event)
+                return
+            }
+            let containerPt = NSPoint(
+                x: localPt.x - textContainerInset.width,
+                y: localPt.y - textContainerInset.height
+            )
+            let glyphIdx = layoutManager.glyphIndex(
+                for: containerPt,
+                in: textContainer,
+                fractionOfDistanceThroughGlyph: nil
+            )
+            let charIdx = layoutManager.characterIndexForGlyph(at: glyphIdx)
+            let currentRanges = selectedRanges.map { $0.rangeValue }
+            let newRanges = CodeEditorMultiSelectionController.toggleCursor(
+                at: charIdx, in: currentRanges
+            )
+            setSelectedRanges(
+                newRanges.map { NSValue(range: $0) },
+                affinity: .downstream,
+                stillSelecting: false
+            )
             return
         }
 
@@ -1002,8 +1115,51 @@ final class CodeEditorPlatformTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 111 {
-            if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift),
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let keyCode = event.keyCode
+
+        // ⌘⌥↑ — 添加上方光标（keyCode 126 = ↑）
+        if keyCode == 126, modifiers.contains(.command), modifiers.contains(.option), !hasMarkedText() {
+            let current = selectedRanges.map { $0.rangeValue }
+            let newRanges = CodeEditorMultiSelectionController.addCursorAbove(
+                currentRanges: current, in: self)
+            setSelectedRanges(newRanges.map { NSValue(range: $0) },
+                              affinity: .downstream, stillSelecting: false)
+            return
+        }
+
+        // ⌘⌥↓ — 添加下方光标（keyCode 125 = ↓）
+        if keyCode == 125, modifiers.contains(.command), modifiers.contains(.option), !hasMarkedText() {
+            let current = selectedRanges.map { $0.rangeValue }
+            let newRanges = CodeEditorMultiSelectionController.addCursorBelow(
+                currentRanges: current, in: self)
+            setSelectedRanges(newRanges.map { NSValue(range: $0) },
+                              affinity: .downstream, stillSelecting: false)
+            return
+        }
+
+        // ⌘D — 选中下一个匹配词（keyCode 2 = D）
+        if keyCode == 2, modifiers.contains(.command),
+           !modifiers.contains(.option), !modifiers.contains(.shift), !hasMarkedText() {
+            selectNextWordMatch()
+            return
+        }
+
+        // Esc — 多光标时收拢为最后一个光标
+        if keyCode == 53 {
+            let current = selectedRanges.map { $0.rangeValue }
+            if current.count > 1 {
+                let collapsed = CodeEditorMultiSelectionController.collapseToLastCursor(from: current)
+                setSelectedRanges(collapsed.map { NSValue(range: $0) },
+                                  affinity: .downstream, stillSelecting: false)
+                return
+            }
+            // fall through to performKeyEquivalent for find bar dismiss etc.
+        }
+
+        // F12 / keyCode 111 — Go to Definition / References
+        if keyCode == 111 {
+            if modifiers.contains(.shift),
                let position = semanticPositionForSelection() {
                 emitSemanticIntent(.requestReferences(position))
                 return
@@ -1016,6 +1172,61 @@ final class CodeEditorPlatformTextView: NSTextView {
         }
 
         super.keyDown(with: event)
+    }
+
+    private func selectNextWordMatch() {
+        let current = selectedRanges.map { $0.rangeValue }
+        guard let lastRange = current.last else { return }
+
+        var searchText: String
+        if lastRange.length > 0 {
+            searchText = (string as NSString).substring(with: lastRange)
+        } else {
+            // zero-length cursor → 扩展为当前词
+            let nsStr = string as NSString
+            let textLen = nsStr.length
+
+            let backwardRange = NSRange(location: 0, length: lastRange.location)
+            let wordStartRange = nsStr.rangeOfCharacter(
+                from: CharacterSet.alphanumerics.inverted,
+                options: .backwards,
+                range: backwardRange
+            )
+            let start = wordStartRange.location == NSNotFound
+                ? 0
+                : wordStartRange.location + wordStartRange.length
+
+            let forwardRange = NSRange(location: lastRange.location, length: textLen - lastRange.location)
+            let wordEndRange = nsStr.rangeOfCharacter(
+                from: CharacterSet.alphanumerics.inverted,
+                options: [],
+                range: forwardRange
+            )
+            let end = wordEndRange.location == NSNotFound ? textLen : wordEndRange.location
+
+            guard end > start else { return }
+            let expandedRange = NSRange(location: start, length: end - start)
+
+            // 先扩展当前光标的 range 到整词
+            var updated = Array(current.dropLast()) + [expandedRange]
+            setSelectedRanges(updated.map { NSValue(range: $0) },
+                              affinity: .downstream, stillSelecting: false)
+            // 递归调用一次去选下一个
+            selectNextWordMatch()
+            return
+        }
+
+        let (newRanges, _) = CodeEditorMultiSelectionController.selectNextMatch(
+            searchText: searchText,
+            lastRange: lastRange,
+            in: string,
+            currentRanges: current
+        )
+        if newRanges.count > current.count {
+            setSelectedRanges(newRanges.map { NSValue(range: $0) },
+                              affinity: .downstream, stillSelecting: false)
+            scrollRangeToVisible(newRanges[newRanges.count - 1])
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

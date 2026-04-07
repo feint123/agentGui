@@ -4,6 +4,8 @@ struct CodeEditorGutterViewportSnapshot: Equatable, Sendable {
     let lineCount: Int
     let visibleLineRange: ClosedRange<Int>
     let currentLine: Int?
+    /// 多光标行号集合（单光标时 count == 1）
+    let cursorLineNumbers: Set<Int>
     let lineMetrics: [CodeEditorVisibleLineMetric]
     let diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary]
 
@@ -18,6 +20,7 @@ struct CodeEditorGutterViewportSnapshot: Equatable, Sendable {
         lineCount: Int,
         visibleLineRange: ClosedRange<Int>,
         currentLine: Int?,
+        cursorLineNumbers: Set<Int> = [],
         lineMetrics: [CodeEditorVisibleLineMetric],
         diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary],
         foldableLines: Set<Int> = [],
@@ -27,6 +30,7 @@ struct CodeEditorGutterViewportSnapshot: Equatable, Sendable {
         self.lineCount = lineCount
         self.visibleLineRange = visibleLineRange
         self.currentLine = currentLine
+        self.cursorLineNumbers = cursorLineNumbers.isEmpty ? (currentLine.map { [$0] } ?? []) : cursorLineNumbers
         self.lineMetrics = lineMetrics
         self.diagnosticsByLine = diagnosticsByLine
         self.foldableLines = foldableLines

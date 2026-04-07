@@ -96,15 +96,74 @@ struct WorkspaceTreeOutlineView: NSViewRepresentable {
         private var isApplyingProgrammaticSelection = false
         private var contextMenuNode: FileNode?
         private var contextMenuGitChange: GitFileChange?
+        private var cachedNodesFingerprint: Int = 0
+        private var cachedInlineEditNodeID: URL?
 
         init(parent: WorkspaceTreeOutlineView) {
             self.parent = parent
         }
 
         fileprivate func refresh(_ outlineView: WorkspaceNativeOutlineView) {
-            outlineView.reloadData()
-            restoreExpansion(on: outlineView)
+            let newFingerprint = Self.nodesFingerprint(parent.nodes)
+            let newInlineEditID = parent.inlineEdit?.editingNodeID
+            let dataChanged = newFingerprint != cachedNodesFingerprint
+            let inlineEditChanged = newInlineEditID != cachedInlineEditNodeID
+
+            if dataChanged || inlineEditChanged {
+                cachedNodesFingerprint = newFingerprint
+                cachedInlineEditNodeID = newInlineEditID
+                outlineView.reloadData()
+                restoreExpansion(on: outlineView)
+            }
+
             synchronizeSelection(on: outlineView)
+            refreshVisibleCellAppearance(on: outlineView)
+        }
+
+        /// Lightweight recursive fingerprint over the tree structure (URLs + load state + child count).
+        /// Hash collisions are negligible; worst case is a missed one-frame update.
+        private static func nodesFingerprint(_ nodes: [FileNode]) -> Int {
+            var hasher = Hasher()
+            fingerprintHelper(nodes, &hasher)
+            return hasher.finalize()
+        }
+
+        private static func fingerprintHelper(_ nodes: [FileNode], _ hasher: inout Hasher) {
+            hasher.combine(nodes.count)
+            for node in nodes {
+                hasher.combine(node.id)
+                hasher.combine(node.childrenLoadState)
+                if let children = node.children {
+                    fingerprintHelper(children, &hasher)
+                }
+            }
+        }
+
+        /// Reconfigure only the cells visible on screen (selection highlight, git badge, etc.)
+        /// without full reloadData. This is the fast path for selection-only changes.
+        private func refreshVisibleCellAppearance(on outlineView: NSOutlineView) {
+            let visibleRange = outlineView.rows(in: outlineView.visibleRect)
+            guard visibleRange.length > 0 else { return }
+            for row in visibleRange.location..<(visibleRange.location + visibleRange.length) {
+                guard let node = fileNode(from: outlineView.item(atRow: row)),
+                      let cellView = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false)
+                        as? WorkspaceTreeNativeCellView else {
+                    continue
+                }
+                let isSelected = parent.selectionIDs.contains(node.id.standardizedFileURL)
+                let gitChange = parent.gitChangeProvider(node)
+                let isInlineEditing = parent.inlineEdit?.editingNodeID == node.id
+                cellView.configure(
+                    node: node,
+                    isSelected: isSelected,
+                    gitChange: gitChange,
+                    isInlineEditing: isInlineEditing,
+                    draftName: parent.inlineEdit?.draftName,
+                    onInlineEditChange: parent.actions.inlineEditChange,
+                    onInlineEditCommit: parent.actions.inlineEditCommit,
+                    onInlineEditCancel: parent.actions.inlineEditCancel
+                )
+            }
         }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -134,26 +193,26 @@ struct WorkspaceTreeOutlineView: NSViewRepresentable {
             guard let node = fileNode(from: item) else { return nil }
 
             let identifier = NSUserInterfaceItemIdentifier("WorkspaceTreeCell")
-            let cellView: WorkspaceTreeTableCellView
-            if let reused = outlineView.makeView(withIdentifier: identifier, owner: nil) as? WorkspaceTreeTableCellView {
+            let cellView: WorkspaceTreeNativeCellView
+            if let reused = outlineView.makeView(withIdentifier: identifier, owner: nil) as? WorkspaceTreeNativeCellView {
                 cellView = reused
             } else {
-                cellView = WorkspaceTreeTableCellView()
+                cellView = WorkspaceTreeNativeCellView()
                 cellView.identifier = identifier
             }
 
             let isSelected = parent.selectionIDs.contains(node.id.standardizedFileURL)
             let gitChange = parent.gitChangeProvider(node)
+            let isInlineEditing = parent.inlineEdit?.editingNodeID == node.id
             cellView.configure(
-                with: WorkspaceTreeRowContent(
-                    node: node,
-                    isSelected: isSelected,
-                    gitChange: gitChange,
-                    inlineEdit: parent.inlineEdit,
-                    onInlineEditChange: parent.actions.inlineEditChange,
-                    onInlineEditCommit: parent.actions.inlineEditCommit,
-                    onInlineEditCancel: parent.actions.inlineEditCancel
-                )
+                node: node,
+                isSelected: isSelected,
+                gitChange: gitChange,
+                isInlineEditing: isInlineEditing,
+                draftName: parent.inlineEdit?.draftName,
+                onInlineEditChange: parent.actions.inlineEditChange,
+                onInlineEditCommit: parent.actions.inlineEditCommit,
+                onInlineEditCancel: parent.actions.inlineEditCancel
             )
 
             return cellView
@@ -409,7 +468,35 @@ private final class WorkspaceNativeOutlineView: NSOutlineView {
         let point = convert(event.locationInWindow, from: nil)
         let row = row(at: point)
         pendingPrimaryRow = row >= 0 ? row : nil
+
+        // Detect if click lands on the disclosure triangle so we can avoid double-toggling
+        let clickedDisclosure: Bool = {
+            guard row >= 0 else { return false }
+            let disclosureFrame = frameOfOutlineCell(atRow: row)
+            return !disclosureFrame.isEmpty && disclosureFrame.contains(point)
+        }()
+
         super.mouseDown(with: event)
+
+        // After selection: if the row is a directory, toggle expand/collapse
+        // (matches VS Code / Zed: plain single-click anywhere on the folder row toggles)
+        // Skip if: modifier keys held (multi-select), disclosure triangle clicked (already toggled by super),
+        // or not a single click.
+        guard row >= 0,
+              event.clickCount == 1,
+              !clickedDisclosure,
+              !event.modifierFlags.contains(.command),
+              !event.modifierFlags.contains(.shift),
+              let node = item(atRow: row) as? FileNode,
+              node.isDirectory else {
+            return
+        }
+
+        if isItemExpanded(node) {
+            animator().collapseItem(node)
+        } else {
+            animator().expandItem(node)
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -455,31 +542,6 @@ private final class WorkspaceTreeTableRowView: NSTableRowView {
     }
 
     override func drawSelection(in dirtyRect: NSRect) {}
-}
-
-private final class WorkspaceTreeTableCellView: NSTableCellView {
-    private var hostingView: NSHostingView<WorkspaceTreeRowContent>?
-
-    func configure(with rootView: WorkspaceTreeRowContent) {
-        if let hostingView {
-            hostingView.rootView = rootView
-            return
-        }
-
-        let hostingView = NSHostingView(rootView: rootView)
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        hostingView.sizingOptions = [.minSize, .preferredContentSize]
-        addSubview(hostingView)
-
-        NSLayoutConstraint.activate([
-            hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hostingView.topAnchor.constraint(equalTo: topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-
-        self.hostingView = hostingView
-    }
 }
 
 private extension NSUserInterfaceItemIdentifier {

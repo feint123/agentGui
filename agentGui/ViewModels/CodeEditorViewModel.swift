@@ -28,6 +28,7 @@ struct CodeEditorStatusBarState: Equatable, Sendable {
     let lspStateText: String
     let errorCount: Int
     let warningCount: Int
+    var selectionCount: Int = 1
 }
 
 enum CodeEditorSemanticNavigationAction: Equatable, Sendable {
@@ -420,6 +421,73 @@ enum CodeEditorViewModel {
                     revealRequest: revealRequest
                 )
             ] + flatten(symbol.children, depth: depth + 1, fileURL: fileURL)
+        }
+    }
+
+    // MARK: - Symbol Breadcrumb Path
+
+    /// 返回包含 cursorLine 的 symbol 路径（从最外层到最内层）。
+    /// cursorLine 是 0-based（与 LSPDocumentSymbol.line / endLine 的坐标系相同）。
+    ///
+    /// 算法：对每级 symbols 深度优先搜索包含 cursorLine 的 symbol，
+    /// 递归取最深匹配。对于没有 endLine 的 SymbolInformation 格式，
+    /// 回退到取 line 最大且 ≤ cursorLine 的 symbol（Zed 启发式）。
+    static func symbolBreadcrumbPath(
+        for cursorLine: Int,
+        in symbols: [LSPDocumentSymbol]
+    ) -> [LSPDocumentSymbol] {
+        // 先尝试精确 range 包含（DocumentSymbol 格式，有 endLine）
+        let symbolsWithRange = symbols.filter { $0.endLine != nil }
+        if !symbolsWithRange.isEmpty {
+            for symbol in symbolsWithRange {
+                guard let endLine = symbol.endLine else { continue }
+                guard (symbol.line...endLine).contains(cursorLine) else { continue }
+                let childPath = symbolBreadcrumbPath(for: cursorLine, in: symbol.children)
+                return [symbol] + childPath
+            }
+            return []
+        }
+
+        // 回退：SymbolInformation 格式（无 endLine），Zed 策略
+        // 取 line 最大且 ≤ cursorLine 的 symbol
+        let fallback = symbols
+            .filter { $0.line <= cursorLine }
+            .max(by: { $0.line < $1.line })
+        return fallback.map { [$0] } ?? []
+    }
+
+    /// LSP SymbolKind 整数 → SF Symbols 名称（用于面包屑图标）。
+    /// 返回 nil 表示未识别的 kind，调用方可用通用图标替代。
+    /// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#symbolKind
+    static func symbolKindIconName(for kind: Int) -> String? {
+        switch kind {
+        case 1:  return "doc.text"            // File
+        case 2:  return "square.stack"        // Module
+        case 3:  return "square.stack"        // Namespace
+        case 4:  return "shippingbox"         // Package
+        case 5:  return "c.square"            // Class
+        case 6:  return "m.square"            // Method
+        case 7:  return "p.square"            // Property
+        case 8:  return "f.square"            // Field
+        case 9:  return "c.square.fill"       // Constructor
+        case 10: return "e.square"            // Enum
+        case 11: return "i.square"            // Interface
+        case 12: return "f.square.fill"       // Function
+        case 13: return "v.square"            // Variable
+        case 14: return "number.square"       // Constant
+        case 15: return "s.square"            // String
+        case 16: return "n.square"            // Number
+        case 17: return "b.square"            // Boolean
+        case 18: return "a.square"            // Array
+        case 19: return "o.square"            // Object
+        case 20: return "k.square"            // Key
+        case 21: return "x.square"            // Null
+        case 22: return "e.square.fill"       // EnumMember
+        case 23: return "s.square.fill"       // Struct
+        case 24: return "calendar"            // Event
+        case 25: return "o.square.fill"       // Operator
+        case 26: return "t.square"            // TypeParameter
+        default: return nil
         }
     }
 }

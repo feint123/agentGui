@@ -247,4 +247,83 @@ struct CodeEditorViewModelTests {
         #expect(decorations.spansByLine[1]?.first?.utf16Range == NSRange(location: 4, length: 1))
         #expect(decorations.spansByLine[1]?.first?.kind == .diagnosticUnderline(.error))
     }
+
+    // MARK: - Symbol Breadcrumb Path
+
+    @Test
+    func symbolBreadcrumbPathReturnsEmptyWhenNoSymbols() {
+        let path = CodeEditorViewModel.symbolBreadcrumbPath(for: 5, in: [])
+        #expect(path.isEmpty)
+    }
+
+    @Test
+    func symbolBreadcrumbPathFindsTopLevelEnclosingSymbol() {
+        let symbols = [
+            LSPDocumentSymbol(name: "MyClass", detail: nil, kind: 5,
+                              line: 1, character: 0, endLine: 20, endCharacter: 1),
+            LSPDocumentSymbol(name: "Other", detail: nil, kind: 5,
+                              line: 22, character: 0, endLine: 30, endCharacter: 1),
+        ]
+        let path = CodeEditorViewModel.symbolBreadcrumbPath(for: 10, in: symbols)
+        #expect(path.count == 1)
+        #expect(path[0].name == "MyClass")
+    }
+
+    @Test
+    func symbolBreadcrumbPathRecursesIntoBestChild() {
+        let methodSymbol = LSPDocumentSymbol(
+            name: "doWork()", detail: nil, kind: 12,
+            line: 5, character: 4, endLine: 10, endCharacter: 5
+        )
+        let classSymbol = LSPDocumentSymbol(
+            name: "MyClass", detail: nil, kind: 5,
+            line: 1, character: 0, endLine: 20, endCharacter: 1,
+            children: [methodSymbol]
+        )
+        let path = CodeEditorViewModel.symbolBreadcrumbPath(for: 7, in: [classSymbol])
+        #expect(path.count == 2)
+        #expect(path[0].name == "MyClass")
+        #expect(path[1].name == "doWork()")
+    }
+
+    @Test
+    func symbolBreadcrumbPathReturnsEmptyWhenCursorBetweenSymbols() {
+        let symbols = [
+            LSPDocumentSymbol(name: "A", detail: nil, kind: 12,
+                              line: 1, character: 0, endLine: 3, endCharacter: 1),
+            LSPDocumentSymbol(name: "B", detail: nil, kind: 12,
+                              line: 5, character: 0, endLine: 8, endCharacter: 1),
+        ]
+        // cursor at line 4 — between A (ends 3) and B (starts 5)
+        let path = CodeEditorViewModel.symbolBreadcrumbPath(for: 4, in: symbols)
+        #expect(path.isEmpty)
+    }
+
+    @Test
+    func symbolBreadcrumbPathFallsBackForSymbolsWithoutEndLine() {
+        // SymbolInformation format (no end range): pick last symbol whose line ≤ cursorLine
+        let symbols = [
+            LSPDocumentSymbol(name: "A", detail: nil, kind: 12,
+                              line: 1, character: 0, endLine: nil, endCharacter: nil),
+            LSPDocumentSymbol(name: "B", detail: nil, kind: 12,
+                              line: 5, character: 0, endLine: nil, endCharacter: nil),
+            LSPDocumentSymbol(name: "C", detail: nil, kind: 12,
+                              line: 10, character: 0, endLine: nil, endCharacter: nil),
+        ]
+        // cursor at line 7 → B (line 5) is nearest ≤ 7
+        let path = CodeEditorViewModel.symbolBreadcrumbPath(for: 7, in: symbols)
+        #expect(path.count == 1)
+        #expect(path[0].name == "B")
+    }
+
+    // MARK: - Symbol Kind Icon
+
+    @Test
+    func symbolKindIconNameReturnsSFSymbolsForKnownKinds() {
+        // LSP SymbolKind: 5 = Class, 12 = Function, 13 = Variable, 9 = Constructor
+        #expect(CodeEditorViewModel.symbolKindIconName(for: 5) != nil)   // Class
+        #expect(CodeEditorViewModel.symbolKindIconName(for: 12) != nil)  // Function
+        #expect(CodeEditorViewModel.symbolKindIconName(for: 13) != nil)  // Variable
+        #expect(CodeEditorViewModel.symbolKindIconName(for: 999) == nil) // unknown
+    }
 }

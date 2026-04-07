@@ -5,6 +5,8 @@ struct CodeEditorDocument: Equatable {
     var persistedText: String
     var version: Int = 0
     var selectedRange: NSRange = NSRange(location: 0, length: 0)
+    /// 多光标选区快照（单光标时 count == 1）
+    var allSelectedRanges: [NSRange] = []
     private(set) var lineIndex: CodeEditorLineIndex
 
     var lineCount: Int {
@@ -34,6 +36,7 @@ struct CodeEditorDocument: Equatable {
         lineIndex.applyEdit(replacedRange: replacedRange, insertedText: insertedText, in: updatedText)
         text = updatedText
         self.selectedRange = selectedRange
+        self.allSelectedRanges = [selectedRange]
 
         return EditorChangeSet(
             version: version,
@@ -41,6 +44,28 @@ struct CodeEditorDocument: Equatable {
             insertedText: insertedText,
             selectedRange: selectedRange,
             origin: .userEdit
+        )
+    }
+
+    /// 多光标编辑全文替换路径。直接重建行索引，EditorChangeSet.isMultiCursorEdit=true。
+    mutating func replaceAllForMultiCursorEdit(
+        text newText: String,
+        selectedRange newRange: NSRange
+    ) -> EditorChangeSet {
+        let replacedRange = NSRange(location: 0, length: self.text.utf16.count)
+        version += 1
+        lineIndex.replaceAll(with: newText)
+        text = newText
+        selectedRange = newRange
+        allSelectedRanges = [newRange]
+
+        return EditorChangeSet(
+            version: version,
+            replacedRange: replacedRange,
+            insertedText: newText,
+            selectedRange: newRange,
+            origin: .userEdit,
+            isMultiCursorEdit: true
         )
     }
 
@@ -67,6 +92,13 @@ struct CodeEditorDocument: Equatable {
 
     mutating func markSelection(_ range: NSRange) {
         selectedRange = range
+        allSelectedRanges = [range]
+    }
+
+    /// 多光标选区记录
+    mutating func markMultiSelection(_ ranges: [NSRange]) {
+        selectedRange = ranges.last ?? NSRange(location: 0, length: 0)
+        allSelectedRanges = ranges
     }
 
     mutating func syncPersistedText(_ text: String) {

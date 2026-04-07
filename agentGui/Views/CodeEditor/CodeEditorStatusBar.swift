@@ -5,8 +5,12 @@ struct CodeEditorStatusBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("Ln \(state.cursor.line)")
-            Text("Col \(state.cursor.column)")
+            if state.selectionCount > 1 {
+                Text("\(state.selectionCount) selections")
+            } else {
+                Text("Ln \(state.cursor.line)")
+                Text("Col \(state.cursor.column)")
+            }
             Text(state.languageLabel)
             Text(state.indentationText)
             Spacer(minLength: 12)
@@ -37,9 +41,11 @@ extension CodeEditorStatusBarState {
     }
 
     var summaryText: String {
-        [
-            "Ln \(cursor.line)",
-            "Col \(cursor.column)",
+        let cursorInfo = selectionCount > 1
+            ? "\(selectionCount) selections"
+            : "Ln \(cursor.line) Col \(cursor.column)"
+        return [
+            cursorInfo,
             languageLabel,
             indentationText,
             lspStateText,

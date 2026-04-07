@@ -72,7 +72,7 @@ final class CodeEditorLineNumberLane: CodeEditorGutterLane {
                 continue
             }
 
-            let isCurrentLine = snapshot.currentLine == line
+            let isCurrentLine = snapshot.cursorLineNumbers.contains(line)
             if isCurrentLine {
                 NSColor.selectedTextBackgroundColor.withAlphaComponent(0.08).setFill()
                 lineRect.fill()
@@ -161,17 +161,10 @@ final class CodeEditorLineNumberLane: CodeEditorGutterLane {
         from previous: CodeEditorGutterViewportSnapshot,
         to current: CodeEditorGutterViewportSnapshot
     ) -> Set<Int> {
-        var changedLines = Set<Int>()
-        if let previousLine = previous.currentLine {
-            changedLines.insert(previousLine)
+        if previous.cursorLineNumbers == current.cursorLineNumbers {
+            return []
         }
-        if let currentLine = current.currentLine {
-            changedLines.insert(currentLine)
-        }
-        if previous.currentLine == current.currentLine {
-            changedLines.removeAll()
-        }
-        return changedLines
+        return previous.cursorLineNumbers.union(current.cursorLineNumbers)
     }
 
     private func changedMetricLines(

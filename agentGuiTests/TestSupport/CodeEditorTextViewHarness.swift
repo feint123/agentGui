@@ -279,6 +279,50 @@ final class CodeEditorTextViewHarness {
         pumpRunLoop()
     }
 
+    /// 模拟多光标编辑：设置多个选区并同步插入替换文本，触发 shouldChangeTextInRanges 路径。
+    func simulateMultiCursorEdit(ranges: [NSRange], replacement: String) {
+        let textView = textView
+        guard let textStorage = textView.textStorage else { return }
+        guard ranges.count > 1 else {
+            if let first = ranges.first {
+                replaceCharacters(in: first, with: replacement)
+            }
+            return
+        }
+
+        // 设置多光标选区
+        textView.setSelectedRanges(
+            ranges.map { NSValue(range: $0) },
+            affinity: .downstream,
+            stillSelecting: false
+        )
+
+        // 触发 shouldChangeTextInRanges 以设置 isMultiCursorEdit 标志
+        let rangeValues = ranges.map { NSValue(range: $0) }
+        let replacements = Array(repeating: replacement, count: ranges.count)
+        _ = textView.delegate?.textView?(
+            textView,
+            shouldChangeTextInRanges: rangeValues,
+            replacementStrings: replacements
+        )
+
+        // 逆序应用修改（避免偏移冲突）
+        let sortedRanges = ranges.sorted { $0.location > $1.location }
+        textStorage.beginEditing()
+        for range in sortedRanges {
+            textStorage.replaceCharacters(in: range, with: replacement)
+        }
+        textStorage.endEditing()
+
+        // 将光标移到第一个插入点之后
+        let minLoc = ranges.min(by: { $0.location < $1.location }).map {
+            $0.location + (replacement as NSString).length
+        } ?? 0
+        textView.setSelectedRange(NSRange(location: minLoc, length: 0))
+        textView.didChangeText()
+        pumpRunLoop()
+    }
+
     func setMarkedText(_ markedText: String, selectedRange: NSRange, replacementRange: NSRange) {
         let textView = textView
         textView.setMarkedText(markedText, selectedRange: selectedRange, replacementRange: replacementRange)
