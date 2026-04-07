@@ -51,7 +51,7 @@ struct MessageBubbleView: View {
             }
         }
         .onHover { hovered in
-            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovered }
+            withAnimation(ChatMotion.hoverSpring) { isHovered = hovered }
         }
         .contextMenu { contextMenuItems }
     }
@@ -61,10 +61,7 @@ struct MessageBubbleView: View {
         HStack(spacing: 5) {
             if isHovered && !isEditing && !isStreaming {
                 messageActionsRow
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .offset(y: -2)),
-                        removal: .opacity
-                    ))
+                    .transition(ChatMotion.hoverActionsTransition)
             }
             Text(snapshot.timestamp.formatted(date: .omitted, time: .shortened))
                 .font(.caption2)
@@ -128,7 +125,7 @@ struct MessageBubbleView: View {
             }
         }
         .onHover { hovered in
-            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovered }
+            withAnimation(ChatMotion.hoverSpring) { isHovered = hovered }
         }
         .contextMenu { contextMenuItems }
     }
@@ -149,10 +146,7 @@ struct MessageBubbleView: View {
             Spacer(minLength: 0)
             if isHovered && !isStreaming {
                 messageActionsRow
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .offset(y: -2)),
-                        removal: .opacity
-                    ))
+                    .transition(ChatMotion.hoverActionsTransition)
             }
         }
     }
