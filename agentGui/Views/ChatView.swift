@@ -70,6 +70,9 @@ struct ChatView: View {
 
     // MARK: - Rewind
     @State var isRewindSelectorPresented = false
+    /// R-D4: 从消息上下文菜单触发的待确认回滚数据。
+    /// 非 nil 时触发 RewindConfirmationSheet。
+    @State var contextMenuPendingConfirmation: MessageRewindSelectorViewModel.PendingConfirmation? = nil
 
     @FocusState var isInputFocused: Bool
 
@@ -164,6 +167,17 @@ struct ChatView: View {
         }
         .sheet(isPresented: $isRewindSelectorPresented) {
             makeRewindSelectorView()
+        }
+        .sheet(item: $contextMenuPendingConfirmation) { pending in
+            RewindConfirmationSheet(
+                pending: pending,
+                onExecute: { option in
+                    await executeContextMenuRewind(pending: pending, option: option)
+                },
+                onCancel: {
+                    contextMenuPendingConfirmation = nil
+                }
+            )
         }
         .confirmationDialog(
             "删除此消息及之后的所有对话？",

@@ -482,15 +482,13 @@ extension ChatView {
 // MARK: - Rewind Factory
 
 extension ChatView {
-    /// 构造 MessageRewindSelectorView 所需的依赖。
-    /// cancelLoop 捕获 claudeService，以闭包形式注入 RewindTransactionCoordinator（保持可测试性）。
-    func makeRewindSelectorView() -> MessageRewindSelectorView {
+    /// 构造 Rewind 基础依赖的工厂方法（FileBackupStore + RewindTransactionCoordinator）。
+    /// 每次调用返回新实例（无状态，幂等）。
+    func makeRewindDependencies() -> (FileBackupStore, RewindTransactionCoordinator) {
         let backupBaseURL = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("agentGui/checkpoints")
         let store = FileBackupStore(baseURL: backupBaseURL)
-        let checkpointService = ConversationCheckpointService(fileBackupStore: store)
-        let inspector = RewindPreflightInspector(fileBackupStore: store)
         let convCoord = ConversationRewindCoordinator(modelContext: modelContext)
         let fsCoord = FileSystemRewindCoordinator(fileBackupStore: store)
         let cs = claudeService
@@ -502,6 +500,15 @@ extension ChatView {
             },
             modelContext: modelContext
         )
+        return (store, txCoord)
+    }
+
+    /// 构造 MessageRewindSelectorView 所需的依赖。
+    /// cancelLoop 捕获 claudeService，以闭包形式注入 RewindTransactionCoordinator（保持可测试性）。
+    func makeRewindSelectorView() -> MessageRewindSelectorView {
+        let (store, txCoord) = makeRewindDependencies()
+        let checkpointService = ConversationCheckpointService(fileBackupStore: store)
+        let inspector = RewindPreflightInspector(fileBackupStore: store)
         return MessageRewindSelectorView(
             session: session,
             allMessages: Array(allMessages),
@@ -509,5 +516,61 @@ extension ChatView {
             checkpointService: checkpointService,
             preflightInspector: inspector
         )
+    }
+}
+
+// MARK: - R-D4: Context Menu Rewind
+
+extension ChatView {
+
+    /// 从消息上下文菜单触发回滚的入口。
+    /// 构建 MessageRewindContextMenuCoordinator，异步执行决策逻辑，结果 dispatch 到 UI 状态。
+    func initiateContextMenuRewind(message: Message) {
+        Task { @MainActor in
+            do {
+                let (store, txCoord) = makeRewindDependencies()
+                let checkpointService = ConversationCheckpointService(fileBackupStore: store)
+                let inspector = RewindPreflightInspector(fileBackupStore: store)
+                let coordinator = MessageRewindContextMenuCoordinator(
+                    checkpointService: checkpointService,
+                    preflightInspector: inspector,
+                    transactionCoordinator: txCoord
+                )
+                let result = try await coordinator.execute(
+                    message: message,
+                    allMessages: Array(allMessages),
+                    sessionID: session.sessionId,
+                    modelContext: modelContext
+                )
+                switch result {
+                case .losslessCompleted:
+                    break  // rewindDidComplete 通知已由 txCoord 发出，ChatView 监听并填回输入框
+                case .needsConfirmation(let pending):
+                    contextMenuPendingConfirmation = pending
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// 「确认回滚」sheet 批准后的执行入口。
+    func executeContextMenuRewind(
+        pending: MessageRewindSelectorViewModel.PendingConfirmation,
+        option: RewindOption
+    ) async {
+        let (_, txCoord) = makeRewindDependencies()
+        do {
+            try await txCoord.execute(
+                targetMessage: pending.message,
+                checkpoint: pending.checkpoint,
+                option: option,
+                repopulateInput: true
+            )
+            contextMenuPendingConfirmation = nil
+        } catch {
+            errorMessage = error.localizedDescription
+            contextMenuPendingConfirmation = nil
+        }
     }
 }

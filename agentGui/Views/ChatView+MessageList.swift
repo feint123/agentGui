@@ -140,6 +140,9 @@ extension ChatView {
                             onRegenerate: row.direction == .agent ? { regenerate() } : nil,
                             onRetry: (row.direction == .agent && row.status == .failed)
                                 ? { regenerate() }
+                                : nil,
+                            onRewindFromHere: row.direction == .user
+                                ? { initiateContextMenuRewind(message: message) }
                                 : nil
                         )
                         .id(row.id)
