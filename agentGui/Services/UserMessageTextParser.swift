@@ -32,6 +32,30 @@ struct ParsedMention: Equatable {
     }
 }
 
+extension ParsedUserMessageText {
+    /// 用结构化附件覆盖文件列表，保留 bodyText 和 inlineSegments。
+    func replacingAttachments(with entries: [AttachmentSnapshotEntry]) -> ParsedUserMessageText {
+        var imgs: [String] = []
+        var pdfs: [String] = []
+        var others: [String] = []
+        for e in entries {
+            switch AttachmentKind(rawValue: e.fileKindRaw) ?? .other {
+            case .image:                          imgs.append(e.filePath)
+            case .pdf:                            pdfs.append(e.filePath)
+            case .sourceCode, .directory, .other: others.append(e.filePath)
+            }
+        }
+        return ParsedUserMessageText(
+            bodyText: bodyText,
+            directiveAuditItems: directiveAuditItems,
+            inlineSegments: inlineSegments,
+            images: imgs,
+            pdfs: pdfs,
+            others: others
+        )
+    }
+}
+
 enum UserMessageTextParser {
     private static let directiveMarker = "\n\n[Active directives] "
     private static let fileSectionMarker = "\n\nReferenced files:\n"

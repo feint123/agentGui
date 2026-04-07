@@ -10,6 +10,21 @@ struct MessageAttachmentSnapshot: Equatable, @unchecked Sendable {
     var hasMedia: Bool {
         !images.isEmpty || !pdfs.isEmpty
     }
+
+    // 从结构化条目构建
+    static func fromStructured(_ entries: [AttachmentSnapshotEntry]) -> MessageAttachmentSnapshot {
+        var images: [String] = []
+        var pdfs: [String] = []
+        var others: [String] = []
+        for e in entries {
+            switch AttachmentKind(rawValue: e.fileKindRaw) ?? .other {
+            case .image:                         images.append(e.filePath)
+            case .pdf:                           pdfs.append(e.filePath)
+            case .sourceCode, .directory, .other: others.append(e.filePath)
+            }
+        }
+        return MessageAttachmentSnapshot(images: images, pdfs: pdfs, others: others)
+    }
 }
 
 struct UserRowSnapshot: Equatable, @unchecked Sendable {
@@ -40,7 +55,10 @@ struct MessageRowSnapshot: Identifiable, Equatable, @unchecked Sendable {
     nonisolated static func make(for message: MessageRowBuildInput, workspaceRoot: String) -> MessageRowSnapshot {
         let userSnapshot: UserRowSnapshot?
         if message.direction == .user {
-            let parsed = UserMessageTextParser.parse(text: message.textContent ?? "", workspaceRoot: workspaceRoot)
+            var parsed = UserMessageTextParser.parse(text: message.textContent ?? "", workspaceRoot: workspaceRoot)
+            if !message.structuredAttachments.isEmpty {
+                parsed = parsed.replacingAttachments(with: message.structuredAttachments)
+            }
             userSnapshot = UserRowSnapshot(
                 bodyText: parsed.bodyText,
                 presentation: UserMessagePresentation.make(from: parsed)
@@ -53,8 +71,11 @@ struct MessageRowSnapshot: Identifiable, Equatable, @unchecked Sendable {
         if message.direction == .user {
             agentSnapshot = nil
         } else {
+            let attachments: MessageAttachmentSnapshot = message.structuredAttachments.isEmpty
+                ? attachmentSnapshot(from: message.textContent ?? "")
+                : MessageAttachmentSnapshot.fromStructured(message.structuredAttachments)
             agentSnapshot = AgentRowSnapshot(
-                attachments: attachmentSnapshot(from: message.textContent ?? ""),
+                attachments: attachments,
                 execution: AgentMessageFlowPresentation.projection(for: message),
                 hasAgentRounds: !message.rounds.isEmpty
             )

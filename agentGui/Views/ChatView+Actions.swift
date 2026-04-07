@@ -153,11 +153,6 @@ extension ChatView {
             fullText = contextParts.joined(separator: "\n") + "\n\n" + fullText
         }
 
-        if !attachedFiles.isEmpty {
-            let refs = attachedFiles.map { "- \($0.path)" }.joined(separator: "\n")
-            fullText += "\n\nReferenced files:\n\(refs)"
-        }
-
         do {
             _ = try await claudeService.resolveTurnSkillContext(
                 enabledSkillNames: settings.enabledSkillNames,
@@ -174,6 +169,7 @@ extension ChatView {
         )
 
         inputText = ""
+        let filesToAttach = attachedFiles
         attachedFiles = []
         showFileContext = true
         showSelectionContext = true
@@ -181,6 +177,11 @@ extension ChatView {
         let userMessage = Message.userMessage(text: auditedText, session: session)
         userMessage.status = .completed
         modelContext.insert(userMessage)
+        for file in filesToAttach {
+            let attachment = MessageAttachment.from(file)
+            attachment.message = userMessage
+            modelContext.insert(attachment)
+        }
         try? modelContext.save()
 
         let modelId = resolvedBuiltInModelID(settings: settings)
@@ -196,6 +197,7 @@ extension ChatView {
             try await claudeService.sendMessage(
                 text: auditedText,
                 session: session,
+                attachments: filesToAttach,
                 modelId: modelId,
                 selectedFilePath: selectedFilePath,
                 selectedText: selectedText,

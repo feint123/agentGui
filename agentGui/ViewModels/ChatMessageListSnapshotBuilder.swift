@@ -9,6 +9,33 @@ struct WorkspaceDependencyFingerprint: Hashable, @unchecked Sendable {
     let requiresWorkspaceRoot: Bool
 }
 
+/// 轻量附件摘要，不依赖 SwiftData，跨 Actor 安全传递。
+struct AttachmentSnapshotEntry: Hashable, Identifiable, @unchecked Sendable {
+    let id: UUID
+    let filePath: String
+    let displayName: String
+    let fileKindRaw: String
+    let statusRaw: String
+
+    @MainActor
+    init(_ a: MessageAttachment) {
+        self.id = a.id
+        self.filePath = a.filePath
+        self.displayName = a.displayName
+        self.fileKindRaw = a.fileKindRaw
+        self.statusRaw = a.statusRaw
+    }
+
+    // 测试用
+    init(id: UUID, filePath: String, displayName: String, fileKindRaw: String, statusRaw: String) {
+        self.id = id
+        self.filePath = filePath
+        self.displayName = displayName
+        self.fileKindRaw = fileKindRaw
+        self.statusRaw = statusRaw
+    }
+}
+
 struct SubagentRoundProjectionInput: Identifiable, Hashable, @unchecked Sendable {
     let id: UUID
     let roundIndex: Int
@@ -290,6 +317,7 @@ struct MessageRowBuildInput: Identifiable, Hashable, @unchecked Sendable {
     let errorMessage: String?
     let directToolCalls: [ToolCallProjectionInput]
     let rounds: [AgentRoundProjectionInput]
+    let structuredAttachments: [AttachmentSnapshotEntry]
     let workspaceDependency: WorkspaceDependencyFingerprint?
 
     @MainActor
@@ -315,6 +343,7 @@ struct MessageRowBuildInput: Identifiable, Hashable, @unchecked Sendable {
                 return lhs.timestamp < rhs.timestamp
             }
             .map(AgentRoundProjectionInput.init)
+        self.structuredAttachments = message.attachments.map(AttachmentSnapshotEntry.init)
 
         if message.direction == .user,
            let textContent,
@@ -338,6 +367,7 @@ struct MessageRowBuildInput: Identifiable, Hashable, @unchecked Sendable {
         errorMessage: String? = nil,
         directToolCalls: [ToolCallProjectionInput] = [],
         rounds: [AgentRoundProjectionInput] = [],
+        structuredAttachments: [AttachmentSnapshotEntry] = [],
         workspaceDependency: WorkspaceDependencyFingerprint? = nil
     ) {
         self.id = id
@@ -348,6 +378,7 @@ struct MessageRowBuildInput: Identifiable, Hashable, @unchecked Sendable {
         self.errorMessage = errorMessage
         self.directToolCalls = directToolCalls
         self.rounds = rounds
+        self.structuredAttachments = structuredAttachments
         self.workspaceDependency = workspaceDependency
     }
 
@@ -360,6 +391,7 @@ struct MessageRowBuildInput: Identifiable, Hashable, @unchecked Sendable {
         errorMessage: String? = nil,
         directToolCalls: [ToolCallProjectionInput] = [],
         rounds: [AgentRoundProjectionInput] = [],
+        structuredAttachments: [AttachmentSnapshotEntry] = [],
         workspaceDependency: WorkspaceDependencyFingerprint? = nil
     ) -> MessageRowBuildInput {
         MessageRowBuildInput(
@@ -371,6 +403,7 @@ struct MessageRowBuildInput: Identifiable, Hashable, @unchecked Sendable {
             errorMessage: errorMessage,
             directToolCalls: directToolCalls,
             rounds: rounds,
+            structuredAttachments: structuredAttachments,
             workspaceDependency: workspaceDependency
         )
     }
@@ -680,6 +713,7 @@ struct MessageRowSemanticFingerprint: Hashable, @unchecked Sendable {
     let errorMessage: String?
     let directToolCalls: [ToolCallSummaryFingerprint]
     let rounds: [AgentRoundSummaryFingerprint]
+    let attachments: [AttachmentSnapshotEntry]
 
     init(_ message: MessageRowBuildInput) {
         self.messageID = message.id
@@ -690,6 +724,7 @@ struct MessageRowSemanticFingerprint: Hashable, @unchecked Sendable {
         self.errorMessage = message.errorMessage
         self.directToolCalls = message.directToolCalls.map(ToolCallSummaryFingerprint.init)
         self.rounds = message.rounds.map(AgentRoundSummaryFingerprint.init)
+        self.attachments = message.structuredAttachments
     }
 }
 

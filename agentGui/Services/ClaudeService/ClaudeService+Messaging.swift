@@ -18,6 +18,7 @@ extension ClaudeService {
     func sendMessage(
         text: String,
         session: Session,
+        attachments: [AttachedFile] = [],
         modelId: String,
         selectedFilePath: String? = nil,
         selectedText: String? = nil,
@@ -35,8 +36,13 @@ extension ClaudeService {
                 session: session,
                 fallbackProviderReference: fallbackProviderReference
             )
+            var enrichedText = text
+            if !attachments.isEmpty {
+                let refs = attachments.map { "- \($0.path)" }.joined(separator: "\n")
+                enrichedText += "\n\nReferenced files:\n\(refs)"
+            }
             let command = resolveEnqueueCommand(
-                text: text,
+                text: enrichedText,
                 session: session,
                 modelId: modelId,
                 providerReference: executionTarget.providerReference,

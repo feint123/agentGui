@@ -45,6 +45,10 @@ final class Message {
     @Relationship(deleteRule: .cascade, inverse: \AgentRound.message)
     var agentRounds: [AgentRound] = []
 
+    /// 结构化文件附件（CV-F1：替代 textContent 中的 "Referenced files:" 段落）
+    @Relationship(deleteRule: .cascade, inverse: \MessageAttachment.message)
+    var attachments: [MessageAttachment] = []
+
     init(
         direction: MessageDirection,
         contentType: ContentType = .text,
