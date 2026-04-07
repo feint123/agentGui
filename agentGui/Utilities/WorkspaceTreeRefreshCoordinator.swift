@@ -46,7 +46,7 @@ final class WorkspaceTreeRefreshCoordinator {
         observationFactory: WorkspaceDirectoryObservationFactory = .live,
         debounceNanoseconds: UInt64 = 150_000_000,
         buildNodes: @escaping @Sendable (URL) async -> [FileNode] = { url in
-            WorkspaceTreeSnapshotOps.buildNodes(at: url, depth: 0)
+            WorkspaceTreeSnapshotOps.buildNodesShallow(at: url)
         },
         shallowScan: @escaping @Sendable (URL) async -> [WorkspaceTreeShallowEntry] = { url in
             WorkspaceTreeSnapshotOps.shallowScan(at: url)
@@ -147,6 +147,43 @@ final class WorkspaceTreeRefreshCoordinator {
         }
     }
 
+    /// 按需加载指定目录的 1 层子项。
+    /// 当 NSOutlineView 展开一个 .notLoaded 目录时，由 ViewModel 调用此方法。
+    /// 扫描完成后通过 onNodesChanged 推送更新。
+    func demandLoad(directoryID: URL) {
+        let targetURL = directoryID.standardizedFileURL
+        let snapshot = currentNodes
+        let generation = self.generation
+        let shallowScan = shallowScanClosure
+
+        scanTask?.cancel()
+        scanTask = Task.detached(priority: .userInitiated) { [weak self] in
+            guard !Task.isCancelled else { return }
+
+            // 扫描目标目录的 1 层子项
+            let freshEntries = await shallowScan(targetURL)
+            let freshChildren: [FileNode] = freshEntries.map { entry in
+                if entry.isDirectory {
+                    return FileNode(id: entry.url, name: entry.name, isDirectory: true, children: nil, childrenLoadState: .notLoaded)
+                }
+                return FileNode(id: entry.url, name: entry.name, isDirectory: false, children: nil)
+            }
+
+            guard !Task.isCancelled else { return }
+
+            // 在树中找到目标节点并替换为 .loaded 状态
+            let updated = WorkspaceTreeSnapshotOps.replaceNode(in: snapshot, id: targetURL) { node in
+                FileNode(id: node.id, name: node.name, isDirectory: true, children: freshChildren, childrenLoadState: .loaded)
+            }
+
+            await MainActor.run {
+                guard let self, self.generation == generation else { return }
+                self.currentNodes = updated
+                self.onNodesChanged?(updated, false)
+            }
+        }
+    }
+
     private func enqueue(paths: [String], generation: Int) {
         guard generation == self.generation else { return }
 
@@ -163,10 +200,9 @@ final class WorkspaceTreeRefreshCoordinator {
     }
 
     private func scheduleFullReload(for url: URL, generation: Int) {
-        let buildNodes = buildNodesClosure
         scanTask?.cancel()
         scanTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let nodes = await buildNodes(url)
+            let nodes = await WorkspaceTreeSnapshotOps.buildNodesShallow(at: url)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self, self.generation == generation, self.currentDirectory == url else { return }
@@ -284,8 +320,9 @@ enum WorkspaceTreeSnapshotOps {
                 return existingNode
             }
             if item.isDirectory {
-                let children = buildNodes(at: item.url, depth: 0)
-                return FileNode(id: item.url, name: item.name, isDirectory: true, children: children)
+                // 新出现的目录标记为 .notLoaded，等待用户展开时按需扫描。
+                // 不调用 buildNodes 以避免递归扫描带来的卡顿。
+                return FileNode(id: item.url, name: item.name, isDirectory: true, children: nil, childrenLoadState: .notLoaded)
             }
             return FileNode(id: item.url, name: item.name, isDirectory: false, children: nil)
         }
@@ -297,15 +334,58 @@ enum WorkspaceTreeSnapshotOps {
             guard node.isDirectory else { return node }
             let nodePath = node.id.path
             if nodePath == targetPath {
+                // 尚未加载的目录：直接返回原节点，用户展开时 demandLoad 会拿到最新状态。
+                if node.childrenLoadState == .notLoaded {
+                    return node
+                }
                 let freshScan = shallowScan(at: node.id)
                 let mergedNodes = mergeNodes(existing: node.children ?? [], freshScan: freshScan)
-                return FileNode(id: node.id, name: node.name, isDirectory: true, children: mergedNodes)
+                return FileNode(id: node.id, name: node.name, isDirectory: true, children: mergedNodes, childrenLoadState: .loaded)
             }
             if targetPath.hasPrefix(nodePath + "/") {
+                // 尚未加载的目录：FSEvent 到来时无需更新，用户展开时会触发按需扫描。
+                if node.childrenLoadState == .notLoaded {
+                    return node
+                }
                 let updatedChildren = applyPartialUpdate(to: node.children ?? [], at: targetURL)
-                return FileNode(id: node.id, name: node.name, isDirectory: true, children: updatedChildren)
+                return FileNode(id: node.id, name: node.name, isDirectory: true, children: updatedChildren, childrenLoadState: node.childrenLoadState)
             }
             return node
+        }
+    }
+
+    /// 浅扫描：只扫描 1 层，子目录标记为 .notLoaded，不递归。
+    /// 初始加载和按需加载的"扫描该目录 1 层"逻辑均由此方法驱动。
+    static func buildNodesShallow(at url: URL) -> [FileNode] {
+        shallowScan(at: url).map { entry in
+            if entry.isDirectory {
+                return FileNode(
+                    id: entry.url,
+                    name: entry.name,
+                    isDirectory: true,
+                    children: nil,
+                    childrenLoadState: .notLoaded
+                )
+            }
+            return FileNode(id: entry.url, name: entry.name, isDirectory: false, children: nil)
+        }
+    }
+
+    /// 在树中递归找到 id 匹配的节点，用 transform 的返回值替换它。
+    /// 若树中不存在该 id，返回原树不变。
+    /// 只遍历 childrenLoadState == .loaded 的目录。
+    static func replaceNode(in nodes: [FileNode], id: URL, transform: (FileNode) -> FileNode) -> [FileNode] {
+        let targetPath = id.standardizedFileURL.path
+        return nodes.map { node in
+            let nodePath = node.id.standardizedFileURL.path
+            if nodePath == targetPath {
+                return transform(node)
+            }
+            guard node.isDirectory, node.childrenLoadState == .loaded, let children = node.children else {
+                return node
+            }
+            let updatedChildren = replaceNode(in: children, id: id, transform: transform)
+            return FileNode(id: node.id, name: node.name, isDirectory: true, children: updatedChildren, childrenLoadState: .loaded)
         }
     }
 

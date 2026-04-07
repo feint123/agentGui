@@ -31,6 +31,7 @@ struct WorkspaceTreeOutlineView: NSViewRepresentable {
     let gitChangeProvider: (FileNode) -> GitFileChange?
     let onSelectionChange: (Set<URL>, URL?) -> Void
     let actions: ActionHandlers
+    let onDemandLoadDirectory: ((URL) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -116,12 +117,17 @@ struct WorkspaceTreeOutlineView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
             guard let node = fileNode(from: item) else { return false }
-            return node.isDirectory && !(node.children ?? []).isEmpty
+            guard node.isDirectory else { return false }
+            // .notLoaded 目录：内容未知，显示展开三角（与 VSCode ExplorerItem.hasChildren() 一致）
+            if node.childrenLoadState == .notLoaded { return true }
+            return !(node.children ?? []).isEmpty
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldShowOutlineCellForItem item: Any) -> Bool {
             guard let node = fileNode(from: item) else { return false }
-            return node.isDirectory && !(node.children ?? []).isEmpty
+            guard node.isDirectory else { return false }
+            if node.childrenLoadState == .notLoaded { return true }
+            return !(node.children ?? []).isEmpty
         }
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -171,6 +177,10 @@ struct WorkspaceTreeOutlineView: NSViewRepresentable {
         func outlineViewItemDidExpand(_ notification: Notification) {
             guard let node = notification.userInfo?["NSObject"] as? FileNode else { return }
             expandedIDs.insert(node.id.standardizedFileURL)
+            // 若该目录尚未加载，触发按需扫描
+            if node.childrenLoadState == .notLoaded {
+                parent.onDemandLoadDirectory?(node.id.standardizedFileURL)
+            }
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {

@@ -9,6 +9,7 @@ struct WorkspaceTreeView: View {
     let gitChangeProvider: (FileNode) -> GitFileChange?
     let onSelectionChange: (Set<URL>, URL?) -> Void
     let actions: WorkspaceTreeOutlineView.ActionHandlers
+    let onDemandLoadDirectory: ((URL) -> Void)?
 
     var body: some View {
         WorkspaceTreeOutlineView(
@@ -19,7 +20,8 @@ struct WorkspaceTreeView: View {
             expandsMatchingBranches: expandsMatchingBranches,
             gitChangeProvider: gitChangeProvider,
             onSelectionChange: onSelectionChange,
-            actions: actions
+            actions: actions,
+            onDemandLoadDirectory: onDemandLoadDirectory
         )
         .accessibilityIdentifier("workspace.fileTree")
     }

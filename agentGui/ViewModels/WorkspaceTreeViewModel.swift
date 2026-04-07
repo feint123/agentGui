@@ -84,6 +84,10 @@ final class WorkspaceTreeViewModel {
         Task { await refreshGit(url.standardizedFileURL) }
     }
 
+    func demandLoadDirectory(_ url: URL) {
+        refreshCoordinator.demandLoad(directoryID: url)
+    }
+
     func syncSelection(with selectedFile: URL?) {
         let normalizedSelectedFile = selectedFile?.standardizedFileURL
         if let pendingSelectedFileSyncBypass {

@@ -241,7 +241,8 @@ struct WorkspacePanelView: View {
                 onSelectionChange: { ids, primaryID in
                     treeViewModel.applyOutlineSelection(ids: ids, primaryID: primaryID, workspaceState: workspaceState)
                 },
-                actions: workspaceTreeActions
+                actions: workspaceTreeActions,
+                onDemandLoadDirectory: { url in treeViewModel.demandLoadDirectory(url) }
             )
             .padding(.horizontal, WorkbenchSidebarPanelStyle.layoutPadding)
             .padding(.bottom, WorkbenchSidebarPanelStyle.layoutPadding)
