@@ -1,5 +1,9 @@
 import AppKit
 
+/// Drawing logic for the line-number gutter (legacy).
+/// As of F11, drawing is handled by `CodeEditorLineNumberLane` and `CodeEditorDiagnosticDotLane`.
+/// This struct is retained for host-level scroll-plan detection in `CodeEditorGutterView`.
+@available(*, deprecated, message: "Use CodeEditorLineNumberLane and CodeEditorDiagnosticDotLane instead.")
 struct CodeEditorGutterRenderer {
     private struct WidthCacheKey: Equatable {
         let digits: Int
