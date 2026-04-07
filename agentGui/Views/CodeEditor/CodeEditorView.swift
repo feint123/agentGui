@@ -22,8 +22,7 @@ struct CodeEditorView: View {
     var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     var isBracketPairColorizationEnabled: Bool = false
     var documentSymbols: [LSPDocumentSymbol] = []
-    var isSymbolBreadcrumbVisible: Bool = false
-    var onSymbolNavigate: ((CodeEditorRevealRequest) -> Void)? = nil
+    var onSymbolPathChange: (([CodeEditorSymbolPathNode]) -> Void)? = nil
 
     @State private var document: CodeEditorDocument
     @State private var findState = CodeEditorFindState.inactive
@@ -50,8 +49,7 @@ struct CodeEditorView: View {
         gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:],
         isBracketPairColorizationEnabled: Bool = false,
         documentSymbols: [LSPDocumentSymbol] = [],
-        isSymbolBreadcrumbVisible: Bool = false,
-        onSymbolNavigate: ((CodeEditorRevealRequest) -> Void)? = nil
+        onSymbolPathChange: (([CodeEditorSymbolPathNode]) -> Void)? = nil
     ) {
         self._text = text
         self.persistedText = persistedText
@@ -73,8 +71,7 @@ struct CodeEditorView: View {
         self.gitDiffByLine = gitDiffByLine
         self.isBracketPairColorizationEnabled = isBracketPairColorizationEnabled
         self.documentSymbols = documentSymbols
-        self.isSymbolBreadcrumbVisible = isSymbolBreadcrumbVisible
-        self.onSymbolNavigate = onSymbolNavigate
+        self.onSymbolPathChange = onSymbolPathChange
         self._document = State(initialValue: CodeEditorDocument(text: text.wrappedValue, persistedText: persistedText))
     }
 
@@ -91,18 +88,6 @@ struct CodeEditorView: View {
                     onNext: { handleFindIntent(.nextMatch) },
                     onClose: { handleFindIntent(.dismiss) }
                 )
-            }
-
-            if isSymbolBreadcrumbVisible {
-                CodeEditorSymbolBreadcrumbBar(
-                    path: symbolBreadcrumbPath,
-                    onNavigate: onSymbolNavigate
-                )
-                .padding(.horizontal, 10)
-                .padding(.vertical, 2)
-                .background(.bar)
-
-                Divider()
             }
 
             CodeEditorTextView(
@@ -143,6 +128,13 @@ struct CodeEditorView: View {
         .onAppear {
             onStatusBarSummaryChange?(statusBarState.summaryText)
             onFindStateChange?(findState)
+            onSymbolPathChange?(symbolBreadcrumbPath)
+        }
+        .onChange(of: document.selectedRange) { _, _ in
+            onSymbolPathChange?(symbolBreadcrumbPath)
+        }
+        .onChange(of: documentSymbols) { _, _ in
+            onSymbolPathChange?(symbolBreadcrumbPath)
         }
         .onChange(of: statusBarState.summaryText) { _, newSummary in
             onStatusBarSummaryChange?(newSummary)
