@@ -120,6 +120,9 @@ final class AppSettings {
     /// Sparkle 更新渠道持久化值
     var sparkleUpdateChannelRaw: String = SparkleUpdateChannel.stable.rawValue
 
+    /// 括号对着色（Bracket Pair Colorization）开关，默认 false（opt-in）。
+    var isBracketPairColorizationEnabled: Bool = false
+
 
 
     init() {

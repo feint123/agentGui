@@ -20,6 +20,7 @@ struct CodeEditorTextView: NSViewRepresentable {
     var highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
     var highlightExecutionDelayNanoseconds: UInt64 = 0
+    var isBracketPairColorizationEnabled: Bool = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -204,6 +205,8 @@ extension CodeEditorTextView {
             updateGutterState(for: textView)
 
             if textView.hasMarkedText() {
+                // IME 期间清除括号高亮，避免视觉混乱
+                textView.applyBracketMatchHighlight(nil)
                 cancelHighlight()
                 return
             }
@@ -274,6 +277,17 @@ extension CodeEditorTextView {
             (textView as? CodeEditorPlatformTextView)?.highlightedLineNumber = cursorLocation.line
             updateGutterState(for: textView)
             parent.document.markSelection(selectedRange)
+
+            // 括号高亮
+            if let platformTextView = textView as? CodeEditorPlatformTextView,
+               !platformTextView.hasMarkedText() {
+                let cursorOffset = textView.selectedRange().location
+                let matchResult = CodeEditorBracketScanner.findMatch(
+                    in: platformTextView.string,
+                    cursorOffset: cursorOffset
+                )
+                platformTextView.applyBracketMatchHighlight(matchResult)
+            }
         }
 
         func publishVisibleLineRange(for textView: NSTextView) {
@@ -541,6 +555,29 @@ extension CodeEditorTextView {
                 baseAttributes: baseAttributes(for: textView)
             )
             textView.latestAppliedHighlightVersion = result.version
+
+            // Pair colorization（opt-in）
+            if parent.isBracketPairColorizationEnabled,
+               let storage = textView.textStorage {
+                let visibleRange: NSRange
+                if let visibleLineRange = visibleLineRange(for: textView) {
+                    let startOffset = parent.document.utf16Offset(line: visibleLineRange.lowerBound, column: 1)
+                    let endOffset = parent.document.utf16Offset(line: visibleLineRange.upperBound, column: 9999)
+                    let clampedStart = max(0, startOffset)
+                    let clampedEnd = min(endOffset, storage.length)
+                    if clampedEnd > clampedStart {
+                        visibleRange = NSRange(location: clampedStart, length: clampedEnd - clampedStart)
+                    } else {
+                        visibleRange = NSRange(location: 0, length: storage.length)
+                    }
+                } else {
+                    visibleRange = NSRange(location: 0, length: storage.length)
+                }
+                CodeEditorBracketPairColorizationService.colorize(
+                    textView: textView,
+                    visibleUTF16Range: visibleRange
+                )
+            }
         }
 
         func applyCachedHighlightPresentation(to textView: CodeEditorPlatformTextView) {
@@ -793,6 +830,13 @@ enum CodeEditorHighlightApplicator {
 final class CodeEditorPlatformTextView: NSTextView {
     var latestAppliedHighlightVersion: Int?
     var latestHighlightResult: CodeEditorHighlightResult?
+
+    // MARK: - Bracket Match Highlight
+    /// 当前已应用的括号高亮范围（用于后续清除）
+    private var appliedBracketMatchRanges: (open: NSRange, close: NSRange)?
+
+    /// 括号高亮背景色
+    static let bracketMatchBackgroundColor = NSColor.tertiaryLabelColor.withAlphaComponent(0.22)
     var latestDecorationSnapshot: CodeEditorDecorationSnapshot = .empty(version: 0, lineRange: 1...1)
     var currentDocumentVersion: Int = 0
     var compositionStateChangeHandler: ((CodeEditorPlatformTextView) -> Void)?
@@ -1179,6 +1223,51 @@ final class CodeEditorPlatformTextView: NSTextView {
         rect.size.width = max(rect.width, 1)
         rect.size.height = max(rect.height, font?.pointSize ?? NSFont.systemFontSize)
         return rect.integral
+    }
+
+    // MARK: - Bracket Match Highlight
+
+    /// 应用括号高亮（清除旧的后应用新的）。
+    /// 若 result 为 nil 则只清除旧高亮。
+    func applyBracketMatchHighlight(_ result: CodeEditorBracketMatchResult?) {
+        guard let layoutManager else { return }
+        // 清除旧的高亮
+        if let old = appliedBracketMatchRanges {
+            let fullLength = (string as NSString).length
+            let safeOpen = clampRange(old.open, max: fullLength)
+            let safeClose = clampRange(old.close, max: fullLength)
+            if safeOpen.length > 0 {
+                layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: safeOpen)
+            }
+            if safeClose.length > 0 {
+                layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: safeClose)
+            }
+        }
+        appliedBracketMatchRanges = nil
+
+        guard let result else { return }
+        let fullLength = (string as NSString).length
+        let safeOpen = clampRange(result.openRange, max: fullLength)
+        let safeClose = clampRange(result.closeRange, max: fullLength)
+        guard safeOpen.length > 0, safeClose.length > 0 else { return }
+
+        layoutManager.addTemporaryAttribute(
+            .backgroundColor,
+            value: Self.bracketMatchBackgroundColor,
+            forCharacterRange: safeOpen
+        )
+        layoutManager.addTemporaryAttribute(
+            .backgroundColor,
+            value: Self.bracketMatchBackgroundColor,
+            forCharacterRange: safeClose
+        )
+        appliedBracketMatchRanges = (safeOpen, safeClose)
+    }
+
+    private func clampRange(_ range: NSRange, max length: Int) -> NSRange {
+        let location = Swift.max(0, Swift.min(range.location, length))
+        let safeLength = Swift.max(0, Swift.min(range.length, length - location))
+        return NSRange(location: location, length: safeLength)
     }
 }
 

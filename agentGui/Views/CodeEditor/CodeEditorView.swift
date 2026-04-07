@@ -20,6 +20,7 @@ struct CodeEditorView: View {
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
     var highlightExecutionDelayNanoseconds: UInt64 = 0
     var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
+    var isBracketPairColorizationEnabled: Bool = false
 
     @State private var document: CodeEditorDocument
     @State private var findState = CodeEditorFindState.inactive
@@ -43,7 +44,8 @@ struct CodeEditorView: View {
         highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared,
         highlightDebounceNanoseconds: UInt64 = 75_000_000,
         highlightExecutionDelayNanoseconds: UInt64 = 0,
-        gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
+        gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:],
+        isBracketPairColorizationEnabled: Bool = false
     ) {
         self._text = text
         self.persistedText = persistedText
@@ -63,6 +65,7 @@ struct CodeEditorView: View {
         self.highlightDebounceNanoseconds = highlightDebounceNanoseconds
         self.highlightExecutionDelayNanoseconds = highlightExecutionDelayNanoseconds
         self.gitDiffByLine = gitDiffByLine
+        self.isBracketPairColorizationEnabled = isBracketPairColorizationEnabled
         self._document = State(initialValue: CodeEditorDocument(text: text.wrappedValue, persistedText: persistedText))
     }
 
@@ -100,7 +103,8 @@ struct CodeEditorView: View {
                 },
                 highlighter: highlighter,
                 highlightDebounceNanoseconds: highlightDebounceNanoseconds,
-                highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds
+                highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds,
+                isBracketPairColorizationEnabled: isBracketPairColorizationEnabled
             )
             .background(Color(NSColor.textBackgroundColor))
 

@@ -7,6 +7,7 @@ struct SettingsGeneralView: View {
     var body: some View {
         Form {
             appearanceSection
+            codeEditorSection
             aboutSection
         }
         .formStyle(.grouped)
@@ -30,6 +31,16 @@ struct SettingsGeneralView: View {
                     Text(mode.displayName).tag(mode)
                 }
             }
+        }
+    }
+
+    private var codeEditorSection: some View {
+        Section("代码编辑器") {
+            Toggle("括号对着色", isOn: store.persistedSettingsBinding(
+                get: { settings.isBracketPairColorizationEnabled },
+                userMessage: "括号对着色设置未成功保存",
+                set: { settings.isBracketPairColorizationEnabled = $0 }
+            ))
         }
     }
 

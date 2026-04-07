@@ -297,7 +297,8 @@ struct FileEditorView: View {
                             }
                             lspCoordinator?.handleTextChange(text: newValue, change: change)
                         },
-                        gitDiffByLine: gitDiffByLine
+                        gitDiffByLine: gitDiffByLine,
+                        isBracketPairColorizationEnabled: AppSettings.getOrCreate(in: modelContext).isBracketPairColorizationEnabled
                     )
                 }
             }
