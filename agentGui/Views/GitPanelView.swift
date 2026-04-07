@@ -24,6 +24,7 @@ struct GitPanelView: View {
                 GitSidebarChangesSection(sidebarViewModel: sidebarViewModel, workspaceState: workspaceState)
                 GitSidebarCommitSection(sidebarViewModel: sidebarViewModel, workspaceState: workspaceState)
                 GitSidebarBranchSection(sidebarViewModel: sidebarViewModel, workspaceState: workspaceState)
+                GitSidebarHistorySection(panelViewModel: gitPanelViewModel)
                 GitSidebarUtilitiesSection(sidebarViewModel: sidebarViewModel, workspaceState: workspaceState)
             } else if gitPanelViewModel.isLoading {
                 ProgressView()
