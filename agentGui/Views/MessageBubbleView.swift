@@ -14,6 +14,7 @@ struct MessageBubbleView: View {
     var onDeleteFrom: () -> Void = {}
     var onRegenerate: (() -> Void)? = nil
     var onRetry: (() -> Void)? = nil
+    var onRewindFromHere: (() -> Void)? = nil
 
     @State private var isHovered = false
     @State private var isEditing = false
@@ -225,6 +226,14 @@ struct MessageBubbleView: View {
             Button { regen() } label: {
                 Label("重新生成", systemImage: "arrow.clockwise")
             }
+        }
+        // R-D4: 仅用户消息且提供了回调时显示
+        if snapshot.direction == .user, let rewind = onRewindFromHere {
+            Divider()
+            Button { rewind() } label: {
+                Label("从此消息重新开始", systemImage: "arrow.uturn.backward.circle")
+            }
+            .accessibilityIdentifier("message.contextMenu.rewindFromHere")
         }
         Divider()
         Button(role: .destructive) { onDeleteFrom() } label: {
