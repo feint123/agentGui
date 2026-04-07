@@ -63,10 +63,6 @@ struct CodeEditorGutterRenderer {
         let width = requiredWidth(for: snapshot, appearance: appearance)
         let lineMetricsByLine = Dictionary(uniqueKeysWithValues: snapshot.lineMetrics.map { ($0.line, $0) })
 
-        let separatorRect = NSRect(x: bounds.width - 1, y: dirtyRect.minY, width: 1, height: dirtyRect.height).integral
-        NSColor.separatorColor.setFill()
-        separatorRect.fill()
-
         for line in snapshot.visibleLineRange {
             guard let metric = lineMetricsByLine[line] else {
                 continue

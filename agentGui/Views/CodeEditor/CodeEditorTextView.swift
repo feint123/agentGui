@@ -312,12 +312,14 @@ extension CodeEditorTextView {
             }
 
             let visibleRange = visibleLineRange(for: textView) ?? fullDocumentLineRange()
+            // Use document coordinates directly – the gutter's bounds.origin.y
+            // is synced with the scroll view's content offset, so document-space
+            // Y values produce correct visual alignment without conversion.
             let lineMetrics = textView.visibleLineMetrics(in: scrollView.contentView.bounds).map { metric in
-                let convertedRect = gutterView.convert(metric.rect, from: textView)
-                return CodeEditorVisibleLineMetric(
+                CodeEditorVisibleLineMetric(
                     line: metric.line,
-                    rect: NSRect(x: 0, y: convertedRect.minY, width: gutterView.requiredWidth, height: convertedRect.height).integral,
-                    baselineY: gutterView.convert(NSPoint(x: 0, y: metric.baselineY), from: textView).y
+                    rect: NSRect(x: 0, y: metric.rect.minY, width: gutterView.requiredWidth, height: metric.rect.height).integral,
+                    baselineY: metric.baselineY
                 )
             }
             let snapshot = CodeEditorGutterLineMetricsSnapshot(

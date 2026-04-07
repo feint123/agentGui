@@ -217,11 +217,11 @@ final class CodeEditorTextViewHarness {
             return nil
         }
 
-        let convertedRect = gutterView.convert(metric.rect, from: textView)
+        // Metrics are now in document coordinates (matching gutter bounds-origin sync).
         return CodeEditorVisibleLineMetric(
             line: metric.line,
-            rect: NSRect(x: 0, y: convertedRect.minY, width: gutterView.requiredWidth, height: convertedRect.height).integral,
-            baselineY: gutterView.convert(NSPoint(x: 0, y: metric.baselineY), from: textView).y
+            rect: NSRect(x: 0, y: metric.rect.minY, width: gutterView.requiredWidth, height: metric.rect.height).integral,
+            baselineY: metric.baselineY
         )
     }
 

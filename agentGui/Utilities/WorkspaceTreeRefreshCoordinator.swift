@@ -215,9 +215,6 @@ final class WorkspaceTreeRefreshCoordinator {
     private func refresh(paths: [String], generation: Int) async {
         guard generation == self.generation, let rootURL = currentDirectory else { return }
 
-        let refreshTargets = WorkspaceTreeSnapshotOps.refreshTargets(for: paths, rootURL: rootURL)
-        guard !refreshTargets.isEmpty else { return }
-
         let snapshot = currentNodes
         guard !snapshot.isEmpty else {
             scheduleFullReload(for: rootURL, generation: generation)
@@ -227,14 +224,25 @@ final class WorkspaceTreeRefreshCoordinator {
         let shallowScan = shallowScanClosure
         let mergeNodes = mergeNodesClosure
         let applyPartialUpdate = applyPartialUpdateClosure
+        let rootURLCopy = rootURL
 
         scanTask?.cancel()
-        scanTask = Task.detached(priority: .userInitiated) { [weak self] in
+        scanTask = Task.detached(priority: .utility) { [weak self] in
+            // 1. 后台计算脏目录（FT-P2：原在 MainActor 上计算）
+            let rawTargets = WorkspaceTreeSnapshotOps.refreshTargets(for: paths, rootURL: rootURLCopy)
+            guard !rawTargets.isEmpty else { return }
+
+            // 2. 大批量降级（FT-P2：超阈值降级为根级全量合并）
+            let targets: [URL] = rawTargets.count > WorkspaceTreeSnapshotOps.largeRefreshThreshold
+                ? [rootURLCopy]
+                : rawTargets
+
+            // 3. 串行刷新
             var updated = snapshot
-            for targetURL in refreshTargets {
+            for targetURL in targets {
                 guard !Task.isCancelled else { return }
-                if targetURL == rootURL {
-                    let freshScan = await shallowScan(rootURL)
+                if targetURL == rootURLCopy {
+                    let freshScan = await shallowScan(rootURLCopy)
                     updated = await mergeNodes(updated, freshScan)
                 } else {
                     updated = await applyPartialUpdate(updated, targetURL)
@@ -243,7 +251,9 @@ final class WorkspaceTreeRefreshCoordinator {
 
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard let self, self.generation == generation, self.currentDirectory == rootURL else { return }
+                guard let self,
+                      self.generation == generation,
+                      self.currentDirectory == rootURLCopy else { return }
                 self.currentNodes = updated
                 self.onNodesChanged?(updated, false)
             }
@@ -282,7 +292,29 @@ enum WorkspaceTreeSnapshotOps {
             }
         }
 
-        return dirtyDirectories.sorted { $0.path.count < $1.path.count }
+        let sorted = dirtyDirectories.sorted { $0.path < $1.path }  // 字典序
+        return pruneDescendants(sorted)
+    }
+
+    // MARK: - FT-P2: 祖先支配裁剪
+
+    /// 大批量阈值：超过此数量的脏目录时，降级为根级全量合并。
+    static let largeRefreshThreshold = 30
+
+    /// 字典序排序后，移除「路径前缀被已保留条目覆盖」的后代 URL。
+    /// 输入必须已按路径字典序排序。复杂度 O(N)。
+    static func pruneDescendants(_ sorted: [URL]) -> [URL] {
+        var result: [URL] = []
+        result.reserveCapacity(sorted.count)
+        for url in sorted {
+            let path = url.path
+            if let lastPath = result.last?.path,
+               path == lastPath || path.hasPrefix(lastPath + "/") {
+                continue   // 后代，跳过
+            }
+            result.append(url)
+        }
+        return result
     }
 
     static func shallowScan(at url: URL) -> [WorkspaceTreeShallowEntry] {

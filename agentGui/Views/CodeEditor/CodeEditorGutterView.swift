@@ -3,7 +3,6 @@ import AppKit
 struct CodeEditorGutterInvalidationSummary: Equatable {
     let redrawnLines: [Int]
     let usedFullRedraw: Bool
-    let scrollDeltaY: CGFloat?
 }
 
 final class CodeEditorGutterView: NSView {
@@ -16,10 +15,10 @@ final class CodeEditorGutterView: NSView {
     /// Each lane's x-offset in the current layout, keyed by lane.id
     private var laneOffsets: [String: CGFloat] = [:]
 
-    // MARK: - Legacy Scroll Detection
+    // MARK: - Legacy Scroll Detection (removed)
 
-    /// Retained for host-level scroll plan detection only.
-    /// The renderer's draw() is no longer called; use lanes for drawing.
+    /// Retained only for redraw-plan detection.
+    /// Scroll plans are no longer used; bounds-origin sync handles scrolling.
     private var renderer = CodeEditorGutterRenderer()
 
     // MARK: - Snapshot & Metrics
@@ -95,10 +94,12 @@ final class CodeEditorGutterView: NSView {
     // MARK: - Lane Layout
 
     /// Returns the full-height frame for the given lane in gutter coordinates.
+    /// With bounds-origin scroll sync, the visible region is
+    /// [bounds.origin.y, bounds.origin.y + bounds.height).
     func laneFrame(for lane: any CodeEditorGutterLane) -> NSRect {
         let x = laneOffsets[lane.id, default: 0]
         let w = lane.preferredWidth(for: snapshot, appearance: effectiveAppearance)
-        return NSRect(x: x, y: 0, width: w, height: bounds.height)
+        return NSRect(x: x, y: bounds.origin.y, width: w, height: bounds.height)
     }
 
     private func recalculateLaneLayout() {
@@ -137,20 +138,17 @@ final class CodeEditorGutterView: NSView {
             onRequiredWidthChange?()
         }
 
-        // Use legacy renderer for host-level scroll plan detection
-        let hostPlan: CodeEditorGutterInvalidationPlan
-        hostPlan = renderer.invalidationPlan(from: previousSnapshot, to: snapshot)
+        // Determine what changed between snapshots and invalidate accordingly.
+        // With bounds-origin scroll sync, metrics use document coordinates,
+        // so a pure scroll produces no metric changes for overlapping lines
+        // and the renderer naturally emits a .redraw for new/removed lines.
+        let hostPlan = renderer.invalidationPlan(from: previousSnapshot, to: snapshot)
         applyHostPlan(hostPlan, previousSnapshot: previousSnapshot)
     }
 
     // MARK: - Draw
 
     override func draw(_ dirtyRect: NSRect) {
-        // Host-level: draw right-edge separator
-        let separatorRect = NSRect(x: bounds.width - 1, y: dirtyRect.minY, width: 1, height: dirtyRect.height).integral
-        NSColor.separatorColor.setFill()
-        separatorRect.fill()
-
         // Dispatch drawing to each lane
         for lane in lanes {
             let frame = laneFrame(for: lane)
@@ -192,36 +190,32 @@ final class CodeEditorGutterView: NSView {
             needsDisplay = true
             recordInvalidationSummary(CodeEditorGutterInvalidationSummary(
                 redrawnLines: Array(visibleLineRange),
-                usedFullRedraw: true,
-                scrollDeltaY: nil
+                usedFullRedraw: true
             ))
 
-        case let .redraw(lines, redrawSeparator):
+        case let .redraw(lines, _):
             // Use per-lane invalidation for precision
             applyLaneInvalidation(from: previousSnapshot)
-            if redrawSeparator {
-                invalidateSeparator()
-            }
             recordInvalidationSummary(CodeEditorGutterInvalidationSummary(
                 redrawnLines: lines.sorted(),
-                usedFullRedraw: false,
-                scrollDeltaY: nil
+                usedFullRedraw: false
             ))
 
-        case let .scroll(deltaY, exposedLines, redrawLines, redrawSeparator):
-            scroll(bounds, by: NSSize(width: 0, height: deltaY))
-            translateRectsNeedingDisplay(in: bounds, by: NSSize(width: 0, height: deltaY))
-            let allLines = exposedLines.union(redrawLines).sorted()
-            for line in allLines {
-                invalidateLine(line)
-            }
-            if redrawSeparator {
-                invalidateSeparator()
+        case let .scroll(_, exposedLines, redrawLines, _):
+            // With bounds-origin scroll sync, the gutter no longer needs
+            // the legacy scrollRect:by: pixel-copy optimization (which is
+            // broken on layer-backed views).  Simply redraw changed lines.
+            let allLines = exposedLines.union(redrawLines)
+            if allLines.isEmpty {
+                needsDisplay = true
+            } else {
+                for line in allLines {
+                    invalidateLine(line)
+                }
             }
             recordInvalidationSummary(CodeEditorGutterInvalidationSummary(
-                redrawnLines: allLines,
-                usedFullRedraw: false,
-                scrollDeltaY: deltaY
+                redrawnLines: allLines.sorted(),
+                usedFullRedraw: allLines.isEmpty
             ))
         }
     }
@@ -260,26 +254,20 @@ final class CodeEditorGutterView: NSView {
             return
         }
 
-        if summary.redrawnLines.isEmpty, summary.scrollDeltaY == nil {
+        if summary.redrawnLines.isEmpty {
             return
         }
 
         let mergedLines = Array(Set(previous.redrawnLines).union(summary.redrawnLines)).sorted()
         lastInvalidationSummary = CodeEditorGutterInvalidationSummary(
             redrawnLines: mergedLines,
-            usedFullRedraw: previous.usedFullRedraw || summary.usedFullRedraw,
-            scrollDeltaY: summary.scrollDeltaY ?? previous.scrollDeltaY
+            usedFullRedraw: previous.usedFullRedraw || summary.usedFullRedraw
         )
     }
 
     private func invalidateLine(_ line: Int) {
         guard let metric = lineMetricsByLine[line] else { return }
         let rect = NSRect(x: 0, y: metric.rect.minY, width: requiredWidth, height: metric.rect.height).integral
-        setNeedsDisplay(rect)
-    }
-
-    private func invalidateSeparator() {
-        let rect = NSRect(x: bounds.width - 1, y: bounds.minY, width: 1, height: bounds.height).integral
         setNeedsDisplay(rect)
     }
 }
