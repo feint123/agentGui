@@ -1,0 +1,337 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Quality Smoke",
+			"type": "shell",
+			"command": "./scripts/run_quality_smoke.sh",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Sample UI Baseline",
+			"type": "shell",
+			"command": "./scripts/sample_quality_baseline.sh ui 5",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Sample Unit Baseline",
+			"type": "shell",
+			"command": "./scripts/sample_quality_baseline.sh unit 5",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Focused ACP Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-parallel-testing-enabled",
+				"NO",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-only-testing:agentGuiTests/ACPSessionConfigurationPresentationTests",
+				"-only-testing:agentGuiTests/ACPExternalExecutionProviderBaseTests",
+				"-only-testing:agentGuiTests/DynamicACPExternalExecutionProviderTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Focused ACP Tests Fresh",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-acp-derived-task",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-only-testing:agentGuiTests/ACPSessionConfigurationPresentationTests",
+				"-only-testing:agentGuiTests/ACPExternalExecutionProviderBaseTests",
+				"-only-testing:agentGuiTests/DynamicACPExternalExecutionProviderTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Dynamic ACP Tests Fresh",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-opencode-derived",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-only-testing:agentGuiTests/DynamicACPExternalExecutionProviderTests",
+				"-only-testing:agentGuiTests/DynamicACPProviderRegistryBuilderTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Command Platform Focused Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-derivedDataPath",
+				"/tmp/agentGui-command-platform-derived-5",
+				"-destination",
+				"platform=macOS",
+				"-parallel-testing-enabled",
+				"NO",
+				"test",
+				"-only-testing:agentGuiTests/AppCommandRouterTests",
+				"-only-testing:agentGuiTests/RecentWorkspaceStoreTests",
+				"-only-testing:agentGuiTests/RecentSessionProviderTests",
+				"-only-testing:agentGuiTests/CommandPaletteViewModelTests",
+				"-only-testing:agentGuiTests/WorkspaceFileSearchIndexTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Provider Focused ACP Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-quiet",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-acp-provider-task3",
+				"-only-testing:agentGuiTests/ACPExternalExecutionProviderBaseTests",
+				"-only-testing:agentGuiTests/DynamicACPExternalExecutionProviderTests",
+				"-only-testing:agentGuiTests/ACPProviderValidationServiceTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Coordinator Runtime Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-runtime-retention-derived-task",
+				"-only-testing:agentGuiTests/ConversationExecutionRuntimeCoordinatorTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Coordinator Runtime Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-runtime-retention-derived-task",
+				"-only-testing:agentGuiTests/ConversationExecutionRuntimeCoordinatorTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Coordinator Runtime Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-runtime-retention-derived-task",
+				"-only-testing:agentGuiTests/ConversationExecutionRuntimeCoordinatorTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Coordinator Runtime Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-runtime-retention-derived-task",
+				"-only-testing:agentGuiTests/ConversationExecutionRuntimeCoordinatorTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "ACP Isolation Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-acp-isolation-derived",
+				"-only-testing:agentGuiTests/ACPIsolationTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Feature 8 ACP Actorization Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-quiet",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-feature8-acp-derived",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-only-testing:agentGuiTests/ACPProviderSessionActorTests",
+				"-only-testing:agentGuiTests/ACPExternalExecutionProviderBaseTests",
+				"-only-testing:agentGuiTests/DynamicACPExternalExecutionProviderTests",
+				"-only-testing:agentGuiTests/ACPIsolationTests",
+				"-only-testing:agentGuiTests/ConversationExecutionRuntimeCoordinatorTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "CodeEditor Gutter Fix Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-codeeditor-gutter-fix-task",
+				"-only-testing:agentGuiTests/CodeEditorTextViewIntegrationTests",
+				"-only-testing:agentGuiTests/CodeEditorViewIntegrationTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "F17 Symbol Breadcrumb Tests",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"test",
+				"-project",
+				"agentGui.xcodeproj",
+				"-scheme",
+				"agentGui",
+				"-destination",
+				"platform=macOS",
+				"-parallel-testing-enabled",
+				"NO",
+				"-derivedDataPath",
+				"/tmp/agentGui-f17-symbols-derived",
+				"-only-testing:agentGuiTests/CodeEditorViewModelTests",
+				"CODE_SIGNING_ALLOWED=NO"
+			],
+			"isBackground": false,
+			"group": "test"
+		}
+	]
+}
