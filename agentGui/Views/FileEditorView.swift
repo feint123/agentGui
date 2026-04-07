@@ -29,6 +29,7 @@ struct FileEditorView: View {
     @State private var referencesPresentation: CodeEditorReferencePresentation?
     @State private var documentSymbolItems: [CodeEditorDocumentSymbolItem] = []
     @State private var rawDocumentSymbols: [LSPDocumentSymbol] = []
+    @State private var currentSymbolPath: [CodeEditorSymbolPathNode] = []
     @State private var isSymbolOutlinePresented: Bool = false
     @State private var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     private let gitDiffService = GitLineDiffService()
@@ -65,6 +66,7 @@ struct FileEditorView: View {
             referencesPresentation = nil
             documentSymbolItems = []
             rawDocumentSymbols = []
+            currentSymbolPath = []
             workspaceState.editorSelection = nil
             Task {
                 await sessionController.open(newURL)
@@ -146,9 +148,18 @@ struct FileEditorView: View {
 
     private func editorView(for url: URL) -> some View {
         VStack(spacing: 0) {
-            FilePathBreadcrumbBar(
+            UnifiedEditorBreadcrumbBar(
                 iconSystemName: fileViewerIconName,
-                items: breadcrumbItems(for: url)
+                fileItems: breadcrumbItems(for: url),
+                symbolPath: sessionController.document.viewer == .text ? currentSymbolPath : [],
+                onNavigateSymbol: { request in
+                    executeNavigationAction(
+                        CodeEditorViewModel.navigationAction(
+                            currentFileURL: url,
+                            revealRequest: request
+                        )
+                    )
+                }
             ) {
                 if launchOptions.isUITestMode, sessionController.document.viewer == .text {
                     Text(sessionController.document.hasUnsavedChanges ? "dirty" : "clean")
@@ -337,14 +348,8 @@ struct FileEditorView: View {
                         gitDiffByLine: gitDiffByLine,
                         isBracketPairColorizationEnabled: AppSettings.getOrCreate(in: modelContext).isBracketPairColorizationEnabled,
                         documentSymbols: rawDocumentSymbols,
-                        isSymbolBreadcrumbVisible: !rawDocumentSymbols.isEmpty,
-                        onSymbolNavigate: { request in
-                            executeNavigationAction(
-                                CodeEditorViewModel.navigationAction(
-                                    currentFileURL: url,
-                                    revealRequest: request
-                                )
-                            )
+                        onSymbolPathChange: { path in
+                            currentSymbolPath = path
                         }
                     )
                 }
