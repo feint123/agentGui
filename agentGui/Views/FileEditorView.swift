@@ -29,6 +29,7 @@ struct FileEditorView: View {
     @State private var referencesPresentation: CodeEditorReferencePresentation?
     @State private var documentSymbolItems: [CodeEditorDocumentSymbolItem] = []
     @State private var rawDocumentSymbols: [LSPDocumentSymbol] = []
+    @State private var isSymbolOutlinePresented: Bool = false
     @State private var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     private let gitDiffService = GitLineDiffService()
     private let launchOptions = TestLaunchOptions.current
@@ -105,6 +106,39 @@ struct FileEditorView: View {
         }
         .sheet(item: $referencesPresentation) { presentation in
             referencesSheet(presentation)
+        }
+        .overlay(alignment: .top) {
+            if isSymbolOutlinePresented {
+                CodeEditorSymbolOutlineView(
+                    symbols: documentSymbolItems,
+                    onNavigate: { request in
+                        isSymbolOutlinePresented = false
+                        executeNavigationAction(
+                            CodeEditorViewModel.navigationAction(
+                                currentFileURL: fileURL,
+                                revealRequest: request
+                            )
+                        )
+                    },
+                    onDismiss: {
+                        isSymbolOutlinePresented = false
+                    }
+                )
+                .padding(.top, 40)
+            }
+        }
+        .background {
+            Button("") {
+                if sessionController.document.viewer == .text {
+                    isSymbolOutlinePresented.toggle()
+                    if isSymbolOutlinePresented && documentSymbolItems.isEmpty {
+                        refreshDocumentSymbols(for: fileURL)
+                    }
+                }
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .hidden()
+            .accessibilityHidden(true)
         }
     }
 
