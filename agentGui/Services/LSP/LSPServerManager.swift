@@ -14,6 +14,7 @@ final class LSPServerManager {
     private let makeClient: () -> LSPClient
     private let makeSupervisor: () -> LSPProcessSupervisor
     private var sessions: [SessionKey: SessionRecord] = [:]
+    private var pendingLaunches: [SessionKey: Task<UUID, any Error>] = [:]
 
     init(
         registry: LSPServerRegistry,
@@ -44,43 +45,61 @@ final class LSPServerManager {
             return existing.id
         }
 
+        if let pending = pendingLaunches[key] {
+            return try await pending.value
+        }
+
         guard let definition = registry.definition(for: serverID) else {
             throw ManagerError.unknownServerID(serverID)
         }
 
-        let supervisor = makeSupervisor()
-        supervisor.onStateDidChange = { [weak self] _ in
-            self?.notifyPresentationStateDidChange()
-        }
-        let client = makeClient()
-        let process = try await supervisor.start(command: definition.launchCommand, arguments: definition.launchArguments)
-        client.attach(process: process)
-        supervisor.record(.info, message: "Initializing LSP session for server '\(serverID)' in '\(workspaceRoot)'")
+        let launchTask = Task<UUID, any Error> { @MainActor in
+            let supervisor = makeSupervisor()
+            supervisor.onStateDidChange = { [weak self] _ in
+                self?.notifyPresentationStateDidChange()
+            }
+            let client = makeClient()
+            let process = try await supervisor.start(command: definition.launchCommand, arguments: definition.launchArguments)
+            client.attach(process: process)
+            supervisor.record(.info, message: "Initializing LSP session for server '\(serverID)' in '\(workspaceRoot)'")
 
-        let capabilities: LSPServerCapabilityHints
+            let capabilities: LSPServerCapabilityHints
+            do {
+                capabilities = try await client.initializeSession(server: definition, workspaceRoot: workspaceRoot)
+                supervisor.record(.info, message: "LSP initialize handshake completed for '\(serverID)'")
+            } catch {
+                supervisor.record(.error, message: "LSP initialize handshake failed for '\(serverID)': \(error.localizedDescription)")
+                await supervisor.stop()
+                throw error
+            }
+
+            let session = SessionRecord(
+                id: UUID(),
+                definition: definition,
+                supervisor: supervisor,
+                client: client,
+                capabilities: capabilities
+            )
+            sessions[key] = session
+            notifyPresentationStateDidChange()
+            return session.id
+        }
+
+        pendingLaunches[key] = launchTask
         do {
-            capabilities = try await client.initializeSession(server: definition, workspaceRoot: workspaceRoot)
-            supervisor.record(.info, message: "LSP initialize handshake completed for '\(serverID)'")
+            let sessionID = try await launchTask.value
+            pendingLaunches.removeValue(forKey: key)
+            return sessionID
         } catch {
-            supervisor.record(.error, message: "LSP initialize handshake failed for '\(serverID)': \(error.localizedDescription)")
-            await supervisor.stop()
+            pendingLaunches.removeValue(forKey: key)
             throw error
         }
-
-        let session = SessionRecord(
-            id: UUID(),
-            definition: definition,
-            supervisor: supervisor,
-            client: client,
-            capabilities: capabilities
-        )
-        sessions[key] = session
-        notifyPresentationStateDidChange()
-        return session.id
     }
 
     func restartServer(workspaceRoot: String, serverID: String) async throws -> UUID {
         let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
+        pendingLaunches[key]?.cancel()
+        pendingLaunches.removeValue(forKey: key)
         if let existing = sessions[key] {
             await existing.supervisor.stop()
             sessions.removeValue(forKey: key)
@@ -91,6 +110,8 @@ final class LSPServerManager {
 
     func stopSession(workspaceRoot: String, serverID: String) async {
         let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
+        pendingLaunches[key]?.cancel()
+        pendingLaunches.removeValue(forKey: key)
         guard let existing = sessions[key] else {
             return
         }
