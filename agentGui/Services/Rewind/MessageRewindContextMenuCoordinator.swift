@@ -54,7 +54,48 @@ final class MessageRewindContextMenuCoordinator {
         sessionID: String,
         modelContext: ModelContext
     ) async throws -> MessageRewindContextMenuResult {
-        // TODO: 在 Task 3 实现
-        fatalError("TODO")
+        // 1. 获取此 session 的 checkpoints，找到目标消息对应的那个
+        let checkpoints = (try? await checkpointService.fetchCheckpoints(
+            sessionID: sessionID,
+            limit: 50,
+            modelContext: modelContext
+        )) ?? []
+        let checkpoint = checkpoints.first { $0.messageID == message.id }
+
+        // 2. 检查是否有文件变化（先看 hasFileChanges 标志，再调 inspector 精确验证）
+        let hasChanges: Bool
+        if let cp = checkpoint, cp.hasFileChanges {
+            hasChanges = (try? await preflightInspector.hasAnyFileChanges(checkpoint: cp)) ?? false
+        } else {
+            hasChanges = false
+        }
+
+        if !hasChanges {
+            // Lossless fast path: 直接截断对话，不动文件
+            try await transactionCoordinator.execute(
+                targetMessage: message,
+                checkpoint: nil,
+                option: .conversationOnly,
+                repopulateInput: true
+            )
+            return .losslessCompleted
+        } else {
+            // Confirmation path: 计算 diff 统计，返回待确认数据
+            let diffStats = (try? await preflightInspector.computeDiffStats(
+                checkpoint: checkpoint!
+            )) ?? .empty
+            let targetSeq = message.sequence
+            let msgsAfter = allMessages.filter { $0.sequence > targetSeq }
+            let toolCallsAfterCount = msgsAfter.reduce(0) { $0 + $1.toolCalls.count }
+
+            let pending = MessageRewindSelectorViewModel.PendingConfirmation(
+                message: message,
+                checkpoint: checkpoint,
+                diffStats: diffStats,
+                messagesAfterCount: msgsAfter.count,
+                toolCallsAfterCount: toolCallsAfterCount
+            )
+            return .needsConfirmation(pending)
+        }
     }
 }
