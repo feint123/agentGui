@@ -1,5 +1,11 @@
 import Foundation
 
+enum TextDocumentSyncKind: Int, Codable, Sendable {
+    case none = 0
+    case full = 1
+    case incremental = 2
+}
+
 enum LSPAdapterKind: String, Codable, Sendable {
     case generic
 }
@@ -59,6 +65,9 @@ struct LSPServerCapabilityHints: Codable, Hashable, Sendable {
 
     // — Inlay Hints —
     var supportsInlayHints: Bool = false
+
+    // — L-2 Incremental Sync —
+    var syncKind: TextDocumentSyncKind = .full
 
     static let readOnlySemanticDefaults = LSPServerCapabilityHints(
         supportsHover: true,

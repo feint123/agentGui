@@ -296,6 +296,24 @@ final class LSPClient {
             (opts[key] as? [String]) ?? []
         }
 
+        // textDocumentSync: Int | { change: Int }
+        let syncKind: TextDocumentSyncKind
+        if let rawSync = capabilities["textDocumentSync"] {
+            if let syncInt = (rawSync as? Int) ?? (rawSync as? NSNumber).map({ $0.intValue }),
+               let kind = TextDocumentSyncKind(rawValue: syncInt) {
+                syncKind = kind
+            } else if let syncObj = rawSync as? [String: Any],
+                      let changeRaw = syncObj["change"],
+                      let changeInt = (changeRaw as? Int) ?? (changeRaw as? NSNumber).map({ $0.intValue }),
+                      let kind = TextDocumentSyncKind(rawValue: changeInt) {
+                syncKind = kind
+            } else {
+                syncKind = fallback.syncKind
+            }
+        } else {
+            syncKind = fallback.syncKind
+        }
+
         // completion
         let completionOpts = capabilities["completionProvider"] as? [String: Any]
         let supportsCompletion: Bool = completionOpts != nil
@@ -357,7 +375,8 @@ final class LSPClient {
             supportsImplementation: boolCapability(capabilities["implementationProvider"], fallback: fallback.supportsImplementation),
             supportsFoldingRange: boolCapability(capabilities["foldingRangeProvider"], fallback: fallback.supportsFoldingRange),
             supportsSemanticTokens: (capabilities["semanticTokensProvider"] as? [String: Any]) != nil,
-            supportsInlayHints: boolCapability(capabilities["inlayHintProvider"], fallback: fallback.supportsInlayHints)
+            supportsInlayHints: boolCapability(capabilities["inlayHintProvider"], fallback: fallback.supportsInlayHints),
+            syncKind: syncKind
         )
     }
 

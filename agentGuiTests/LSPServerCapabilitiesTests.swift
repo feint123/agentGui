@@ -217,6 +217,36 @@ struct LSPServerCapabilitiesTests {
         let result = LSPClient.negotiatedCapabilitiesForTesting(from: raw, fallback: fallback)
         #expect(result.supportsDiagnostics == true)
     }
+
+    // MARK: - textDocumentSync / syncKind parsing
+
+    @Test func parsesTextDocumentSyncKindAsInteger() {
+        let raw: [String: Any] = ["capabilities": ["textDocumentSync": 2]]
+        let result = LSPClient.negotiatedCapabilitiesForTesting(from: raw, fallback: .allDisabled)
+        #expect(result.syncKind == .incremental)
+    }
+
+    @Test func parsesTextDocumentSyncKindAsObject() {
+        let raw: [String: Any] = [
+            "capabilities": ["textDocumentSync": ["openClose": true, "change": 2]]
+        ]
+        let result = LSPClient.negotiatedCapabilitiesForTesting(from: raw, fallback: .allDisabled)
+        #expect(result.syncKind == .incremental)
+    }
+
+    @Test func parsesTextDocumentSyncKindFull() {
+        let raw: [String: Any] = ["capabilities": ["textDocumentSync": 1]]
+        let result = LSPClient.negotiatedCapabilitiesForTesting(from: raw, fallback: .allDisabled)
+        #expect(result.syncKind == .full)
+    }
+
+    @Test func missingTextDocumentSyncKindUsesFallback() {
+        var fallback = LSPServerCapabilityHints.allDisabled
+        fallback.syncKind = .incremental
+        let raw: [String: Any] = ["capabilities": ["hoverProvider": true]]
+        let result = LSPClient.negotiatedCapabilitiesForTesting(from: raw, fallback: fallback)
+        #expect(result.syncKind == .incremental)
+    }
 }
 
 @MainActor
