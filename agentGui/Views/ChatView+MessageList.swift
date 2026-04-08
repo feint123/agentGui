@@ -58,6 +58,13 @@ extension ChatView {
             )
             previousMessageListRefreshKey = refreshKey
         }
+        .onChange(of: effectiveStreamingState) { _, isRunning in
+            guard !isRunning else { return }
+            // streaming 刚结束：强制完整重建，清除任何因节流遗漏的 delta
+            Task {
+                await refreshMessageListSnapshotForCurrentState()
+            }
+        }
     }
 
     var messageListLoadingView: some View {
