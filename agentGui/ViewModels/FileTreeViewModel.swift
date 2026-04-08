@@ -17,10 +17,10 @@ enum SelectionModifier {
 @Observable @MainActor
 final class FileTreeViewModel {
 
-    // MARK: - 公开状态（@Observable 自动追踪）
+    // MARK: - 公개状态（@Observable 自动追踪）
 
     /// 当前可见行的扁平列表，供 NSTableView 直接消费（Zed: visible_entries）
-    private(set) var visibleEntries: [VisibleEntry] = []
+    var visibleEntries: [VisibleEntry] = []
 
     /// 当前选中状态（含多选和 anchor）
     var selection: FileTreeSelection = .init()
@@ -28,6 +28,22 @@ final class FileTreeViewModel {
     /// 最近一次目录扫描失败的本地化描述。
     /// 参考 VSCode ExplorerView 的 `tree.setInput(null)` 错误恢复模式。
     var errorMessage: String? = nil
+
+    /// FT-R9: Store 的只读快照，供 FileTreeDropValidator 在主线程同步查询。
+    /// 每次 visibleEntries 刷新时一并更新。
+    private(set) var storeSnapshot: FileTreeStoreSnapshot? = nil
+
+    // MARK: - 内联编辑（FT-R8）
+
+    /// 当前根目录（setDirectory 时更新，供 beginCreate 回退到根插入位置使用）。
+    private(set) var rootDirectory: URL? = nil
+
+    /// 当前内联编辑会话（nil = 非编辑态）。
+    /// 对标 Zed `ProjectPanel.edit_state: Option<EditState>`（project_panel.rs）。
+    var inlineEdit: InlineEditSession? = nil
+
+    /// 最近一次实时校验错误（供 FileTreeCellView 读取以高亮显示）。
+    var validationError: EditValidationError? = nil
 
     // MARK: - 私有
 
@@ -55,6 +71,8 @@ final class FileTreeViewModel {
         gitStatusObserver?.stop()
         gitStatusObserver = nil
 
+        rootDirectory = url
+
         guard let url else {
             visibleEntries = []
             selection = .init()
@@ -62,6 +80,7 @@ final class FileTreeViewModel {
         }
         await store.setRoot(url)
         visibleEntries = await store.computeVisibleEntries()
+        storeSnapshot = await store.makeSnapshot()
 
         // 启动 Git 状态观察
         let observer = GitStatusObserver()
@@ -93,6 +112,7 @@ final class FileTreeViewModel {
             }
         }
         visibleEntries = await store.computeVisibleEntries()
+        storeSnapshot = await store.makeSnapshot()
     }
 
     // MARK: - 选择操作
@@ -158,5 +178,199 @@ final class FileTreeViewModel {
     /// 由 FSEventObserver 回调时使用。
     func refreshVisibleEntries() async {
         visibleEntries = await store.computeVisibleEntries()
+        storeSnapshot = await store.makeSnapshot()
+    }
+
+    // MARK: - 内联编辑：开始（FT-R8）
+
+    /// 开始新建文件 / 新建文件夹，在 selectedID 之后插入占位行。
+    ///
+    /// 插入位置规则（对标 Zed `add_entry(is_dir, cx)` 的 parent directory 确定逻辑）：
+    /// - 选中已展开目录：新建在其第一子条目之前（depth + 1，parentID = selectedID）
+    /// - 选中文件或折叠目录：新建在其之后（同 depth，parentID = 父目录）
+    /// - 无选中：插入末尾，parentID = root
+    func beginCreate(_ kind: InlineEditSession.Kind, near selectedID: EntryID?) async {
+        guard kind == .createFile || kind == .createFolder else { return }
+        cancelEdit()
+
+        let (parentID, insertIndex, depth) = computeInsertPosition(near: selectedID)
+
+        let session = InlineEditSession(
+            kind: kind,
+            parentDirectoryID: parentID,
+            targetEntryID: nil,
+            placeholderIndex: insertIndex,
+            draftName: ""
+        )
+        let placeholder = VisibleEntry.placeholder(depth: depth, parentID: parentID)
+        visibleEntries.insert(placeholder, at: insertIndex)
+        inlineEdit = session
+        validationError = nil
+    }
+
+    /// 开始重命名指定条目（不插入占位行，直接切换 Cell 渲染）。
+    ///
+    /// 对标 Zed `rename_impl(selection, cx)`：设 `leaf_entry_id = Some(entry_id)`,
+    /// editor text = `file_name`（当前文件名作为 draftName 初始值）。
+    func beginRename(_ id: EntryID) async {
+        cancelEdit()
+        guard let targetEntry = visibleEntries.first(where: { $0.id == id }) else { return }
+
+        let parentURL = id.url.deletingLastPathComponent()
+        let parentID = EntryID(url: parentURL.standardizedFileURL)
+
+        inlineEdit = InlineEditSession(
+            kind: .rename,
+            parentDirectoryID: parentID,
+            targetEntryID: id,
+            placeholderIndex: -1,
+            draftName: targetEntry.name
+        )
+        validationError = nil
+    }
+
+    // MARK: - 内联编辑：提交 / 取消
+
+    /// 提交当前编辑会话。
+    ///
+    /// 流程（对标 Zed `confirm_edit(refocus, cx)`）：
+    /// 1. 校验 draftName → 失败则 validationError，early return（占位行保留）
+    /// 2. 调 WorkspaceFileTreeOperations 写磁盘
+    /// 3. store.refreshDirectory(parentURL) 刷新 actor 状态
+    /// 4. visibleEntries = await store.computeVisibleEntries()
+    /// 5. inlineEdit = nil
+    func commitEdit() async {
+        guard let session = inlineEdit else { return }
+        let draft = session.draftName.trimmingCharacters(in: .whitespaces)
+
+        // 校验（对标 Zed `populate_validation_error` 最终守卫）
+        let siblings = await store.siblingNames(of: session.parentDirectoryID)
+        if let error = session.validateDraftName(siblingNames: siblings) {
+            validationError = error
+            return
+        }
+        validationError = nil
+
+        let parentURL = session.parentDirectoryID.url
+        do {
+            switch session.kind {
+            case .createFile:
+                _ = try WorkspaceFileTreeOperations.createFile(named: draft, in: parentURL)
+            case .createFolder:
+                _ = try WorkspaceFileTreeOperations.createDirectory(named: draft, in: parentURL)
+            case .rename:
+                guard let targetURL = session.targetEntryID?.url else { return }
+                _ = try WorkspaceFileTreeOperations.renameItem(at: targetURL, to: draft)
+            }
+        } catch {
+            validationError = .duplicateName(draft)
+            return
+        }
+
+        // 刷新（对标 Zed `update_visible_entries` 在 confirm_edit 结束后调用）
+        await store.refreshDirectory(parentURL)
+        visibleEntries = await store.computeVisibleEntries()
+        inlineEdit = nil
+    }
+
+    /// 取消当前编辑会话，移除占位行，清空状态。
+    ///
+    /// 对标 Zed `discard_edit_state(cx)`：`edit_state.take()` 后 `update_visible_entries`。
+    func cancelEdit() {
+        guard let session = inlineEdit else { return }
+        if session.isNewEntry {
+            visibleEntries.removeAll(where: { $0.id == .placeholderSentinel })
+        }
+        inlineEdit = nil
+        validationError = nil
+    }
+
+    // MARK: - 内部辅助
+
+    /// 根据选中条目计算占位行的插入位置、父目录 ID 和缩进深度。
+    private func computeInsertPosition(
+        near selectedID: EntryID?
+    ) -> (parentID: EntryID, index: Int, depth: Int) {
+        guard let selectedID,
+              let idx = visibleEntries.firstIndex(where: { $0.id == selectedID })
+        else {
+            let rootURL = rootDirectory ?? URL(fileURLWithPath: "/")
+            return (EntryID(url: rootURL.standardizedFileURL),
+                    visibleEntries.endIndex, 0)
+        }
+        let selected = visibleEntries[idx]
+        if selected.isDirectory && selected.isExpanded {
+            return (selected.id, idx + 1, selected.depth + 1)
+        } else {
+            let parentURL = selected.id.url.deletingLastPathComponent()
+            let parentID = EntryID(url: parentURL.standardizedFileURL)
+            return (parentID, idx + 1, selected.depth)
+        }
+    }
+
+    // MARK: - FT-R9: 拖放操作
+
+    /// 移动多个条目到目标目录
+    func moveEntries(_ sourceIDs: [EntryID], to destinationID: EntryID) async {
+        let sourceURLs = sourceIDs.map(\.url)
+        let destinationURL = destinationID.url
+
+        // 计算受影响的父目录（用于刷新）
+        let affectedParentURLs = Set(sourceURLs.map { $0.deletingLastPathComponent().standardizedFileURL })
+
+        do {
+            _ = try WorkspaceFileTreeOperations.moveItems(at: sourceURLs, to: destinationURL)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        // 刷新所有受影响目录（源父目录 + 目标目录）
+        let allDirIDs = (Array(affectedParentURLs) + [destinationURL])
+            .map { EntryID(url: $0.standardizedFileURL) }
+        await store.refreshMultipleDirectories(allDirIDs)
+        visibleEntries = await store.computeVisibleEntries()
+        storeSnapshot = await store.makeSnapshot()
+    }
+
+    /// 复制多个条目到目标目录（Option 拖动或外部文件拖入）
+    func copyEntries(_ sourceIDs: [EntryID], to destinationID: EntryID) async {
+        let sourceURLs = sourceIDs.map(\.url)
+        let destinationURL = destinationID.url
+
+        do {
+            _ = try WorkspaceFileTreeOperations.copyItems(at: sourceURLs, to: destinationURL)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        await store.refreshMultipleDirectories([destinationID])
+        visibleEntries = await store.computeVisibleEntries()
+        storeSnapshot = await store.makeSnapshot()
+    }
+
+    /// 外部文件拖入（URLs 来自 Finder 等），复制到目标目录
+    func importExternalFiles(_ urls: [URL], to destinationID: EntryID) async {
+        let destinationURL = destinationID.url
+
+        do {
+            _ = try WorkspaceFileTreeOperations.copyItems(at: urls, to: destinationURL)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        await store.refreshMultipleDirectories([destinationID])
+        visibleEntries = await store.computeVisibleEntries()
+        storeSnapshot = await store.makeSnapshot()
+    }
+
+    /// 代理：展开目录（供 DnD hover-to-expand 调用）
+    func expandDirectory(_ id: EntryID) async {
+        do {
+            try await store.expandDirectory(id)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        visibleEntries = await store.computeVisibleEntries()
+        storeSnapshot = await store.makeSnapshot()
     }
 }

@@ -30,16 +30,59 @@ struct FileTreeTableView: NSViewRepresentable {
     /// 用户双击文件（打开文件）
     var onDoubleClick: (EntryID) -> Void = { _ in }
 
+    // MARK: - FT-R9 DnD 回调
+
+    /// 移动条目到目标目录
+    var onMoveEntries: ([EntryID], EntryID) -> Void = { _, _ in }
+
+    /// 复制条目到目标目录（Option+拖动）
+    var onCopyEntries: ([EntryID], EntryID) -> Void = { _, _ in }
+
+    /// 外部文件拖入
+    var onImportExternalFiles: ([URL], EntryID) -> Void = { _, _ in }
+
+    /// 悬停展开目录
+    var onExpandDirectory: (EntryID) -> Void = { _ in }
+
+    /// 当前 store 快照（供验证器使用）
+    var storeSnapshot: FileTreeStoreSnapshot? = nil
+
+    // MARK: - 内联编辑 props（FT-R8）
+
+    /// 当前内联编辑会话（nil = 非编辑态）。传入 Cell 决定渲染模式。
+    var inlineEditSession: InlineEditSession? = nil
+
+    /// 用户在内联文本框按 Return（或失焦时草稿合法）→ 携带已 trim 的草稿名称。
+    var onCommitEdit: (String) -> Void = { _ in }
+
+    /// 用户按 Escape 或失焦时草稿为空/非法 → 取消。
+    var onCancelEdit: () -> Void = {}
+
+    /// Cmd+N — 新建文件。
+    var onNewFile: () -> Void = {}
+
+    /// Cmd+Shift+N — 新建文件夹。
+    var onNewFolder: () -> Void = {}
+
+    /// Return（非编辑态，已选中一个条目）→ 重命名。
+    var onRenameSelected: () -> Void = {}
+
     // MARK: - NSViewRepresentable
 
     func makeCoordinator() -> Coordinator {
         Coordinator(entries: entries, selection: selection, onSelect: onSelect,
                     onToggleExpand: onToggleExpand, onDoubleClick: onDoubleClick,
-                    onUnfoldSegment: onUnfoldSegment)
+                    onUnfoldSegment: onUnfoldSegment,
+                    onCommitEdit: onCommitEdit, onCancelEdit: onCancelEdit,
+                    onNewFile: onNewFile, onNewFolder: onNewFolder,
+                    onRenameSelected: onRenameSelected,
+                    onMoveEntries: onMoveEntries, onCopyEntries: onCopyEntries,
+                    onImportExternalFiles: onImportExternalFiles,
+                    onExpandDirectory: onExpandDirectory)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let tableView = NSTableView()
+        let tableView = FileTreeKeyboardTableView()
         tableView.style = .plain
         tableView.allowsMultipleSelection = true
         tableView.allowsEmptySelection = true
@@ -60,6 +103,10 @@ struct FileTreeTableView: NSViewRepresentable {
         tableView.delegate = context.coordinator
 
         context.coordinator.tableView = tableView
+        context.coordinator.keyboardTableView = tableView
+
+        // FT-R9: 注册拖放类型
+        context.coordinator.registerDragTypes(for: tableView)
 
         // 双击打开文件
         tableView.doubleAction = #selector(Coordinator.rowDoubleClicked)
@@ -81,6 +128,25 @@ struct FileTreeTableView: NSViewRepresentable {
         coordinator.onToggleExpand = onToggleExpand
         coordinator.onDoubleClick = onDoubleClick
         coordinator.onUnfoldSegment = onUnfoldSegment
+        coordinator.inlineEditSession = inlineEditSession
+        coordinator.onCommitEdit = onCommitEdit
+        coordinator.onCancelEdit = onCancelEdit
+        coordinator.onNewFile = onNewFile
+        coordinator.onNewFolder = onNewFolder
+        coordinator.onRenameSelected = onRenameSelected
+        // FT-R9: DnD 回调
+        coordinator.onMoveEntries = onMoveEntries
+        coordinator.onCopyEntries = onCopyEntries
+        coordinator.onImportExternalFiles = onImportExternalFiles
+        coordinator.onExpandDirectory = onExpandDirectory
+        coordinator.storeSnapshot = storeSnapshot
+
+        // 同步键盘状态
+        coordinator.keyboardTableView?.isInlineEditing = inlineEditSession != nil
+        coordinator.keyboardTableView?.onNewFile = onNewFile
+        coordinator.keyboardTableView?.onNewFolder = onNewFolder
+        coordinator.keyboardTableView?.onRenameSelected = onRenameSelected
+        coordinator.keyboardTableView?.onCancelEdit = onCancelEdit
 
         guard let tableView = coordinator.tableView else { return }
 
@@ -105,7 +171,24 @@ struct FileTreeTableView: NSViewRepresentable {
         var onToggleExpand: (EntryID) -> Void
         var onDoubleClick: (EntryID) -> Void
         var onUnfoldSegment: ((EntryID) -> Void)?
+        // FT-R8: 内联编辑
+        var inlineEditSession: InlineEditSession? = nil
+        var onCommitEdit: (String) -> Void
+        var onCancelEdit: () -> Void
+        var onNewFile: () -> Void
+        var onNewFolder: () -> Void
+        var onRenameSelected: () -> Void
         weak var tableView: NSTableView?
+        weak var keyboardTableView: FileTreeKeyboardTableView?
+
+        // FT-R9: DnD
+        var onMoveEntries: ([EntryID], EntryID) -> Void
+        var onCopyEntries: ([EntryID], EntryID) -> Void
+        var onImportExternalFiles: ([URL], EntryID) -> Void
+        var onExpandDirectory: (EntryID) -> Void
+        var storeSnapshot: FileTreeStoreSnapshot? = nil
+        /// 当前拖拽会话状态（nil = 非拖拽态）
+        var dragState: FileTreeDragState? = nil
 
         /// 防止 tableViewSelectionDidChange 循环触发
         private var isSyncingSelection = false
@@ -114,13 +197,31 @@ struct FileTreeTableView: NSViewRepresentable {
              onSelect: @escaping (EntryID, SelectionModifier) -> Void,
              onToggleExpand: @escaping (EntryID) -> Void,
              onDoubleClick: @escaping (EntryID) -> Void,
-             onUnfoldSegment: ((EntryID) -> Void)? = nil) {
+             onUnfoldSegment: ((EntryID) -> Void)? = nil,
+             onCommitEdit: @escaping (String) -> Void = { _ in },
+             onCancelEdit: @escaping () -> Void = {},
+             onNewFile: @escaping () -> Void = {},
+             onNewFolder: @escaping () -> Void = {},
+             onRenameSelected: @escaping () -> Void = {},
+             onMoveEntries: @escaping ([EntryID], EntryID) -> Void = { _, _ in },
+             onCopyEntries: @escaping ([EntryID], EntryID) -> Void = { _, _ in },
+             onImportExternalFiles: @escaping ([URL], EntryID) -> Void = { _, _ in },
+             onExpandDirectory: @escaping (EntryID) -> Void = { _ in }) {
             self.entries = entries
             self.selection = selection
             self.onSelect = onSelect
             self.onToggleExpand = onToggleExpand
             self.onDoubleClick = onDoubleClick
             self.onUnfoldSegment = onUnfoldSegment
+            self.onCommitEdit = onCommitEdit
+            self.onCancelEdit = onCancelEdit
+            self.onNewFile = onNewFile
+            self.onNewFolder = onNewFolder
+            self.onRenameSelected = onRenameSelected
+            self.onMoveEntries = onMoveEntries
+            self.onCopyEntries = onCopyEntries
+            self.onImportExternalFiles = onImportExternalFiles
+            self.onExpandDirectory = onExpandDirectory
         }
 
         // MARK: NSTableViewDataSource
@@ -143,8 +244,16 @@ struct FileTreeTableView: NSViewRepresentable {
             cell.configure(
                 entry: entry,
                 isSelected: isSelected,
+                inlineEditSession: inlineEditSession,
                 onToggle: { [weak self] id in self?.onToggleExpand(id) },
-                onUnfoldSegment: { [weak self] id in self?.onUnfoldSegment?(id) }
+                onUnfoldSegment: { [weak self] id in self?.onUnfoldSegment?(id) },
+                onCommitEdit: { [weak self] draft in self?.onCommitEdit(draft) },
+                onCancelEdit: { [weak self] in self?.onCancelEdit() },
+                onValidate: { [weak self] text in
+                    guard let self, let session = inlineEditSession else { return nil }
+                    // 实时校验：传空 siblings，让 Session 只检查格式；完整校验在 commitEdit 中
+                    return session.validateDraftName(siblingNames: [])
+                }
             )
             return cell
         }
@@ -267,6 +376,417 @@ struct FileTreeTableView: NSViewRepresentable {
             if !entry.isDirectory {
                 onDoubleClick(entry.id)
             }
+        }
+    }
+}
+
+// MARK: - FT-R9 FileTreeDragState
+
+/// 拖动过程中的瞬态状态，存在 Coordinator（@MainActor）中。
+/// 生命周期：draggingSession willBegin 创建，endedAt 销毁。
+final class FileTreeDragState {
+    /// 当前鼠标悬停行（-1 = 无）
+    var hoveredRow: Int = -1
+
+    /// 500ms 悬停展开计时器（光标移出时取消）
+    var hoverExpandWork: DispatchWorkItem?
+
+    /// 面板边缘自动滚动计时器（光标离开边缘区域时取消）
+    var edgeScrollWork: DispatchWorkItem?
+
+    /// 拖拽源行索引集合
+    var dragSourceRows: IndexSet = []
+
+    /// 当前 Auto-fold 段命中（若有）
+    var foldedSegmentTarget: (entryID: EntryID, segmentIndex: Int)?
+
+    /// 是否按住 Option（Copy 模式）
+    var isCopyMode: Bool = false
+
+    deinit {
+        hoverExpandWork?.cancel()
+        edgeScrollWork?.cancel()
+    }
+
+    func cancelHoverExpand() {
+        hoverExpandWork?.cancel()
+        hoverExpandWork = nil
+    }
+
+    func cancelEdgeScroll() {
+        edgeScrollWork?.cancel()
+        edgeScrollWork = nil
+    }
+}
+
+// MARK: - FT-R9 DnD Coordinator 扩展（Pasteboard 注册 + 拖拽源）
+
+extension FileTreeTableView.Coordinator {
+
+    /// 内部拖放使用的 pasteboard 类型标识
+    static let internalDragType = NSPasteboard.PasteboardType(
+        rawValue: "com.feint.agentGui.fileTreeEntry"
+    )
+
+    /// 注册支持的拖放类型（在 makeNSView 中调用一次）
+    func registerDragTypes(for tableView: NSTableView) {
+        tableView.registerForDraggedTypes([
+            Self.internalDragType,  // 内部路径
+            .fileURL,               // 外部文件可直接粘贴为 URL
+        ])
+        tableView.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
+        tableView.setDraggingSourceOperationMask([.copy], forLocal: false)
+    }
+
+    // MARK: NSTableViewDataSource — 拖拽源
+
+    func tableView(
+        _ tableView: NSTableView,
+        pasteboardWriterForRow row: Int
+    ) -> (any NSPasteboardWriting)? {
+        guard row >= 0, row < entries.count else { return nil }
+        let entry = entries[row]
+
+        // 不允许拖拽占位行（FT-R8 内联编辑状态）
+        guard !entry.isEditPlaceholder else { return nil }
+
+        let item = NSPasteboardItem()
+        // 写入 EntryID（以 URL path 表示）
+        item.setString(entry.id.url.path, forType: Self.internalDragType)
+        // 同时写 fileURL，让外部应用（如 Finder）可接收
+        item.setData(
+            entry.id.url.dataRepresentation,
+            forType: .fileURL
+        )
+        return item
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        draggingSession session: NSDraggingSession,
+        willBeginAt screenPoint: NSPoint,
+        forRowIndexes rowIndexes: IndexSet
+    ) {
+        dragState = FileTreeDragState()
+        dragState?.dragSourceRows = rowIndexes
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        draggingSession session: NSDraggingSession,
+        endedAt screenPoint: NSPoint,
+        operation: NSDragOperation
+    ) {
+        dragState?.cancelHoverExpand()
+        dragState?.cancelEdgeScroll()
+        dragState = nil
+        // 清除高亮
+        tableView.setDropRow(-1, dropOperation: .on)
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        updateDraggingItemsForDrag draggingInfo: any NSDraggingInfo
+    ) {
+        let isOption = NSEvent.modifierFlags.contains(.option)
+        if dragState?.isCopyMode != isOption {
+            dragState?.isCopyMode = isOption
+            tableView.setNeedsDisplay(tableView.bounds)
+        }
+    }
+
+    // MARK: - 内部辅助
+
+    /// 从 pasteboard 读取内部拖拽的 EntryID 列表
+    func extractSourceIDs(from pasteboard: NSPasteboard) -> [EntryID] {
+        guard let items = pasteboard.pasteboardItems else { return [] }
+        return items.compactMap { item in
+            guard let path = item.string(forType: Self.internalDragType) else { return nil }
+            return EntryID(url: URL(fileURLWithPath: path))
+        }
+    }
+
+    /// 给定 proposedRow，返回对应的 VisibleEntry（-1 或越界时返回 nil）
+    func resolvedDropEntry(row: Int) -> VisibleEntry? {
+        guard row >= 0, row < entries.count else { return nil }
+        return entries[row]
+    }
+
+    /// 当 targetEntry 是文件时，将目标行重定向到其父目录所在行
+    func resolvedDropRow(row: Int, targetEntry: VisibleEntry?) -> Int {
+        guard let entry = targetEntry else { return -1 }
+        if entry.isDirectory { return row }
+        // 文件：高亮其父目录行
+        let parentURL = entry.id.url.deletingLastPathComponent().standardizedFileURL
+        let parentID = EntryID(url: parentURL)
+        if let parentRow = entries.firstIndex(where: { $0.id == parentID }) {
+            return parentRow
+        }
+        return row
+    }
+}
+
+// MARK: - FT-R9 DnD Coordinator 扩展（validateDrop + acceptDrop）
+
+extension FileTreeTableView.Coordinator {
+
+    func tableView(
+        _ tableView: NSTableView,
+        validateDrop info: any NSDraggingInfo,
+        proposedRow row: Int,
+        proposedDropOperation dropOperation: NSTableView.DropOperation
+    ) -> NSDragOperation {
+        let pasteboard = info.draggingPasteboard
+        let isInternal = pasteboard.types?.contains(Self.internalDragType) == true
+
+        // ── 外部文件拖入路径 ──────────────────────────────────────
+        if !isInternal {
+            if let externalURLs = pasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [NSPasteboard.ReadingOptionKey.urlReadingFileURLsOnly: true]
+            ) as? [URL], !externalURLs.isEmpty {
+                let targetEntry = resolvedDropEntry(row: row)
+                let targetRow = resolvedDropRow(row: row, targetEntry: targetEntry)
+                tableView.setDropRow(targetRow, dropOperation: .on)
+                return .copy
+            }
+            return []
+        }
+
+        // ── 内部拖放路径 ──────────────────────────────────────────
+        let sourceIDs = extractSourceIDs(from: pasteboard)
+        guard !sourceIDs.isEmpty else { return [] }
+
+        let targetEntry = resolvedDropEntry(row: row)
+        let isCopy = (dragState?.isCopyMode ?? false) || NSEvent.modifierFlags.contains(.option)
+
+        // 检查是否命中了 auto-fold 段（精确目标）
+        var foldHit: (EntryID, Int)? = nil
+        if let targetEntry, let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? FileTreeCellView {
+            let localPoint = cell.convert(tableView.convert(info.draggingLocation, from: nil), from: tableView)
+            if let hit = cell.hitTestFoldedSegment(at: localPoint) {
+                foldHit = (hit.entryID, hit.segmentIndex)
+            }
+        }
+        dragState?.foldedSegmentTarget = foldHit.map { (entryID: $0.0, segmentIndex: $0.1) }
+
+        // 确定目标 EntryID
+        let targetID: EntryID?
+        if let (foldedEntryID, _) = foldHit {
+            targetID = foldedEntryID
+        } else if let entry = targetEntry {
+            if entry.isDirectory {
+                targetID = entry.id
+            } else {
+                // 文件 → 解析到父目录
+                let parentURL = entry.id.url.deletingLastPathComponent().standardizedFileURL
+                targetID = EntryID(url: parentURL)
+            }
+        } else {
+            targetID = nil  // 背景区域 → 后续处理
+        }
+
+        guard let snapshot = storeSnapshot else { return [] }
+
+        // 背景区域：目标为根（取第一个条目的根祖先若有；否则不允许）
+        if let tid = targetID {
+            guard FileTreeDropValidator.validate(
+                sourceIDs: sourceIDs,
+                destinationID: tid,
+                snapshot: snapshot,
+                isCopy: isCopy
+            ) != nil else { return [] }
+
+            let targetRow = resolvedDropRow(row: row, targetEntry: targetEntry)
+            tableView.setDropRow(targetRow, dropOperation: .on)
+
+            // 悬停 500ms 自动展开（目录且未展开）
+            if let entry = targetEntry, entry.isDirectory, !entry.isExpanded {
+                if dragState?.hoveredRow != targetRow {
+                    dragState?.hoveredRow = targetRow
+                    scheduleHoverExpand(entryID: entry.id, after: 0.5)
+                }
+            } else if dragState?.hoveredRow != targetRow {
+                dragState?.hoveredRow = targetRow
+                dragState?.cancelHoverExpand()
+            }
+        } else {
+            dragState?.cancelHoverExpand()
+        }
+
+        // 面板边缘自动滚动
+        updateEdgeScroll(for: info.draggingLocation, in: tableView)
+
+        return isCopy ? .copy : .move
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        acceptDrop info: any NSDraggingInfo,
+        row: Int,
+        dropOperation: NSTableView.DropOperation
+    ) -> Bool {
+        dragState?.cancelHoverExpand()
+        dragState?.cancelEdgeScroll()
+        tableView.setDropRow(-1, dropOperation: .on)
+
+        let pasteboard = info.draggingPasteboard
+        let isInternal = pasteboard.types?.contains(Self.internalDragType) == true
+
+        // ── 外部文件拖入 ──────────────────────────────────────────
+        if !isInternal {
+            guard let externalURLs = pasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [NSPasteboard.ReadingOptionKey.urlReadingFileURLsOnly: true]
+            ) as? [URL], !externalURLs.isEmpty else { return false }
+
+            let targetEntry = resolvedDropEntry(row: row)
+            let targetID: EntryID
+            if let entry = targetEntry {
+                if entry.isDirectory {
+                    targetID = entry.id
+                } else {
+                    let parentURL = entry.id.url.deletingLastPathComponent().standardizedFileURL
+                    targetID = EntryID(url: parentURL)
+                }
+            } else {
+                // 背景区域：取根目录
+                guard let rootEntry = entries.first else { return false }
+                let rootURL = rootEntry.id.url.deletingLastPathComponent().standardizedFileURL
+                targetID = EntryID(url: rootURL)
+            }
+            onImportExternalFiles(externalURLs, targetID)
+            return true
+        }
+
+        // ── 内部拖放 ──────────────────────────────────────────────
+        let sourceIDs = extractSourceIDs(from: pasteboard)
+        guard !sourceIDs.isEmpty else { return false }
+
+        let targetEntry = resolvedDropEntry(row: row)
+        let targetID: EntryID
+        if let entry = targetEntry {
+            if entry.isDirectory {
+                targetID = entry.id
+            } else {
+                let parentURL = entry.id.url.deletingLastPathComponent().standardizedFileURL
+                targetID = EntryID(url: parentURL)
+            }
+        } else {
+            guard let rootEntry = entries.first else { return false }
+            let rootURL = rootEntry.id.url.deletingLastPathComponent().standardizedFileURL
+            targetID = EntryID(url: rootURL)
+        }
+
+        let isCopy = dragState?.isCopyMode ?? false
+        if isCopy {
+            onCopyEntries(sourceIDs, targetID)
+        } else {
+            onMoveEntries(sourceIDs, targetID)
+        }
+        return true
+    }
+}
+
+// MARK: - FT-R9 悬停展开 + 面板边缘自动滚动
+
+extension FileTreeTableView.Coordinator {
+
+    /// 悬停 `delay` 秒后自动展开 `entryID` 对应目录。
+    func scheduleHoverExpand(entryID: EntryID, after delay: TimeInterval) {
+        guard let state = dragState else { return }
+        state.cancelHoverExpand()
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.onExpandDirectory(entryID)
+        }
+        state.hoverExpandWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// 检查鼠标是否在面板边缘区域，若是则启动自动滚动；否则停止。
+    func updateEdgeScroll(for location: NSPoint, in tableView: NSTableView) {
+        guard let scrollView = tableView.enclosingScrollView else { return }
+        let visibleHeight = scrollView.contentView.bounds.height
+        guard visibleHeight > 0 else { return }
+
+        let localPoint = tableView.convert(location, from: nil)
+        let visibleRect = scrollView.contentView.documentVisibleRect
+        let relativeY = (localPoint.y - visibleRect.minY) / visibleHeight
+
+        let scrollDelta: CGFloat
+        if relativeY <= 0.05 {
+            scrollDelta = 8
+        } else if relativeY <= 0.15 {
+            scrollDelta = 5
+        } else if relativeY >= 0.95 {
+            scrollDelta = -8
+        } else if relativeY >= 0.85 {
+            scrollDelta = -5
+        } else {
+            dragState?.cancelEdgeScroll()
+            return
+        }
+
+        if dragState?.edgeScrollWork != nil { return }
+        startEdgeScroll(delta: scrollDelta, in: scrollView)
+    }
+
+    private func startEdgeScroll(delta: CGFloat, in scrollView: NSScrollView) {
+        guard let state = dragState else { return }
+
+        let work = DispatchWorkItem { [weak self, weak scrollView] in
+            guard let self, let scrollView,
+                  self.dragState?.edgeScrollWork != nil else { return }
+
+            let current = scrollView.contentView.bounds.origin
+            let maxY = scrollView.contentView.documentRect.height
+                - scrollView.contentView.bounds.height
+            let newY = max(0, min(current.y - delta, maxY))
+            scrollView.contentView.scroll(to: NSPoint(x: current.x, y: newY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+
+            self.dragState?.edgeScrollWork = nil
+            self.startEdgeScroll(delta: delta, in: scrollView)
+        }
+        state.edgeScrollWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.016, execute: work)
+    }
+}
+
+// MARK: - FT-R8 键盘感知 NSTableView 子类
+
+/// NSTableView 子类，负责将 Cmd+N / Cmd+Shift+N / Return / Esc 键盘事件
+/// 分发给 `FileTreeTableView` 的回调，而非走系统默认响应链。
+///
+/// 对标 VSCode `WorkbenchCompressibleAsyncDataTree` 中注册的 `KeyCode.Enter/Escape`
+/// 键盘事件（由 `ExplorerView._onKeyDown` 处理）。
+final class FileTreeKeyboardTableView: NSTableView {
+
+    var onNewFile: (() -> Void)?
+    var onNewFolder: (() -> Void)?
+    var onRenameSelected: (() -> Void)?
+    var onCancelEdit: (() -> Void)?
+
+    /// 当前是否处于编辑态（由 Coordinator 在 updateNSView 时同步）。
+    var isInlineEditing: Bool = false
+
+    override func keyDown(with event: NSEvent) {
+        let cmd   = event.modifierFlags.contains(.command)
+        let shift = event.modifierFlags.contains(.shift)
+
+        switch (event.keyCode, cmd, shift, isInlineEditing) {
+        case (45, true, false, false):  // Cmd+N — 新建文件
+            onNewFile?()
+        case (45, true, true,  false):  // Cmd+Shift+N — 新建文件夹
+            onNewFolder?()
+        case (36, false, false, false): // Return（非编辑态）— 重命名
+            onRenameSelected?()
+        case (53, _, _, true):          // Esc（编辑态）— 保险回退（优先由 TextField 拦截）
+            onCancelEdit?()
+        default:
+            super.keyDown(with: event)
         }
     }
 }

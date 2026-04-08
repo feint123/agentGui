@@ -61,6 +61,16 @@ final class FileTreeTableRowView: NSTableRowView {
         // 未选中未悬停时不填充（继承父视图背景）
     }
 
+    /// FT-R9: 自定义拖放高亮（替代 NSTableView 默认蓝色环）。
+    /// 使用 accent 半透明填充 + 顶部 2pt accent 线，与 Zed `drop_target_background` 相似。
+    override func drawDraggingDestinationFeedback(in dirtyRect: NSRect) {
+        NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
+        bounds.fill()
+        // 顶部 2pt accent 强调线
+        NSColor.controlAccentColor.setFill()
+        NSRect(x: 0, y: bounds.height - 2, width: bounds.width, height: 2).fill()
+    }
+
     // 禁用系统默认的选中绘制，由 drawBackground 托管
     override var isEmphasized: Bool {
         get { false }

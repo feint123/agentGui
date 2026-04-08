@@ -79,6 +79,40 @@ enum WorkspaceFileTreeOperations {
         }
     }
 
+    /// 复制多个文件/目录到目标目录。若目标路径已有同名项则自动加 " copy" / " copy N" 后缀。
+    static func copyItems(at urls: [URL], to destinationDirectory: URL) throws -> [URL] {
+        let fileManager = FileManager.default
+        let standardizedDest = destinationDirectory.standardizedFileURL
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: standardizedDest.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw WorkspaceFileTreeOperationError.invalidMoveDestination
+        }
+
+        let uniqueSources = uniqueStandardizedURLs(urls)
+        return try uniqueSources.map { sourceURL in
+            let destURL = resolveNonConflictingURL(source: sourceURL, directory: standardizedDest)
+            try fileManager.copyItem(at: sourceURL, to: destURL)
+            return destURL
+        }
+    }
+
+    /// 若目标路径已存在文件，自动附加 " copy" / " copy 2" 后缀。
+    private static func resolveNonConflictingURL(source: URL, directory: URL) -> URL {
+        let name = source.deletingPathExtension().lastPathComponent
+        let ext = source.pathExtension
+        let fileManager = FileManager.default
+
+        var candidate = directory.appendingPathComponent(source.lastPathComponent)
+        var ix = 1
+        while fileManager.fileExists(atPath: candidate.path) {
+            let suffix = ix == 1 ? " copy" : " copy \(ix)"
+            let newName = ext.isEmpty ? "\(name)\(suffix)" : "\(name)\(suffix).\(ext)"
+            candidate = directory.appendingPathComponent(newName)
+            ix += 1
+        }
+        return candidate
+    }
+
     private static func validatedDestinationURL(for rawName: String, in directory: URL) throws -> URL {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {

@@ -49,6 +49,15 @@ actor FileTreeStore {
 
     // MARK: - 公开 API
 
+    /// 当前根目录 URL（供 `FileTreeViewModel.beginCreate(near:nil)` 使用）。
+    var currentRootURL: URL? { rootURL }
+
+    /// 父目录的直接子条目名称列表（用于内联编辑重复名检测）。
+    /// 对标 Zed `populate_validation_error` 中的 `already_exists` 检测数据来源。
+    func siblingNames(of parentID: EntryID) -> [String] {
+        (children[parentID] ?? []).compactMap { entries[$0]?.name }
+    }
+
     /// 设置工作区根目录，执行浅扫描并重建索引，启动 FSEvent 监听。
     func setRoot(_ url: URL) async {
         // 停止旧观察
@@ -376,7 +385,8 @@ actor FileTreeStore {
     }
 
     /// 重新扫描单个目录，将结果与 Store 中现有子条目对比，增量更新。
-    private func refreshDirectory(_ url: URL) async {
+    /// internal 访问修饰符：供 `FileTreeViewModel.commitEdit()` 在写磁盘后刷新父目录状态。
+    func refreshDirectory(_ url: URL) async {
         guard let rootURL else { return }
 
         // 根目录特殊处理：root 本身不存储在 entries 中，只有其内容在 rootIDs
@@ -539,4 +549,40 @@ actor FileTreeStore {
         let p = url.path
         return (p.hasSuffix("/") && p.count > 1) ? String(p.dropLast()) : p
     }
+
+    // MARK: - FT-R9: 快照 + 批量刷新
+
+    /// 构建当前状态的值类型快照，供 FileTreeDropValidator 在非 actor 上下文使用。
+    func makeSnapshot() -> FileTreeStoreSnapshot {
+        FileTreeStoreSnapshot(entries: entries, children: children)
+    }
+
+    /// 批量刷新多个目录（先去除后代重复，再顺序刷新）。
+    /// 参数使用 EntryID，内部转换为 URL 调用 refreshDirectory。
+    func refreshMultipleDirectories(_ dirIDs: [EntryID]) async {
+        // 用静态方法去重（按 URL 路径）
+        let dirURLs = dirIDs.map(\.url)
+        let pruned = Self.pruneDescendants(dirURLs)
+        for url in pruned {
+            await refreshDirectory(url)
+        }
+    }
+}
+
+// MARK: - FileTreeStoreSnapshot
+
+/// `FileTreeStore` 的 Sendable 只读快照，符合 `StoreSnapshotProtocol`。
+/// 供 `FileTreeDropValidator` 在主线程上下文中同步查询，无需等待 actor。
+struct FileTreeStoreSnapshot: StoreSnapshotProtocol, Sendable {
+    private let entries: [EntryID: FileEntry]
+    private let children: [EntryID: [EntryID]]
+
+    init(entries: [EntryID: FileEntry], children: [EntryID: [EntryID]]) {
+        self.entries = entries
+        self.children = children
+    }
+
+    func entry(_ id: EntryID) -> FileEntry? { entries[id] }
+    func parentID(of id: EntryID) -> EntryID? { entries[id]?.parentID }
+    func children(of id: EntryID) -> [EntryID] { children[id] ?? [] }
 }

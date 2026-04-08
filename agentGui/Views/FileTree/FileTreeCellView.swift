@@ -30,6 +30,8 @@ final class FileTreeCellView: NSTableCellView {
     /// 每个段是一个无边框 NSButton，段间插入弱色 " / " 标签。
     private let segmentedPathStack = NSStackView()
     private var segmentButtons: [(button: NSButton, entryID: EntryID)] = []
+    // FT-R8: 内联编辑文本框（与 nameLabel 同位置，初始隐藏）
+    private let inlineTextField = FileTreeInlineTextField(frame: .zero)
 
     // MARK: - 内部缓存
 
@@ -150,6 +152,15 @@ final class FileTreeCellView: NSTableCellView {
             segmentedPathStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             segmentedPathStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6),
         ])
+
+        // FT-R8: 内联编辑文本框（覆盖在 nameLabel 位置，初始隐藏）
+        inlineTextField.isHidden = true
+        addSubview(inlineTextField)
+        NSLayoutConstraint.activate([
+            inlineTextField.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            inlineTextField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            inlineTextField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+        ])
     }
 
     // MARK: - 配置
@@ -159,18 +170,60 @@ final class FileTreeCellView: NSTableCellView {
     /// - Parameters:
     ///   - entry: 当前行数据
     ///   - isSelected: 是否处于选中状态
+    ///   - inlineEditSession: 当前内联编辑会话（nil = 非编辑态）
     ///   - onToggle: 展开/折叠回调（在 Coordinator 中绑定）
     ///   - onUnfoldSegment: 点击折叠路径某段时的回调（仅 auto-fold 行有效）
+    ///   - onCommitEdit: 用户按 Return 提交编辑时回调
+    ///   - onCancelEdit: 用户按 Esc 或失焦取消时回调
+    ///   - onValidate: 实时校验回调
     func configure(
         entry: VisibleEntry,
         isSelected: Bool,
+        inlineEditSession: InlineEditSession? = nil,
         onToggle: @escaping (EntryID) -> Void,
-        onUnfoldSegment: ((EntryID) -> Void)? = nil
+        onUnfoldSegment: ((EntryID) -> Void)? = nil,
+        onCommitEdit: @escaping (String) -> Void = { _ in },
+        onCancelEdit: @escaping () -> Void = {},
+        onValidate: @escaping (String) -> EditValidationError? = { _ in nil }
     ) {
         entryID = entry.id
         onToggleExpand = onToggle
 
-        // 1. 缩进：depth * 16pt（与 Zed indent_size 一致）
+        // FT-R8: 编辑态检测（对标 VSCode renderElement → getEditableData 分支）
+        let isEditing = entry.isEditPlaceholder
+            || (inlineEditSession?.targetEntryID == entry.id)
+
+        if isEditing {
+            // 编辑态：隐藏 nameLabel，显示 inlineTextField
+            nameLabel.isHidden = true
+            segmentedPathStack.isHidden = true
+            inlineTextField.isHidden = false
+
+            inlineTextField.onCommit = onCommitEdit
+            inlineTextField.onCancel = onCancelEdit
+            inlineTextField.onValidate = onValidate
+
+            // 重命名填当前文件名；新建留空（对标 VSCode renderInputBox 初始 value 逻辑）
+            let initialText = (inlineEditSession?.targetEntryID != nil) ? entry.name : ""
+            // 文件选主干，目录选全名（对标 VSCode lastDot > 0 && !stat.isDirectory 分支）
+            inlineTextField.beginEditing(initialText: initialText,
+                                         selectStem: !entry.isDirectory)
+
+            // 仍需配置缩进和图标
+            indentWidthConstraint?.constant = CGFloat(entry.depth) * 16
+            disclosureButton.isHidden = true
+            loadingSpinner.isHidden = true
+            let symbolName = FileIconSymbolResolver.symbol(forFileName: entry.name)
+            let symbolConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+            iconView.image = NSImage(systemSymbolName: symbolName,
+                                     accessibilityDescription: nil)?
+                .withSymbolConfiguration(symbolConfig)
+            gitBadgeLabel.isHidden = true
+            return
+        }
+
+        // 正常态：隐藏 inlineTextField
+        inlineTextField.isHidden = true
         indentWidthConstraint?.constant = CGFloat(entry.depth) * 16
 
         // 2. 展开/折叠按钮 & loading spinner
@@ -279,6 +332,23 @@ final class FileTreeCellView: NSTableCellView {
         let idx = sender.tag
         guard idx < segmentButtons.count else { return }
         onUnfoldSegment?(segmentButtons[idx].entryID)
+    }
+
+    // MARK: - FT-R9: Auto-fold 段命中检测
+
+    /// 给定拖拽位置（cell 坐标系），返回命中的折叠段索引和对应的 EntryID。
+    /// 返回 nil 表示未命中任何折叠段（命中普通文件名区域或 indent spacer）。
+    func hitTestFoldedSegment(at point: NSPoint) -> (segmentIndex: Int, entryID: EntryID)? {
+        guard !segmentedPathStack.isHidden, !segmentButtons.isEmpty else { return nil }
+
+        for (btn, entryID) in segmentButtons {
+            // 将 button frame 从 segmentedPathStack 坐标转为 cell 坐标
+            let btnFrameInCell = convert(btn.frame, from: segmentedPathStack)
+            if btnFrameInCell.contains(point) {
+                return (segmentIndex: btn.tag, entryID: entryID)
+            }
+        }
+        return nil
     }
 
     // MARK: - 事件处理
