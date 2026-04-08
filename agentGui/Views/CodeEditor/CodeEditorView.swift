@@ -25,6 +25,7 @@ struct CodeEditorView: View {
     var onSymbolPathChange: (([CodeEditorSymbolPathNode]) -> Void)? = nil
     var lspCoordinator: CodeEditorLSPCoordinator? = nil
     var isCompletionEnabled: Bool = false
+    var isInlayHintsEnabled: Bool = false
 
     @State private var document: CodeEditorDocument
     @State private var findState = CodeEditorFindState.inactive
@@ -51,7 +52,10 @@ struct CodeEditorView: View {
         gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:],
         isBracketPairColorizationEnabled: Bool = false,
         documentSymbols: [LSPDocumentSymbol] = [],
-        onSymbolPathChange: (([CodeEditorSymbolPathNode]) -> Void)? = nil
+        onSymbolPathChange: (([CodeEditorSymbolPathNode]) -> Void)? = nil,
+        lspCoordinator: CodeEditorLSPCoordinator? = nil,
+        isCompletionEnabled: Bool = false,
+        isInlayHintsEnabled: Bool = false
     ) {
         self._text = text
         self.persistedText = persistedText
@@ -74,6 +78,9 @@ struct CodeEditorView: View {
         self.isBracketPairColorizationEnabled = isBracketPairColorizationEnabled
         self.documentSymbols = documentSymbols
         self.onSymbolPathChange = onSymbolPathChange
+        self.lspCoordinator = lspCoordinator
+        self.isCompletionEnabled = isCompletionEnabled
+        self.isInlayHintsEnabled = isInlayHintsEnabled
         self._document = State(initialValue: CodeEditorDocument(text: text.wrappedValue, persistedText: persistedText))
     }
 
@@ -115,7 +122,8 @@ struct CodeEditorView: View {
                 isBracketPairColorizationEnabled: isBracketPairColorizationEnabled,
                 indentationStatus: statusBarState.indentation,
                 lspCoordinator: lspCoordinator,
-                isCompletionEnabled: isCompletionEnabled
+                isCompletionEnabled: isCompletionEnabled,
+                isInlayHintsEnabled: isInlayHintsEnabled
             )
             .background(Color(NSColor.textBackgroundColor))
 

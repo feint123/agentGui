@@ -243,6 +243,23 @@ final class LSPServerManager {
         )
     }
 
+    func inlayHints(
+        workspaceRoot: String,
+        serverID: String,
+        uri: String,
+        startLine1Based: Int,
+        endLine1Based: Int
+    ) async -> [CodeEditorInlayHint] {
+        guard let session = try? sessionRecord(for: workspaceRoot, serverID: serverID) else {
+            return []
+        }
+        return await session.client.inlayHints(
+            uri: uri,
+            startLine1Based: startLine1Based,
+            endLine1Based: endLine1Based
+        )
+    }
+
     private func sessionRecord(for workspaceRoot: String, serverID: String) throws -> SessionRecord {
         let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
         guard let session = sessions[key] else {

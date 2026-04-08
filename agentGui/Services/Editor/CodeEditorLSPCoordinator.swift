@@ -25,6 +25,11 @@ final class CodeEditorLSPCoordinator {
     private var pendingHoverTask: Task<Void, Never>?
     private var completionGeneration = 0
     private var pendingCompletionTask: Task<Void, Never>?
+    private var inlayHintGeneration = 0
+    private var pendingInlayHintTask: Task<Void, Never>?
+
+    /// 结果回调，由 Coordinator 集成方在初始化时注入。
+    var onInlayHintResult: ((CodeEditorInlayHintSnapshot) -> Void)?
 
     init(
         manager: LSPServerManager,
@@ -40,6 +45,7 @@ final class CodeEditorLSPCoordinator {
         pendingChangeTask?.cancel()
         pendingHoverTask?.cancel()
         pendingCompletionTask?.cancel()
+        pendingInlayHintTask?.cancel()
     }
 
     func activate(initialText: String, version: Int) {
@@ -361,6 +367,81 @@ final class CodeEditorLSPCoordinator {
     func cancelCompletion() {
         pendingCompletionTask?.cancel()
         pendingCompletionTask = nil
+    }
+
+    // MARK: - Inlay Hints
+
+    /// 调度一次 inlay hint 请求，300ms 去抖 + 代际取消。
+    ///
+    /// - Parameters:
+    ///   - visibleLineRange: 当前可见行范围（1-based）。
+    ///   - documentVersion: 当前文档版本，用于回写时验证一致性。
+    ///
+    /// 典型触发时机：viewport 变化、文档内容变更（textDidChange）。
+    func scheduleInlayHintRequest(
+        visibleLineRange: ClosedRange<Int>,
+        documentVersion: Int
+    ) {
+        guard isOpen else { return }
+        pendingInlayHintTask?.cancel()
+        inlayHintGeneration &+= 1
+        let generation = inlayHintGeneration
+        let bufferedRange = expandedLineRange(visibleLineRange, buffer: 5)
+
+        pendingInlayHintTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled, self.inlayHintGeneration == generation else { return }
+
+            let hints = await self.fetchInlayHints(
+                lineRange: bufferedRange,
+                documentVersion: documentVersion
+            )
+            guard !Task.isCancelled, self.inlayHintGeneration == generation else { return }
+
+            await MainActor.run { [weak self] in
+                guard let self, self.inlayHintGeneration == generation else { return }
+                self.onInlayHintResult?(
+                    CodeEditorInlayHintSnapshot(
+                        documentVersion: documentVersion,
+                        hints: hints
+                    )
+                )
+            }
+        }
+    }
+
+    /// 取消进行中的 inlay hint 请求（用于文档关闭/切换等）。
+    func cancelInlayHintRequest() {
+        pendingInlayHintTask?.cancel()
+        pendingInlayHintTask = nil
+        inlayHintGeneration &+= 1
+    }
+
+    /// 实际发出 LSP 请求并返回 hints，不含代际逻辑（由 schedule 层管理）。
+    private func fetchInlayHints(
+        lineRange: ClosedRange<Int>,
+        documentVersion: Int
+    ) async -> [CodeEditorInlayHint] {
+        guard canServeSemanticRequest(
+            supports: \LSPServerCapabilityHints.supportsInlayHints,
+            requestVersion: documentVersion
+        ) else { return [] }
+
+        return await manager.inlayHints(
+            workspaceRoot: binding.workspaceRoot,
+            serverID: binding.serverID,
+            uri: binding.uri,
+            startLine1Based: lineRange.lowerBound,
+            endLine1Based: lineRange.upperBound
+        )
+    }
+
+    /// 将可见行范围向上下各扩展 `buffer` 行，不超出文档边界。
+    private func expandedLineRange(_ range: ClosedRange<Int>, buffer: Int) -> ClosedRange<Int> {
+        let lower = max(1, range.lowerBound - buffer)
+        let upper = range.upperBound + buffer
+        return lower...upper
     }
 
     private func schedulePendingChange(expectedVersion: Int) {

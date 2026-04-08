@@ -24,6 +24,7 @@ struct CodeEditorTextView: NSViewRepresentable {
     var indentationStatus: CodeEditorIndentationStatus = CodeEditorIndentationStatus(kind: .unknown, width: 0)
     var lspCoordinator: CodeEditorLSPCoordinator? = nil
     var isCompletionEnabled: Bool = false
+    var isInlayHintsEnabled: Bool = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -78,7 +79,10 @@ struct CodeEditorTextView: NSViewRepresentable {
         context.coordinator.installViewportObserver(for: scrollView, textView: textView)
         context.coordinator.schedulePostUpdateRefresh(for: textView, dirtyLineRange: nil)
         if isCompletionEnabled {
-            context.coordinator.installCompletion(for: textView, coordinator: lspCoordinator)
+            context.coordinator.installCompletion(for: textView)
+        }
+        if isInlayHintsEnabled {
+            context.coordinator.installInlayHints(for: textView)
         }
         return containerView
     }
@@ -114,6 +118,10 @@ struct CodeEditorTextView: NSViewRepresentable {
             CodeEditorIndentGuideConfig(from: indentationStatus)
 
         context.coordinator.schedulePostUpdateRefresh(for: textView, dirtyLineRange: dirtyLineRange)
+
+        if !isInlayHintsEnabled {
+            textView.currentInlayHintSnapshot = .empty
+        }
 
         if let focusRequest,
            context.coordinator.lastAppliedFocusRequest != focusRequest {
@@ -157,6 +165,10 @@ extension CodeEditorTextView {
         private let completionTrigger = CodeEditorCompletionTrigger()
         private var completionPanel: CodeEditorCompletionPanel?
         private var isInIMEComposition = false
+
+        // MARK: - Inlay Hints
+        private var lastScheduledInlayHintRange: ClosedRange<Int>?
+        private var lastScheduledInlayHintVersion: Int?
 
         init(_ parent: CodeEditorTextView) {
             self.parent = parent
@@ -333,8 +345,7 @@ extension CodeEditorTextView {
         }
 
         /// 初始化代码补全面板和触发器，连接 LSP coordinator 回调。
-        func installCompletion(for textView: CodeEditorPlatformTextView, coordinator: CodeEditorLSPCoordinator?) {
-            guard let coordinator else { return }
+        func installCompletion(for textView: CodeEditorPlatformTextView) {
             let panel = CodeEditorCompletionPanel()
             completionPanel = panel
             textView.completionDelegate = self
@@ -348,12 +359,12 @@ extension CodeEditorTextView {
                 self?.completionTrigger.dismiss()
             }
 
-            // 触发器 → LSP coordinator 桥接
-            completionTrigger.requestCompletion = { [weak coordinator] ctx, callback in
-                coordinator?.requestCompletion(context: ctx, onResult: callback)
+            // 触发器 → LSP coordinator 桥接（运行时动态读取，避免 makeNSView 时 coordinator 尚未建立的时序问题）
+            completionTrigger.requestCompletion = { [weak self] ctx, callback in
+                self?.parent.lspCoordinator?.requestCompletion(context: ctx, onResult: callback)
             }
-            completionTrigger.cancelRequest = { [weak coordinator] in
-                coordinator?.cancelCompletion()
+            completionTrigger.cancelRequest = { [weak self] in
+                self?.parent.lspCoordinator?.cancelCompletion()
             }
 
             // 面板刷新
@@ -371,6 +382,37 @@ extension CodeEditorTextView {
                 }
                 _ = self  // capture self for lifetime
             }
+        }
+
+        // MARK: - Inlay Hints Integration
+
+        func installInlayHints(for textView: CodeEditorPlatformTextView) {
+            guard let coordinator = parent.lspCoordinator else { return }
+            coordinator.onInlayHintResult = { [weak textView] snapshot in
+                Task { @MainActor in
+                    textView?.currentInlayHintSnapshot = snapshot
+                }
+            }
+        }
+
+        func scheduleInlayHintRequest(for textView: CodeEditorPlatformTextView) {
+            guard parent.isInlayHintsEnabled else { return }
+            guard !textView.hasMarkedText() else { return }
+
+            let range = visibleLineRange(for: textView) ?? fullDocumentLineRange()
+            let version = parent.document.version
+
+            if lastScheduledInlayHintRange == range,
+               lastScheduledInlayHintVersion == version {
+                return
+            }
+            lastScheduledInlayHintRange = range
+            lastScheduledInlayHintVersion = version
+
+            parent.lspCoordinator?.scheduleInlayHintRequest(
+                visibleLineRange: range,
+                documentVersion: version
+            )
         }
 
         private func acceptCompletion(item: CodeEditorCompletionItem, in textView: CodeEditorPlatformTextView) {
@@ -616,6 +658,11 @@ extension CodeEditorTextView {
                         }
                     }
                 )
+            }
+
+            // 高亮调度完成后同步触发 inlay hint 调度
+            if parent.isInlayHintsEnabled {
+                scheduleInlayHintRequest(for: textView)
             }
         }
 
@@ -1107,6 +1154,20 @@ final class CodeEditorPlatformTextView: NSTextView {
     // MARK: - Completion
     /// 键盘操作代理（Coordinator 实现），当面板可见时拦截 Tab/Enter/Esc/↑↓ 键。
     weak var completionDelegate: (any CompletionKeyDelegate)?
+
+    // MARK: - Inlay Hints
+
+    /// 当前 viewport 的 inlay hints 快照。
+    /// 由 Coordinator 在主线程写入，drawBackground 消费。
+    var currentInlayHintSnapshot: CodeEditorInlayHintSnapshot = .empty {
+        didSet {
+            guard currentInlayHintSnapshot.documentVersion != oldValue.documentVersion
+                || currentInlayHintSnapshot.hintsByLine != oldValue.hintsByLine
+            else { return }
+            setNeedsDisplay(visibleRect)
+        }
+    }
+
     var appliedLinePresentationFingerprints: [Int: Int] = [:]
     var lastReappliedLines: [Int] = []
     var highlightedLineNumbers: Set<Int> = [] {
@@ -1185,6 +1246,106 @@ final class CodeEditorPlatformTextView: NSTextView {
 
         // 绘制缩进参考线（在当前行高亮之上，参考线可见）
         drawIndentGuides(in: rect)
+        // 绘制 LSP inlay hints（叠层，不修改 TextStorage）
+        drawInlayHints(in: rect)
+    }
+
+    private func drawInlayHints(in rect: NSRect) {
+        // IME 期间不绘制（避免视觉混乱）
+        guard !hasMarkedText() else { return }
+        guard let layoutManager,
+              let textContainer else { return }
+
+        let snapshot = currentInlayHintSnapshot
+        guard snapshot.documentVersion == currentDocumentVersion,
+              !snapshot.hintsByLine.isEmpty else { return }
+
+        guard let editorFont = self.font else { return }
+        let hintFontSize = max(editorFont.pointSize - 1, 8)
+        let hintFont = NSFont.monospacedSystemFont(ofSize: hintFontSize, weight: .light)
+
+        for (line, hints) in snapshot.hintsByLine {
+            for hint in hints {
+                drawSingleInlayHint(
+                    hint,
+                    line: line,
+                    hintFont: hintFont,
+                    layoutManager: layoutManager,
+                    textContainer: textContainer,
+                    clipRect: rect
+                )
+            }
+        }
+    }
+
+    private func drawSingleInlayHint(
+        _ hint: CodeEditorInlayHint,
+        line: Int,
+        hintFont: NSFont,
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer,
+        clipRect: NSRect
+    ) {
+        let charOffset = displayedLineIndex.utf16Offset(line: line, column: max(1, hint.character))
+        guard charOffset >= 0,
+              charOffset <= (textStorage?.length ?? 0) else { return }
+
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: charOffset)
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return }
+
+        var effectiveGlyphRange = NSRange()
+        let lineFragmentRect = layoutManager.lineFragmentRect(
+            forGlyphAt: glyphIndex,
+            effectiveRange: &effectiveGlyphRange
+        )
+        let glyphLocation = layoutManager.location(forGlyphAt: glyphIndex)
+        let x = lineFragmentRect.minX + textContainerInset.width + glyphLocation.x
+        let y = lineFragmentRect.minY + textContainerInset.height
+
+        let estimatedWidth: CGFloat = CGFloat(hint.label.count) * (hintFont.pointSize * 0.6) + 8
+        let hintRect = NSRect(x: x, y: y, width: estimatedWidth, height: lineFragmentRect.height)
+        guard clipRect.intersects(hintRect) else { return }
+
+        var displayLabel = ""
+        if hint.paddingLeft  { displayLabel += "\u{200A}" }
+        displayLabel += hint.label
+        if hint.paddingRight { displayLabel += "\u{200A}" }
+
+        let foregroundColor: NSColor
+        let backgroundColor: NSColor
+        switch hint.kind {
+        case .type:
+            foregroundColor = NSColor.systemPurple.withAlphaComponent(0.75)
+            backgroundColor = NSColor.systemPurple.withAlphaComponent(0.10)
+        case .parameter:
+            foregroundColor = NSColor.systemBlue.withAlphaComponent(0.75)
+            backgroundColor = NSColor.systemBlue.withAlphaComponent(0.10)
+        case .unknown:
+            foregroundColor = NSColor.tertiaryLabelColor
+            backgroundColor = NSColor.clear
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: hintFont,
+            .foregroundColor: foregroundColor,
+        ]
+        let str = NSAttributedString(string: displayLabel, attributes: attributes)
+        let strSize = str.size()
+
+        let bgRect = NSRect(
+            x: x - 2.0,
+            y: y + (lineFragmentRect.height - strSize.height) / 2 - 1,
+            width: strSize.width + 4.0,
+            height: strSize.height + 2.0
+        )
+        if hint.kind != .unknown {
+            let path = NSBezierPath(roundedRect: bgRect, xRadius: 3, yRadius: 3)
+            backgroundColor.setFill()
+            path.fill()
+        }
+
+        let drawY = y + (lineFragmentRect.height - strSize.height) / 2
+        str.draw(at: NSPoint(x: x, y: drawY))
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {

@@ -232,6 +232,106 @@ final class LSPClient {
 
     func workspaceSymbols(query: String) -> [String] { [] }
 
+    // MARK: - Inlay Hints
+
+    /// 请求 textDocument/inlayHint（LSP §3.17.12）。
+    ///
+    /// - Parameters:
+    ///   - uri: 文档 URI。
+    ///   - startLine/startCharacter: 请求范围起点（0-based）。
+    ///   - endLine/endCharacter: 请求范围终点（0-based）。
+    /// - Returns: 解析后的 hints 数组；失败或服务端无能力时返回空数组。
+    func inlayHints(
+        uri: String,
+        startLine: Int,
+        startCharacter: Int,
+        endLine: Int,
+        endCharacter: Int
+    ) async -> [CodeEditorInlayHint] {
+        let params: [String: Any] = [
+            "textDocument": ["uri": uri],
+            "range": [
+                "start": ["line": startLine, "character": startCharacter],
+                "end":   ["line": endLine,   "character": endCharacter]
+            ]
+        ]
+        guard let result = try? await transport.sendRequest(
+            method: "textDocument/inlayHint",
+            params: params
+        ) else { return [] }
+        return parseInlayHints(from: result)
+    }
+
+    /// 按 UTF-16 行号边界发起请求（1-based → 0-based 转换由此方法负责）。
+    func inlayHints(
+        uri: String,
+        startLine1Based: Int,
+        endLine1Based: Int
+    ) async -> [CodeEditorInlayHint] {
+        return await inlayHints(
+            uri: uri,
+            startLine: max(0, startLine1Based - 1),
+            startCharacter: 0,
+            endLine: max(0, endLine1Based - 1),
+            endCharacter: Int.max
+        )
+    }
+
+    /// 解析 `textDocument/inlayHint` 响应 → `[CodeEditorInlayHint]`。
+    ///
+    /// 响应格式（LSP Spec）：
+    /// ```
+    /// InlayHint {
+    ///   position: Position    // { line: number, character: number }（0-based）
+    ///   label: string | InlayHintLabelPart[]
+    ///   kind?: InlayHintKind  // 1=Type, 2=Parameter
+    ///   paddingLeft?: boolean
+    ///   paddingRight?: boolean
+    /// }
+    /// ```
+    func parseInlayHints(from result: Any?) -> [CodeEditorInlayHint] {
+        guard let array = result as? [[String: Any]] else { return [] }
+        let maxLabelLength = 40
+
+        var hints: [CodeEditorInlayHint] = []
+        for item in array {
+            guard let position = item["position"] as? [String: Any],
+                  let line0     = (position["line"]      as? Int) ?? (position["line"]      as? NSNumber).map(\.intValue),
+                  let char0     = (position["character"] as? Int) ?? (position["character"] as? NSNumber).map(\.intValue)
+            else { continue }
+
+            // label: string | InlayHintLabelPart[]
+            let rawLabel: String
+            if let str = item["label"] as? String {
+                rawLabel = str
+            } else if let parts = item["label"] as? [[String: Any]] {
+                rawLabel = parts.compactMap { $0["value"] as? String }.joined()
+            } else { continue }
+
+            // 截断超长 label
+            let label: String
+            if rawLabel.count > maxLabelLength {
+                label = String(rawLabel.prefix(maxLabelLength)) + "…"
+            } else {
+                label = rawLabel
+            }
+
+            let kindRaw = (item["kind"] as? Int) ?? (item["kind"] as? NSNumber).map(\.intValue) ?? 0
+            let paddingLeft  = item["paddingLeft"]  as? Bool ?? false
+            let paddingRight = item["paddingRight"] as? Bool ?? false
+
+            hints.append(CodeEditorInlayHint(
+                line: line0 + 1,           // 0-based → 1-based
+                character: char0 + 1,      // 0-based → 1-based
+                label: label,
+                kind: CodeEditorInlayHintKind(rawValue: kindRaw),
+                paddingLeft: paddingLeft,
+                paddingRight: paddingRight
+            ))
+        }
+        return hints
+    }
+
     func publishDiagnostics(
         workspaceRoot: String,
         uri: String,
@@ -712,6 +812,16 @@ extension LSPClient {
             adapter: _NoOpLSPAdapter()
         )
         return dummy.negotiatedCapabilities(from: rawResult, fallback: fallback)
+    }
+
+    /// テスト専用：データパースのみを検証するための最小クライアントを生成する。
+    static func makeTestInstance() -> LSPClient {
+        LSPClient(
+            transport: LSPJSONRPCTransport(),
+            documentStore: LSPDocumentStore(),
+            diagnosticsStore: LSPDiagnosticsStore(),
+            adapter: _NoOpLSPAdapter()
+        )
     }
 
     @MainActor
