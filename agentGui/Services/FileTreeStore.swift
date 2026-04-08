@@ -94,36 +94,53 @@ actor FileTreeStore {
     }
 
     /// 展开目录：若尚未加载则触发浅扫描，将 ID 加入 expandedIDs。
+    ///
+    /// 错误处理（参考 Zed `fetch_directory_contents()` 失败路径）：
+    /// - 扫描失败时：重置 loadState 为 .notLoaded，从 expandedIDs 移除，再 rethrow。
+    /// - 这确保目录在 UI 侧仍可再次点击展开，且 visibleEntries 不会出现悬空的 .loading 行。
     func expandDirectory(_ id: EntryID) async throws {
         guard let entry = entries[id], entry.isDirectory else { return }
         expandedIDs.insert(id)
 
         guard entry.loadState == .notLoaded else { return }
 
-        // 标记 loading
+        // 标记 loading，触发 UI spinner
         entries[id]?.loadState = .loading
-        let scanned = try await scanner.shallowScan(directory: id.url)
 
-        var childIDs: [EntryID] = []
-        for item in scanned {
-            let childIDVal = EntryID(url: item.url.standardizedFileURL)
-            let childEntry = FileEntry(
-                id: childIDVal,
-                name: item.name,
-                isDirectory: item.isDirectory,
-                parentID: id,
-                loadState: item.isDirectory ? .notLoaded : .loaded
-            )
-            entries[childIDVal] = childEntry
-            childIDs.append(childIDVal)
+        do {
+            let scanned = try await scanner.shallowScan(directory: id.url)
+
+            var childIDs: [EntryID] = []
+            for item in scanned {
+                let childIDVal = EntryID(url: item.url.standardizedFileURL)
+                let childEntry = FileEntry(
+                    id: childIDVal,
+                    name: item.name,
+                    isDirectory: item.isDirectory,
+                    parentID: id,
+                    loadState: item.isDirectory ? .notLoaded : .loaded
+                )
+                entries[childIDVal] = childEntry
+                childIDs.append(childIDVal)
+            }
+            children[id] = sortedIDs(childIDs)
+            entries[id]?.loadState = .loaded
+        } catch {
+            // 扫描失败：回退状态，确保 UI 一致性
+            entries[id]?.loadState = .notLoaded
+            expandedIDs.remove(id)
+            throw error
         }
-        children[id] = sortedIDs(childIDs)
-        entries[id]?.loadState = .loaded
     }
 
     /// 折叠目录：从 expandedIDs 移除，不卸载 children（保留缓存）。
     func collapseDirectory(_ id: EntryID) {
         expandedIDs.remove(id)
+    }
+
+    /// 查询目录是否已展开。
+    func isExpanded(_ id: EntryID) -> Bool {
+        expandedIDs.contains(id)
     }
 
     /// O(1) 查找条目。
@@ -172,6 +189,7 @@ actor FileTreeStore {
                 isDirectory: entry.isDirectory,
                 depth: depth,
                 isExpanded: isExpanded,
+                loadState: entry.loadState,     // FT-R3：传递加载状态
                 foldedAncestors: nil,    // Auto-fold 在 FT-R5 实现
                 gitSummary: nil,          // Git badge 在 FT-R7 实现
                 diagnosticSeverity: nil,  // Diag badge 在 FT-R14 实现

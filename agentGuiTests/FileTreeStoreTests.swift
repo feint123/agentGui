@@ -33,6 +33,7 @@ final class FileTreeStoreTests: XCTestCase {
             isDirectory: false,
             depth: 1,
             isExpanded: false,
+            loadState: .loaded,
             foldedAncestors: nil,
             gitSummary: nil,
             diagnosticSeverity: nil,

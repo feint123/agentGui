@@ -10,6 +10,9 @@ struct VisibleEntry: Identifiable, Equatable, Sendable {
     let isDirectory: Bool
     let depth: Int
     let isExpanded: Bool
+    /// 目录的加载状态——Cell 据此决定是否显示 NSProgressIndicator。
+    /// 参考 Zed `EntryDetails.is_dir_scanning`（project_panel.rs）。
+    let loadState: FileEntry.LoadState
     /// 非 nil 表示该节点是 Auto-fold 链的"叶节点"，需渲染多段路径。
     /// 参考 Zed `FoldedAncestors`（project_panel.rs）的 `ancestors` vec。
     let foldedAncestors: FoldedAncestors?
