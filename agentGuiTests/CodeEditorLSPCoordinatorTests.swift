@@ -325,6 +325,84 @@ struct CodeEditorLSPCoordinatorTests {
 
         #expect(symbols.isEmpty)
     }
+
+    // MARK: - Incremental change set forwarding
+
+    @Test
+    func singleEditForwardsEditorChangeSetToSyncDocument() async throws {
+        // Setup: configure the harness with an adapter returning incremental syncKind
+        let harness = IncrementalCapabilityHarness()
+        let manager = harness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: .fixtureSourceFile(),
+            debounceNanoseconds: 30_000_000
+        )
+
+        coordinator.activate(initialText: "hello world", version: 1)
+
+        coordinator.handleTextChange(
+            text: "hello Swift",
+            change: EditorChangeSet(
+                version: 2,
+                replacedRange: NSRange(location: 6, length: 5),
+                insertedText: "Swift",
+                selectedRange: NSRange(location: 11, length: 0),
+                origin: .userEdit
+            )
+        )
+
+        try await Task.sleep(nanoseconds: 80_000_000)
+
+        // Verify: an incremental change was captured (range present in last didChange payload)
+        #expect(harness.lastIncrementalChangeRange != nil,
+                "single edit should be forwarded as incremental change with range")
+    }
+
+    @Test
+    func rapidEditsExceedingDebounceWindowFallBackToFullSync() async throws {
+        let harness = IncrementalCapabilityHarness()
+        let manager = harness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: .fixtureSourceFile(),
+            debounceNanoseconds: 60_000_000
+        )
+
+        coordinator.activate(initialText: "hello world", version: 1)
+
+        // Two rapid edits before debounce fires → coordinator marks pending as ambiguous
+        coordinator.handleTextChange(
+            text: "hello Sw",
+            change: EditorChangeSet(
+                version: 2,
+                replacedRange: NSRange(location: 6, length: 5),
+                insertedText: "Sw",
+                selectedRange: NSRange(location: 8, length: 0),
+                origin: .userEdit
+            )
+        )
+        coordinator.handleTextChange(
+            text: "hello Swift",
+            change: EditorChangeSet(
+                version: 3,
+                replacedRange: NSRange(location: 8, length: 0),
+                insertedText: "ift",
+                selectedRange: NSRange(location: 11, length: 0),
+                origin: .userEdit
+            )
+        )
+
+        try await Task.sleep(nanoseconds: 120_000_000)
+
+        // Verify: incremental range NOT present (full text was sent)
+        #expect(harness.lastIncrementalChangeRange == nil,
+                "multiple rapid edits should fall back to full sync (no range in content change)")
+        // But text WAS updated
+        #expect(harness.lastClientDocumentSnapshot?.text == "hello Swift")
+    }
 }
 
 private extension CodeEditorLSPDocumentBinding {

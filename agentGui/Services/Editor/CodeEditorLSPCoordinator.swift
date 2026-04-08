@@ -19,6 +19,8 @@ final class CodeEditorLSPCoordinator {
     private var pendingText: String?
     private var pendingVersion: Int?
     private var pendingChangeTask: Task<Void, Never>?
+    private var pendingChangeSet: EditorChangeSet?
+    private var pendingChangeSetIsAmbiguous = false
     private var latestHoverGeneration = 0
     private var pendingHoverTask: Task<Void, Never>?
 
@@ -59,6 +61,15 @@ final class CodeEditorLSPCoordinator {
         switch change.origin {
         case .userEdit:
             latestLocalVersion = max(latestLocalVersion, change.version)
+            // Track change accumulation.
+            // If there's already a pending change we haven't flushed, mark as ambiguous
+            // so the flush falls back to full sync.
+            if pendingText != nil {
+                pendingChangeSetIsAmbiguous = true
+            } else {
+                pendingChangeSet = change
+                pendingChangeSetIsAmbiguous = false
+            }
             pendingText = text
             pendingVersion = change.version
             schedulePendingChange(expectedVersion: change.version)
@@ -74,6 +85,8 @@ final class CodeEditorLSPCoordinator {
         pendingChangeTask = nil
         pendingText = nil
         pendingVersion = nil
+        pendingChangeSet = nil
+        pendingChangeSetIsAmbiguous = false
         cancelHover()
 
         if !isOpen {
@@ -96,6 +109,8 @@ final class CodeEditorLSPCoordinator {
         pendingChangeTask = nil
         pendingText = nil
         pendingVersion = nil
+        pendingChangeSet = nil
+        pendingChangeSetIsAmbiguous = false
         cancelHover()
 
         guard isOpen else {
@@ -322,6 +337,10 @@ final class CodeEditorLSPCoordinator {
             return
         }
 
+        // Only forward EditorChangeSet when exactly one change accumulated (unambiguous),
+        // enabling the incremental sync path. Multiple accumulated changes fall back to full.
+        let changeSetToSend: EditorChangeSet? = pendingChangeSetIsAmbiguous ? nil : pendingChangeSet
+
         if !isOpen {
             activate(initialText: pendingText, version: pendingVersion)
         } else {
@@ -330,13 +349,16 @@ final class CodeEditorLSPCoordinator {
                 serverID: binding.serverID,
                 uri: binding.uri,
                 languageID: binding.languageID,
-                text: pendingText
+                text: pendingText,
+                editorChange: changeSetToSend
             )
         }
 
         latestSentVersion = max(latestSentVersion, pendingVersion)
         self.pendingText = nil
         self.pendingVersion = nil
+        self.pendingChangeSet = nil
+        self.pendingChangeSetIsAmbiguous = false
         pendingChangeTask = nil
     }
 
