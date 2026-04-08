@@ -73,6 +73,7 @@ struct ChatView: View {
     /// R-D4: 从消息上下文菜单触发的待确认回滚数据。
     /// 非 nil 时触发 RewindConfirmationSheet。
     @State var contextMenuPendingConfirmation: MessageRewindSelectorViewModel.PendingConfirmation? = nil
+    @State var previousMessageListRefreshKey: ChatMessageListRefreshKey? = nil
 
     @FocusState var isInputFocused: Bool
 

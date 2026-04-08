@@ -52,7 +52,11 @@ extension ChatView {
             }
         }
         .task(id: refreshKey) {
-            await refreshMessageListSnapshotForCurrentState()
+            await refreshMessageListSnapshotThrottled(
+                current: refreshKey,
+                previous: previousMessageListRefreshKey
+            )
+            previousMessageListRefreshKey = refreshKey
         }
     }
 
@@ -211,5 +215,31 @@ extension ChatView {
             workspaceRoot: workspaceRoot,
             showsLoadingPlaceholder: showsLoadingPlaceholder
         )
+    }
+
+    // MARK: - Throttled Refresh
+
+    /// 使用 StreamChangeKind 决策是否延迟 1 帧再触发投影重建。
+    /// - contentDelta：sleep 1 帧（≈16.7ms），让更新的 task 有机会取消本次 task
+    /// - structural / noChange：立即执行，保证 UI 即时响应新消息或状态变更
+    @MainActor
+    func refreshMessageListSnapshotThrottled(
+        current: ChatMessageListRefreshKey,
+        previous: ChatMessageListRefreshKey?
+    ) async {
+        let kind: StreamChangeKind
+        if let previous {
+            kind = current.changeKind(from: previous)
+        } else {
+            kind = .structural  // 首次加载视为结构性变更
+        }
+
+        if kind == .contentDelta {
+            // 等待 1 帧：若在此期间 refreshKey 再次变化，SwiftUI 自动取消此 Task
+            try? await Task.sleep(nanoseconds: 16_700_000)  // 16.7ms ≈ 1/60s
+            guard !Task.isCancelled else { return }
+        }
+
+        await refreshMessageListSnapshotForCurrentState()
     }
 }
