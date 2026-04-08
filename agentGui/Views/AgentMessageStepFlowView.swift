@@ -5,6 +5,8 @@ struct AgentMessageStepFlowView: View {
 
     let projection: AgentExecutionProjection
 
+    @State private var budgetTracker = StreamingCharBudgetTracker()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if projection.header.isLive, showsExecutionTheater {
@@ -26,7 +28,8 @@ struct AgentMessageStepFlowView: View {
                         id: "transcript-\(projection.audit.flow.messageID.uuidString)",
                         text: projection.transcript.answerText,
                         isError: projection.transcript.isError
-                    )
+                    ),
+                    charBudget: projection.header.isLive ? budgetTracker.displayedCharBudget : nil
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .accessibilityIdentifier("chat.agentMessage.answerBlock")
@@ -44,6 +47,14 @@ struct AgentMessageStepFlowView: View {
         .animation(ChatMotion.enterSpring, value: projection.header.isLive)
         .animation(ChatMotion.theaterStateChange, value: projection.theater.cards.map(\.id))
         .animation(ChatMotion.theaterStateChange, value: pendingPermissionRequests.map(\.id))
+        .onChange(of: projection.transcript.answerText) { _, newText in
+            handleAnswerTextChange(newText: newText)
+        }
+        .onChange(of: projection.header.isLive) { _, isLive in
+            if !isLive {
+                budgetTracker.stopTracking(finalLength: projection.transcript.answerText.count)
+            }
+        }
     }
 
     private var pendingPermissionRequests: [ACPPermissionCenter.PendingRequest] {
@@ -55,5 +66,14 @@ struct AgentMessageStepFlowView: View {
 
     private var showsExecutionTheater: Bool {
         !projection.theater.cards.isEmpty || !pendingPermissionRequests.isEmpty
+    }
+
+    private func handleAnswerTextChange(newText: String) {
+        guard projection.header.isLive else { return }
+        if !budgetTracker.isTracking {
+            // 第一次有内容：开始追踪
+            budgetTracker.startTracking(targetLength: newText.count)
+        }
+        // 每次文本扩展时更新 target（timer 会自动追赶）
     }
 }

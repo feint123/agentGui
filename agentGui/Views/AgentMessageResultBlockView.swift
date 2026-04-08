@@ -2,6 +2,15 @@ import SwiftUI
 
 struct AgentMessageResultBlockView: View {
     let presentation: ResultStepPresentation
+    /// 可见字符预算。nil 表示展示全量（非 streaming 时）。
+    var charBudget: Int? = nil
+
+    private var visibleText: String {
+        guard let budget = charBudget, budget < presentation.text.count else {
+            return presentation.text
+        }
+        return String(presentation.text.prefix(budget))
+    }
 
     var body: some View {
         Group {
@@ -15,7 +24,7 @@ struct AgentMessageResultBlockView: View {
                 .font(.body)
                 .foregroundStyle(.red)
             } else {
-                MarkdownMessageView(text: presentation.text)
+                MarkdownMessageView(text: visibleText)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
