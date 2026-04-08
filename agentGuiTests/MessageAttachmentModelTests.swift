@@ -59,3 +59,63 @@ struct MessageAttachmentModelTests {
         #expect(message.attachments.first?.filePath == "/src/Foo.swift")
     }
 }
+
+// MARK: - CV-FA2: originRaw and selectedText fields
+
+extension MessageAttachmentModelTests {
+
+    @Test
+    func defaultOriginIsExternal() {
+        let a = MessageAttachment(filePath: "/tmp/F.swift", displayName: "F.swift", fileKind: .sourceCode)
+        #expect(a.origin == .external)
+        #expect(a.originRaw == AttachmentOrigin.external.rawValue)
+    }
+
+    @Test
+    func focusedOriginRoundTrips() {
+        let a = MessageAttachment(
+            filePath: "/tmp/F.swift",
+            displayName: "F.swift",
+            fileKind: .sourceCode,
+            origin: .focused
+        )
+        #expect(a.origin == .focused)
+        #expect(a.originRaw == "focused")
+    }
+
+    @Test
+    func selectedTextStoredOnFocusedAttachment() {
+        let a = MessageAttachment(
+            filePath: "/tmp/F.swift",
+            displayName: "F.swift",
+            fileKind: .sourceCode,
+            origin: .focused,
+            selectedText: "let x = 42"
+        )
+        #expect(a.selectedText == "let x = 42")
+    }
+
+    @Test
+    func fromAttachedFileCopiesOrigin() {
+        let file = AttachedFile(
+            name: "View.swift",
+            url: URL(fileURLWithPath: "/src/View.swift"),
+            origin: .focused
+        )
+        let attachment = MessageAttachment.from(file)
+        #expect(attachment.origin == .focused)
+    }
+
+    @Test
+    func fromAttachedFileFocusedWithSelectedText() {
+        var file = AttachedFile(
+            name: "View.swift",
+            url: URL(fileURLWithPath: "/src/View.swift"),
+            origin: .focused
+        )
+        file.selectedText = "body { EmptyView() }"
+        let attachment = MessageAttachment.from(file)
+        #expect(attachment.origin == .focused)
+        #expect(attachment.selectedText == "body { EmptyView() }")
+    }
+}

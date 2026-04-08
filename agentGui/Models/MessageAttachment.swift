@@ -37,6 +37,19 @@ final class MessageAttachment {
     var lineStart: Int?
     var lineEnd: Int?
 
+    // MARK: - CV-FA2: Origin + selected text (聚焦文件专用)
+
+    /// 附件来源。新增字段，旧数据库行默认 NULL 映射为 `.external`。
+    var originRaw: String = AttachmentOrigin.external.rawValue
+
+    /// 聚焦文件的选区文本（仅 origin == .focused 时非 nil）。
+    var selectedText: String?
+
+    var origin: AttachmentOrigin {
+        get { AttachmentOrigin(rawValue: originRaw) ?? .external }
+        set { originRaw = newValue.rawValue }
+    }
+
     /// 反向关系（由 Message.attachments 拥有）
     var message: Message?
 
@@ -55,7 +68,9 @@ final class MessageAttachment {
         displayName: String,
         fileKind: AttachmentKind,
         lineStart: Int? = nil,
-        lineEnd: Int? = nil
+        lineEnd: Int? = nil,
+        origin: AttachmentOrigin = .external,
+        selectedText: String? = nil
     ) {
         self.id = UUID()
         self.filePath = filePath
@@ -64,6 +79,8 @@ final class MessageAttachment {
         self.statusRaw = AttachmentStatus.valid.rawValue
         self.lineStart = lineStart
         self.lineEnd = lineEnd
+        self.originRaw = origin.rawValue
+        self.selectedText = selectedText
     }
 }
 
@@ -74,7 +91,11 @@ extension MessageAttachment {
         MessageAttachment(
             filePath: file.path,
             displayName: file.name,
-            fileKind: resolveKind(for: file)
+            fileKind: resolveKind(for: file),
+            lineStart: file.lineStart,
+            lineEnd: file.lineEnd,
+            origin: file.origin,
+            selectedText: file.selectedText
         )
     }
 

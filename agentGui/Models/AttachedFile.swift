@@ -23,6 +23,11 @@ struct AttachedFile: Identifiable {
     var origin: AttachmentOrigin = .external
     var uploadStatus: UploadStatus = .pending
 
+    // CV-FA2: 聚焦文件专用字段
+    var selectedText: String? = nil
+    var lineStart: Int? = nil
+    var lineEnd: Int? = nil
+
     enum UploadStatus: Equatable {
         case pending    // 等待（本地文件通常常驻此态）
         case uploading  // 上传中（未来远程文件使用）
