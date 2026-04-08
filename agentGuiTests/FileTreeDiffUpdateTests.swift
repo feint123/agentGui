@@ -183,3 +183,73 @@ extension FileTreeDiffUpdateTests {
         XCTAssertTrue(diff.removals.isEmpty)
     }
 }
+
+// MARK: - 边界情况
+
+extension FileTreeDiffUpdateTests {
+
+    // 清空列表（折叠根目录，子树全部消失）
+    func testCompute_clearAllEntries_fullReloadFallback() {
+        // 30 行全部消失 → 超过默认 threshold 则降级，否则正常 diff
+        let old = (0..<30).map { makeEntry(name: "file_\($0)") }
+        let new: [VisibleEntry] = []
+        let diff = FileTreeDiff.compute(from: old, to: new, threshold: 200)
+        // 新列表为空，30 行全删除，总变更 = 30 < 200 → 不降级
+        XCTAssertFalse(diff.shouldFullReload)
+        XCTAssertEqual(diff.removals.count, 30)
+        XCTAssertTrue(diff.insertions.isEmpty)
+    }
+
+    // 内容和结构同时变化（先处理结构 diff，内容变更在 empty diff 时才检查）
+    func testCompute_mixedStructuralAndContent_structuralTakesPriority() {
+        let a = makeEntry(name: "a")
+        let b = makeEntry(name: "b")
+        let bModified = makeEntry(name: "b", gitSummary: .modified)  // 内容变
+        let c = makeEntry(name: "c")
+        let old = [a, b]
+        let new = [a, bModified, c]  // b 内容变 + 插入 c
+        let diff = FileTreeDiff.compute(from: old, to: new)
+        XCTAssertFalse(diff.shouldFullReload)
+        // 有结构变更（插入 c），内容变更不单独处理
+        XCTAssertFalse(diff.insertions.isEmpty)
+        // 注意：有结构变更时 contentReloads 为空（由 diff.isEmpty guard 保证）
+        XCTAssertTrue(diff.contentReloads.isEmpty)
+    }
+
+    // gitSummary 变化（文件被修改后 badge 更新）应走 contentReload
+    func testCompute_gitBadgeChange_contentReload() {
+        let file = makeEntry(name: "App.swift", gitSummary: nil)
+        let fileModified = makeEntry(name: "App.swift", gitSummary: .modified)
+        let diff = FileTreeDiff.compute(from: [file], to: [fileModified])
+        XCTAssertFalse(diff.shouldFullReload)
+        XCTAssertTrue(diff.removals.isEmpty)
+        XCTAssertTrue(diff.insertions.isEmpty)
+        XCTAssertEqual(diff.contentReloads, IndexSet(integer: 0))
+    }
+
+    // loadState 变化（.notLoaded → .loading → .loaded）应走 contentReload
+    func testCompute_loadStateChange_contentReload() {
+        let dir = makeEntry(name: "src", loadState: .notLoaded)
+        let dirLoading = makeEntry(name: "src", loadState: .loading)
+        let diff = FileTreeDiff.compute(from: [dir], to: [dirLoading])
+        XCTAssertEqual(diff.contentReloads, IndexSet(integer: 0))
+    }
+
+    // threshold = 0：任何变更都降级
+    func testCompute_thresholdZero_alwaysFullReload() {
+        let old = [makeEntry(name: "a")]
+        let new = [makeEntry(name: "a"), makeEntry(name: "b")]
+        let diff = FileTreeDiff.compute(from: old, to: new, threshold: 0)
+        XCTAssertTrue(diff.shouldFullReload)
+    }
+
+    // 相同列表不触发 contentReload（即使逐项比较也无差异）
+    func testCompute_identicalEntries_noReloadAtAll() {
+        let entries = (0..<10).map { makeEntry(name: "file_\($0)") }
+        let diff = FileTreeDiff.compute(from: entries, to: entries)
+        XCTAssertFalse(diff.shouldFullReload)
+        XCTAssertTrue(diff.removals.isEmpty)
+        XCTAssertTrue(diff.insertions.isEmpty)
+        XCTAssertTrue(diff.contentReloads.isEmpty)
+    }
+}
