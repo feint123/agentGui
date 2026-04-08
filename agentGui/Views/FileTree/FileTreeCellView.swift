@@ -26,6 +26,10 @@ final class FileTreeCellView: NSTableCellView {
     private let iconView = NSImageView()
     private let nameLabel = NSTextField()
     private let gitBadgeLabel = NSTextField()
+    /// 分段路径容器（仅 auto-fold 行使用，普通行隐藏）。
+    /// 每个段是一个无边框 NSButton，段间插入弱色 " / " 标签。
+    private let segmentedPathStack = NSStackView()
+    private var segmentButtons: [(button: NSButton, entryID: EntryID)] = []
 
     // MARK: - 内部缓存
 
@@ -35,6 +39,10 @@ final class FileTreeCellView: NSTableCellView {
 
     /// 用户点击展开/折叠三角形时触发，传入对应 EntryID。
     var onToggleExpand: ((EntryID) -> Void)?
+
+    /// 用户点击折叠路径的某个分段时触发，传入该段的 EntryID。
+    /// 参考 Zed render_folder_elements + VSCode getIconLabelNameFromHTMLElement。
+    var onUnfoldSegment: ((EntryID) -> Void)?
 
     // MARK: - 内部状态
 
@@ -130,6 +138,18 @@ final class FileTreeCellView: NSTableCellView {
             gitBadgeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             gitBadgeLabel.widthAnchor.constraint(equalToConstant: 20),
         ])
+
+        // segmentedPathStack：与 nameLabel 同位置，初始隐藏
+        segmentedPathStack.translatesAutoresizingMaskIntoConstraints = false
+        segmentedPathStack.orientation = .horizontal
+        segmentedPathStack.spacing = 0
+        segmentedPathStack.isHidden = true
+        addSubview(segmentedPathStack)
+        NSLayoutConstraint.activate([
+            segmentedPathStack.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            segmentedPathStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            segmentedPathStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6),
+        ])
     }
 
     // MARK: - 配置
@@ -140,10 +160,12 @@ final class FileTreeCellView: NSTableCellView {
     ///   - entry: 当前行数据
     ///   - isSelected: 是否处于选中状态
     ///   - onToggle: 展开/折叠回调（在 Coordinator 中绑定）
+    ///   - onUnfoldSegment: 点击折叠路径某段时的回调（仅 auto-fold 行有效）
     func configure(
         entry: VisibleEntry,
         isSelected: Bool,
-        onToggle: @escaping (EntryID) -> Void
+        onToggle: @escaping (EntryID) -> Void,
+        onUnfoldSegment: ((EntryID) -> Void)? = nil
     ) {
         entryID = entry.id
         onToggleExpand = onToggle
@@ -188,9 +210,17 @@ final class FileTreeCellView: NSTableCellView {
         iconView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfig)
 
-        // 4. 文件名
-        nameLabel.stringValue = displayName(for: entry)
-        nameLabel.textColor = isSelected ? .selectedMenuItemTextColor : .labelColor
+        // 4. 名称 / 分段路径
+        self.onUnfoldSegment = entry.foldedAncestors != nil ? onUnfoldSegment : nil
+        if let folded = entry.foldedAncestors {
+            nameLabel.isHidden = true
+            configureSegmentedPath(folded, isSelected: isSelected)
+        } else {
+            segmentedPathStack.isHidden = true
+            nameLabel.isHidden = false
+            nameLabel.stringValue = entry.name
+            nameLabel.textColor = isSelected ? .selectedMenuItemTextColor : .labelColor
+        }
 
         // 5. git badge（FT-R7 完整实现，此处占位）
         if let git = entry.gitSummary {
@@ -202,15 +232,42 @@ final class FileTreeCellView: NSTableCellView {
         }
     }
 
-    // MARK: - 折叠路径支持（FT-R5 预留）
+    // MARK: - 折叠路径渲染（FT-R5）
 
-    /// 返回显示名称。如有 foldedAncestors 则显示压缩路径，否则直接返回 name。
-    private func displayName(for entry: VisibleEntry) -> String {
-        if let folded = entry.foldedAncestors {
-            let segments = folded.segments.map(\.name).joined(separator: " / ")
-            return "\(segments) / \(entry.name)"
+    /// 构建分段路径 StackView。每段一个无边框 NSButton，段间插入弱色 " / " 标签。
+    /// 参考 Zed render_folder_elements + VSCode renderCompressedElements。
+    private func configureSegmentedPath(_ folded: FoldedAncestors, isSelected: Bool) {
+        segmentedPathStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        segmentButtons.removeAll()
+        segmentedPathStack.isHidden = false
+
+        let segColor: NSColor = isSelected ? .selectedMenuItemTextColor : .labelColor
+        let sepColor: NSColor = isSelected ? .selectedMenuItemTextColor.withAlphaComponent(0.5)
+                                            : .tertiaryLabelColor
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .regular))
+
+        for (i, seg) in folded.segments.enumerated() {
+            let btn = NSButton(title: seg.name, target: self, action: #selector(segmentTapped(_:)))
+            btn.isBordered = false
+            btn.font = font
+            btn.contentTintColor = segColor
+            btn.tag = i
+            segmentedPathStack.addArrangedSubview(btn)
+            segmentButtons.append((button: btn, entryID: seg.entryID))
+
+            if i < folded.segments.count - 1 {
+                let sep = NSTextField(labelWithString: " / ")
+                sep.textColor = sepColor
+                sep.font = font
+                segmentedPathStack.addArrangedSubview(sep)
+            }
         }
-        return entry.name
+    }
+
+    @objc private func segmentTapped(_ sender: NSButton) {
+        let idx = sender.tag
+        guard idx < segmentButtons.count else { return }
+        onUnfoldSegment?(segmentButtons[idx].entryID)
     }
 
     // MARK: - 事件处理

@@ -24,6 +24,9 @@ struct FileTreeTableView: NSViewRepresentable {
     /// 用户点击展开/折叠三角形
     var onToggleExpand: (EntryID) -> Void = { _ in }
 
+    /// 用户点击折叠路径分段时触发，由 FileTreeViewModel.unfoldDirectory 处理。
+    var onUnfoldSegment: ((EntryID) -> Void)? = nil
+
     /// 用户双击文件（打开文件）
     var onDoubleClick: (EntryID) -> Void = { _ in }
 
@@ -31,7 +34,8 @@ struct FileTreeTableView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(entries: entries, selection: selection, onSelect: onSelect,
-                    onToggleExpand: onToggleExpand, onDoubleClick: onDoubleClick)
+                    onToggleExpand: onToggleExpand, onDoubleClick: onDoubleClick,
+                    onUnfoldSegment: onUnfoldSegment)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -76,6 +80,7 @@ struct FileTreeTableView: NSViewRepresentable {
         coordinator.onSelect = onSelect
         coordinator.onToggleExpand = onToggleExpand
         coordinator.onDoubleClick = onDoubleClick
+        coordinator.onUnfoldSegment = onUnfoldSegment
 
         guard let tableView = coordinator.tableView else { return }
 
@@ -99,6 +104,7 @@ struct FileTreeTableView: NSViewRepresentable {
         var onSelect: (EntryID, SelectionModifier) -> Void
         var onToggleExpand: (EntryID) -> Void
         var onDoubleClick: (EntryID) -> Void
+        var onUnfoldSegment: ((EntryID) -> Void)?
         weak var tableView: NSTableView?
 
         /// 防止 tableViewSelectionDidChange 循环触发
@@ -107,12 +113,14 @@ struct FileTreeTableView: NSViewRepresentable {
         init(entries: [VisibleEntry], selection: FileTreeSelection,
              onSelect: @escaping (EntryID, SelectionModifier) -> Void,
              onToggleExpand: @escaping (EntryID) -> Void,
-             onDoubleClick: @escaping (EntryID) -> Void) {
+             onDoubleClick: @escaping (EntryID) -> Void,
+             onUnfoldSegment: ((EntryID) -> Void)? = nil) {
             self.entries = entries
             self.selection = selection
             self.onSelect = onSelect
             self.onToggleExpand = onToggleExpand
             self.onDoubleClick = onDoubleClick
+            self.onUnfoldSegment = onUnfoldSegment
         }
 
         // MARK: NSTableViewDataSource
@@ -132,10 +140,12 @@ struct FileTreeTableView: NSViewRepresentable {
             cell.identifier = FileTreeCellView.reuseIdentifier
 
             let isSelected = selection.selected.contains(entry.id)
-            cell.configure(entry: entry, isSelected: isSelected) { [weak self] id in
-                // 展开/折叠不影响选中状态
-                self?.onToggleExpand(id)
-            }
+            cell.configure(
+                entry: entry,
+                isSelected: isSelected,
+                onToggle: { [weak self] id in self?.onToggleExpand(id) },
+                onUnfoldSegment: { [weak self] id in self?.onUnfoldSegment?(id) }
+            )
             return cell
         }
 
