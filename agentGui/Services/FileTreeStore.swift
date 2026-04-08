@@ -164,6 +164,69 @@ actor FileTreeStore {
         return result
     }
 
+    // MARK: - Auto-fold（FT-R5）
+
+    /// 是否开启 Compact Folders（默认 true，对标 VSCode compactFolders 设置）。
+    private var compactFolders: Bool = true
+
+    /// 用户手动展开的节点集合（不参与 auto-fold）。
+    /// 参考 Zed `State.unfolded_dir_ids: HashSet<ProjectEntryId>`。
+    private var unfoldedIDs: Set<EntryID> = []
+
+    /// 对外暴露的设置入口（供 ViewModel 调用）。
+    func setCompactFolders(_ value: Bool) {
+        compactFolders = value
+    }
+
+    /// 将目录加入 unfoldedIDs，阻止其被自动折叠。
+    /// 参考 Zed `unfold_directory(id)`。
+    func unfoldDirectory(_ id: EntryID) {
+        unfoldedIDs.insert(id)
+    }
+
+    /// 从 unfoldedIDs 移除，恢复 auto-fold。
+    /// 参考 Zed `fold_directory(id)`。
+    func foldDirectory(_ id: EntryID) {
+        unfoldedIDs.remove(id)
+    }
+
+    /// 判断目录节点是否满足 auto-fold 条件。
+    ///
+    /// 条件（参考 Zed `is_foldable` + VSCode `ExplorerCompressionDelegate.isIncompressible`）：
+    /// 1. compactFolders 为 true
+    /// 2. 节点不在 unfoldedIDs 中（用户未手动展开）
+    /// 3. 节点已展开（expandedIDs 包含）
+    /// 4. 节点的子列表恰好只有一个子目录
+    private func shouldAutoFold(_ id: EntryID) -> Bool {
+        guard compactFolders else { return false }
+        guard !unfoldedIDs.contains(id) else { return false }
+        guard expandedIDs.contains(id) else { return false }
+        guard let childList = children[id], childList.count == 1 else { return false }
+        return entries[childList[0]]?.isDirectory == true
+    }
+
+    /// 从 startID 开始沿单子目录链向下收集，返回所有段（含 startID 到终端）和终端 ID。
+    ///
+    /// 算法（参考 Zed `update_visible_entries` auto-fold 块）：
+    /// 从 startID 开始，若当前节点满足 shouldAutoFold，将其加入 segments 并继续；
+    /// 直至某节点不满足 shouldAutoFold 为止（该节点是 terminalID）。
+    private func collectFoldedChain(from startID: EntryID) -> (segments: [FoldedAncestors.FoldedSegment], terminalID: EntryID) {
+        var segments: [FoldedAncestors.FoldedSegment] = []
+        var current = startID
+
+        while shouldAutoFold(current) {
+            let name = entries[current]?.name ?? current.url.lastPathComponent
+            segments.append(FoldedAncestors.FoldedSegment(name: name, entryID: current))
+            current = children[current]![0]
+        }
+
+        // current 是终端节点：加入 segments 的最后一段
+        let terminalName = entries[current]?.name ?? current.url.lastPathComponent
+        segments.append(FoldedAncestors.FoldedSegment(name: terminalName, entryID: current))
+
+        return (segments: segments, terminalID: current)
+    }
+
     // MARK: - 私有
 
     private func dfs(
@@ -182,6 +245,34 @@ actor FileTreeStore {
                 }
             }
 
+            // Auto-fold（FT-R5）：若当前节点是链起点，走链收集分支，跳过中间节点
+            if entry.isDirectory, shouldAutoFold(id) {
+                let chain = collectFoldedChain(from: id)
+                let terminalID = chain.terminalID
+                guard let terminalEntry = entries[terminalID] else { continue }
+                let terminalIsExpanded = terminalEntry.isDirectory && expandedIDs.contains(terminalID)
+                let visible = VisibleEntry(
+                    id: terminalID,
+                    name: terminalEntry.name,
+                    isDirectory: terminalEntry.isDirectory,
+                    depth: depth,
+                    isExpanded: terminalIsExpanded,
+                    loadState: terminalEntry.loadState,
+                    foldedAncestors: FoldedAncestors(
+                        segments: chain.segments,
+                        terminalID: terminalID
+                    ),
+                    gitSummary: nil,
+                    diagnosticSeverity: nil,
+                    isIgnored: false
+                )
+                result.append(visible)
+                if terminalIsExpanded, let childIDs = children[terminalID] {
+                    dfs(ids: childIDs, depth: depth + 1, result: &result, searchFilter: searchFilter)
+                }
+                continue
+            }
+
             let isExpanded = entry.isDirectory && expandedIDs.contains(id)
             let visible = VisibleEntry(
                 id: id,
@@ -189,8 +280,8 @@ actor FileTreeStore {
                 isDirectory: entry.isDirectory,
                 depth: depth,
                 isExpanded: isExpanded,
-                loadState: entry.loadState,     // FT-R3：传递加载状态
-                foldedAncestors: nil,    // Auto-fold 在 FT-R5 实现
+                loadState: entry.loadState,
+                foldedAncestors: nil,
                 gitSummary: nil,          // Git badge 在 FT-R7 实现
                 diagnosticSeverity: nil,  // Diag badge 在 FT-R14 实现
                 isIgnored: false          // .gitignore 在 FT-R6 实现
@@ -202,6 +293,23 @@ actor FileTreeStore {
             }
         }
     }
+
+    // MARK: - 测试注入接口（仅测试使用）
+
+    #if DEBUG
+    /// 仅供单元测试：直接注入 entries/children/rootIDs/expandedIDs，跳过 I/O。
+    func injectEntries(
+        _ newEntries: [EntryID: FileEntry],
+        children newChildren: [EntryID: [EntryID]],
+        rootIDs newRootIDs: [EntryID],
+        expandedIDs newExpandedIDs: Set<EntryID>
+    ) {
+        entries = newEntries
+        children = newChildren
+        rootIDs = newRootIDs
+        expandedIDs = newExpandedIDs
+    }
+    #endif
 
     /// 按目录优先、名称升序排列 EntryID 列表。
     /// 参考 Zed `par_sort_worktree_entries_with_mode` / VSCode `FileSorter`。
