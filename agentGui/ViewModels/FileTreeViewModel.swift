@@ -35,8 +35,14 @@ final class FileTreeViewModel {
 
     // MARK: - 初始化
 
-    init(store: FileTreeStore) {
+    init(store: FileTreeStore, settings: AppSettings? = nil) {
         self.store = store
+        // 从 AppSettings 同步 compactFolders 初始值
+        let compact = settings?.compactFolders ?? true
+        self.isCompactFoldersEnabled = compact
+        Task { [weak self] in
+            await self?.store.setCompactFolders(compact)
+        }
     }
 
     // MARK: - 目录操作
@@ -103,6 +109,30 @@ final class FileTreeViewModel {
             let currentAnchor = selection.anchor ?? id
             selection = FileTreeSelection(primary: id, selected: rangeIDs, anchor: currentAnchor)
         }
+    }
+
+    // MARK: - Auto-fold（FT-R5）
+
+    /// 当前 compactFolders 状态（供 UI 读取）。
+    private(set) var isCompactFoldersEnabled: Bool = true
+
+    /// 透传 compactFolders 设置到 Store，并刷新可见列表。
+    func setCompactFolders(_ value: Bool) async {
+        isCompactFoldersEnabled = value
+        await store.setCompactFolders(value)
+        await refreshVisibleEntries()
+    }
+
+    /// 将目录从自动折叠链中手动展开（加入 unfoldedIDs），并刷新可见列表。
+    func unfoldDirectory(_ id: EntryID) async {
+        await store.unfoldDirectory(id)
+        await refreshVisibleEntries()
+    }
+
+    /// 将目录重新纳入自动折叠（从 unfoldedIDs 移除），并刷新可见列表。
+    func foldDirectory(_ id: EntryID) async {
+        await store.foldDirectory(id)
+        await refreshVisibleEntries()
     }
 
     // MARK: - 内部刷新（FSEvent 触发）
