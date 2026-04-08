@@ -135,22 +135,26 @@ extension ChatView {
         }
         fullText = expandMentions(in: fullText, workingDirectory: settings.workingDirectory)
 
-        // Build a parseable workspace context prefix from the current file path and/or selected text.
-        var contextParts: [String] = []
-        if showSelectionContext, let sel = workspaceState.editorSelectedText, !sel.isEmpty {
-            if let fileURL = workspaceState.selectedFile {
-                contextParts.append("当前文件: \(WorkspaceFileContextFormatter.inlineReference(for: fileURL, lineRange: workspaceState.editorSelectedLineRange))")
-            } else if let lineRange = workspaceState.editorSelectedLineRange {
-                contextParts.append("当前文件: :\(lineRange.displayText)")
-            } else {
-                contextParts.append("当前文件:")
-            }
-            contextParts.append("选区内容:\n\(sel)")
+        // CV-FA2: 聚焦文件/选区以 MessageAttachment(origin: .focused) 持久化，
+        // 不再内联到 textContent。API 构造层（FocusedFileContextInjector）负责重建上下文。
+        var focusedFileAttachment: AttachedFile? = nil
+        if showSelectionContext, let sel = workspaceState.editorSelectedText, !sel.isEmpty,
+           let fileURL = workspaceState.selectedFile {
+            var file = AttachedFile(
+                name: fileURL.lastPathComponent,
+                url: fileURL.standardizedFileURL,
+                origin: .focused
+            )
+            file.lineStart = workspaceState.editorSelectedLineRange?.startLine
+            file.lineEnd   = workspaceState.editorSelectedLineRange?.endLine
+            file.selectedText = sel
+            focusedFileAttachment = file
         } else if showFileContext, let fileURL = workspaceState.selectedFile {
-            contextParts.append("当前文件: \(WorkspaceFileContextFormatter.inlineReference(for: fileURL))")
-        }
-        if !contextParts.isEmpty {
-            fullText = contextParts.joined(separator: "\n") + "\n\n" + fullText
+            focusedFileAttachment = AttachedFile(
+                name: fileURL.lastPathComponent,
+                url: fileURL.standardizedFileURL,
+                origin: .focused
+            )
         }
 
         do {
@@ -169,7 +173,12 @@ extension ChatView {
         )
 
         inputText = ""
-        let filesToAttach = attachedFiles
+        let filesToAttach: [AttachedFile]
+        if let focused = focusedFileAttachment {
+            filesToAttach = [focused] + attachedFiles
+        } else {
+            filesToAttach = attachedFiles
+        }
         attachedFiles = []
         showFileContext = true
         showSelectionContext = true
