@@ -405,7 +405,7 @@ struct CodeEditorLSPCoordinatorTests {
     }
 }
 
-private extension CodeEditorLSPDocumentBinding {
+extension CodeEditorLSPDocumentBinding {
     static func fixtureSourceFile() -> CodeEditorLSPDocumentBinding {
         CodeEditorLSPDocumentBinding(
             workspaceRoot: "/tmp",
