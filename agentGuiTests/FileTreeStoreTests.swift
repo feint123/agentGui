@@ -279,6 +279,10 @@ final class FileTreeStoreTests: XCTestCase {
 final class MockFileScanner: FileScanning, @unchecked Sendable {
     var stubbedEntries: [URL: [ScannedEntry]] = [:]
     var onShallowScan: ((URL) -> Void)?
+    /// 若非 nil，所有 shallowScan 调用均抛出此错误
+    var stubbedError: Error?
+    /// 细粒度：仅特定目录抛错
+    var stubbedErrorForURLs: [URL: Error] = [:]
 
     func stub(directory: URL, entries: [ScannedEntry]) {
         stubbedEntries[directory.standardizedFileURL] = entries
@@ -286,6 +290,9 @@ final class MockFileScanner: FileScanning, @unchecked Sendable {
 
     func shallowScan(directory: URL) async throws -> [ScannedEntry] {
         onShallowScan?(directory)
+        // 细粒度错误优先，其次全局错误
+        if let err = stubbedErrorForURLs[directory.standardizedFileURL] { throw err }
+        if let err = stubbedError { throw err }
         return stubbedEntries[directory.standardizedFileURL] ?? []
     }
 
