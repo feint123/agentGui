@@ -64,3 +64,35 @@ struct FocusedFilePersistenceIntegrationTests {
         #expect(user.filter { $0.origin == .focused }.isEmpty)
     }
 }
+
+// MARK: - Backward Compat: 旧消息仍能正确 parse
+
+extension FocusedFilePersistenceIntegrationTests {
+
+    @Test
+    func legacyMessageWithFileOnlyParsesDisplayBody() {
+        let old = "当前文件: /ws/src/App.swift\n\n请帮我重构"
+        let parsed = UserMessageTextParser.parse(text: old, workspaceRoot: "/ws")
+        // bodyText 应不含 "当前文件:" 前缀
+        #expect(!parsed.bodyText.hasPrefix("当前文件:"))
+        #expect(parsed.bodyText.contains("请帮我重构") || parsed.bodyText.contains("/ws/src/App.swift"))
+    }
+
+    @Test
+    func legacyMessageWithSelectionParsesCorrectly() {
+        let old = "当前文件: /ws/src/App.swift:10-20\n选区内容:\nlet x = 1\n\n能帮我分析吗"
+        let parsed = UserMessageTextParser.parse(text: old, workspaceRoot: "/ws")
+        #expect(!parsed.bodyText.hasPrefix("当前文件:"))
+        // 选区后的正文被保留
+        #expect(parsed.bodyText.contains("能帮我分析吗"))
+    }
+
+    @Test
+    func newMessageWithFocusedAttachmentHasCleanBodyText() {
+        // 新格式：textContent 只含用户正文，无前缀
+        let clean = "帮我看看这段逻辑"
+        let parsed = UserMessageTextParser.parse(text: clean, workspaceRoot: "/ws")
+        #expect(parsed.bodyText == "帮我看看这段逻辑")
+        #expect(parsed.others.isEmpty) // 无 @Mention，无 Referenced files
+    }
+}
