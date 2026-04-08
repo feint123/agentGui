@@ -408,6 +408,55 @@ struct ChatMessageListProjectionPerformanceTests {
         #expect(updatedResult.rebuiltRowIDs == [messageID])
         #expect(updatedResult.reusedRowCount == 0)
     }
+
+    @Test
+    func streamingContentDeltaPreservesRowCacheForNonStreamingMessages() async throws {
+        // 场景：100 条已完成消息 + 1 条 streaming，streaming 更新不应使前 100 条 cache 失效
+        let workspaceRoot = "/tmp/streaming-cache"
+        let worker = ChatMessageListProjectionWorker()
+
+        let completedMessages: [MessageRowBuildInput] = (0..<100).map { i in
+            MessageRowBuildInput.fixture(
+                id: UUID(),
+                direction: .agent,
+                textContent: "completed message \(i)"
+            )
+        }
+        let streamingID = UUID()
+        let streamingMessage = MessageRowBuildInput.fixture(
+            id: streamingID,
+            direction: .agent,
+            textContent: "partial response"
+        )
+
+        // 第一次构建（建立缓存）
+        let request1 = ChatMessageListBuildRequest(
+            generation: 1,
+            workspaceRoot: workspaceRoot,
+            messages: completedMessages + [streamingMessage],
+            previousCache: [:]
+        )
+        let result1 = try await worker.build(request: request1)
+
+        // 模拟 streaming delta — 仅最后一条 text 变化
+        let updatedStreamingMessage = MessageRowBuildInput.fixture(
+            id: streamingID,
+            direction: .agent,
+            textContent: "partial response extended by 50 more chars xxxxxxxxxxxxxxxxxxxxxxxxxx"
+        )
+        let request2 = ChatMessageListBuildRequest(
+            generation: 2,
+            workspaceRoot: workspaceRoot,
+            messages: completedMessages + [updatedStreamingMessage],
+            previousCache: result1.snapshot.cache
+        )
+        let result2 = try await worker.build(request: request2)
+
+        // 前 100 条应全部命中缓存
+        #expect(result2.reusedRowCount == 100)
+        // 最后一条（streaming）必须重建
+        #expect(result2.rebuiltRowIDs == [streamingID])
+    }
 }
 
 private func makeHistoryInputs(count: Int, tailText: String) -> [MessageRowBuildInput] {
