@@ -16,6 +16,8 @@ struct AttachmentSnapshotEntry: Hashable, Identifiable, @unchecked Sendable {
     let displayName: String
     let fileKindRaw: String
     let statusRaw: String
+    let lineStart: Int?    // 行范围起始
+    let lineEnd: Int?      // 行范围结束
 
     @MainActor
     init(_ a: MessageAttachment) {
@@ -24,15 +26,20 @@ struct AttachmentSnapshotEntry: Hashable, Identifiable, @unchecked Sendable {
         self.displayName = a.displayName
         self.fileKindRaw = a.fileKindRaw
         self.statusRaw = a.statusRaw
+        self.lineStart = a.lineStart
+        self.lineEnd = a.lineEnd
     }
 
-    // 测试用
-    init(id: UUID, filePath: String, displayName: String, fileKindRaw: String, statusRaw: String) {
+    // 测试用（手动初始化，保持向后兼容）
+    init(id: UUID, filePath: String, displayName: String, fileKindRaw: String, statusRaw: String,
+         lineStart: Int? = nil, lineEnd: Int? = nil) {
         self.id = id
         self.filePath = filePath
         self.displayName = displayName
         self.fileKindRaw = fileKindRaw
         self.statusRaw = statusRaw
+        self.lineStart = lineStart
+        self.lineEnd = lineEnd
     }
 }
 

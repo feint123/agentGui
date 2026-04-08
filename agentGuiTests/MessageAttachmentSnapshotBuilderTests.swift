@@ -50,8 +50,8 @@ struct MessageAttachmentSnapshotBuilderTests {
         )
         let snap = MessageRowSnapshot.make(for: input, workspaceRoot: "/ws")
         // 结构化来源：只有 Main.swift
-        #expect(snap.user?.presentation.others == ["/src/Main.swift"])
-        #expect(snap.user?.presentation.others.contains("/legacy/Old.swift") == false)
+        #expect(snap.user?.presentation.others.first?.filePath == "/src/Main.swift")
+        #expect(snap.user?.presentation.others.contains(where: { $0.filePath == "/legacy/Old.swift" }) == false)
     }
 
     @Test
@@ -62,7 +62,7 @@ struct MessageAttachmentSnapshotBuilderTests {
             structuredAttachments: []
         )
         let snap = MessageRowSnapshot.make(for: input, workspaceRoot: "/ws")
-        #expect(snap.user?.presentation.others == ["/legacy/Old.swift"])
+        #expect(snap.user?.presentation.others.first?.filePath == "/legacy/Old.swift")
     }
 
     @Test
@@ -90,7 +90,7 @@ struct MessageAttachmentSnapshotBuilderTests {
         )
         let snap = MessageRowSnapshot.make(for: input, workspaceRoot: "/ws")
         #expect(snap.user?.presentation.others.count == 2)
-        #expect(snap.user?.presentation.others.contains("/old/File.swift") == true)
+        #expect(snap.user?.presentation.others.contains(where: { $0.filePath == "/old/File.swift" }) == true)
     }
 
     @Test

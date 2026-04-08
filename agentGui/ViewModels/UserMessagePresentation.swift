@@ -5,7 +5,7 @@ struct UserMessagePresentation: Equatable {
     let inlineItems: [InlineItem]
     let images: [String]
     let pdfs: [String]
-    let others: [String]
+    let others: [AttachmentSnapshotEntry]   // 升级为结构化条目
 
     var hasStructuredInlineContent: Bool {
         !directiveChips.isEmpty || inlineItems.contains { item in

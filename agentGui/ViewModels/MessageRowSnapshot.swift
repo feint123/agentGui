@@ -1,9 +1,9 @@
 import Foundation
 
 struct MessageAttachmentSnapshot: Equatable, @unchecked Sendable {
-    let images: [String]
-    let pdfs: [String]
-    let others: [String]
+    let images: [String]                       // 图像路径（供 MediaThumbnailCell 使用）
+    let pdfs:   [String]                       // PDF 路径（供 MediaThumbnailCell 使用）
+    let others: [AttachmentSnapshotEntry]      // 结构化文件条目
 
     static let empty = MessageAttachmentSnapshot(images: [], pdfs: [], others: [])
 
@@ -14,13 +14,13 @@ struct MessageAttachmentSnapshot: Equatable, @unchecked Sendable {
     // 从结构化条目构建
     static func fromStructured(_ entries: [AttachmentSnapshotEntry]) -> MessageAttachmentSnapshot {
         var images: [String] = []
-        var pdfs: [String] = []
-        var others: [String] = []
+        var pdfs:   [String] = []
+        var others: [AttachmentSnapshotEntry] = []
         for e in entries {
             switch AttachmentKind(rawValue: e.fileKindRaw) ?? .other {
-            case .image:                         images.append(e.filePath)
-            case .pdf:                           pdfs.append(e.filePath)
-            case .sourceCode, .directory, .other: others.append(e.filePath)
+            case .image:                          images.append(e.filePath)
+            case .pdf:                            pdfs.append(e.filePath)
+            case .sourceCode, .directory, .other: others.append(e)   // 保留完整条目
             }
         }
         return MessageAttachmentSnapshot(images: images, pdfs: pdfs, others: others)
@@ -116,8 +116,8 @@ struct MessageRowSnapshot: Identifiable, Equatable, @unchecked Sendable {
             .filter { !$0.isEmpty }
 
         var images: [String] = []
-        var pdfs: [String] = []
-        var others: [String] = []
+        var pdfs:   [String] = []
+        var others: [AttachmentSnapshotEntry] = []
 
         for path in paths {
             if AttachedFile.pathIsImage(path) {
@@ -125,7 +125,15 @@ struct MessageRowSnapshot: Identifiable, Equatable, @unchecked Sendable {
             } else if AttachedFile.pathIsPDF(path) {
                 pdfs.append(path)
             } else {
-                others.append(path)
+                // 旧文本格式：只有路径，displayName 从路径末尾取文件名
+                let displayName = (path as NSString).lastPathComponent
+                others.append(AttachmentSnapshotEntry(
+                    id: UUID(),
+                    filePath: path,
+                    displayName: displayName,
+                    fileKindRaw: AttachmentKind.other.rawValue,
+                    statusRaw: AttachmentStatus.valid.rawValue
+                ))
             }
         }
 

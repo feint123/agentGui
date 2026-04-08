@@ -21,6 +21,8 @@ struct MessageBubbleView: View {
     @State private var editText = ""
     @State private var viewingMedia: MediaItem? = nil
 
+    @Environment(WorkspaceState.self) private var workspaceState
+
     var body: some View {
         Group {
             if snapshot.direction == .user {
@@ -94,7 +96,7 @@ struct MessageBubbleView: View {
                     mediaGrid(images: content.images, pdfs: content.pdfs)
                 }
                 if !content.others.isEmpty {
-                    fileReferenceBadge(count: content.others.count)
+                    fileReferencePillList(others: content.others)
                 }
             }
             .padding(.horizontal, 14)
@@ -162,7 +164,7 @@ struct MessageBubbleView: View {
                         mediaGrid(images: agent.attachments.images, pdfs: agent.attachments.pdfs)
                     }
                     if !agent.attachments.others.isEmpty {
-                        fileReferenceBadge(count: agent.attachments.others.count)
+                        fileReferencePillList(others: agent.attachments.others)
                     }
                 }
             }
@@ -285,18 +287,32 @@ struct MessageBubbleView: View {
 
 
 
-    private func fileReferenceBadge(count: Int) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "paperclip")
-                .font(.caption2)
-            Text("引用了 \(count) 个文件")
-                .font(.caption)
+    @ViewBuilder
+    private func fileReferencePillList(others: [AttachmentSnapshotEntry]) -> some View {
+        if !others.isEmpty {
+            ChatFlowLayout(spacing: 5, lineSpacing: 5) {
+                ForEach(others) { entry in
+                    FileReferencePillView(entry: entry) {
+                        openAttachment(entry)
+                    }
+                }
+            }
         }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(.ultraThinMaterial)
-        .clipShape(Capsule())
+    }
+
+    private func openAttachment(_ entry: AttachmentSnapshotEntry) {
+        let url = URL(fileURLWithPath: entry.filePath).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+
+        if let lineStart = entry.lineStart {
+            workspaceState.pendingCodeEditorRevealRequest = CodeEditorRevealRequest(
+                fileURL: url,
+                line: lineStart,
+                column: 0,
+                reason: .reference
+            )
+        }
+        workspaceState.showFileDetail(url)
     }
 
     private func mediaGrid(images: [String], pdfs: [String]) -> some View {

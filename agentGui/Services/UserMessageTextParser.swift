@@ -6,7 +6,7 @@ struct ParsedUserMessageText: Equatable {
     let inlineSegments: [UserMessageInlineSegment]
     let images: [String]
     let pdfs: [String]
-    let others: [String]
+    let others: [AttachmentSnapshotEntry]   // 升级为结构化条目
 }
 
 struct ParsedDirectiveAuditItem: Equatable {
@@ -37,12 +37,12 @@ extension ParsedUserMessageText {
     func replacingAttachments(with entries: [AttachmentSnapshotEntry]) -> ParsedUserMessageText {
         var imgs: [String] = []
         var pdfs: [String] = []
-        var others: [String] = []
+        var others: [AttachmentSnapshotEntry] = []
         for e in entries {
             switch AttachmentKind(rawValue: e.fileKindRaw) ?? .other {
             case .image:                          imgs.append(e.filePath)
             case .pdf:                            pdfs.append(e.filePath)
-            case .sourceCode, .directory, .other: others.append(e.filePath)
+            case .sourceCode, .directory, .other: others.append(e)     // 保留完整条目
             }
         }
         return ParsedUserMessageText(
@@ -111,7 +111,7 @@ enum UserMessageTextParser {
         return ParsedDirectiveAuditItem(kind: kind, rawValue: raw, displayName: value)
     }
 
-    private static func splitReferencedFiles(in text: String) -> (body: String, images: [String], pdfs: [String], others: [String]) {
+    private static func splitReferencedFiles(in text: String) -> (body: String, images: [String], pdfs: [String], others: [AttachmentSnapshotEntry]) {
         guard let range = text.range(of: fileSectionMarker, options: .backwards) else {
             return (text, [], [], [])
         }
@@ -129,7 +129,7 @@ enum UserMessageTextParser {
 
         var images: [String] = []
         var pdfs: [String] = []
-        var others: [String] = []
+        var others: [AttachmentSnapshotEntry] = []
 
         for path in paths {
             if AttachedFile.pathIsImage(path) {
@@ -137,7 +137,15 @@ enum UserMessageTextParser {
             } else if AttachedFile.pathIsPDF(path) {
                 pdfs.append(path)
             } else {
-                others.append(path)
+                // 旧文本格式：只有路径，displayName 从路径末尾取文件名
+                let displayName = (path as NSString).lastPathComponent
+                others.append(AttachmentSnapshotEntry(
+                    id: UUID(),
+                    filePath: path,
+                    displayName: displayName,
+                    fileKindRaw: AttachmentKind.other.rawValue,
+                    statusRaw: AttachmentStatus.valid.rawValue
+                ))
             }
         }
 
