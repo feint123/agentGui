@@ -111,3 +111,56 @@ struct MessageAttachmentSnapshotBuilderTests {
         #expect(snap.user?.presentation.others.isEmpty == true)
     }
 }
+
+// MARK: - CV-FA2: originRaw 传播
+
+extension MessageAttachmentSnapshotBuilderTests {
+
+    @Test
+    func snapshotEntryCarriesOriginRaw() {
+        let entry = AttachmentSnapshotEntry(
+            id: UUID(),
+            filePath: "/src/Main.swift",
+            displayName: "Main.swift",
+            fileKindRaw: "sourceCode",
+            statusRaw: "valid",
+            originRaw: "focused"
+        )
+        #expect(entry.originRaw == "focused")
+    }
+
+    @Test
+    func snapshotEntryDefaultOriginIsExternal() {
+        // 旧代码路径（无 originRaw 参数）——测试向后兼容
+        let entry = AttachmentSnapshotEntry(
+            id: UUID(),
+            filePath: "/src/A.swift",
+            displayName: "A.swift",
+            fileKindRaw: "sourceCode",
+            statusRaw: "valid"
+        )
+        #expect(entry.originRaw == AttachmentOrigin.external.rawValue)
+    }
+
+    @Test
+    func focusedAttachmentEntrySeparatedInSnapshot() {
+        // 聚焦文件在 structuredAttachments 中当作 .other 类型处理（非 image/pdf），
+        // 应出现在 others 数组而不是 images/pdfs
+        let entry = AttachmentSnapshotEntry(
+            id: UUID(),
+            filePath: "/src/View.swift",
+            displayName: "View.swift",
+            fileKindRaw: "sourceCode",
+            statusRaw: "valid",
+            originRaw: "focused"
+        )
+        let input = MessageRowBuildInput.fixture(
+            direction: .user,
+            textContent: "请看这里",
+            structuredAttachments: [entry]
+        )
+        let snap = MessageRowSnapshot.make(for: input, workspaceRoot: "/ws")
+        let others = snap.user?.presentation.others ?? []
+        #expect(others.contains(where: { $0.originRaw == "focused" }))
+    }
+}

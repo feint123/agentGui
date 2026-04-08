@@ -18,6 +18,7 @@ struct AttachmentSnapshotEntry: Hashable, Identifiable, @unchecked Sendable {
     let statusRaw: String
     let lineStart: Int?    // 行范围起始
     let lineEnd: Int?      // 行范围结束
+    let originRaw: String  // CV-FA2 新增，默认 "external"
 
     @MainActor
     init(_ a: MessageAttachment) {
@@ -28,11 +29,13 @@ struct AttachmentSnapshotEntry: Hashable, Identifiable, @unchecked Sendable {
         self.statusRaw = a.statusRaw
         self.lineStart = a.lineStart
         self.lineEnd = a.lineEnd
+        self.originRaw = a.originRaw   // CV-FA2 新增
     }
 
-    // 测试用（手动初始化，保持向后兼容）
+    // 测试用（手动初始化，保持向后兼容，增加 originRaw 带默认值）
     init(id: UUID, filePath: String, displayName: String, fileKindRaw: String, statusRaw: String,
-         lineStart: Int? = nil, lineEnd: Int? = nil) {
+         lineStart: Int? = nil, lineEnd: Int? = nil,
+         originRaw: String = AttachmentOrigin.external.rawValue) {
         self.id = id
         self.filePath = filePath
         self.displayName = displayName
@@ -40,6 +43,7 @@ struct AttachmentSnapshotEntry: Hashable, Identifiable, @unchecked Sendable {
         self.statusRaw = statusRaw
         self.lineStart = lineStart
         self.lineEnd = lineEnd
+        self.originRaw = originRaw   // CV-FA2 新增
     }
 }
 
