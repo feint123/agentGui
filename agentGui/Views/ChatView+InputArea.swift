@@ -289,20 +289,22 @@ extension ChatView {
         HStack(spacing: 6) {
             if let fileURL = workspaceState.selectedFile,
                showFileContext || (showSelectionContext && workspaceState.editorSelectedText?.isEmpty == false) {
-                contextChip(
+                FileIconChip(
                     systemImage: "text.cursor",
                     label: combinedFileContextLabel,
-                    tint: .orange
-                ) {
-                    showFileContext = false
-                    showSelectionContext = false
-                }
+                    tint: .orange,
+                    onRemove: {
+                        showFileContext = false
+                        showSelectionContext = false
+                    }
+                )
             } else if showFileContext, let fileURL = workspaceState.selectedFile {
-                contextChip(
+                FileIconChip(
                     systemImage: "doc.text",
                     label: WorkspaceFileContextFormatter.displayLabel(for: fileURL),
-                    tint: .accentColor
-                ) { showFileContext = false }
+                    tint: .accentColor,
+                    onRemove: { showFileContext = false }
+                )
             }
             Spacer(minLength: 0)
         }
@@ -476,46 +478,16 @@ extension ChatView {
         case discard
     }
 
-    func contextChip(systemImage: String, label: String, tint: Color, onRemove: @escaping () -> Void) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(tint)
-            Text(label)
-                .font(.body)
-                .foregroundStyle(.primary.opacity(0.72))
-                .lineLimit(1)
-            Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.tertiary)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 1)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-    }
 var fileChipsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 8) {
                 ForEach(attachedFiles) { file in
-                    if file.isImage || file.isPDF {
-                        FileThumbnailView(
-                            file: file,
-                            onRemove: { attachedFiles.removeAll { $0.id == file.id } },
-                            onTap: { viewingMedia = MediaItem(url: file.url) }
-                        )
-                        .padding(.top, 4)
-                    } else {
-                        fileChip(file)
-                            .padding(.top, 4)
-                    }
+                    AttachmentEntryChipView(
+                        file: file,
+                        onRemove: { attachedFiles.removeAll { $0.id == file.id } },
+                        onTap: { viewingMedia = MediaItem(url: file.url) }
+                    )
+                    .padding(.top, 4)
                 }
             }
             .padding(.bottom, 6)
@@ -525,70 +497,22 @@ var fileChipsRow: some View {
     var inputDirectiveChipsRow: some View {
         HStack(spacing: 6) {
             ForEach(activeInputDirectives, id: \.id) { directive in
-                inputDirectiveChip(directive)
+                FileIconChip(
+                    systemImage: "command",
+                    label: directiveLabel(directive),
+                    tint: .accentColor,
+                    onRemove: { activeInputDirectives.removeAll { $0.id == directive.id } }
+                )
             }
             Spacer(minLength: 0)
         }
     }
 
-    func inputDirectiveChip(_ directive: ChatInputDirective) -> some View {
-        let label: String
+    private func directiveLabel(_ directive: ChatInputDirective) -> String {
         switch directive {
         case .skill(let value):
-            label = "Skill: \(value.displayName)"
+            return "Skill: \(value.displayName)"
         }
-
-        return HStack(spacing: 4) {
-            Image(systemName: "command")
-                .font(.caption2)
-                .foregroundStyle(Color.accentColor)
-            Text(label)
-                .font(.caption)
-                .lineLimit(1)
-            Button {
-                activeInputDirectives.removeAll { $0.id == directive.id }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-    }
-
-    func fileChip(_ file: AttachedFile) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: fileIcon(for: file.name))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(file.name)
-                .font(.caption)
-                .lineLimit(1)
-            Button {
-                attachedFiles.removeAll { $0.id == file.id }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
     }
 
     func fileIcon(for name: String) -> String {
