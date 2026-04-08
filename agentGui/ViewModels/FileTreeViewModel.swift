@@ -436,4 +436,55 @@ final class FileTreeViewModel {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(paths.joined(separator: "\n"), forType: .string)
     }
+
+    /// 弹出 NSAlert 确认后删除指定条目，并刷新受影响父目录。
+    /// FT-R15 将用带 SwiftUI Alert 的 PendingDeletion 模型替换此实现。
+    func beginDelete(ids: Set<EntryID>) {
+        guard !ids.isEmpty else { return }
+
+        let names = ids.map { id in
+            visibleEntries.first { $0.id == id }?.name ?? id.url.lastPathComponent
+        }
+        let displayNames = names.prefix(3).joined(separator: "、")
+        let suffix = names.count > 3 ? " 等 \(names.count) 项" : ""
+
+        let alert = NSAlert()
+        alert.messageText = "删除 \(displayNames)\(suffix)？"
+        alert.informativeText = "此操作无法撤销。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "删除")
+        alert.addButton(withTitle: "取消")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        Task {
+            var parentURLs = Set<URL>()
+            for id in ids {
+                let url = id.url
+                parentURLs.insert(url.deletingLastPathComponent())
+                try? WorkspaceFileTreeOperations.deleteItem(at: url)
+            }
+            // 刷新受影响的父目录
+            let parentIDs = parentURLs.map { EntryID(url: $0.standardizedFileURL) }
+            await store.refreshMultipleDirectories(parentIDs)
+            let newEntries = await store.computeVisibleEntries()
+            self.visibleEntries = newEntries
+            self.storeSnapshot = await self.store.makeSnapshot()
+            fixSelectionAfterChange(removedIDs: ids)
+        }
+    }
+
+    /// 删除/移动后修复选择状态（移除已不存在的条目）。
+    private func fixSelectionAfterChange(removedIDs: Set<EntryID>) {
+        selection.selected.removeAll { removedIDs.contains($0) }
+        if let primary = selection.primary, removedIDs.contains(primary) {
+            // 选中被删除项之后的第一个可见项（VSCode 行为）
+            if let idx = visibleEntries.firstIndex(where: { $0.id == primary }),
+               idx + 1 < visibleEntries.count {
+                selection.primary = visibleEntries[idx + 1].id
+            } else {
+                selection.primary = visibleEntries.last?.id
+            }
+        }
+    }
 }

@@ -54,3 +54,19 @@ final class FileTreeViewModelRevealCopyTests: XCTestCase {
         FileTreeViewModel(store: FileTreeStore(scanner: MockFileScanner()))
     }
 }
+
+// MARK: - beginDelete tests
+
+@MainActor
+final class FileTreeViewModelDeleteTests: XCTestCase {
+
+    func testBeginDelete_emptyIds_doesNothing() async {
+        let vm = makeViewModel()
+        // 空集合不显示 Alert，不崩溃
+        XCTAssertNoThrow(vm.beginDelete(ids: []))
+    }
+
+    private func makeViewModel() -> FileTreeViewModel {
+        FileTreeViewModel(store: FileTreeStore(scanner: MockFileScanner()))
+    }
+}
