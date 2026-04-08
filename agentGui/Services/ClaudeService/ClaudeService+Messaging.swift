@@ -347,7 +347,16 @@ extension ClaudeService {
         for msg in sortedMessages {
             guard let content = msg.textContent, !content.isEmpty else { continue }
             let role: MessageParameter.Message.Role = msg.direction == .user ? .user : .assistant
-            apiMessages.append(MessageParameter.Message(role: role, content: .text(content)))
+            if msg.direction == .user {
+                // CV-FA2: 为新格式消息（无内联前缀）注入聚焦文件上下文
+                let enrichedContent = FocusedFileContextInjector.inject(
+                    into: content,
+                    from: msg.attachments
+                )
+                apiMessages.append(MessageParameter.Message(role: role, content: .text(enrichedContent)))
+            } else {
+                apiMessages.append(MessageParameter.Message(role: role, content: .text(content)))
+            }
         }
         let lastPersistedMessageMatchesCurrentTurn = sortedMessages.last.map {
             $0.direction == .user && $0.textContent == text
