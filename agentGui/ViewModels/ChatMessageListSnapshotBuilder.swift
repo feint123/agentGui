@@ -518,6 +518,37 @@ struct ChatMessageListRefreshKey: Equatable, @unchecked Sendable {
             )
         }
     }
+
+    /// 直接注入 RowDigest 数组，供测试使用。
+    init(rowDigests: [RowDigest]) {
+        self.rows = rowDigests
+    }
+}
+
+// MARK: - Stream Change Classification
+
+/// 两次 RefreshKey 之间的变更类型，用于节流策略决策。
+enum StreamChangeKind: Equatable {
+    /// 行计数、消息 ID、状态或 workspaceDependency 发生变化 → 立即重建
+    case structural
+    /// 仅有现有行的 textLength 发生变化 → 可合并到下一帧
+    case contentDelta
+    /// 完全相同 → 不必重建（已有 RefreshCoordinator 保护，此处冗余但显式）
+    case noChange
+}
+
+extension ChatMessageListRefreshKey {
+    func changeKind(from previous: ChatMessageListRefreshKey) -> StreamChangeKind {
+        guard rows.count == previous.rows.count else { return .structural }
+        var hasTextDelta = false
+        for (current, prev) in zip(rows, previous.rows) {
+            guard current.id == prev.id              else { return .structural }
+            guard current.status == prev.status      else { return .structural }
+            guard current.workspaceDependency == prev.workspaceDependency else { return .structural }
+            if current.textLength != prev.textLength { hasTextDelta = true }
+        }
+        return hasTextDelta ? .contentDelta : .noChange
+    }
 }
 
 enum ChatMessageListProjectionRefreshCoordinator {
