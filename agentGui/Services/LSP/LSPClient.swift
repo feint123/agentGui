@@ -96,6 +96,39 @@ final class LSPClient {
         return snapshot
     }
 
+    /// Sends a `textDocument/didChange` notification.
+    ///
+    /// If `capabilities.syncKind == .incremental` and the LSP range can be computed,
+    /// sends a ranged content-change event. Otherwise falls back to full-text sync.
+    @discardableResult
+    func updateDocument(
+        uri: String,
+        replacing nsRange: NSRange,
+        insertedText: String,
+        newText: String
+    ) -> LSPDocumentSnapshot? {
+        let useIncremental = capabilities?.syncKind == .incremental
+        if useIncremental, let range = documentStore.lspRange(for: nsRange, uri: uri) {
+            guard let snapshot = documentStore.updateDocument(uri: uri, text: newText) else { return nil }
+            try? transport.sendNotification(
+                method: "textDocument/didChange",
+                params: [
+                    "textDocument": [
+                        "uri": uri,
+                        "version": snapshot.version
+                    ],
+                    "contentChanges": [
+                        ["range": range, "text": insertedText]
+                    ]
+                ]
+            )
+            onDocumentLifecycleEvent?("change:\(uri)", snapshot)
+            return snapshot
+        } else {
+            return updateDocument(uri: uri, text: newText)
+        }
+    }
+
     func closeDocument(uri: String) {
         try? transport.sendNotification(
             method: "textDocument/didClose",
@@ -601,5 +634,10 @@ extension LSPClient {
     @MainActor
     func initializeParamsForTesting(workspaceRoot: String) -> [String: Any] {
         initializeParams(workspaceRoot: workspaceRoot)
+    }
+
+    /// For testing only: directly sets the negotiated capabilities.
+    func setCapabilitiesForTesting(_ hints: LSPServerCapabilityHints) {
+        capabilities = hints
     }
 }
