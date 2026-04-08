@@ -315,6 +315,7 @@ final class FileTreeCellConfigureTests: XCTestCase {
         cell.configure(
             entry: entry,
             isSelected: false,
+            onToggle: { _ in },
             onUnfoldSegment: { id in unfoldCalled = id }
         )
         XCTAssertNotNil(cell.onUnfoldSegment)
@@ -339,6 +340,7 @@ final class FileTreeCellConfigureTests: XCTestCase {
         cell.configure(
             entry: normalEntry,
             isSelected: false,
+            onToggle: { _ in },
             onUnfoldSegment: nil
         )
         XCTAssertNil(cell.onUnfoldSegment)
@@ -392,7 +394,8 @@ extension FileTreeCellConfigureTests {
         let cell = FileTreeCellView(frame: .zero)
         cell.configure(
             entry: entry,
-            isSelected: false
+            isSelected: false,
+            onToggle: { _ in }
         )
         XCTAssertFalse(cell.gitBadgeLabel.isHidden)
         XCTAssertEqual(cell.gitBadgeLabel.stringValue, "M",
@@ -408,7 +411,8 @@ extension FileTreeCellConfigureTests {
         let cell = FileTreeCellView(frame: .zero)
         cell.configure(
             entry: entry,
-            isSelected: false
+            isSelected: false,
+            onToggle: { _ in }
         )
         XCTAssertFalse(cell.gitBadgeLabel.isHidden)
         XCTAssertEqual(cell.gitBadgeLabel.stringValue, "●",
@@ -424,7 +428,8 @@ extension FileTreeCellConfigureTests {
         let cell = FileTreeCellView(frame: .zero)
         cell.configure(
             entry: entry,
-            isSelected: false
+            isSelected: false,
+            onToggle: { _ in }
         )
         XCTAssertTrue(cell.gitBadgeLabel.isHidden,
             "展开目录的 badge 应隐藏")
@@ -439,7 +444,8 @@ extension FileTreeCellConfigureTests {
         let cell = FileTreeCellView(frame: .zero)
         cell.configure(
             entry: entry,
-            isSelected: false
+            isSelected: false,
+            onToggle: { _ in }
         )
         XCTAssertTrue(cell.gitBadgeLabel.isHidden)
     }
