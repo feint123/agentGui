@@ -43,8 +43,9 @@ struct ChatView: View {
     @State var isClearingMessages = false
     @State var isDeletingAllSessions = false
     @State var messageListProjectionModel = ChatMessageListProjectionModel()
-    @State var isMessageListPinnedToBottom = true
-    @State var isProgrammaticMessageListScrollInFlight = false
+    @State var scrollState: ChatScrollState = .tracking
+    @State var programmaticScrollTask: Task<Void, Never>?
+    @State var scrollToBadgeBottom = false
     @State var isExecutionRuntimeBootstrapInFlight = false
     @State var acpConfigurationRefreshToken = 0
 

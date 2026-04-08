@@ -65,6 +65,12 @@ extension ChatView {
                 await refreshMessageListSnapshotForCurrentState()
             }
         }
+        .onChange(of: session.sessionId) { _, _ in
+            scrollState = .tracking
+            programmaticScrollTask?.cancel()
+            programmaticScrollTask = nil
+            scrollToBadgeBottom = false
+        }
     }
 
     var messageListLoadingView: some View {
@@ -135,7 +141,8 @@ extension ChatView {
         let projectedMessages = allMessages
         let messagesByID = Dictionary(uniqueKeysWithValues: projectedMessages.map { ($0.id, $0) })
 
-        return ScrollViewReader { proxy in
+        return ZStack(alignment: .bottomTrailing) {
+            ScrollViewReader { proxy in
             List {
                 ForEach(messageListProjectionModel.snapshot.rows) { row in
                     if let message = messagesByID[row.id] {
@@ -172,11 +179,17 @@ extension ChatView {
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
                     .onAppear {
-                        isMessageListPinnedToBottom = true
+                        // 底部锚点可见 → 恢复追踪，清零未读计数
+                        scrollState = .tracking
+                        programmaticScrollTask?.cancel()
+                        programmaticScrollTask = nil
                     }
                     .onDisappear {
-                        if !isProgrammaticMessageListScrollInFlight {
-                            isMessageListPinnedToBottom = false
+                        // 仅当不是程序化滚动引起的消失时，才切换为暂停
+                        guard programmaticScrollTask == nil else { return }
+                        if case .tracking = scrollState {
+                            // 从追踪切到暂停（unseenCount 从 0 开始）
+                            scrollState = .paused(unseenCount: 0)
                         }
                     }
             }
@@ -185,30 +198,59 @@ extension ChatView {
             .onChange(of: allMessages.last?.id) { _, _ in
                 guard let last = allMessages.last else { return }
                 if ChatMessageListAutoScrollPolicy.shouldScrollOnMessageAppend(
-                    lastMessageIsUser: last.isUserMessage,
-                    isPinnedToBottom: isMessageListPinnedToBottom
+                    scrollState: scrollState,
+                    lastMessageIsUser: last.isUserMessage
                 ) {
                     scrollToBottom(proxy: proxy)
+                } else {
+                    // 用户正在回溯 → 累计未读数（仅对 agent 回复计数）
+                    if !last.isUserMessage {
+                        scrollState = ChatMessageListAutoScrollPolicy.incrementUnseenCount(state: scrollState)
+                    }
                 }
             }
             .onChange(of: allMessages.last?.textContent) { _, _ in
                 if ChatMessageListAutoScrollPolicy.shouldScrollForStreaming(
-                    isStreaming: effectiveStreamingState,
-                    isPinnedToBottom: isMessageListPinnedToBottom
+                    scrollState: scrollState,
+                    isStreaming: effectiveStreamingState
                 ) {
                     scrollToBottom(proxy: proxy)
                 }
             }
+            .onChange(of: scrollToBadgeBottom) { _, newValue in
+                guard newValue else { return }
+                scrollToBadgeBottom = false
+                scrollToBottom(proxy: proxy)
+            }
+        } // end ScrollViewReader
+
+        // New messages badge — shown when user is reading history
+        if case .paused(let count) = scrollState, count > 0 {
+            NewMessagesBadgeView(
+                label: count >= 99 ? "99+" : "\(count)"
+            ) {
+                scrollState = .tracking
+                scrollToBadgeBottom = true
+            }
+            .padding(.trailing, 16)
+            .padding(.bottom, 12)
+            .accessibilityIdentifier("chat.newMessagesBadge")
+            .animation(ChatMotion.enterSpring, value: count)
         }
+        } // end ZStack
     }
 
     func scrollToBottom(proxy: ScrollViewProxy) {
-        isProgrammaticMessageListScrollInFlight = true
-        withAnimation(ChatMotion.scrollToBottom) {
-            proxy.scrollTo(ChatMessageListAutoScrollPolicy.bottomAnchorID, anchor: .bottom)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            isProgrammaticMessageListScrollInFlight = false
+        // 取消之前未完成的程序化滚动保护
+        programmaticScrollTask?.cancel()
+        programmaticScrollTask = Task { @MainActor in
+            withAnimation(ChatMotion.scrollToBottom) {
+                proxy.scrollTo(ChatMessageListAutoScrollPolicy.bottomAnchorID, anchor: .bottom)
+            }
+            // 等待动画完成（0.22s）后释放保护 flag，加 60ms 余量确保锚点 onAppear 先触发
+            try? await Task.sleep(for: .milliseconds(280))
+            guard !Task.isCancelled else { return }
+            programmaticScrollTask = nil
         }
     }
 
