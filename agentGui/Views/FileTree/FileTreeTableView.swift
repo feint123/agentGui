@@ -67,6 +67,20 @@ struct FileTreeTableView: NSViewRepresentable {
     /// Return（非编辑态，已选中一个条目）→ 重命名。
     var onRenameSelected: () -> Void = {}
 
+    // MARK: - FT-R16 上下文菜单回调
+
+    /// ⌘R — 在访达中显示选中的条目
+    var onRevealInFinder: ([EntryID]) -> Void = { _ in }
+
+    /// ⌥⌘C — 复制相对路径到剪贴板
+    var onCopyPath: ([EntryID]) -> Void = { _ in }
+
+    /// ⌫（via context menu）— 删除选中条目（含确认对话框）
+    var onConfirmDelete: (Set<EntryID>) -> Void = { _ in }
+
+    /// 查看 Git Diff（仅对有 Git 状态的文件显示）
+    var onPreviewDiff: ((EntryID) -> Void)? = nil
+
     // MARK: - NSViewRepresentable
 
     func makeCoordinator() -> Coordinator {
@@ -76,6 +90,10 @@ struct FileTreeTableView: NSViewRepresentable {
                     onCommitEdit: onCommitEdit, onCancelEdit: onCancelEdit,
                     onNewFile: onNewFile, onNewFolder: onNewFolder,
                     onRenameSelected: onRenameSelected,
+                    onRevealInFinder: onRevealInFinder,
+                    onCopyPath: onCopyPath,
+                    onConfirmDelete: onConfirmDelete,
+                    onPreviewDiff: onPreviewDiff,
                     onMoveEntries: onMoveEntries, onCopyEntries: onCopyEntries,
                     onImportExternalFiles: onImportExternalFiles,
                     onExpandDirectory: onExpandDirectory)
@@ -114,6 +132,11 @@ struct FileTreeTableView: NSViewRepresentable {
         tableView.doubleAction = #selector(Coordinator.rowDoubleClicked)
         tableView.target = context.coordinator
 
+        // FT-R16: 安装上下文菜单 provider
+        tableView.contextMenuProvider = { [weak c = context.coordinator] row in
+            c?.buildContextMenu(forRow: row)
+        }
+
         // 表级悬停控制器（替代 per-row NSTrackingArea，避免滚动时多行 hover）
         context.coordinator.hoverController.install(on: tableView)
 
@@ -139,6 +162,11 @@ struct FileTreeTableView: NSViewRepresentable {
         coordinator.onNewFile = onNewFile
         coordinator.onNewFolder = onNewFolder
         coordinator.onRenameSelected = onRenameSelected
+        // FT-R16: 上下文菜单回调
+        coordinator.onRevealInFinder = onRevealInFinder
+        coordinator.onCopyPath = onCopyPath
+        coordinator.onConfirmDelete = onConfirmDelete
+        coordinator.onPreviewDiff = onPreviewDiff
         // FT-R9: DnD 回调
         coordinator.onMoveEntries = onMoveEntries
         coordinator.onCopyEntries = onCopyEntries
@@ -183,6 +211,12 @@ struct FileTreeTableView: NSViewRepresentable {
         var onNewFile: () -> Void
         var onNewFolder: () -> Void
         var onRenameSelected: () -> Void
+        // FT-R16: 上下文菜单
+        var onRevealInFinder: ([EntryID]) -> Void
+        var onCopyPath: ([EntryID]) -> Void
+        var onConfirmDelete: (Set<EntryID>) -> Void
+        var rootURL: URL? = nil
+        var onPreviewDiff: ((EntryID) -> Void)? = nil
         weak var tableView: NSTableView?
         weak var keyboardTableView: FileTreeKeyboardTableView?
 
@@ -211,6 +245,10 @@ struct FileTreeTableView: NSViewRepresentable {
              onNewFile: @escaping () -> Void = {},
              onNewFolder: @escaping () -> Void = {},
              onRenameSelected: @escaping () -> Void = {},
+             onRevealInFinder: @escaping ([EntryID]) -> Void = { _ in },
+             onCopyPath: @escaping ([EntryID]) -> Void = { _ in },
+             onConfirmDelete: @escaping (Set<EntryID>) -> Void = { _ in },
+             onPreviewDiff: ((EntryID) -> Void)? = nil,
              onMoveEntries: @escaping ([EntryID], EntryID) -> Void = { _, _ in },
              onCopyEntries: @escaping ([EntryID], EntryID) -> Void = { _, _ in },
              onImportExternalFiles: @escaping ([URL], EntryID) -> Void = { _, _ in },
@@ -226,10 +264,63 @@ struct FileTreeTableView: NSViewRepresentable {
             self.onNewFile = onNewFile
             self.onNewFolder = onNewFolder
             self.onRenameSelected = onRenameSelected
+            self.onRevealInFinder = onRevealInFinder
+            self.onCopyPath = onCopyPath
+            self.onConfirmDelete = onConfirmDelete
+            self.onPreviewDiff = onPreviewDiff
             self.onMoveEntries = onMoveEntries
             self.onCopyEntries = onCopyEntries
             self.onImportExternalFiles = onImportExternalFiles
             self.onExpandDirectory = onExpandDirectory
+        }
+
+        // MARK: - FT-R16 上下文菜单构建
+
+        /// 根据行索引构建右键菜单。
+        /// 参考 Zed deploy_context_menu(position, entry_id) 的实现路径。
+        func buildContextMenu(forRow row: Int) -> NSMenu? {
+            guard row >= 0, row < entries.count else { return nil }
+
+            let entry = entries[row]
+
+            // 确定选中集合（若点击行已在选中集合中，使用全部选中行；否则只用点击行）
+            let selectedIDs = selection.selected.contains(entry.id)
+                ? Array(selection.selected)
+                : [entry.id]
+            let selectedEntries = selectedIDs.compactMap { id in entries.first { $0.id == id } }
+
+            // Zed: is_root = entry is at depth 0（工作区根目录不展示 Rename/Delete）
+            let isRoot = entry.depth == 0
+
+            // VSCode: isDirty context key — onPreviewDiff 非 nil 当且仅当目标文件有 Git 变更
+            let previewDiffCallback: (() -> Void)? = entry.gitSummary != nil
+                ? { [weak self] in self?.onPreviewDiff?(entry.id) }
+                : nil
+
+            let config = FileTreeContextMenu.Config(
+                targetEntry: entry,
+                selectedEntries: selectedEntries,
+                isRoot: isRoot,
+                rootURL: rootURL,
+                onNewFile: { [weak self] in self?.onNewFile() },
+                onNewFolder: { [weak self] in self?.onNewFolder() },
+                onRename: { [weak self] in self?.onRenameSelected() },
+                onDelete: { [weak self] in
+                    guard let self else { return }
+                    self.onConfirmDelete(Set(selectedIDs))
+                },
+                onRevealInFinder: { [weak self] in
+                    guard let self else { return }
+                    self.onRevealInFinder(selectedIDs)
+                },
+                onCopyPath: { [weak self] in
+                    guard let self else { return }
+                    self.onCopyPath(selectedIDs)
+                },
+                onPreviewDiff: previewDiffCallback
+            )
+
+            return FileTreeContextMenu.build(config)
         }
 
         // MARK: NSTableViewDataSource
@@ -798,12 +889,31 @@ final class FileTreeKeyboardTableView: NSTableView {
     var onRenameSelected: (() -> Void)?
     var onCancelEdit: (() -> Void)?
 
+    /// FT-R16: 右键菜单提供者：传入点击行索引，返回 NSMenu（nil = 不显示菜单）。
+    /// 由 Coordinator 在 makeNSView 时设置。
+    var contextMenuProvider: ((Int) -> NSMenu?)?
+
     /// 当前是否处于编辑态（由 Coordinator 在 updateNSView 时同步）。
     var isInlineEditing: Bool = false
 
     /// 确保 table view 能成为 first responder 以接收键盘事件。
     /// NSTableView 默认返回 true，但显式声明确保 focusRingType = .none 不影响行为。
     override var acceptsFirstResponder: Bool { true }
+
+    /// FT-R16: 覆写 NSResponder.menu(for:)，将点击位置转换为行索引后委托给 provider。
+    /// 参考 Zed project_panel: right_button_down → deploy_context_menu(position, entry_id)
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let row = self.row(at: localPoint)
+
+        // 若点击了一个未选中的行，先将该行设为选中
+        // VSCode: 右键时若点击未选中行，先切换选中（explorerView onContextMenu 中 revealInExplorer）
+        if row >= 0, !selectedRowIndexes.contains(row) {
+            selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+
+        return contextMenuProvider?(row)
+    }
 
     override func keyDown(with event: NSEvent) {
         let cmd   = event.modifierFlags.contains(.command)

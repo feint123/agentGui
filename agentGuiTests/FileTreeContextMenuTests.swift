@@ -148,3 +148,61 @@ final class FileTreeContextMenuTests: XCTestCase {
         )
     }
 }
+
+// MARK: - Coordinator 集成测试（无需显示窗口）
+
+final class FileTreeContextMenuCoordinatorTests: XCTestCase {
+
+    func testBuildContextMenu_forFileRow_containsExpectedItems() {
+        let entry = makeVisibleFile(name: "App.swift", hasGitChange: false)
+        let coordinator = makeCoordinator(entries: [entry])
+        let menu = coordinator.buildContextMenu(forRow: 0)
+        XCTAssertNotNil(menu)
+        let titles = menu!.items.map(\.title)
+        XCTAssertTrue(titles.contains("新建文件"))
+        XCTAssertTrue(titles.contains("在访达中显示"))
+        XCTAssertTrue(titles.contains("复制相对路径"))
+    }
+
+    func testBuildContextMenu_forOutOfBoundsRow_returnsNil() {
+        let coordinator = makeCoordinator(entries: [])
+        let menu = coordinator.buildContextMenu(forRow: 5)
+        XCTAssertNil(menu)
+    }
+
+    func testBuildContextMenu_forGitChangedFile_showsDiff() {
+        let entry = makeVisibleFile(name: "Changed.swift", hasGitChange: true)
+        let coordinator = makeCoordinator(entries: [entry])
+        let menu = coordinator.buildContextMenu(forRow: 0)
+        let titles = menu!.items.map(\.title)
+        XCTAssertTrue(titles.contains("查看 Diff"))
+    }
+
+    func testBuildContextMenu_forNegativeRow_returnsNil() {
+        let coordinator = makeCoordinator(entries: [makeVisibleFile()])
+        XCTAssertNil(coordinator.buildContextMenu(forRow: -1))
+    }
+
+    // MARK: - Helpers
+
+    private func makeVisibleFile(name: String = "File.swift", hasGitChange: Bool = false) -> VisibleEntry {
+        VisibleEntry(
+            id: EntryID(url: URL(fileURLWithPath: "/project/\(name)")),
+            name: name, isDirectory: false, depth: 1,
+            isExpanded: false, loadState: .loaded,
+            foldedAncestors: nil,
+            gitSummary: hasGitChange ? .modified : nil,
+            diagnosticSeverity: nil, isIgnored: false
+        )
+    }
+
+    private func makeCoordinator(entries: [VisibleEntry]) -> FileTreeTableView.Coordinator {
+        let c = FileTreeTableView.Coordinator(
+            entries: entries,
+            selection: .init(),
+            onSelect: { _, _ in }, onToggleExpand: { _ in }, onDoubleClick: { _ in }
+        )
+        c.rootURL = URL(fileURLWithPath: "/project")
+        return c
+    }
+}
