@@ -71,7 +71,21 @@ struct FileTreeContainerView: View {
                 onRenameSelected: {
                     guard let primary = viewModel.selection.primary else { return }
                     Task { await viewModel.beginRename(primary) }
-                }
+                },
+                onRevealInFinder: { ids in
+                    viewModel.revealInFinder(ids: ids)
+                },
+                onCopyPath: { ids in
+                    viewModel.copyRelativePath(ids: ids)
+                },
+                onConfirmDelete: { ids in
+                    viewModel.beginDelete(ids: ids)
+                },
+                onPreviewDiff: { id in
+                    // TODO: 接入 Git Diff 预览视图（FT-R17 或现有 PreviewDiffService）
+                    NSLog("[FT-R16] previewDiff not yet connected: \(id.url.lastPathComponent)")
+                },
+                rootURL: viewModel.rootDirectory
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 

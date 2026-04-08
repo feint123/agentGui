@@ -81,6 +81,9 @@ struct FileTreeTableView: NSViewRepresentable {
     /// 查看 Git Diff（仅对有 Git 状态的文件显示）
     var onPreviewDiff: ((EntryID) -> Void)? = nil
 
+    /// 工作区根目录（用于计算相对路径，由 FileTreeContainerView 传入）
+    var rootURL: URL? = nil
+
     // MARK: - NSViewRepresentable
 
     func makeCoordinator() -> Coordinator {
@@ -167,6 +170,7 @@ struct FileTreeTableView: NSViewRepresentable {
         coordinator.onCopyPath = onCopyPath
         coordinator.onConfirmDelete = onConfirmDelete
         coordinator.onPreviewDiff = onPreviewDiff
+        coordinator.rootURL = rootURL
         // FT-R9: DnD 回调
         coordinator.onMoveEntries = onMoveEntries
         coordinator.onCopyEntries = onCopyEntries
