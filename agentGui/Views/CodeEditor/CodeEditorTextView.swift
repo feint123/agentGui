@@ -78,12 +78,7 @@ struct CodeEditorTextView: NSViewRepresentable {
         context.coordinator.installSelectionObserver(for: textView)
         context.coordinator.installViewportObserver(for: scrollView, textView: textView)
         context.coordinator.schedulePostUpdateRefresh(for: textView, dirtyLineRange: nil)
-        if isCompletionEnabled {
-            context.coordinator.installCompletion(for: textView)
-        }
-        if isInlayHintsEnabled {
-            context.coordinator.installInlayHints(for: textView)
-        }
+        context.coordinator.syncRuntimeIntegrations(for: textView)
         return containerView
     }
 
@@ -113,6 +108,7 @@ struct CodeEditorTextView: NSViewRepresentable {
         textView.highlightedLineNumber = textView.displayedLocation(ofUTF16Offset: textView.selectedRange().location).line
         context.coordinator.updateGutterState(for: textView)
         context.coordinator.applyCachedHighlightPresentation(to: textView)
+        context.coordinator.syncRuntimeIntegrations(for: textView)
 
         (textView as? CodeEditorPlatformTextView)?.indentGuideConfig =
             CodeEditorIndentGuideConfig(from: indentationStatus)
@@ -167,6 +163,7 @@ extension CodeEditorTextView {
         private var isInIMEComposition = false
 
         // MARK: - Inlay Hints
+        private weak var installedInlayHintsCoordinator: CodeEditorLSPCoordinator?
         private var lastScheduledInlayHintRange: ClosedRange<Int>?
         private var lastScheduledInlayHintVersion: Int?
 
@@ -344,8 +341,27 @@ extension CodeEditorTextView {
             }
         }
 
+        func syncRuntimeIntegrations(for textView: CodeEditorPlatformTextView) {
+            if parent.isCompletionEnabled {
+                installCompletion(for: textView)
+            } else {
+                uninstallCompletion(for: textView)
+            }
+
+            if parent.isInlayHintsEnabled, parent.lspCoordinator != nil {
+                installInlayHints(for: textView)
+            } else {
+                uninstallInlayHints(for: textView)
+            }
+        }
+
         /// 初始化代码补全面板和触发器，连接 LSP coordinator 回调。
         func installCompletion(for textView: CodeEditorPlatformTextView) {
+            if completionPanel != nil {
+                textView.completionDelegate = self
+                return
+            }
+
             let panel = CodeEditorCompletionPanel()
             completionPanel = panel
             textView.completionDelegate = self
@@ -384,15 +400,41 @@ extension CodeEditorTextView {
             }
         }
 
+        func uninstallCompletion(for textView: CodeEditorPlatformTextView) {
+            textView.completionDelegate = nil
+            completionPanel?.hide()
+            completionPanel?.onAccept = nil
+            completionPanel?.onDismiss = nil
+            completionPanel = nil
+            completionTrigger.dismiss()
+        }
+
         // MARK: - Inlay Hints Integration
 
         func installInlayHints(for textView: CodeEditorPlatformTextView) {
-            guard let coordinator = parent.lspCoordinator else { return }
-            coordinator.onInlayHintResult = { [weak textView] snapshot in
-                Task { @MainActor in
-                    textView?.currentInlayHintSnapshot = snapshot
-                }
+            guard let coordinator = parent.lspCoordinator else {
+                uninstallInlayHints(for: textView)
+                return
             }
+
+            if installedInlayHintsCoordinator === coordinator {
+                return
+            }
+
+            installedInlayHintsCoordinator?.onInlayHintResult = nil
+            coordinator.onInlayHintResult = { [weak textView] snapshot in
+                textView?.currentInlayHintSnapshot = snapshot
+            }
+            installedInlayHintsCoordinator = coordinator
+        }
+
+        func uninstallInlayHints(for textView: CodeEditorPlatformTextView) {
+            installedInlayHintsCoordinator?.cancelInlayHintRequest()
+            installedInlayHintsCoordinator?.onInlayHintResult = nil
+            installedInlayHintsCoordinator = nil
+            lastScheduledInlayHintRange = nil
+            lastScheduledInlayHintVersion = nil
+            textView.currentInlayHintSnapshot = .empty
         }
 
         func scheduleInlayHintRequest(for textView: CodeEditorPlatformTextView) {

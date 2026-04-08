@@ -167,9 +167,9 @@ struct FileIconPill: View {
     }
 }
 
-// MARK: - MediaThumbnailPill（图片/PDF 缩略图 pill）
+// MARK: - MediaThumbnailPill（图片/PDF 小缩略图 + 文件名 pill）
 
-/// 80×80 缩略图 pill，替代原 MediaThumbnailCell。
+/// 小缩略图 + 文件名横向 pill，与 FileIconPill 视觉语言一致。
 /// 增加 origin-based 边框着色和 missing 状态覆盖层。
 struct MediaThumbnailPill: View {
     let entry: AttachmentSnapshotEntry
@@ -187,55 +187,70 @@ struct MediaThumbnailPill: View {
     private var origin: AttachmentOrigin {
         AttachmentOrigin(rawValue: entry.originRaw) ?? .external
     }
+    private var tintColor: Color {
+        AttachmentPillStyle.statusColor(origin: origin, status: status)
+    }
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.secondary.opacity(0.12))
-            if let img = thumbnail {
-                Image(nsImage: img)
-                    .resizable()
-                    .scaledToFill()
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else {
-                Image(systemName: isPDF ? "doc.richtext" : "photo")
-                    .font(.system(size: 24))
-                    .foregroundStyle(.secondary)
-            }
-            // PDF label badge
-            if isPDF {
-                VStack {
-                    Spacer()
-                    Text("PDF")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 2)
-                        .background(Color.accentColor)
+        HStack(spacing: 5) {
+            // 小缩略图区域（18×18）
+            ZStack {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(tintColor.opacity(0.15))
+                if let img = thumbnail {
+                    Image(nsImage: img)
+                        .resizable()
+                        .scaledToFill()
                         .clipShape(RoundedRectangle(cornerRadius: 3))
-                        .padding(.bottom, 5)
+                } else {
+                    Image(systemName: isPDF ? "doc.richtext" : "photo")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(tintColor.opacity(status == .valid ? 0.75 : 1.0))
+                }
+                // Missing 遮罩
+                if status == .missing {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.red.opacity(0.4))
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
                 }
             }
-            // Missing overlay
-            if status == .missing {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.red.opacity(0.3))
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.white)
+            .frame(width: 18, height: 18)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+
+            Group {
+                if status == .missing {
+                    Text(entry.displayName)
+                        .strikethrough(true, color: .red.opacity(0.7))
+                        .foregroundStyle(.red)
+                } else {
+                    Text(entry.displayName)
+                        .foregroundStyle(status == .modified ? Color.yellow : .primary.opacity(0.8))
+                }
             }
+            .font(.system(size: 12))
+            .lineLimit(1)
         }
-        .frame(width: 80, height: 80)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(tintColor.opacity(AttachmentPillStyle.backgroundOpacity(status: status, hovered: isHovered)))
+                .shadow(color: .black.opacity(isHovered ? 0.08 : 0), radius: 2, y: 1)
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(
-                    status == .missing
-                        ? Color.red.opacity(0.4)
-                        : AttachmentPillStyle.originTint(for: origin).opacity(isHovered ? 0.3 : 0.12),
-                    lineWidth: 1
-                )
+                .stroke(tintColor.opacity(AttachmentPillStyle.borderOpacity(status: status)), lineWidth: 1)
         )
+        .overlay(alignment: .topTrailing) {
+            if status == .modified {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.yellow)
+                    .offset(x: 4, y: -4)
+            }
+        }
         .scaleEffect(isHovered ? ChatMotion.hoverScale : 1.0)
         .animation(ChatMotion.hoverSpring, value: isHovered)
         .onHover { hovered in
@@ -255,7 +270,7 @@ struct MediaThumbnailPill: View {
                 Label("拷贝路径", systemImage: "doc.on.doc")
             }
         }
-        .help(entry.displayName)
-        .task { thumbnail = await mediaThumbImage(url: URL(fileURLWithPath: entry.filePath), targetWidth: 80) }
+        .help(entry.filePath)
+        .task { thumbnail = await mediaThumbImage(url: URL(fileURLWithPath: entry.filePath), targetWidth: 36) }
     }
 }

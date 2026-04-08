@@ -7,6 +7,18 @@ import SwiftUI
 import AppKit
 import PDFKit
 
+struct FileEditorCodeEditorRuntimeOptions: Equatable {
+    let isCompletionEnabled: Bool
+    let isInlayHintsEnabled: Bool
+
+    static func from(hasLSPCoordinator: Bool) -> FileEditorCodeEditorRuntimeOptions {
+        FileEditorCodeEditorRuntimeOptions(
+            isCompletionEnabled: hasLSPCoordinator,
+            isInlayHintsEnabled: hasLSPCoordinator
+        )
+    }
+}
+
 /// 文件编辑器，显示并可编辑指定文件
 struct FileEditorView: View {
 
@@ -316,6 +328,9 @@ struct FileEditorView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
+                    let runtimeOptions = FileEditorCodeEditorRuntimeOptions.from(
+                        hasLSPCoordinator: lspCoordinator != nil
+                    )
                     CodeEditorView(
                         text: Binding(
                             get: { sessionController.document.textContent },
@@ -352,7 +367,8 @@ struct FileEditorView: View {
                             currentSymbolPath = path
                         },
                         lspCoordinator: lspCoordinator,
-                        isCompletionEnabled: lspCoordinator != nil
+                        isCompletionEnabled: runtimeOptions.isCompletionEnabled,
+                        isInlayHintsEnabled: runtimeOptions.isInlayHintsEnabled
                     )
                 }
             }

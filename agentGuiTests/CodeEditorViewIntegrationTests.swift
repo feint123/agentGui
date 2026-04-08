@@ -174,6 +174,67 @@ struct CodeEditorViewIntegrationTests {
     }
 
     @Test
+    func completionInstallsWhenEnabledAfterInitialMount() {
+        let harness = CodeEditorViewHarness(
+            initialText: "alpha",
+            persistedText: "alpha",
+            isCompletionEnabled: false
+        )
+
+        #expect(harness.textView.completionDelegate == nil)
+
+        harness.updateEditorRuntimeOptions(isCompletionEnabled: true)
+
+        #expect(harness.textView.completionDelegate != nil)
+    }
+
+    @Test
+    func inlayHintCallbackInstallsWhenEnabledAfterInitialMount() async throws {
+        let lspHarness = SharedLSPServerManagerHarness(settings: .lspFixture(installedProviderIDs: ["python-lsp"]))
+        let manager = lspHarness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: CodeEditorLSPDocumentBinding(
+                workspaceRoot: "/tmp",
+                serverID: "python-lsp",
+                uri: "file:///tmp/Sample.py",
+                languageID: "python"
+            ),
+            debounceNanoseconds: 10_000_000
+        )
+
+        let harness = CodeEditorViewHarness(
+            initialText: "alpha",
+            persistedText: "alpha",
+            lspCoordinator: coordinator,
+            isInlayHintsEnabled: false
+        )
+
+        #expect(harness.textView.currentInlayHintSnapshot.hintsByLine.isEmpty)
+
+        harness.updateEditorRuntimeOptions(isInlayHintsEnabled: true)
+        coordinator.onInlayHintResult?(
+            CodeEditorInlayHintSnapshot(
+                documentVersion: harness.documentVersion,
+                hints: [
+                    .init(
+                        line: 1,
+                        character: 2,
+                        label: ": Int",
+                        kind: .type,
+                        paddingLeft: false,
+                        paddingRight: true
+                    )
+                ]
+            )
+        )
+        harness.pumpRunLoop()
+
+        #expect(harness.textView.currentInlayHintSnapshot.hintsByLine[1]?.first?.label == ": Int")
+    }
+
+    @Test
     func semanticPositionUsesDocumentVersionBeforeHighlightFinishes() {
         let harness = CodeEditorViewHarness(
             initialText: "alpha",
@@ -344,8 +405,17 @@ private final class CodeEditorViewHarness {
         @Published var lspStatus: WorkspacePanelLSPStatusPresentation?
         @Published var diagnostics: LSPDiagnosticsSnapshot?
         @Published var findQueryOverride: String?
+        @Published var lspCoordinator: CodeEditorLSPCoordinator?
+        @Published var isCompletionEnabled: Bool
+        @Published var isInlayHintsEnabled: Bool
 
-        init(text: String, persistedText: String) {
+        init(
+            text: String,
+            persistedText: String,
+            lspCoordinator: CodeEditorLSPCoordinator?,
+            isCompletionEnabled: Bool,
+            isInlayHintsEnabled: Bool
+        ) {
             self.text = text
             self.persistedText = persistedText
             self.revealRequest = nil
@@ -353,6 +423,9 @@ private final class CodeEditorViewHarness {
             self.lspStatus = nil
             self.diagnostics = nil
             self.findQueryOverride = nil
+            self.lspCoordinator = lspCoordinator
+            self.isCompletionEnabled = isCompletionEnabled
+            self.isInlayHintsEnabled = isInlayHintsEnabled
         }
     }
 
@@ -367,9 +440,18 @@ private final class CodeEditorViewHarness {
         initialText: String,
         persistedText: String,
         fileURL: URL = URL(fileURLWithPath: "/tmp/CodeEditorViewHarness.swift"),
-        highlightExecutionDelayNanoseconds: UInt64 = 0
+        highlightExecutionDelayNanoseconds: UInt64 = 0,
+        lspCoordinator: CodeEditorLSPCoordinator? = nil,
+        isCompletionEnabled: Bool = false,
+        isInlayHintsEnabled: Bool = false
     ) {
-        let storage = Storage(text: initialText, persistedText: persistedText)
+        let storage = Storage(
+            text: initialText,
+            persistedText: persistedText,
+            lspCoordinator: lspCoordinator,
+            isCompletionEnabled: isCompletionEnabled,
+            isInlayHintsEnabled: isInlayHintsEnabled
+        )
         self.storage = storage
         self.fileURL = fileURL
         self.highlightExecutionDelayNanoseconds = highlightExecutionDelayNanoseconds
@@ -461,6 +543,23 @@ private final class CodeEditorViewHarness {
     func updateFromHost(text: String, persistedText: String) {
         storage.text = text
         storage.persistedText = persistedText
+        pumpRunLoop()
+    }
+
+    func updateEditorRuntimeOptions(
+        lspCoordinator: CodeEditorLSPCoordinator? = nil,
+        isCompletionEnabled: Bool? = nil,
+        isInlayHintsEnabled: Bool? = nil
+    ) {
+        if let lspCoordinator {
+            storage.lspCoordinator = lspCoordinator
+        }
+        if let isCompletionEnabled {
+            storage.isCompletionEnabled = isCompletionEnabled
+        }
+        if let isInlayHintsEnabled {
+            storage.isInlayHintsEnabled = isInlayHintsEnabled
+        }
         pumpRunLoop()
     }
 
@@ -642,7 +741,7 @@ private final class CodeEditorViewHarness {
         }
     }
 
-    private func pumpRunLoop() {
+    func pumpRunLoop() {
         RunLoop.main.run(until: Date().addingTimeInterval(0.03))
     }
 
@@ -708,7 +807,10 @@ private struct HostView: View {
             onFindStateChange: onFindStateChange,
             highlighter: highlighter,
             highlightDebounceNanoseconds: 0,
-            highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds
+            highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds,
+            lspCoordinator: storage.lspCoordinator,
+            isCompletionEnabled: storage.isCompletionEnabled,
+            isInlayHintsEnabled: storage.isInlayHintsEnabled
         )
         .frame(width: 480, height: 320)
     }

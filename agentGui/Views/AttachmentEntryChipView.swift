@@ -128,10 +128,10 @@ struct FileIconChip: View {
     }
 }
 
-// MARK: - MediaThumbnailChip（图片 / PDF 缩略图）
+// MARK: - MediaThumbnailChip（图片 / PDF 小缩略图 + 文件名）
 
-/// 72×72 缩略图 chip，适用于图片和 PDF 附件。
-/// 对标 Open WebUI: icon 区域在 loading 时切换到 Spinner，图标在 loaded 后替换为真实图片。
+/// 小缩略图 + 文件名横向 chip，与 FileIconChip 视觉一致。
+/// loading 时在缩略图区域显示 Spinner。
 struct MediaThumbnailChip: View {
     let file: AttachedFile
     var onRemove: (() -> Void)? = nil
@@ -139,73 +139,41 @@ struct MediaThumbnailChip: View {
 
     @State private var thumbnail: NSImage? = nil
 
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            thumbnailBody
-                .onTapGesture { onTap?() }
-
-            if let onRemove {
-                Button(action: onRemove) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 16))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.primary)
-                        .background(
-                            Circle()
-                                .fill(Color(NSColor.windowBackgroundColor))
-                                .padding(1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .offset(x: 6, y: -6)
-                .accessibilityLabel("移除附件")
-            }
-        }
-        .task { thumbnail = await mediaThumbImage(url: file.url, targetWidth: 72) }
-        // 入场动效
-        .transition(.scale(scale: 0.85).combined(with: .opacity))
+    private var tint: Color {
+        AttachmentOriginTint.color(for: file.origin)
     }
 
-    @ViewBuilder
-    private var thumbnailBody: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.secondary.opacity(0.12))
-
-            if file.uploadStatus == .uploading {
-                ProgressView()
-                    .controlSize(.regular)
-            } else if let img = thumbnail {
-                Image(nsImage: img)
-                    .resizable()
-                    .scaledToFill()
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else {
-                Image(systemName: file.isPDF ? "doc.richtext" : "photo")
-                    .font(.system(size: 24))
-                    .foregroundStyle(.secondary)
-            }
-
-            if file.isPDF {
-                VStack {
-                    Spacer()
-                    Text("PDF")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 2)
-                        .background(Color.accentColor)
+    var body: some View {
+        _ChipContainer(tint: tint, isLoading: false, onRemove: onRemove) {
+            // 小缩略图区域（20×20）
+            ZStack {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.secondary.opacity(0.15))
+                if file.uploadStatus == .uploading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if let img = thumbnail {
+                    Image(nsImage: img)
+                        .resizable()
+                        .scaledToFill()
                         .clipShape(RoundedRectangle(cornerRadius: 3))
-                        .padding(.bottom, 5)
+                } else {
+                    Image(systemName: file.isPDF ? "doc.richtext" : "photo")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(tint)
                 }
             }
+            .frame(width: 20, height: 20)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+
+            Text(file.name)
+                .font(.body)
+                .foregroundStyle(.primary.opacity(0.72))
+                .lineLimit(1)
         }
-        .frame(width: 72, height: 72)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
+        .onTapGesture { onTap?() }
+        .task { thumbnail = await mediaThumbImage(url: file.url, targetWidth: 40) }
+        .transition(.scale(scale: 0.85).combined(with: .opacity))
     }
 }
 

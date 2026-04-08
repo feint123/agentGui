@@ -70,7 +70,7 @@ final class FileTreeTableRowView: NSTableRowView {
 ///   在 `mouseMoved` 中用 `tableView.row(at:)` 精确计算当前行，确保始终只有一行 hover。
 ///
 /// 对标 Zed `UniformList::on_mouse_move` 中 `hovered_entry = cx.mouse_position()...` 的设计。
-final class FileTreeHoverController: NSObject {
+final class FileTreeHoverController: NSResponder {
     private weak var tableView: NSTableView?
     private var trackingArea: NSTrackingArea?
     private var hoveredRow: Int = -1
@@ -95,15 +95,15 @@ final class FileTreeHoverController: NSObject {
         trackingArea = area
     }
 
-    @objc func mouseEntered(with event: NSEvent) {
+    override func mouseEntered(with event: NSEvent) {
         updateHover(with: event)
     }
 
-    @objc func mouseExited(with event: NSEvent) {
+    override func mouseExited(with event: NSEvent) {
         clearHover()
     }
 
-    @objc func mouseMoved(with event: NSEvent) {
+    override func mouseMoved(with event: NSEvent) {
         updateHover(with: event)
     }
 
