@@ -25,7 +25,7 @@ final class FileTreeCellView: NSTableCellView {
     }()
     private let iconView = NSImageView()
     private let nameLabel = NSTextField()
-    private let gitBadgeLabel = NSTextField()
+    let gitBadgeLabel = NSTextField()
     /// 分段路径容器（仅 auto-fold 行使用，普通行隐藏）。
     /// 每个段是一个无边框 NSButton，段间插入弱色 " / " 标签。
     private let segmentedPathStack = NSStackView()
@@ -222,13 +222,24 @@ final class FileTreeCellView: NSTableCellView {
             nameLabel.textColor = isSelected ? .selectedMenuItemTextColor : .labelColor
         }
 
-        // 5. git badge（FT-R7 完整实现，此处占位）
-        if let git = entry.gitSummary {
+        // 5. git badge（FT-R7：区分文件/目录渲染）
+        if let git = entry.gitSummary, !entry.isExpanded {
             gitBadgeLabel.isHidden = false
-            gitBadgeLabel.stringValue = git.shortLabel
-            gitBadgeLabel.textColor = git.nsColor
+            if entry.isDirectory {
+                // 折叠目录：彩点，半透明（参考 Zed Indicator::dot().color(...).opacity(0.5)）
+                gitBadgeLabel.stringValue = "●"
+                gitBadgeLabel.font = NSFont.systemFont(ofSize: 10)
+                gitBadgeLabel.textColor = git.nsColor.withAlphaComponent(0.75)
+            } else {
+                // 文件：字母 badge，不透明
+                gitBadgeLabel.stringValue = git.shortLabel
+                gitBadgeLabel.font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize,
+                                                                  weight: .medium)
+                gitBadgeLabel.textColor = git.nsColor
+            }
         } else {
             gitBadgeLabel.isHidden = true
+            gitBadgeLabel.stringValue = ""
         }
     }
 

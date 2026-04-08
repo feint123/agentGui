@@ -32,6 +32,8 @@ final class FileTreeViewModel {
     // MARK: - 私有
 
     private let store: FileTreeStore
+    // FT-R7: Git 状态观察者
+    private var gitStatusObserver: (any GitStatusObserving)?
 
     // MARK: - 初始化
 
@@ -49,6 +51,10 @@ final class FileTreeViewModel {
 
     /// 设置工作区根目录。传 nil 时清空所有状态。
     func setDirectory(_ url: URL?) async {
+        // 停止旧的 Git 观察者
+        gitStatusObserver?.stop()
+        gitStatusObserver = nil
+
         guard let url else {
             visibleEntries = []
             selection = .init()
@@ -56,6 +62,17 @@ final class FileTreeViewModel {
         }
         await store.setRoot(url)
         visibleEntries = await store.computeVisibleEntries()
+
+        // 启动 Git 状态观察
+        let observer = GitStatusObserver()
+        observer.start(rootURL: url) { [weak self] statuses in
+            guard let self else { return }
+            Task {
+                await self.store.updateGitStatuses(statuses)
+                self.visibleEntries = await self.store.computeVisibleEntries()
+            }
+        }
+        gitStatusObserver = observer
     }
 
     /// 切换目录展开/折叠状态，更新 visibleEntries 快照。

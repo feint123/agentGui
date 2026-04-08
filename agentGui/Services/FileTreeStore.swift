@@ -28,6 +28,9 @@ actor FileTreeStore {
     /// 已展开目录的 ID 集合。
     private var expandedIDs: Set<EntryID> = []
 
+    // FT-R7: Git 状态字典（EntryID → GitSummary）
+    private var gitStatuses: [EntryID: GitSummary] = [:]
+
     private let scanner: FileScanning
     private let fsObserver: FSEventObserving
 
@@ -148,6 +151,24 @@ actor FileTreeStore {
         entries[id]
     }
 
+    // MARK: - FT-R7: Git 状态更新
+
+    /// 接收外部 Git 状态更新（URL → GitSummary），转换后存储。
+    /// 调用方需在更新后手动调用 computeVisibleEntries() 刷新快照。
+    func updateGitStatuses(_ statuses: [URL: GitSummary]) {
+        gitStatuses = Dictionary(
+            uniqueKeysWithValues: statuses.map { (EntryID(url: $0.key), $0.value) }
+        )
+    }
+
+    /// 后序递归聚合：文件直接返回状态；目录取子树 min（优先级最高）。
+    private func aggregateGitSummary(for id: EntryID) -> GitSummary? {
+        if let direct = gitStatuses[id] { return direct }
+        guard let childIDs = children[id], !childIDs.isEmpty else { return nil }
+        let childStatuses = childIDs.compactMap { aggregateGitSummary(for: $0) }
+        return childStatuses.min()
+    }
+
     // MARK: - computeVisibleEntries
     //
     // 核心热路径：DFS 遍历 rootIDs，生成 [VisibleEntry]。
@@ -262,7 +283,7 @@ actor FileTreeStore {
                         segments: chain.segments,
                         terminalID: terminalID
                     ),
-                    gitSummary: nil,
+                    gitSummary: terminalIsExpanded ? nil : aggregateGitSummary(for: terminalID),
                     diagnosticSeverity: nil,
                     isIgnored: false
                 )
@@ -282,7 +303,7 @@ actor FileTreeStore {
                 isExpanded: isExpanded,
                 loadState: entry.loadState,
                 foldedAncestors: nil,
-                gitSummary: nil,          // Git badge 在 FT-R7 实现
+                gitSummary: isExpanded ? nil : aggregateGitSummary(for: id),
                 diagnosticSeverity: nil,  // Diag badge 在 FT-R14 实现
                 isIgnored: false          // .gitignore 在 FT-R6 实现
             )

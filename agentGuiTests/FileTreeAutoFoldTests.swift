@@ -367,3 +367,86 @@ final class FileTreeCompactFoldersSettingsTests: XCTestCase {
         XCTAssertFalse(actual)
     }
 }
+
+// MARK: - VisibleEntry 测试辅助
+
+private extension VisibleEntry {
+    static func stub(name: String, isDirectory: Bool, isExpanded: Bool,
+                     gitSummary: GitSummary? = nil) -> VisibleEntry {
+        VisibleEntry(id: EntryID(url: URL(fileURLWithPath: "/tmp/\(name)")),
+                     name: name, isDirectory: isDirectory,
+                     depth: 0, isExpanded: isExpanded,
+                     loadState: .loaded, foldedAncestors: nil,
+                     gitSummary: gitSummary, diagnosticSeverity: nil, isIgnored: false)
+    }
+}
+
+// MARK: - FT-R7 Git badge 渲染测试
+
+extension FileTreeCellConfigureTests {
+
+    /// 文件有 Git 状态 → 显示字母 badge
+    func testGitBadge_fileShowsLetter() {
+        let entry = VisibleEntry.stub(
+            name: "a.swift", isDirectory: false, isExpanded: false,
+            gitSummary: .modified
+        )
+        let cell = FileTreeCellView(frame: .zero)
+        cell.configure(
+            entry: entry,
+            isSelected: false,
+            onToggle: { _ in }
+        )
+        XCTAssertFalse(cell.gitBadgeLabel.isHidden)
+        XCTAssertEqual(cell.gitBadgeLabel.stringValue, "M",
+            "修改文件应显示字母 M")
+    }
+
+    /// 折叠目录有聚合状态 → 显示彩点 ●
+    func testGitBadge_collapsedDirectoryShowsDot() {
+        let entry = VisibleEntry.stub(
+            name: "src", isDirectory: true, isExpanded: false,
+            gitSummary: .modified
+        )
+        let cell = FileTreeCellView(frame: .zero)
+        cell.configure(
+            entry: entry,
+            isSelected: false,
+            onToggle: { _ in }
+        )
+        XCTAssertFalse(cell.gitBadgeLabel.isHidden)
+        XCTAssertEqual(cell.gitBadgeLabel.stringValue, "●",
+            "折叠目录应显示彩点 ●，不是字母")
+    }
+
+    /// 展开目录有聚合状态 → badge 隐藏（子节点已可见）
+    func testGitBadge_expandedDirectoryHidesBadge() {
+        let entry = VisibleEntry.stub(
+            name: "src", isDirectory: true, isExpanded: true,
+            gitSummary: .modified
+        )
+        let cell = FileTreeCellView(frame: .zero)
+        cell.configure(
+            entry: entry,
+            isSelected: false,
+            onToggle: { _ in }
+        )
+        XCTAssertTrue(cell.gitBadgeLabel.isHidden,
+            "展开目录的 badge 应隐藏")
+    }
+
+    /// gitSummary == nil → badge 隐藏
+    func testGitBadge_nilStatusHidesBadge() {
+        let entry = VisibleEntry.stub(
+            name: "b.swift", isDirectory: false, isExpanded: false,
+            gitSummary: nil
+        )
+        let cell = FileTreeCellView(frame: .zero)
+        cell.configure(
+            entry: entry,
+            isSelected: false,
+            onToggle: { _ in }
+        )
+        XCTAssertTrue(cell.gitBadgeLabel.isHidden)
+    }
+}

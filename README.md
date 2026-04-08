@@ -125,7 +125,7 @@ VS Code 里也可以直接运行 `Quality Smoke`、`Sample UI Baseline`、`Sampl
 3. 在“工具”中启用 Bash、Web Search、Web Fetch 和 LSP
 4. 在“智能”中调整 Extended Thinking 与反思阈值
 5. 在“记忆”中启用统一记忆运行时、治理层和长期记忆编辑器
-    记忆设置页还提供 Admission V2、Goal-conditioned Retrieval、Bridge Expansion、Lifecycle Manager、Experience Distillation 的独立 rollout 开关
+  记忆设置页还提供 Admission V2、Goal-conditioned Retrieval、Bridge Expansion、Lifecycle Manager、Experience Distillation 的独立 rollout 开关
 6. 在“通用”中调整主题与查看版本、连接状态
 7. 如需小说写作支持，继续在主窗口的相关工作流中启用创作记忆并绑定当前会话
 
@@ -170,6 +170,7 @@ flowchart TB
 ```
 
 **核心特性：**
+
 - **流式处理**：实时解析 SSE 事件流，增量更新 UI
 - **思考支持**：Claude 3.7+ 的 Extended Thinking 内容单独显示
 - **上下文压缩**：当使用率超过 75% 时自动压缩历史消息
@@ -192,6 +193,7 @@ flowchart TB
 | `outline_planner` | 大纲规划师 | 只读 | 文档结构规划、章节组织 |
 
 **委派流程：**
+
 1. 主 Agent 调用 `run_subagent` 工具
 2. 系统创建独立的嵌套 Loop，传入子代理专用配置
 3. 子代理运行（无递归，限制轮次）
@@ -262,10 +264,9 @@ agentGui 通过工具扩展 Claude 的能力：
 
 当前内置的创作记忆工具包括：
 
-
 ## 项目结构
 
-```
+```text
 agentGui/
 ├── Models/                         # SwiftData 数据模型
 │   ├── Session.swift                  # 对话会话
@@ -366,7 +367,7 @@ agentGui/
 
 agentGui 在 `~/.claude/` 下存储用户数据：
 
-```
+```text
 ~/.claude/
 ├── projects/
 │   └── [项目名称]/
