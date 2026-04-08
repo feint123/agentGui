@@ -29,24 +29,36 @@ actor FileTreeStore {
     private var expandedIDs: Set<EntryID> = []
 
     private let scanner: FileScanning
+    private let fsObserver: FSEventObserving
+
+    /// 当前监听的根目录 URL。
+    private var rootURL: URL?
 
     // MARK: - Init
 
-    init(scanner: FileScanning = RealFileScanner()) {
+    init(
+        scanner: FileScanning = RealFileScanner(),
+        fsObserver: FSEventObserving = FSEventObserver()
+    ) {
         self.scanner = scanner
+        self.fsObserver = fsObserver
     }
 
     // MARK: - 公开 API
 
-    /// 设置工作区根目录，执行浅扫描并重建索引。
+    /// 设置工作区根目录，执行浅扫描并重建索引，启动 FSEvent 监听。
     func setRoot(_ url: URL) async {
-        let rootURL = url.standardizedFileURL
+        // 停止旧观察
+        await fsObserver.stopObserving()
+
+        let standardizedRoot = url.standardizedFileURL
+        rootURL = standardizedRoot
         entries = [:]
         children = [:]
         rootIDs = []
         expandedIDs = []
 
-        guard let scanned = try? await scanner.shallowScan(directory: rootURL) else { return }
+        guard let scanned = try? await scanner.shallowScan(directory: standardizedRoot) else { return }
 
         var childIDs: [EntryID] = []
         for item in scanned {
@@ -62,6 +74,23 @@ actor FileTreeStore {
             childIDs.append(id)
         }
         rootIDs = sortedIDs(childIDs)
+
+        // 启动 FSEvent 监听
+        await fsObserver.startObserving(directory: standardizedRoot) { [weak self] changedPaths in
+            Task { [weak self] in
+                await self?.applyFSEvents(changedPaths)
+            }
+        }
+    }
+
+    /// 清除根目录并停止 FSEvent 监听。
+    func clearRoot() async {
+        await fsObserver.stopObserving()
+        rootURL = nil
+        entries = [:]
+        children = [:]
+        rootIDs = []
+        expandedIDs = []
     }
 
     /// 展开目录：若尚未加载则触发浅扫描，将 ID 加入 expandedIDs。
@@ -169,5 +198,198 @@ actor FileTreeStore {
             let nameB = entryB?.name ?? b.url.lastPathComponent
             return nameA.localizedStandardCompare(nameB) == .orderedAscending
         }
+    }
+
+    // MARK: - FSEvent 增量更新
+
+    /// FSEvent 回调入口：根据变更路径增量更新 Store 状态。
+    ///
+    /// 算法（参考设计文档 §3.2 + 旧 WorkspaceTreeRefreshCoordinator.refresh）：
+    /// 1. 计算 dirty 目录集合（变更路径的父目录）
+    /// 2. 祖先剪枝（子路径被父路径覆盖时移除）
+    /// 3. 若剪枝后目录数 > 30 → 降级为 setRoot 全量重建
+    /// 4. 否则逐一 refreshDirectory
+    ///
+    /// - Parameter changedPaths: FSEvent 回调的原始路径字符串数组
+    func applyFSEvents(_ changedPaths: [String]) async {
+        guard let rootURL else { return }
+
+        let dirty = Self.computeDirtyDirectories(changedPaths, rootURL: rootURL)
+        let pruned = Self.pruneDescendants(dirty)
+
+        if pruned.count > 30 {
+            // 降级：超过 30 个受影响目录，全量重建成本低于逐个刷新
+            await setRoot(rootURL)
+            return
+        }
+
+        for dir in pruned {
+            await refreshDirectory(dir)
+        }
+    }
+
+    /// 重新扫描单个目录，将结果与 Store 中现有子条目对比，增量更新。
+    private func refreshDirectory(_ url: URL) async {
+        guard let rootURL else { return }
+
+        // 根目录特殊处理：root 本身不存储在 entries 中，只有其内容在 rootIDs
+        if Self.normPath(url) == Self.normPath(rootURL) {
+            guard let scanned = try? await scanner.shallowScan(directory: url) else { return }
+            let existingRootSet = Set(rootIDs)
+            var newRootIDs: [EntryID] = []
+            for item in scanned {
+                let itemID = EntryID(url: item.url.standardizedFileURL)
+                newRootIDs.append(itemID)
+                if entries[itemID] == nil {
+                    entries[itemID] = FileEntry(
+                        id: itemID,
+                        name: item.name,
+                        isDirectory: item.isDirectory,
+                        parentID: nil,
+                        loadState: item.isDirectory ? .notLoaded : .loaded
+                    )
+                }
+            }
+            let newRootSet = Set(newRootIDs)
+            for removed in existingRootSet.subtracting(newRootSet) {
+                removeSubtree(rooted: removed)
+            }
+            rootIDs = sortedIDs(newRootIDs)
+            return
+        }
+
+        let dirID = EntryID(url: url.standardizedFileURL)
+
+        // 只对已知且已展开的目录执行增量刷新
+        guard entries[dirID] != nil else {
+            // 目录不在 Store 中（可能是新目录），尝试刷新其父目录
+            let parent = url.deletingLastPathComponent()
+            let parentID = EntryID(url: parent.standardizedFileURL)
+            if entries[parentID] != nil {
+                await refreshDirectory(parent)
+            }
+            return
+        }
+
+        // 只刷新根目录或已展开目录的内容
+        guard rootIDs.isEmpty || expandedIDs.contains(dirID) || isRootLevelDirectory(dirID) else {
+            return
+        }
+
+        // 重新扫描
+        guard let scanned = try? await scanner.shallowScan(directory: url) else { return }
+
+        let existingChildren = Set(children[dirID] ?? [])
+        var newChildren: [EntryID] = []
+
+        for item in scanned {
+            let itemID = EntryID(url: item.url.standardizedFileURL)
+            newChildren.append(itemID)
+
+            if entries[itemID] == nil {
+                // 新出现的条目
+                entries[itemID] = FileEntry(
+                    id: itemID,
+                    name: item.name,
+                    isDirectory: item.isDirectory,
+                    parentID: dirID,
+                    loadState: item.isDirectory ? .notLoaded : .loaded
+                )
+            }
+        }
+
+        // 删除已消失的条目及其子树
+        let newChildSet = Set(newChildren)
+        for removed in existingChildren.subtracting(newChildSet) {
+            removeSubtree(rooted: removed)
+        }
+
+        children[dirID] = sortedIDs(newChildren)
+
+        // 更新父目录 loadState
+        if entries[dirID] != nil {
+            entries[dirID]?.loadState = .loaded
+        }
+    }
+
+    /// 判断某 ID 是否是根级目录（出现在 rootIDs 中）。
+    private func isRootLevelDirectory(_ id: EntryID) -> Bool {
+        rootIDs.contains(id)
+    }
+
+    /// 递归删除某 entryID 及其所有子孙条目。
+    private func removeSubtree(rooted id: EntryID) {
+        if let childIDs = children.removeValue(forKey: id) {
+            for child in childIDs {
+                removeSubtree(rooted: child)
+            }
+        }
+        entries.removeValue(forKey: id)
+        expandedIDs.remove(id)
+    }
+
+    // MARK: - FSEvent 增量更新辅助（nonisolated static，供测试直接调用）
+
+    /// 根据 FSEvent 变更路径计算需要重新扫描的目录集合。
+    ///
+    /// 算法（参考旧 `WorkspaceTreeSnapshotOps.refreshTargets(for:rootURL:)`）：
+    /// 1. 文件变更 → 取父目录
+    /// 2. 目录变更（isDirectory = true）→ 取自身
+    /// 3. 只保留 rootURL 树内的路径
+    ///
+    /// 注意：此方法不进行 I/O（不 stat 路径），依赖已知条件，轻量快速。
+    nonisolated static func computeDirtyDirectories(
+        _ changedPaths: [String],
+        rootURL: URL
+    ) -> [URL] {
+        let rootPath = Self.normPath(rootURL)
+        var dirtyPaths = Set<String>()
+
+        for path in changedPaths {
+            let changedURL = URL(fileURLWithPath: path)
+            let parentPath = Self.normPath(changedURL.deletingLastPathComponent())
+
+            // 父目录若在 root 树下，标记为 dirty
+            if parentPath == rootPath || parentPath.hasPrefix(rootPath + "/") {
+                dirtyPaths.insert(parentPath)
+            }
+
+            // 变更路径本身若也在 root 树下，同样标记（可能是目录）
+            let changedPath = Self.normPath(changedURL)
+            if changedPath.hasPrefix(rootPath + "/") || changedPath == rootPath {
+                dirtyPaths.insert(changedPath)
+            }
+        }
+
+        // 按路径深度排序（浅层先处理），让后续 pruneDescendants 保留最浅的祖先
+        return dirtyPaths
+            .sorted { $0.count < $1.count }
+            .map { URL(fileURLWithPath: $0) }
+    }
+
+    /// 剪枝：若一个路径已有祖先在集合中，则移除该路径。
+    ///
+    /// 算法参考 Zed `coalesce_pending_rescans` 的祖先覆盖逻辑：
+    /// - 若父目录在列表中，子目录的刷新隐含在父目录刷新中，可丢弃
+    /// - 减少不必要的 shallowScan 调用
+    nonisolated static func pruneDescendants(_ directories: [URL]) -> [URL] {
+        var result: [URL] = []
+        for dir in directories {
+            let dirPath = Self.normPath(dir)
+            let coveredByAncestor = result.contains { ancestor in
+                let ancestorPath = Self.normPath(ancestor)
+                return dirPath != ancestorPath && dirPath.hasPrefix(ancestorPath + "/")
+            }
+            if !coveredByAncestor {
+                result.append(dir)
+            }
+        }
+        return result
+    }
+
+    /// 返回不带末尾斜杠的规范化路径字符串。
+    nonisolated private static func normPath(_ url: URL) -> String {
+        let p = url.path
+        return (p.hasSuffix("/") && p.count > 1) ? String(p.dropLast()) : p
     }
 }

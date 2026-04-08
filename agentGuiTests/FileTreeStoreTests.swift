@@ -278,8 +278,14 @@ final class FileTreeStoreTests: XCTestCase {
 
 final class MockFileScanner: FileScanning, @unchecked Sendable {
     var stubbedEntries: [URL: [ScannedEntry]] = [:]
+    var onShallowScan: ((URL) -> Void)?
+
+    func stub(directory: URL, entries: [ScannedEntry]) {
+        stubbedEntries[directory.standardizedFileURL] = entries
+    }
 
     func shallowScan(directory: URL) async throws -> [ScannedEntry] {
+        onShallowScan?(directory)
         return stubbedEntries[directory.standardizedFileURL] ?? []
     }
 
