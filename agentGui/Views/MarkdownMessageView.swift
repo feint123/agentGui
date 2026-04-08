@@ -12,12 +12,14 @@ import AppKit
 
 struct MarkdownMessageView: View {
     let text: String
+    var showsCursor: Bool = false
 
     @SwiftUI.State private var parser = MarkdownMessageIncrementalParser()
     @SwiftUI.State private var snapshot = MarkdownIncrementalSnapshot(sourceText: "", blocks: [])
 
-    init(text: String) {
+    init(text: String, showsCursor: Bool = false) {
         self.text = text
+        self.showsCursor = showsCursor
         let parser = MarkdownMessageIncrementalParser()
         _parser = SwiftUI.State(initialValue: parser)
         _snapshot = SwiftUI.State(initialValue: Self.initialSnapshot(for: text))
@@ -37,7 +39,23 @@ struct MarkdownMessageView: View {
             ForEach(Array(snapshot.blocks.enumerated()), id: \.element.id) { index, block in
                 blockView(block, index: index)
             }
+
+            // CV-A4: streaming 期间在内容末尾显示闪烁光标
+            if showsCursor {
+                HStack(spacing: 0) {
+                    StreamingCursorView()
+                    Spacer()
+                }
+                .padding(.top, 2)
+                .transition(
+                    .opacity.animation(
+                        .easeOut(duration: ChatMotion.exitDuration)
+                    )
+                )
+            }
         }
+        // CV-A4: blocks 数量变化时（新 block 进入）使用 streamingAppend 动画
+        .animation(ChatMotion.streamingAppend, value: snapshot.blocks.count)
         .onChange(of: text) { oldValue, newValue in
             snapshot = parser.reconcile(
                 oldText: oldValue,
