@@ -171,12 +171,25 @@ final class LSPServerManager {
         serverID: String,
         uri: String,
         languageID: String,
-        text: String
+        text: String,
+        editorChange: EditorChangeSet? = nil
     ) {
         let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
         guard let session = sessions[key] else { return }
 
-        if session.client.updateDocument(uri: uri, text: text) == nil {
+        let updated: LSPDocumentSnapshot?
+        if let change = editorChange, change.origin == .userEdit {
+            updated = session.client.updateDocument(
+                uri: uri,
+                replacing: change.replacedRange,
+                insertedText: change.insertedText,
+                newText: text
+            )
+        } else {
+            updated = session.client.updateDocument(uri: uri, text: text)
+        }
+
+        if updated == nil {
             _ = session.client.openDocument(uri: uri, languageID: languageID, text: text)
         }
         notifyPresentationStateDidChange()
