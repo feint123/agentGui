@@ -81,17 +81,13 @@ struct FileTreeTableView: NSViewRepresentable {
 
         let oldEntries = coordinator.entries
 
-        // 判断是否需要全量刷新
-        // FT-R4 阶段将替换为 CollectionDifference 增量更新
-        let structureChanged = oldEntries.map(\.id) != entries.map(\.id)
+        // FT-R4: 增量 diff 更新，替代全量 reloadData()
+        // 参考 VSCode List.splice() 和 Zed uniform_list cx.notify() 触发的行级更新
         coordinator.entries = entries
+        coordinator.selection = selection  // 先更新 selection，applyDiff 末尾的 syncSelectionToTable 会使用新值
+        coordinator.applyDiff(from: oldEntries, to: entries, tableView: tableView)
 
-        if structureChanged {
-            tableView.reloadData()
-        }
-
-        // 同步选中状态（避免反馈环）
-        coordinator.syncSelectionToTable(tableView, selection: selection)
+        // selection 由 applyDiff 末尾的 syncSelectionToTable 处理，无需重复调用
     }
 
     // MARK: - Coordinator
@@ -193,6 +189,61 @@ struct FileTreeTableView: NSViewRepresentable {
                 }
             }
             tableView.selectRowIndexes(indexSet, byExtendingSelection: false)
+        }
+
+        // MARK: 增量 diff 更新（FT-R4）
+
+        /// 将 VisibleEntry 列表变更应用到 NSTableView。
+        ///
+        /// 算法参考：
+        /// - VSCode `List.splice()` — 先做 trait splice（selection 索引偏移），再做 DOM insert/remove
+        /// - Zed `uniform_list` — 框架内部以 ID diff 驱动 row-level 更新
+        ///
+        /// 本实现：
+        /// 1. 用 `FileTreeDiff.compute` 计算结构/内容变更
+        /// 2. 结构变更：`beginUpdates` → `removeRows/insertRows` → `endUpdates`
+        /// 3. 内容变更：`reloadData(forRowIndexes:columnIndexes:)`
+        /// 4. 降级条件：`shouldFullReload == true` → `reloadData()`
+        func applyDiff(
+            from old: [VisibleEntry],
+            to new: [VisibleEntry],
+            tableView: NSTableView
+        ) {
+            let diff = FileTreeDiff.compute(from: old, to: new)
+
+            if diff.shouldFullReload {
+                tableView.reloadData()
+                return
+            }
+
+            // 结构变更：使用 beginUpdates/endUpdates 包装，产生动画
+            if !diff.removals.isEmpty || !diff.insertions.isEmpty {
+                tableView.beginUpdates()
+                if !diff.removals.isEmpty {
+                    tableView.removeRows(
+                        at: diff.removals,
+                        withAnimation: .effectFade
+                    )
+                }
+                if !diff.insertions.isEmpty {
+                    tableView.insertRows(
+                        at: diff.insertions,
+                        withAnimation: .effectFade
+                    )
+                }
+                tableView.endUpdates()
+            }
+
+            // 内容变更（无结构变化时）：原地刷新，不触发动画
+            if !diff.contentReloads.isEmpty {
+                tableView.reloadData(
+                    forRowIndexes: diff.contentReloads,
+                    columnIndexes: IndexSet(integer: 0)
+                )
+            }
+
+            // 恢复选中状态（insert/remove 可能导致行索引偏移）
+            syncSelectionToTable(tableView, selection: selection)
         }
 
         // MARK: 双击
