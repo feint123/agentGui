@@ -23,6 +23,8 @@ final class CodeEditorLSPCoordinator {
     private var pendingChangeSetIsAmbiguous = false
     private var latestHoverGeneration = 0
     private var pendingHoverTask: Task<Void, Never>?
+    private var completionGeneration = 0
+    private var pendingCompletionTask: Task<Void, Never>?
 
     init(
         manager: LSPServerManager,
@@ -37,6 +39,7 @@ final class CodeEditorLSPCoordinator {
     deinit {
         pendingChangeTask?.cancel()
         pendingHoverTask?.cancel()
+        pendingCompletionTask?.cancel()
     }
 
     func activate(initialText: String, version: Int) {
@@ -318,6 +321,46 @@ final class CodeEditorLSPCoordinator {
         latestHoverGeneration += 1
         pendingHoverTask?.cancel()
         pendingHoverTask = nil
+    }
+
+    /// 当前服务端协商能力（用于检查 supportsCompletion 等）。
+    var capabilities: LSPServerCapabilityHints? {
+        manager.capabilities(for: binding.workspaceRoot, serverID: binding.serverID)
+    }
+
+    /// 请求 LSP 代码补全（含代际取消）。
+    /// - Parameters:
+    ///   - context: 触发上下文
+    ///   - onResult: 主线程回调。items 为 nil 表示被取消。
+    func requestCompletion(
+        context: CompletionTriggerContext,
+        onResult: @MainActor @escaping ([CodeEditorCompletionItem]?) -> Void
+    ) {
+        guard isOpen else { return }
+        completionGeneration &+= 1
+        let generation = completionGeneration
+        pendingCompletionTask?.cancel()
+        pendingCompletionTask = Task { [weak self] in
+            guard let self else { return }
+            let items = await self.manager.completion(
+                workspaceRoot: self.binding.workspaceRoot,
+                serverID: self.binding.serverID,
+                uri: self.binding.uri,
+                utf16Offset: context.cursorOffset,
+                triggerKind: context.triggerKind,
+                triggerCharacter: context.triggerCharacter
+            )
+            guard !Task.isCancelled, self.completionGeneration == generation else {
+                await onResult(nil)
+                return
+            }
+            await onResult(items)
+        }
+    }
+
+    func cancelCompletion() {
+        pendingCompletionTask?.cancel()
+        pendingCompletionTask = nil
     }
 
     private func schedulePendingChange(expectedVersion: Int) {

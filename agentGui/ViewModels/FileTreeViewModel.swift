@@ -50,6 +50,8 @@ final class FileTreeViewModel {
     private let store: FileTreeStore
     // FT-R7: Git 状态观察者
     private var gitStatusObserver: (any GitStatusObserving)?
+    // FT-R6: FSEvent 变更通知订阅任务
+    private var fsEventTask: Task<Void, Never>?
 
     // MARK: - 初始化
 
@@ -70,6 +72,9 @@ final class FileTreeViewModel {
         // 停止旧的 Git 观察者
         gitStatusObserver?.stop()
         gitStatusObserver = nil
+        // 取消旧的 FSEvent 订阅
+        fsEventTask?.cancel()
+        fsEventTask = nil
 
         rootDirectory = url
 
@@ -81,6 +86,16 @@ final class FileTreeViewModel {
         await store.setRoot(url)
         visibleEntries = await store.computeVisibleEntries()
         storeSnapshot = await store.makeSnapshot()
+
+        // 订阅 FSEvent 变更通知，刷新 visibleEntries
+        fsEventTask = Task { [weak self] in
+            guard let self else { return }
+            for await _ in self.store.fsEventStream {
+                guard !Task.isCancelled else { break }
+                self.visibleEntries = await self.store.computeVisibleEntries()
+                self.storeSnapshot = await self.store.makeSnapshot()
+            }
+        }
 
         // 启动 Git 状态观察
         let observer = GitStatusObserver()
@@ -252,6 +267,16 @@ final class FileTreeViewModel {
         validationError = nil
 
         let parentURL = session.parentDirectoryID.url
+
+        // 先取消编辑态（移除占位行），再执行 FS 操作。
+        // 这确保即使 FSEvent 回调率先到达也不会出现对比错误。
+        let wasNewEntry = session.isNewEntry
+        if wasNewEntry {
+            visibleEntries.removeAll(where: { $0.id == .placeholderSentinel })
+        }
+        inlineEdit = nil
+        validationError = nil
+
         do {
             switch session.kind {
             case .createFile:
@@ -263,14 +288,22 @@ final class FileTreeViewModel {
                 _ = try WorkspaceFileTreeOperations.renameItem(at: targetURL, to: draft)
             }
         } catch {
+            // FS 操作失败：恢复编辑态让用户修改
+            inlineEdit = session
             validationError = .duplicateName(draft)
+            if wasNewEntry {
+                let (_, insertIndex, depth) = computeInsertPosition(near: session.parentDirectoryID)
+                let placeholder = VisibleEntry.placeholder(depth: depth, parentID: session.parentDirectoryID)
+                visibleEntries.insert(placeholder, at: min(insertIndex, visibleEntries.endIndex))
+            }
             return
         }
 
         // 刷新（对标 Zed `update_visible_entries` 在 confirm_edit 结束后调用）
-        await store.refreshDirectory(parentURL)
+        // 使用 refreshDirectoryForCommit 确保即使父目录的根级也能刷新
+        await store.refreshDirectoryForCommit(parentURL)
         visibleEntries = await store.computeVisibleEntries()
-        inlineEdit = nil
+        storeSnapshot = await store.makeSnapshot()
     }
 
     /// 取消当前编辑会话，移除占位行，清空状态。

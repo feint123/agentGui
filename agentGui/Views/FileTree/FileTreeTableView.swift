@@ -108,9 +108,14 @@ struct FileTreeTableView: NSViewRepresentable {
         // FT-R9: 注册拖放类型
         context.coordinator.registerDragTypes(for: tableView)
 
-        // 双击打开文件
+        // 单击：目录切换展开/文件打开（对标 VSCode ExplorerView._onMouseClick + Zed ProjectPanel.on_click）
+        tableView.action = #selector(Coordinator.rowClicked)
+        // 双击：文件打开（保留）
         tableView.doubleAction = #selector(Coordinator.rowDoubleClicked)
         tableView.target = context.coordinator
+
+        // 表级悬停控制器（替代 per-row NSTrackingArea，避免滚动时多行 hover）
+        context.coordinator.hoverController.install(on: tableView)
 
         let scrollView = NSScrollView()
         scrollView.documentView = tableView
@@ -180,6 +185,9 @@ struct FileTreeTableView: NSViewRepresentable {
         var onRenameSelected: () -> Void
         weak var tableView: NSTableView?
         weak var keyboardTableView: FileTreeKeyboardTableView?
+
+        /// 表级悬停控制器（替代 per-row NSTrackingArea）
+        let hoverController = FileTreeHoverController()
 
         // FT-R9: DnD
         var onMoveEntries: ([EntryID], EntryID) -> Void
@@ -363,6 +371,27 @@ struct FileTreeTableView: NSViewRepresentable {
 
             // 恢复选中状态（insert/remove 可能导致行索引偏移）
             syncSelectionToTable(tableView, selection: selection)
+        }
+
+        // MARK: 单击（目录切换展开 / 文件打开）
+
+        /// 单击行为（对标 VSCode ExplorerView._onMouseClick / Zed ProjectPanel.on_click）：
+        /// - 目录：切换展开/折叠（整行可点，不仅限 disclosure 三角形）
+        /// - 文件：触发 onDoubleClick（打开/预览）
+        /// 选择变更已由 `tableViewSelectionDidChange` 处理，此处只补充交互语义。
+        @objc func rowClicked() {
+            guard let tableView,
+                  tableView.clickedRow >= 0,
+                  tableView.clickedRow < entries.count
+            else { return }
+            let entry = entries[tableView.clickedRow]
+            if entry.isDirectory {
+                // 目录：单击切换展开/折叠
+                onToggleExpand(entry.id)
+            } else {
+                // 文件：单击打开（对标 VSCode 的 preview 模式，即 single-click open）
+                onDoubleClick(entry.id)
+            }
         }
 
         // MARK: 双击
@@ -771,6 +800,10 @@ final class FileTreeKeyboardTableView: NSTableView {
 
     /// 当前是否处于编辑态（由 Coordinator 在 updateNSView 时同步）。
     var isInlineEditing: Bool = false
+
+    /// 确保 table view 能成为 first responder 以接收键盘事件。
+    /// NSTableView 默认返回 true，但显式声明确保 focusRingType = .none 不影响行为。
+    override var acceptsFirstResponder: Bool { true }
 
     override func keyDown(with event: NSEvent) {
         let cmd   = event.modifierFlags.contains(.command)

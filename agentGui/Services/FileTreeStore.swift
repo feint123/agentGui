@@ -37,6 +37,15 @@ actor FileTreeStore {
     /// 当前监听的根目录 URL。
     private var rootURL: URL?
 
+    // MARK: - FSEvent 通知流
+
+    /// FSEvent 处理完成后向 ViewModel 发送刷新通知的 continuation。
+    /// ViewModel 在 `setDirectory` 中通过 `fsEventStream` 订阅。
+    private var fsEventContinuation: AsyncStream<Void>.Continuation?
+
+    /// ViewModel 订阅此流以获知 FSEvent 导致的 Store 变更。
+    nonisolated let fsEventStream: AsyncStream<Void>
+
     // MARK: - Init
 
     init(
@@ -45,6 +54,9 @@ actor FileTreeStore {
     ) {
         self.scanner = scanner
         self.fsObserver = fsObserver
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        self.fsEventStream = stream
+        self.fsEventContinuation = continuation
     }
 
     // MARK: - 公开 API
@@ -376,12 +388,14 @@ actor FileTreeStore {
         if pruned.count > 30 {
             // 降级：超过 30 个受影响目录，全量重建成本低于逐个刷新
             await setRoot(rootURL)
+            fsEventContinuation?.yield()
             return
         }
 
         for dir in pruned {
             await refreshDirectory(dir)
         }
+        fsEventContinuation?.yield()
     }
 
     /// 重新扫描单个目录，将结果与 Store 中现有子条目对比，增量更新。
@@ -472,6 +486,31 @@ actor FileTreeStore {
     /// 判断某 ID 是否是根级目录（出现在 rootIDs 中）。
     private func isRootLevelDirectory(_ id: EntryID) -> Bool {
         rootIDs.contains(id)
+    }
+
+    /// 无条件刷新目录内容——供 `commitEdit()` 使用。
+    ///
+    /// 与 `refreshDirectory` 的区别：不检查 `expandedIDs`/`isRootLevelDirectory`，
+    /// 因为用户在内联编辑中创建文件后，目标目录一定是已展开的（占位行在其中），
+    /// 但 `refreshDirectory` 的守卫可能因为 rootURL 路径对比差异而跳过。
+    func refreshDirectoryForCommit(_ url: URL) async {
+        guard rootURL != nil else { return }
+
+        let standardizedURL = url.standardizedFileURL
+
+        // 根目录特殊处理
+        if let rootURL, Self.normPath(standardizedURL) == Self.normPath(rootURL) {
+            await refreshDirectory(standardizedURL)
+            return
+        }
+
+        let dirID = EntryID(url: standardizedURL)
+
+        // 确保目录在 entries 中且标记为展开
+        if entries[dirID] != nil {
+            expandedIDs.insert(dirID)
+        }
+        await refreshDirectory(standardizedURL)
     }
 
     /// 递归删除某 entryID 及其所有子孙条目。

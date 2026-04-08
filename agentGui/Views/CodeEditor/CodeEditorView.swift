@@ -23,6 +23,8 @@ struct CodeEditorView: View {
     var isBracketPairColorizationEnabled: Bool = false
     var documentSymbols: [LSPDocumentSymbol] = []
     var onSymbolPathChange: (([CodeEditorSymbolPathNode]) -> Void)? = nil
+    var lspCoordinator: CodeEditorLSPCoordinator? = nil
+    var isCompletionEnabled: Bool = false
 
     @State private var document: CodeEditorDocument
     @State private var findState = CodeEditorFindState.inactive
@@ -111,7 +113,9 @@ struct CodeEditorView: View {
                 highlightDebounceNanoseconds: highlightDebounceNanoseconds,
                 highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds,
                 isBracketPairColorizationEnabled: isBracketPairColorizationEnabled,
-                indentationStatus: statusBarState.indentation
+                indentationStatus: statusBarState.indentation,
+                lspCoordinator: lspCoordinator,
+                isCompletionEnabled: isCompletionEnabled
             )
             .background(Color(NSColor.textBackgroundColor))
 

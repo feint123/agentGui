@@ -4,8 +4,9 @@ struct MessageAttachmentSnapshot: Equatable, @unchecked Sendable {
     let images: [String]                       // 图像路径（供 MediaThumbnailCell 使用）
     let pdfs:   [String]                       // PDF 路径（供 MediaThumbnailCell 使用）
     let others: [AttachmentSnapshotEntry]      // 结构化文件条目
+    let allEntries: [AttachmentSnapshotEntry]  // CV-FA3: 所有条目的完整列表（含 images/pdfs）
 
-    static let empty = MessageAttachmentSnapshot(images: [], pdfs: [], others: [])
+    static let empty = MessageAttachmentSnapshot(images: [], pdfs: [], others: [], allEntries: [])
 
     var hasMedia: Bool {
         !images.isEmpty || !pdfs.isEmpty
@@ -23,7 +24,7 @@ struct MessageAttachmentSnapshot: Equatable, @unchecked Sendable {
             case .sourceCode, .directory, .other: others.append(e)   // 保留完整条目
             }
         }
-        return MessageAttachmentSnapshot(images: images, pdfs: pdfs, others: others)
+        return MessageAttachmentSnapshot(images: images, pdfs: pdfs, others: others, allEntries: entries)
     }
 }
 
@@ -137,6 +138,6 @@ struct MessageRowSnapshot: Identifiable, Equatable, @unchecked Sendable {
             }
         }
 
-        return MessageAttachmentSnapshot(images: images, pdfs: pdfs, others: others)
+        return MessageAttachmentSnapshot(images: images, pdfs: pdfs, others: others, allEntries: others)
     }
 }

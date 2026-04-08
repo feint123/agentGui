@@ -176,6 +176,48 @@ final class LSPClient {
         return parseHoverText(from: result)
     }
 
+    /// 发送 textDocument/completion 请求并解析返回的补全项列表。
+    /// - Returns: 解析后的补全项数组；网络或解析失败时返回空数组（不 throw）。
+    func completion(
+        uri: String,
+        line: Int,
+        character: Int,
+        triggerKind: LSPCompletionTriggerKind,
+        triggerCharacter: String?
+    ) async -> [CodeEditorCompletionItem] {
+        var context: [String: Any] = ["triggerKind": triggerKind.rawValue]
+        if let tc = triggerCharacter {
+            context["triggerCharacter"] = tc
+        }
+        let params: [String: Any] = [
+            "textDocument": ["uri": uri],
+            "position": ["line": line, "character": character],
+            "context": context
+        ]
+        guard let result = try? await transport.sendRequest(
+            method: "textDocument/completion",
+            params: params
+        ) else { return [] }
+        return parseCompletionItems(from: result)
+    }
+
+    /// Convenience overload: resolves LSP position from a UTF-16 code-unit offset.
+    func completion(
+        uri: String,
+        utf16Offset: Int,
+        triggerKind: LSPCompletionTriggerKind,
+        triggerCharacter: String?
+    ) async -> [CodeEditorCompletionItem] {
+        let position = documentStore.lspPosition(forUTF16Offset: utf16Offset, uri: uri)
+        return await completion(
+            uri: uri,
+            line: position.line,
+            character: position.character,
+            triggerKind: triggerKind,
+            triggerCharacter: triggerCharacter
+        )
+    }
+
     func documentSymbols(uri: String) async throws -> [LSPDocumentSymbol] {
         let result = try await transport.sendRequest(
             method: "textDocument/documentSymbol",
@@ -605,6 +647,47 @@ final class LSPClient {
             endLine: number(from: end?["line"]),
             endCharacter: number(from: end?["character"])
         )
+    }
+
+    private func parseCompletionItems(from result: Any?) -> [CodeEditorCompletionItem] {
+        // LSP 返回 CompletionList | CompletionItem[] | null
+        let rawItems: [[String: Any]]
+        if let list = result as? [String: Any],
+           let items = list["items"] as? [[String: Any]] {
+            rawItems = items               // CompletionList
+        } else if let items = result as? [[String: Any]] {
+            rawItems = items               // CompletionItem[]
+        } else {
+            return []
+        }
+
+        return rawItems.compactMap { item -> CodeEditorCompletionItem? in
+            guard let label = item["label"] as? String else { return nil }
+            let detail = item["detail"] as? String
+            let insertText = item["insertText"] as? String
+            let filterText = item["filterText"] as? String
+            let kindRaw = item["kind"] as? Int
+            let formatRaw = (item["insertTextFormat"] as? Int) ?? 1
+            let documentationRaw = item["documentation"]
+            let documentation: String?
+            if let s = documentationRaw as? String {
+                documentation = s
+            } else if let d = documentationRaw as? [String: Any],
+                      let value = d["value"] as? String {
+                documentation = value
+            } else {
+                documentation = nil
+            }
+            return CodeEditorCompletionItem(
+                label: label,
+                detail: detail,
+                documentation: documentation,
+                kind: kindRaw.flatMap { LSPCompletionItemKind(rawValue: $0) },
+                insertText: insertText,
+                insertTextFormat: LSPInsertTextFormat(rawValue: formatRaw) ?? .plainText,
+                filterText: filterText
+            )
+        }
     }
 }
 

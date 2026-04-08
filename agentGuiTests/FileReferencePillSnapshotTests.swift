@@ -134,4 +134,42 @@ final class FileReferencePillSnapshotTests: XCTestCase {
         let url = URL(fileURLWithPath: entry.filePath)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
+
+    // MARK: - Unified entries
+
+    func test_allEntries_includesImagesAndOthers() {
+        let entries = [
+            AttachmentSnapshotEntry(
+                id: UUID(), filePath: "/a/img.png", displayName: "img.png",
+                fileKindRaw: "image", statusRaw: "valid"
+            ),
+            AttachmentSnapshotEntry(
+                id: UUID(), filePath: "/a/main.swift", displayName: "main.swift",
+                fileKindRaw: "sourceCode", statusRaw: "valid"
+            ),
+            AttachmentSnapshotEntry(
+                id: UUID(), filePath: "/a/doc.pdf", displayName: "doc.pdf",
+                fileKindRaw: "pdf", statusRaw: "valid"
+            ),
+        ]
+        let snapshot = MessageAttachmentSnapshot.fromStructured(entries)
+        XCTAssertEqual(snapshot.allEntries.count, 3)
+        XCTAssertEqual(snapshot.allEntries.map(\.displayName), ["img.png", "main.swift", "doc.pdf"])
+    }
+
+    func test_allEntries_emptyWhenNoEntries() {
+        let snapshot = MessageAttachmentSnapshot.empty
+        XCTAssertTrue(snapshot.allEntries.isEmpty)
+    }
+
+    func test_allEntries_preservesOriginRaw() {
+        let entries = [
+            AttachmentSnapshotEntry(
+                id: UUID(), filePath: "/a/img.png", displayName: "img.png",
+                fileKindRaw: "image", statusRaw: "valid", originRaw: "focused"
+            ),
+        ]
+        let snapshot = MessageAttachmentSnapshot.fromStructured(entries)
+        XCTAssertEqual(snapshot.allEntries.first?.originRaw, "focused")
+    }
 }

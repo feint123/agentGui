@@ -92,11 +92,8 @@ struct MessageBubbleView: View {
                     }
                 }
                 .textSelection(.enabled)
-                if !content.images.isEmpty || !content.pdfs.isEmpty {
-                    mediaGrid(images: content.images, pdfs: content.pdfs)
-                }
-                if !content.others.isEmpty {
-                    fileReferencePillList(others: content.others)
+                if !content.allEntries.isEmpty {
+                    attachmentPillGrid(entries: content.allEntries)
                 }
             }
             .padding(.horizontal, 14)
@@ -159,13 +156,8 @@ struct MessageBubbleView: View {
             VStack(alignment: .leading, spacing: 8) {
                 AgentMessageStepFlowView(projection: agent.execution)
 
-                if !agent.hasAgentRounds {
-                    if agent.attachments.hasMedia {
-                        mediaGrid(images: agent.attachments.images, pdfs: agent.attachments.pdfs)
-                    }
-                    if !agent.attachments.others.isEmpty {
-                        fileReferencePillList(others: agent.attachments.others)
-                    }
+                if !agent.hasAgentRounds, !agent.attachments.allEntries.isEmpty {
+                    attachmentPillGrid(entries: agent.attachments.allEntries)
                 }
             }
         }
@@ -300,19 +292,49 @@ struct MessageBubbleView: View {
         }
     }
 
+    /// CV-FA3: 统一附件渲染，用 ChatFlowLayout 排列所有类型的 pill。
+    @ViewBuilder
+    private func attachmentPillGrid(entries: [AttachmentSnapshotEntry]) -> some View {
+        if !entries.isEmpty {
+            ChatFlowLayout(spacing: 6, lineSpacing: 6) {
+                ForEach(entries) { entry in
+                    AttachmentPillView(
+                        entry: entry,
+                        onTap: { openAttachment(entry) },
+                        onMediaTap: AttachmentPillViewModel.isMedia(entry) ? {
+                            viewingMedia = MediaItem(url: URL(fileURLWithPath: entry.filePath))
+                        } : nil
+                    )
+                }
+            }
+        }
+    }
+
     private func openAttachment(_ entry: AttachmentSnapshotEntry) {
         let url = URL(fileURLWithPath: entry.filePath).standardizedFileURL
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
 
-        if let lineStart = entry.lineStart {
-            workspaceState.pendingCodeEditorRevealRequest = CodeEditorRevealRequest(
-                fileURL: url,
-                line: lineStart,
-                column: 0,
-                reason: .reference
-            )
+        switch AttachmentPillViewModel.openBehavior(for: entry) {
+        case .editReveal:
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            if let lineStart = entry.lineStart {
+                workspaceState.pendingCodeEditorRevealRequest = CodeEditorRevealRequest(
+                    fileURL: url,
+                    line: lineStart,
+                    column: 0,
+                    reason: .reference
+                )
+            }
+            workspaceState.showFileDetail(url)
+
+        case .systemOpen:
+            NSWorkspace.shared.open(url)
+
+        case .mediaViewer:
+            viewingMedia = MediaItem(url: url)
+
+        case .none:
+            break
         }
-        workspaceState.showFileDetail(url)
     }
 
     private func mediaGrid(images: [String], pdfs: [String]) -> some View {

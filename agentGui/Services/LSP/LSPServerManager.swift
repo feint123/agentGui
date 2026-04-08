@@ -226,6 +226,23 @@ final class LSPServerManager {
         return try await session.client.documentSymbols(uri: uri)
     }
 
+    func completion(
+        workspaceRoot: String,
+        serverID: String,
+        uri: String,
+        utf16Offset: Int,
+        triggerKind: LSPCompletionTriggerKind,
+        triggerCharacter: String?
+    ) async -> [CodeEditorCompletionItem] {
+        guard let session = try? sessionRecord(for: workspaceRoot, serverID: serverID) else { return [] }
+        return await session.client.completion(
+            uri: uri,
+            utf16Offset: utf16Offset,
+            triggerKind: triggerKind,
+            triggerCharacter: triggerCharacter
+        )
+    }
+
     private func sessionRecord(for workspaceRoot: String, serverID: String) throws -> SessionRecord {
         let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
         guard let session = sessions[key] else {

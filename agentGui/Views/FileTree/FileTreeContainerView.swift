@@ -46,6 +46,31 @@ struct FileTreeContainerView: View {
                 },
                 onDoubleClick: { id in
                     onOpenFile(id)
+                },
+                inlineEditSession: viewModel.inlineEdit,
+                onCommitEdit: { draft in
+                    Task {
+                        viewModel.inlineEdit?.draftName = draft
+                        await viewModel.commitEdit()
+                    }
+                },
+                onCancelEdit: {
+                    viewModel.cancelEdit()
+                },
+                onNewFile: {
+                    Task {
+                        await viewModel.beginCreate(.createFile, near: viewModel.selection.primary)
+                    }
+                },
+                onNewFolder: {
+                    Task {
+                        await viewModel.beginCreate(.createFolder,
+                                                    near: viewModel.selection.primary)
+                    }
+                },
+                onRenameSelected: {
+                    guard let primary = viewModel.selection.primary else { return }
+                    Task { await viewModel.beginRename(primary) }
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

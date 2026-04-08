@@ -22,6 +22,8 @@ struct CodeEditorTextView: NSViewRepresentable {
     var highlightExecutionDelayNanoseconds: UInt64 = 0
     var isBracketPairColorizationEnabled: Bool = false
     var indentationStatus: CodeEditorIndentationStatus = CodeEditorIndentationStatus(kind: .unknown, width: 0)
+    var lspCoordinator: CodeEditorLSPCoordinator? = nil
+    var isCompletionEnabled: Bool = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -75,6 +77,9 @@ struct CodeEditorTextView: NSViewRepresentable {
         context.coordinator.installSelectionObserver(for: textView)
         context.coordinator.installViewportObserver(for: scrollView, textView: textView)
         context.coordinator.schedulePostUpdateRefresh(for: textView, dirtyLineRange: nil)
+        if isCompletionEnabled {
+            context.coordinator.installCompletion(for: textView, coordinator: lspCoordinator)
+        }
         return containerView
     }
 
@@ -147,6 +152,11 @@ extension CodeEditorTextView {
         private var lastScheduledVisibleLineRange: ClosedRange<Int>?
         private var lastPublishedVisibleLineRange: ClosedRange<Int>?
         private var pendingPostUpdateRefreshID: UUID?
+
+        // MARK: - Completion
+        private let completionTrigger = CodeEditorCompletionTrigger()
+        private var completionPanel: CodeEditorCompletionPanel?
+        private var isInIMEComposition = false
 
         init(_ parent: CodeEditorTextView) {
             self.parent = parent
@@ -229,6 +239,23 @@ extension CodeEditorTextView {
             }
 
             commitDisplayedText(from: textView, preferPendingEdit: true)
+
+            // F19: Completion trigger (after user edit, not IME)
+            guard !isInIMEComposition, !textView.hasMarkedText() else { return }
+            if parent.isCompletionEnabled,
+               let lspCoordinator = parent.lspCoordinator,
+               let caps = lspCoordinator.capabilities,
+               caps.supportsCompletion {
+                let cursorOffset = textView.selectedRange().location
+                let prefixWord = textView.prefixWordBeforeCursor()
+                let lastTyped = textView.lastTypedCharacter ?? ""
+                completionTrigger.handleTyping(
+                    char: lastTyped,
+                    cursorOffset: cursorOffset,
+                    prefixWord: prefixWord,
+                    triggerCharacters: caps.completionTriggerCharacters
+                )
+            }
         }
 
         func handleCompositionStateChange(in textView: CodeEditorPlatformTextView) {
@@ -239,6 +266,12 @@ extension CodeEditorTextView {
             publishSelection(for: textView)
             publishVisibleLineRange(for: textView)
             updateGutterState(for: textView)
+
+            // Track IME composition state for completion suppression
+            isInIMEComposition = textView.hasMarkedText()
+            if isInIMEComposition {
+                completionTrigger.dismiss()
+            }
 
             if textView.hasMarkedText() {
                 // IME 期间清除括号高亮，避免视觉混乱
@@ -297,6 +330,79 @@ extension CodeEditorTextView {
                 textView.emitSemanticIntent(.cancelHover)
                 self.scheduleHighlight(for: textView, dirtyLineRange: nil)
             }
+        }
+
+        /// 初始化代码补全面板和触发器，连接 LSP coordinator 回调。
+        func installCompletion(for textView: CodeEditorPlatformTextView, coordinator: CodeEditorLSPCoordinator?) {
+            guard let coordinator else { return }
+            let panel = CodeEditorCompletionPanel()
+            completionPanel = panel
+            textView.completionDelegate = self
+
+            // 面板接受时插入补全
+            panel.onAccept = { [weak self, weak textView] item in
+                guard let self, let textView else { return }
+                self.acceptCompletion(item: item, in: textView)
+            }
+            panel.onDismiss = { [weak self] in
+                self?.completionTrigger.dismiss()
+            }
+
+            // 触发器 → LSP coordinator 桥接
+            completionTrigger.requestCompletion = { [weak coordinator] ctx, callback in
+                coordinator?.requestCompletion(context: ctx, onResult: callback)
+            }
+            completionTrigger.cancelRequest = { [weak coordinator] in
+                coordinator?.cancelCompletion()
+            }
+
+            // 面板刷新
+            completionTrigger.onSessionChange = { [weak self, weak textView, weak panel] session in
+                guard let textView, let panel else { return }
+                if let session, !session.isLoading, !session.items.isEmpty {
+                    panel.update(session: session)
+                    let cursorRect = textView.cursorRect
+                    if let window = textView.window {
+                        let screenRect = window.convertToScreen(textView.convert(cursorRect, to: nil))
+                        panel.show(anchoredBelow: screenRect, in: window)
+                    }
+                } else if session == nil {
+                    panel.hide()
+                }
+                _ = self  // capture self for lifetime
+            }
+        }
+
+        private func acceptCompletion(item: CodeEditorCompletionItem, in textView: CodeEditorPlatformTextView) {
+            let session = completionTrigger.currentSession
+            let prefixWord = session?.prefixWord ?? ""
+            let cursorOffset = textView.selectedRange().location
+            let currentText = textView.string
+
+            let replaceRange = NSRange(
+                location: max(0, cursorOffset - prefixWord.utf16.count),
+                length: prefixWord.utf16.count
+            )
+            guard replaceRange.location + replaceRange.length <= (currentText as NSString).length else {
+                return
+            }
+
+            let insertionResult = CodeEditorCompletionInserter.apply(
+                item: item,
+                to: currentText,
+                cursorOffset: cursorOffset,
+                prefixWord: prefixWord
+            )
+
+            // 用简单字符串替换，让 commitDisplayedText 处理 undo 栈
+            if textView.shouldChangeText(in: replaceRange, replacementString: item.insertText) {
+                textView.textStorage?.replaceCharacters(in: replaceRange, with: item.insertText)
+                textView.didChangeText()
+            }
+
+            let newCursorOffset = insertionResult.newCursorOffset
+            textView.setSelectedRange(NSRange(location: newCursorOffset, length: 0))
+            completionTrigger.confirmed()
         }
 
         func publishSelection(for textView: NSTextView) {
@@ -908,6 +1014,43 @@ enum CodeEditorHighlightApplicator {
     }
 }
 
+// MARK: - Completion Key Delegate
+
+/// 补全面板键盘操作协议，由 Coordinator 实现，从 keyDown 桥接调用。
+@MainActor
+protocol CompletionKeyDelegate: AnyObject {
+    var isCompletionPanelVisible: Bool { get }
+    func acceptCompletion()
+    func dismissCompletion()
+    func selectNextCompletion()
+    func selectPrevCompletion()
+}
+
+extension CodeEditorTextView.Coordinator: CompletionKeyDelegate {
+    var isCompletionPanelVisible: Bool {
+        completionPanel?.panel.isVisible ?? false
+    }
+
+    func acceptCompletion() {
+        guard let panel = completionPanel,
+              let item = panel.acceptSelectedItem() else { return }
+        // 找到关联的 textView: 通过 panel.onAccept 负责回调，这里直接触发
+        panel.onAccept?(item)
+    }
+
+    func dismissCompletion() {
+        completionTrigger.dismiss()
+    }
+
+    func selectNextCompletion() {
+        completionPanel?.selectNext()
+    }
+
+    func selectPrevCompletion() {
+        completionPanel?.selectPrevious()
+    }
+}
+
 // MARK: - Indent Guide Config
 
 /// 缩进参考线所需配置，从 CodeEditorIndentationStatus 派生。
@@ -960,6 +1103,10 @@ final class CodeEditorPlatformTextView: NSTextView {
     var compositionStateChangeHandler: ((CodeEditorPlatformTextView) -> Void)?
     var semanticIntentHandler: ((CodeEditorSemanticIntent) -> Void)?
     var findIntentHandler: ((CodeEditorFindIntent) -> Void)?
+
+    // MARK: - Completion
+    /// 键盘操作代理（Coordinator 实现），当面板可见时拦截 Tab/Enter/Esc/↑↓ 键。
+    weak var completionDelegate: (any CompletionKeyDelegate)?
     var appliedLinePresentationFingerprints: [Int: Int] = [:]
     var lastReappliedLines: [Int] = []
     var highlightedLineNumbers: Set<Int> = [] {
@@ -1117,6 +1264,29 @@ final class CodeEditorPlatformTextView: NSTextView {
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let keyCode = event.keyCode
+
+        // Completion panel key handling (when panel is visible, no modifiers)
+        if let completionDelegate, completionDelegate.isCompletionPanelVisible, modifiers.isEmpty {
+            switch keyCode {
+            case 48: // Tab
+                completionDelegate.acceptCompletion()
+                return
+            case 36: // Enter
+                completionDelegate.acceptCompletion()
+                return
+            case 53: // Esc
+                completionDelegate.dismissCompletion()
+                // fall through to super for other Esc handling
+            case 125: // ↓
+                completionDelegate.selectNextCompletion()
+                return
+            case 126: // ↑
+                completionDelegate.selectPrevCompletion()
+                return
+            default:
+                break
+            }
+        }
 
         // ⌘⌥↑ — 添加上方光标（keyCode 126 = ↑）
         if keyCode == 126, modifiers.contains(.command), modifiers.contains(.option), !hasMarkedText() {
@@ -1672,4 +1842,59 @@ final class CodeEditorPlatformTextView: NSTextView {
 private struct PendingEdit {
     let replacedRange: NSRange
     let insertedText: String
+}
+
+// MARK: - Completion Helpers
+
+extension CodeEditorPlatformTextView {
+    /// 光标前的当前词（word boundary: alphanumeric + underscore + non-ASCII）。
+    func prefixWordBeforeCursor(maxLength: Int = 200) -> String {
+        let offset = selectedRange().location
+        let utf16 = string.utf16
+        guard offset > 0, offset <= utf16.count else { return "" }
+        var start = offset
+        while start > 0 {
+            let idx = utf16.index(utf16.startIndex, offsetBy: start - 1)
+            let char = utf16[idx]
+            // word character: alphanumeric, _, or non-ASCII
+            let isWord = char == UInt16(0x5F) /* _ */
+                || (char >= 0x30 && char <= 0x39)   // 0-9
+                || (char >= 0x41 && char <= 0x5A)   // A-Z
+                || (char >= 0x61 && char <= 0x7A)   // a-z
+                || char > 0x7F                       // non-ASCII (Unicode identifiers)
+            guard isWord else { break }
+            start -= 1
+            if offset - start > maxLength { break }
+        }
+        let startIdx = utf16.index(utf16.startIndex, offsetBy: start)
+        let endIdx = utf16.index(utf16.startIndex, offsetBy: offset)
+        return String(utf16[startIdx..<endIdx]) ?? ""
+    }
+
+    /// 光标左侧的上一个字符（用于 trigger character 检测）。
+    var lastTypedCharacter: String? {
+        let offset = selectedRange().location
+        guard offset > 0 else { return nil }
+        let utf16 = string.utf16
+        guard offset <= utf16.count else { return nil }
+        let idx = utf16.index(utf16.startIndex, offsetBy: offset - 1)
+        return String(utf16[idx])
+    }
+
+    /// 当前光标在本视图坐标系的矩形（用于补全面板定位）。
+    var cursorRect: NSRect {
+        let offset = selectedRange().location
+        guard let manager = layoutManager,
+              let container = textContainer else { return .zero }
+        let glyphIndex = min(manager.glyphIndexForCharacter(at: offset),
+                             max(manager.numberOfGlyphs - 1, 0))
+        let lineFragRect = manager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let glyphLocation = manager.location(forGlyphAt: glyphIndex)
+        return NSRect(
+            x: textContainerOrigin.x + glyphLocation.x,
+            y: textContainerOrigin.y + lineFragRect.minY,
+            width: 2,
+            height: lineFragRect.height
+        )
+    }
 }

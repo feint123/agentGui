@@ -14,6 +14,29 @@ struct UserMessagePresentation: Equatable {
         }
     }
 
+    /// CV-FA3: 所有附件的统一条目列表（含图片/PDF 合成 entry）。
+    var allEntries: [AttachmentSnapshotEntry] {
+        let imageEntries = images.map { path in
+            AttachmentSnapshotEntry(
+                id: UUID(),
+                filePath: path,
+                displayName: URL(fileURLWithPath: path).lastPathComponent,
+                fileKindRaw: AttachmentKind.image.rawValue,
+                statusRaw: AttachmentStatus.valid.rawValue
+            )
+        }
+        let pdfEntries = pdfs.map { path in
+            AttachmentSnapshotEntry(
+                id: UUID(),
+                filePath: path,
+                displayName: URL(fileURLWithPath: path).lastPathComponent,
+                fileKindRaw: AttachmentKind.pdf.rawValue,
+                statusRaw: AttachmentStatus.valid.rawValue
+            )
+        }
+        return imageEntries + pdfEntries + others
+    }
+
     static func make(from parsed: ParsedUserMessageText) -> UserMessagePresentation {
         let directiveChips: [DirectiveChipPresentation] = parsed.directiveAuditItems.map { item in
             DirectiveChipPresentation(item: item)

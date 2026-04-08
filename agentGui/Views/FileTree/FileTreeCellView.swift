@@ -213,11 +213,12 @@ final class FileTreeCellView: NSTableCellView {
             indentWidthConstraint?.constant = CGFloat(entry.depth) * 16
             disclosureButton.isHidden = true
             loadingSpinner.isHidden = true
-            let symbolName = FileIconSymbolResolver.symbol(forFileName: entry.name)
+            let editIconName = entry.isDirectory ? "folder" : FileIconSymbolResolver.symbol(forFileName: entry.name)
             let symbolConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
-            iconView.image = NSImage(systemSymbolName: symbolName,
+            iconView.image = NSImage(systemSymbolName: editIconName,
                                      accessibilityDescription: nil)?
                 .withSymbolConfiguration(symbolConfig)
+            iconView.contentTintColor = entry.isDirectory ? .controlAccentColor : nil
             gitBadgeLabel.isHidden = true
             return
         }
@@ -244,11 +245,25 @@ final class FileTreeCellView: NSTableCellView {
                 loadingSpinner.isHidden = true
                 disclosureButton.isHidden = false
                 disclosureButton.isEnabled = true
-                let symbolName = entry.isExpanded ? "chevron.down" : "chevron.right"
+                // 始终使用 chevron.right，通过旋转 transform 表达展开状态（带动画）
+                // 对标 Zed `disclosure_control::<Disclosure>` 的 rotation animation
+                // 以及 VSCode `twistie` 元素的 CSS `transform: rotate(90deg)` transition
                 let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
-                disclosureButton.image = NSImage(systemSymbolName: symbolName,
+                disclosureButton.image = NSImage(systemSymbolName: "chevron.right",
                                                  accessibilityDescription: nil)?
                     .withSymbolConfiguration(config)
+                let targetAngle: CGFloat = entry.isExpanded ? .pi / 2 : 0
+                let currentAngle = disclosureButton.layer != nil
+                    ? atan2(disclosureButton.layer!.transform.m12, disclosureButton.layer!.transform.m11)
+                    : CGFloat(0)
+                if abs(targetAngle - currentAngle) > 0.01 {
+                    disclosureButton.wantsLayer = true
+                    NSAnimationContext.runAnimationGroup { ctx in
+                        ctx.duration = 0.15
+                        ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                        disclosureButton.animator().layer?.transform = CATransform3DMakeRotation(targetAngle, 0, 0, 1)
+                    }
+                }
             }
         } else {
             loadingSpinner.stopAnimation(nil)
@@ -257,11 +272,25 @@ final class FileTreeCellView: NSTableCellView {
             disclosureButton.isEnabled = true
         }
 
-        // 3. 图标：复用 FileIconSymbolResolver
-        let symbolName = FileIconSymbolResolver.symbol(forFileName: entry.name)
+        // 3. 图标
+        // 目录使用 folder / folder.fill（对标 Zed `FileAssociations::icon_for_type("dir")` 和
+        // VSCode `ThemeIcon.Folder / ThemeIcon.FolderOpened`）。
+        // 文件使用 FileIconSymbolResolver 按扩展名解析（对标 Zed language icon / VSCode seti-icon）。
+        let iconSymbolName: String
+        if entry.isDirectory {
+            iconSymbolName = entry.isExpanded ? "folder.fill" : "folder"
+        } else {
+            iconSymbolName = FileIconSymbolResolver.symbol(forFileName: entry.name)
+        }
         let symbolConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
-        iconView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+        iconView.image = NSImage(systemSymbolName: iconSymbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfig)
+        // 目录图标染色（对标 Zed 默认的 tab_bar_accent 蓝色文件夹）
+        if entry.isDirectory {
+            iconView.contentTintColor = .controlAccentColor
+        } else {
+            iconView.contentTintColor = nil
+        }
 
         // 4. 名称 / 分段路径
         self.onUnfoldSegment = entry.foldedAncestors != nil ? onUnfoldSegment : nil

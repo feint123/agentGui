@@ -64,4 +64,11 @@ final class LSPDocumentStore {
             ]
         ]
     }
+
+    /// Converts a UTF-16 code-unit offset to an LSP Position (0-based line / character).
+    func lspPosition(forUTF16Offset offset: Int, uri: String) -> (line: Int, character: Int) {
+        guard let entry = entries[uri] else { return (0, 0) }
+        let location = entry.lineIndex.location(ofUTF16Offset: offset)
+        return (line: max(location.line - 1, 0), character: max(location.column - 1, 0))
+    }
 }
