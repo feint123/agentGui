@@ -220,30 +220,17 @@ struct WorkspacePanelView: View {
 
     @ViewBuilder
     private var treeContent: some View {
-        let filteredNodes = treeViewModel.filteredNodes()
-
-        if treeViewModel.isLoading {
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if treeViewModel.currentDirectory == nil {
+        if treeViewModel.currentDirectory == nil {
             emptyState
-        } else if filteredNodes.isEmpty {
-            searchEmptyState
         } else {
-            WorkspaceTreeView(
-                nodes: filteredNodes,
-                selectionIDs: treeViewModel.selectedTreeNodeIDs,
-                primarySelectionID: treeViewModel.primarySelectionID,
-                inlineEdit: treeViewModel.inlineEdit,
-                expandsMatchingBranches: !treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                gitChangeProvider: { node in
-                    treeViewModel.gitChangeMatch(for: node, snapshot: gitPanelViewModel.snapshot)
+            FileTreeContainerView(
+                directory: treeViewModel.currentDirectory,
+                onOpenFile: { id in
+                    workspaceState.selectedFile = id.url
                 },
-                onSelectionChange: { ids, primaryID in
-                    treeViewModel.applyOutlineSelection(ids: ids, primaryID: primaryID, workspaceState: workspaceState)
-                },
-                actions: workspaceTreeActions,
-                onDemandLoadDirectory: { url in treeViewModel.demandLoadDirectory(url) }
+                onPrimarySelectionChange: { url in
+                    workspaceState.selectedFile = url
+                }
             )
             .padding(.horizontal, WorkbenchSidebarPanelStyle.layoutPadding)
             .padding(.bottom, WorkbenchSidebarPanelStyle.layoutPadding)
@@ -351,82 +338,7 @@ struct WorkspacePanelView: View {
         return treeViewModel.currentDirectory == nil ? "folder.badge.questionmark" : "cursorarrow.click"
     }
 
-    private var workspaceTreeActions: WorkspaceTreeOutlineView.ActionHandlers {
-        WorkspaceTreeOutlineView.ActionHandlers(
-            previewDiff: { change, staged in
-                Task {
-                    await gitPanelViewModel.selectDiff(for: change, staged: staged, workspaceState: workspaceState)
-                }
-            },
-            revealInFinder: { _ in
-                treeViewModel.revealSelectionInFinder()
-            },
-            copyRelativePath: { _ in
-                copySelectionRelativePaths()
-            },
-            newFile: { node in
-                treeViewModel.applyOutlineSelection(
-                    ids: [node.id.standardizedFileURL],
-                    primaryID: node.id.standardizedFileURL,
-                    workspaceState: workspaceState
-                )
-                treeViewModel.beginCreate(kind: .file, from: node)
-            },
-            newFolder: { node in
-                treeViewModel.applyOutlineSelection(
-                    ids: [node.id.standardizedFileURL],
-                    primaryID: node.id.standardizedFileURL,
-                    workspaceState: workspaceState
-                )
-                treeViewModel.beginCreate(kind: .folder, from: node)
-            },
-            rename: { node in
-                treeViewModel.applyOutlineSelection(
-                    ids: [node.id.standardizedFileURL],
-                    primaryID: node.id.standardizedFileURL,
-                    workspaceState: workspaceState
-                )
-                treeViewModel.beginRename(for: node)
-            },
-            delete: { node in
-                treeViewModel.confirmDelete(treeViewModel.hasMultipleSelection ? nil : node)
-            },
-            canMoveSelection: { node in
-                treeViewModel.canMoveSelection(to: node)
-            },
-            moveSelection: { node in
-                treeViewModel.moveSelection(to: node, workspaceState: workspaceState)
-            },
-            newFileFromSelection: {
-                treeViewModel.beginCreateFromSelection(kind: .file)
-            },
-            newFolderFromSelection: {
-                treeViewModel.beginCreateFromSelection(kind: .folder)
-            },
-            renameSelection: {
-                treeViewModel.beginRenameFromSelection()
-            },
-            deleteSelection: {
-                treeViewModel.confirmDeleteSelection()
-            },
-            copySelectionRelativePaths: {
-                copySelectionRelativePaths()
-            },
-            revealSelectionInFinder: {
-                treeViewModel.revealSelectionInFinder()
-            },
-            inlineEditChange: { updatedName in
-                guard let inlineEdit = treeViewModel.inlineEdit else { return }
-                treeViewModel.inlineEdit = inlineEdit.withDraftName(updatedName)
-            },
-            inlineEditCommit: {
-                treeViewModel.commitInlineEdit(workspaceState: workspaceState)
-            },
-            inlineEditCancel: {
-                treeViewModel.cancelInlineEdit()
-            }
-        )
-    }
+
 }
 
 // MARK: - Preview
