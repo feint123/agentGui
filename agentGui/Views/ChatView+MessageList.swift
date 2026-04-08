@@ -10,8 +10,16 @@ extension ChatView {
     var currentMessageListRefreshKey: ChatMessageListRefreshKey {
         ChatMessageListRefreshKey(
             messages: allMessages,
-            workspaceRoot: currentMessageListWorkspaceRoot
+            workspaceRoot: currentMessageListWorkspaceRoot,
+            pendingPermissionRequestIDs: currentSessionPendingPermissionRequestIDs
         )
+    }
+
+    var currentSessionPendingPermissionRequestIDs: [String] {
+        claudeService.acpPermissionCenter.pendingRequests
+            .lazy
+            .filter { $0.source.localSessionID == session.sessionId }
+            .map(\.id)
     }
 
     var currentMessageListWorkspaceRoot: String {

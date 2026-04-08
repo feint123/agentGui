@@ -207,6 +207,7 @@ extension ChatView {
                 text: auditedText,
                 session: session,
                 attachments: filesToAttach,
+                sourceUserMessageID: userMessage.id,
                 modelId: modelId,
                 selectedFilePath: selectedFilePath,
                 selectedText: selectedText,

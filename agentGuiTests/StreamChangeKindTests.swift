@@ -63,4 +63,19 @@ struct StreamChangeKindTests {
         ])
         #expect(next.changeKind(from: previous) == .structural)
     }
+
+    @Test
+    func pendingPermissionRequestDeltaYieldsStructural() {
+        let id = UUID()
+        let previous = ChatMessageListRefreshKey(
+            rowDigests: [makeDigest(id: id, status: .pending, textLength: 100)],
+            pendingPermissionRequestIDs: []
+        )
+        let next = ChatMessageListRefreshKey(
+            rowDigests: [makeDigest(id: id, status: .pending, textLength: 100)],
+            pendingPermissionRequestIDs: ["req-1"]
+        )
+
+        #expect(next.changeKind(from: previous) == .structural)
+    }
 }

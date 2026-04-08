@@ -44,6 +44,14 @@ final class StreamingCharBudgetTracker {
         tearDownTimer()
     }
 
+    /// streaming 过程中有新增 delta 时更新追赶目标，不重置当前已显示进度。
+    func updateTargetLength(_ targetLength: Int) {
+        currentTargetLength = targetLength
+        if displayedCharBudget > targetLength {
+            displayedCharBudget = targetLength
+        }
+    }
+
     /// 在测试中手动步进（绕过实际 Timer 计时）。
     func advance(targetLength: Int) {
         currentTargetLength = targetLength

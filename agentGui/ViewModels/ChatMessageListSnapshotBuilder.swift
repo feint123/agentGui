@@ -483,7 +483,7 @@ struct ChatMessageListProjectionTrigger: Equatable, @unchecked Sendable {
 
 struct ChatMessageListRefreshKey: Equatable, @unchecked Sendable {
     /// 每条消息的 ID + 状态 + textContent 哈希（三元组）。
-    /// - 不访问 agentRounds / toolCalls，避免 O(N×M) 主线程排序。
+    /// - 不访问 agentRounds / toolCalls 详情，避免 O(N×M) 主线程排序。
     /// - 状态变化（pending → completed）和文本增量都会产生不同的 key，
     ///   保证 ProjectionModel.refresh 在正确时机被触发。
     struct RowDigest: Equatable {
@@ -495,9 +495,14 @@ struct ChatMessageListRefreshKey: Equatable, @unchecked Sendable {
     }
 
     let rows: [RowDigest]
+    let pendingPermissionRequestIDs: [String]
 
     @MainActor
-    init(messages: [Message], workspaceRoot: String) {
+    init(
+        messages: [Message],
+        workspaceRoot: String,
+        pendingPermissionRequestIDs: [String] = []
+    ) {
         self.rows = messages.map { message in
             // 仅当 user message 的 textContent 依赖 workspaceRoot 时才记录 dependency。
             // 此判断复用 MessageRowBuildInput 里已有的逻辑，但更廉价：只需字符串相等对比。
@@ -521,11 +526,13 @@ struct ChatMessageListRefreshKey: Equatable, @unchecked Sendable {
                 workspaceDependency: dependency
             )
         }
+        self.pendingPermissionRequestIDs = pendingPermissionRequestIDs
     }
 
     /// 直接注入 RowDigest 数组，供测试使用。
-    init(rowDigests: [RowDigest]) {
+    init(rowDigests: [RowDigest], pendingPermissionRequestIDs: [String] = []) {
         self.rows = rowDigests
+        self.pendingPermissionRequestIDs = pendingPermissionRequestIDs
     }
 }
 
@@ -544,6 +551,7 @@ enum StreamChangeKind: Equatable {
 extension ChatMessageListRefreshKey {
     func changeKind(from previous: ChatMessageListRefreshKey) -> StreamChangeKind {
         guard rows.count == previous.rows.count else { return .structural }
+        guard pendingPermissionRequestIDs == previous.pendingPermissionRequestIDs else { return .structural }
         var hasTextDelta = false
         for (current, prev) in zip(rows, previous.rows) {
             guard current.id == prev.id              else { return .structural }

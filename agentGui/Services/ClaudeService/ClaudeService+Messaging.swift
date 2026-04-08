@@ -19,6 +19,7 @@ extension ClaudeService {
         text: String,
         session: Session,
         attachments: [AttachedFile] = [],
+        sourceUserMessageID: UUID? = nil,
         modelId: String,
         selectedFilePath: String? = nil,
         selectedText: String? = nil,
@@ -44,6 +45,7 @@ extension ClaudeService {
             let command = resolveEnqueueCommand(
                 text: enrichedText,
                 session: session,
+                sourceUserMessageID: sourceUserMessageID,
                 modelId: modelId,
                 providerReference: executionTarget.providerReference,
                 teamContext: executionTarget.teamContext,
@@ -121,6 +123,7 @@ extension ClaudeService {
     private func resolveEnqueueCommand(
         text: String,
         session: Session,
+        sourceUserMessageID: UUID?,
         modelId: String,
         providerReference: ExecutionProviderReference,
         teamContext: AgentTeamExecutionContext?,
@@ -129,7 +132,8 @@ extension ClaudeService {
         directives: [ChatInputDirective],
         modelContext: ModelContext
     ) -> EnqueueExecutionCommand {
-        let sourceUserMessageID = resolveOrCreateSourceUserMessageID(
+        let resolvedSourceUserMessageID = resolveSourceUserMessageID(
+            explicitSourceUserMessageID: sourceUserMessageID,
             text: text,
             session: session,
             modelContext: modelContext
@@ -146,7 +150,7 @@ extension ClaudeService {
                 directives: directives,
                 teamContext: teamContext
             ),
-            sourceUserMessageID: sourceUserMessageID
+            sourceUserMessageID: resolvedSourceUserMessageID
         )
     }
 
@@ -290,11 +294,16 @@ extension ClaudeService {
         return orchestrator
     }
 
-    private func resolveOrCreateSourceUserMessageID(
+    func resolveSourceUserMessageID(
+        explicitSourceUserMessageID: UUID?,
         text: String,
         session: Session,
         modelContext: ModelContext
     ) -> UUID {
+        if let explicitSourceUserMessageID {
+            return explicitSourceUserMessageID
+        }
+
         if let existingMessageID = session.messages
             .sorted(by: { $0.sequence < $1.sequence })
             .last(where: { $0.direction == .user && $0.textContent == text })?

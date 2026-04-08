@@ -49,4 +49,18 @@ struct StreamingCharBudgetTrackerTests {
         tracker.advance(targetLength: 200)
         #expect(tracker.displayedCharBudget == 150)
     }
+
+    @Test
+    func updatingTargetLengthWhileTrackingLetsBudgetContinueFromCurrentProgress() {
+        let tracker = StreamingCharBudgetTracker(charsPerFrame: 20)
+        tracker.startTracking(targetLength: 40)
+        tracker.advance(targetLength: 40)
+        #expect(tracker.displayedCharBudget == 20)
+
+        tracker.updateTargetLength(100)
+        tracker.advance(targetLength: 100)
+
+        #expect(tracker.displayedCharBudget == 40)
+        #expect(tracker.isTracking == true)
+    }
 }

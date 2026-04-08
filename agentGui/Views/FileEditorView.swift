@@ -350,7 +350,9 @@ struct FileEditorView: View {
                         documentSymbols: rawDocumentSymbols,
                         onSymbolPathChange: { path in
                             currentSymbolPath = path
-                        }
+                        },
+                        lspCoordinator: lspCoordinator,
+                        isCompletionEnabled: lspCoordinator != nil
                     )
                 }
             }

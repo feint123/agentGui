@@ -73,7 +73,8 @@ struct AgentMessageStepFlowView: View {
         if !budgetTracker.isTracking {
             // 第一次有内容：开始追踪
             budgetTracker.startTracking(targetLength: newText.count)
+            return
         }
-        // 每次文本扩展时更新 target（timer 会自动追赶）
+        budgetTracker.updateTargetLength(newText.count)
     }
 }
