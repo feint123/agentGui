@@ -1,4 +1,5 @@
 // agentGui/ViewModels/FileTreeViewModel.swift
+import AppKit
 import Foundation
 import Observation
 
@@ -405,5 +406,34 @@ final class FileTreeViewModel {
         }
         visibleEntries = await store.computeVisibleEntries()
         storeSnapshot = await store.makeSnapshot()
+    }
+
+    // MARK: - FT-R16 上下文菜单操作
+
+    /// 在访达中显示指定条目。
+    /// 复用 WorkspaceRevealService（参考设计文档 §FT-R16 "复用现有"）。
+    /// Zed: RevealInFinder action → cx.reveal_path(&path)
+    /// VSCode: explorerService.select(resource, true) → revealInExplorer
+    func revealInFinder(ids: [EntryID]) {
+        let urls = ids.map(\.url)
+        WorkspaceRevealService().revealInFinder(urls)
+    }
+
+    /// 复制相对路径到系统剪贴板。
+    /// VSCode: ClipboardService.writeText(relPath) in copyRelativeFilePath command
+    /// 多文件：换行分隔（与 VSCode 行为一致）。
+    func copyRelativePath(ids: [EntryID]) {
+        let paths: [String] = ids.map { id in
+            if let root = rootDirectory {
+                let rootPath = root.standardizedFileURL.path
+                let filePath = id.url.standardizedFileURL.path
+                if filePath.hasPrefix(rootPath + "/") {
+                    return String(filePath.dropFirst(rootPath.count + 1))
+                }
+            }
+            return id.url.path
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(paths.joined(separator: "\n"), forType: .string)
     }
 }
