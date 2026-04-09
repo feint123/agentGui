@@ -390,10 +390,11 @@ extension CodeEditorTextView {
                     panel.update(session: session)
                     let cursorRect = textView.cursorRect
                     if let window = textView.window {
-                        let screenRect = window.convertToScreen(textView.convert(cursorRect, to: nil))
-                        panel.show(anchoredBelow: screenRect, in: window)
+                        // 传递 window 坐标系的矩形，由 panel.positionPanel 统一执行一次 screen 转换
+                        let windowRect = textView.convert(cursorRect, to: nil)
+                        panel.show(anchoredBelow: windowRect, in: window)
                     }
-                } else if session == nil {
+                } else {
                     panel.hide()
                 }
                 _ = self  // capture self for lifetime
@@ -1837,24 +1838,21 @@ final class CodeEditorPlatformTextView: NSTextView {
         }
 
         let safeOffset = max(0, min(offset, (string as NSString).length))
-        let glyphRange = layoutManager.glyphRange(
-            forCharacterRange: NSRange(location: safeOffset, length: 0),
-            actualCharacterRange: nil
+        let glyphIndex = min(
+            layoutManager.glyphIndexForCharacter(at: safeOffset),
+            max(layoutManager.numberOfGlyphs - 1, 0)
         )
-        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-        if rect.isEmpty {
-            rect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
-        }
-        guard rect.isEmpty == false else {
-            return nil
-        }
+        let lineFragRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let glyphLocation = layoutManager.location(forGlyphAt: glyphIndex)
+        guard !lineFragRect.isEmpty else { return nil }
 
         let origin = textContainerOrigin
-        rect.origin.x += origin.x
-        rect.origin.y += origin.y
-        rect.size.width = max(rect.width, 1)
-        rect.size.height = max(rect.height, font?.pointSize ?? NSFont.systemFontSize)
-        return rect.integral
+        return NSRect(
+            x: origin.x + glyphLocation.x,
+            y: origin.y + lineFragRect.minY,
+            width: max(1, font?.maximumAdvancement.width ?? NSFont.systemFontSize * 0.6),
+            height: lineFragRect.height
+        ).integral
     }
 
     // MARK: - Bracket Match Highlight

@@ -10,6 +10,12 @@ enum SelectionModifier {
     case range      // ⇧ 单击：从 anchor 到此项范围选择
 }
 
+/// 搜索栏展示状态（供 UI 测试辅助标识符读取）。
+enum SearchPresentationState: Equatable {
+    case collapsed
+    case expanded
+}
+
 /// FT-R2 ViewModel：桥接 FileTreeStore（actor 层）与 SwiftUI/NSTableView 展示层。
 ///
 /// 对标 Zed project_panel.rs 中 `update_visible_entries()` → `visible_entries` 数据管道，
@@ -46,6 +52,51 @@ final class FileTreeViewModel {
     /// 最近一次实时校验错误（供 FileTreeCellView 读取以高亮显示）。
     var validationError: EditValidationError? = nil
 
+    // MARK: - 搜索（FT-R10）
+
+    /// 当前搜索文本，设置时自动触发可见列表刷新。
+    var searchText: String = "" {
+        didSet {
+            guard searchText != oldValue else { return }
+            Task { await refreshVisibleEntries() }
+        }
+    }
+
+    /// 搜索栏展示状态（用于 UI 测试辅助标识符）。
+    /// 当前始终为 .expanded（Filter 模式下搜索结果直接嵌入树形列表中）。
+    var searchPresentationState: SearchPresentationState = .expanded
+
+    // MARK: - 选择辅助计算属性
+
+    /// 是否有任何选中项。
+    var hasSelection: Bool {
+        selection.primary != nil || !selection.selected.isEmpty
+    }
+
+    /// 是否有多个选中项。
+    var hasMultipleSelection: Bool {
+        selection.selected.count > 1
+    }
+
+    /// 当前选中状态的摘要文本（例如 "3 项已选中"），无选中时返回 nil。
+    var selectionSummaryText: String? {
+        let count = selection.selected.count
+        if count > 1 { return "\(count) 项已选中" }
+        if let primary = selection.primary,
+           let name = visibleEntries.first(where: { $0.id == primary })?.name {
+            return name
+        }
+        return nil
+    }
+
+    /// 供 UI 测试读取的搜索状态文本（"none" / "empty" / "results"）。
+    var searchStateText: String {
+        guard rootDirectory != nil else { return "none" }
+        let trimmed = searchText.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return "none" }
+        return visibleEntries.isEmpty ? "empty" : "results"
+    }
+
     // MARK: - 私有
 
     private let store: FileTreeStore
@@ -64,6 +115,11 @@ final class FileTreeViewModel {
         Task { [weak self] in
             await self?.store.setCompactFolders(compact)
         }
+    }
+
+    /// 使用默认 FileTreeStore 的便捷初始化（供视图层快速实例化）。
+    convenience init(settings: AppSettings? = nil) {
+        self.init(store: FileTreeStore(), settings: settings)
     }
 
     // MARK: - 目录操作
@@ -193,8 +249,32 @@ final class FileTreeViewModel {
     /// 仅重新计算可见列表，不改变展开状态。
     /// 由 FSEventObserver 回调时使用。
     func refreshVisibleEntries() async {
-        visibleEntries = await store.computeVisibleEntries()
+        let filter = searchText.trimmingCharacters(in: .whitespaces)
+        visibleEntries = await store.computeVisibleEntries(searchFilter: filter.isEmpty ? nil : filter)
         storeSnapshot = await store.makeSnapshot()
+    }
+
+    // MARK: - 外部选择同步（FT-R11）
+
+    /// 根据外部提供的文件 URL 同步选中状态。
+    /// 如果 URL 对应的条目在可见列表中存在则选中，否则不改变选择。
+    func syncSelection(fileURL: URL?) {
+        guard let url = fileURL?.standardizedFileURL else {
+            // 外部清空选择时不主动清除，避免干扰用户的多选操作
+            return
+        }
+        let targetID = EntryID(url: url)
+        if visibleEntries.contains(where: { $0.id == targetID }) {
+            selection = FileTreeSelection(primary: targetID, selected: [targetID], anchor: targetID)
+        }
+    }
+
+    /// 搜索只有单个结果时，调用 onOpen 回调打开该文件。
+    /// 与旧版 openSingleSearchResultIfPossible 对标。
+    func openSingleSearchResult(onOpen: @MainActor @escaping (URL) -> Void) {
+        let fileEntries = visibleEntries.filter { !$0.isDirectory }
+        guard fileEntries.count == 1, let match = fileEntries.first else { return }
+        onOpen(match.id.url)
     }
 
     // MARK: - 内联编辑：开始（FT-R8）

@@ -22,12 +22,12 @@ struct WorkspacePanelView: View {
 
     // MARK: - State
 
-    @State private var treeViewModel = WorkspaceTreeViewModel()
+    @State private var fileTreeViewModel = FileTreeViewModel()
 
     // MARK: - Body
 
     var body: some View {
-        @Bindable var treeViewModel = treeViewModel
+        @Bindable var fileTreeViewModel = fileTreeViewModel
 
         VStack(spacing: 0) {
             directoryBar
@@ -36,59 +36,33 @@ struct WorkspacePanelView: View {
         }
         .accessibilityIdentifier("panel.workspace")
         .onAppear {
+            loadDirectoryFromWorkspaceState()
             let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
-            treeViewModel.loadFromWorkspaceState(
-                workspaceState: workspaceState,
-                globalWorkingDirectory: settings.workingDirectory,
-                refreshGit: { url in
-                    await gitPanelViewModel.refresh(for: url, workspaceState: workspaceState)
-                }
-            )
-            treeViewModel.compactFolders = settings.compactFolders
+            Task { await fileTreeViewModel.setCompactFolders(settings.compactFolders) }
             triggerWorkspaceLSPBootstrap()
         }
         .onChange(of: workspaceState.selectedSession?.persistentModelID) { _, _ in
-            let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
-            treeViewModel.loadFromWorkspaceState(
-                workspaceState: workspaceState,
-                globalWorkingDirectory: settings.workingDirectory,
-                refreshGit: { url in
-                    await gitPanelViewModel.refresh(for: url, workspaceState: workspaceState)
-                }
-            )
+            loadDirectoryFromWorkspaceState()
             triggerWorkspaceLSPBootstrap()
         }
         .onChange(of: workspaceState.selectedFile) { _, _ in
-            treeViewModel.syncSelection(with: workspaceState.selectedFile)
+            fileTreeViewModel.syncSelection(fileURL: workspaceState.selectedFile)
             triggerWorkspaceLSPBootstrap()
+        }
+        .onChange(of: fileTreeViewModel.rootDirectory) { _, newDirectory in
+            guard let newDirectory else { return }
+            Task { await gitPanelViewModel.refresh(for: newDirectory, workspaceState: workspaceState) }
         }
         .onReceive(NotificationCenter.default.publisher(for: WorkspaceDirectorySelectionCoordinator.requestNotification)) { _ in
             chooseDirectory()
         }
-        .alert("删除项目", isPresented: Binding(
-            get: { treeViewModel.pendingDeleteNode != nil },
-            set: { if !$0 { treeViewModel.clearPendingDelete() } }
-        ), presenting: treeViewModel.pendingDeleteNode) { node in
-            Button("取消", role: .cancel) {
-                treeViewModel.clearPendingDelete()
-            }
-            Button("删除", role: .destructive) {
-                treeViewModel.deletePendingNode(workspaceState: workspaceState)
-            }
-        } message: { node in
-            if treeViewModel.pendingDeleteSelectionCount > 1 {
-                Text("确定要删除选中的 \(treeViewModel.pendingDeleteSelectionCount) 个项目吗？此操作不可撤销。")
-            } else {
-                Text("确定要删除「\(node.name)」吗？此操作不可撤销。")
-            }
-        }
         .alert("错误", isPresented: Binding(
-            get: { treeViewModel.errorMessage != nil },
-            set: { if !$0 { treeViewModel.errorMessage = nil } }
+            get: { fileTreeViewModel.errorMessage != nil },
+            set: { if !$0 { fileTreeViewModel.errorMessage = nil } }
         )) {
-            Button("确定") { treeViewModel.errorMessage = nil }
+            Button("确定") { fileTreeViewModel.errorMessage = nil }
         } message: {
-            if let errorMessage = treeViewModel.errorMessage { Text(errorMessage) }
+            if let errorMessage = fileTreeViewModel.errorMessage { Text(errorMessage) }
         }
     }
 
@@ -117,43 +91,48 @@ struct WorkspacePanelView: View {
 
             Menu {
                 Button("新建文件") {
-                    treeViewModel.beginCreate(kind: .file, from: treeViewModel.selectedNode())
+                    Task {
+                        await fileTreeViewModel.beginCreate(InlineEditSession.Kind.createFile, near: fileTreeViewModel.selection.primary)
+                    }
                 }
 
                 Button("新建文件夹") {
-                    treeViewModel.beginCreate(kind: .folder, from: treeViewModel.selectedNode())
+                    Task {
+                        await fileTreeViewModel.beginCreate(InlineEditSession.Kind.createFolder, near: fileTreeViewModel.selection.primary)
+                    }
                 }
             } label: {
                 Label("新建", systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .disabled(treeViewModel.currentDirectory == nil)
+            .disabled(fileTreeViewModel.rootDirectory == nil)
             .help("创建文件或文件夹")
             .accessibilityIdentifier("workspace.createMenuButton")
 
             Menu {
                 Button("在访达中打开") {
-                    treeViewModel.revealSelectionInFinder()
+                    fileTreeViewModel.revealInFinder(ids: Array(fileTreeViewModel.selection.selected))
                 }
-                .disabled(!treeViewModel.hasSelection)
+                .disabled(!fileTreeViewModel.hasSelection)
 
                 Button("复制相对路径") {
-                    copySelectionRelativePaths()
+                    fileTreeViewModel.copyRelativePath(ids: Array(fileTreeViewModel.selection.selected))
                 }
-                .disabled(!treeViewModel.hasSelection)
+                .disabled(!fileTreeViewModel.hasSelection)
 
                 Divider()
 
                 Button("重命名") {
-                    treeViewModel.beginRename(for: treeViewModel.selectedNode())
+                    guard let primary = fileTreeViewModel.selection.primary else { return }
+                    Task { await fileTreeViewModel.beginRename(primary) }
                 }
-                .disabled(treeViewModel.selectedNode() == nil || treeViewModel.hasMultipleSelection)
+                .disabled(fileTreeViewModel.selection.primary == nil || fileTreeViewModel.hasMultipleSelection)
 
                 Button("删除", role: .destructive) {
-                    treeViewModel.confirmDelete(nil)
+                    fileTreeViewModel.beginDelete(ids: Set(fileTreeViewModel.selection.selected))
                 }
-                .disabled(!treeViewModel.hasSelection)
+                .disabled(!fileTreeViewModel.hasSelection)
             } label: {
                 Label("更多", systemImage: "ellipsis.circle")
             }
@@ -164,11 +143,11 @@ struct WorkspacePanelView: View {
             .accessibilityIdentifier("workspace.selectionActionsButton")
 
             if launchOptions.isUITestMode {
-                Text("workspace.searchPresentation.\(treeViewModel.searchPresentationState == .expanded ? "expanded" : "collapsed")")
+                Text("workspace.searchPresentation.\(fileTreeViewModel.searchPresentationState == .expanded ? "expanded" : "collapsed")")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("workspace.searchPresentation")
-                Text("workspace.searchState.\(treeViewModel.searchStateText)")
+                Text("workspace.searchState.\(fileTreeViewModel.searchStateText)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("workspace.searchState")
@@ -192,16 +171,18 @@ struct WorkspacePanelView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
-            TextField("过滤文件和文件夹", text: $treeViewModel.treeSearchText)
+            TextField("过滤文件和文件夹", text: $fileTreeViewModel.searchText)
                 .textFieldStyle(.plain)
                 .onSubmit {
-                    treeViewModel.openSingleSearchResultIfPossible(workspaceState: workspaceState)
+                    fileTreeViewModel.openSingleSearchResult { url in
+                        workspaceState.selectedFile = url
+                    }
                 }
                 .accessibilityIdentifier("workspace.searchField")
 
-            if !treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !fileTreeViewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button {
-                    treeViewModel.treeSearchText = ""
+                    fileTreeViewModel.searchText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -212,7 +193,7 @@ struct WorkspacePanelView: View {
         }
         .workbenchSidebarHeaderFieldStyle()
         .onExitCommand {
-            treeViewModel.treeSearchText = ""
+            fileTreeViewModel.searchText = ""
         }
     }
 
@@ -220,11 +201,11 @@ struct WorkspacePanelView: View {
 
     @ViewBuilder
     private var treeContent: some View {
-        if treeViewModel.currentDirectory == nil {
+        if fileTreeViewModel.rootDirectory == nil {
             emptyState
         } else {
             FileTreeContainerView(
-                directory: treeViewModel.currentDirectory,
+                viewModel: fileTreeViewModel,
                 onOpenFile: { id in
                     workspaceState.selectedFile = id.url
                 },
@@ -247,16 +228,18 @@ struct WorkspacePanelView: View {
         )
     }
 
-    private var searchEmptyState: some View {
-        WorkbenchSidebarEmptyStateView(
-            systemImage: treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "folder" : "magnifyingglass",
-            title: treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "当前目录为空" : "未找到匹配项",
-            message: treeViewModel.treeSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "使用上方\"新建\"菜单创建文件或文件夹" : "尝试更换关键字或清空搜索"
-        )
-        .accessibilityIdentifier("workspace.searchEmptyState")
-    }
-
     // MARK: - Actions
+
+    private func loadDirectoryFromWorkspaceState() {
+        let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
+        let dir = workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
+        let url = dir.isEmpty ? nil : URL(fileURLWithPath: dir).standardizedFileURL
+        guard url != fileTreeViewModel.rootDirectory else { return }
+        Task { await fileTreeViewModel.setDirectory(url) }
+        if fileTreeViewModel.selection.primary == nil {
+            fileTreeViewModel.syncSelection(fileURL: workspaceState.selectedFile)
+        }
+    }
 
     private func chooseDirectory() {
         guard let url = WorkspaceDirectorySelectionCoordinator.presentOpenPanel() else { return }
@@ -267,19 +250,18 @@ struct WorkspacePanelView: View {
             persistenceCoordinator: persistenceCoordinator,
             userMessage: "工作目录未成功保存"
         ) else {
-            treeViewModel.errorMessage = "工作目录未成功保存"
+            fileTreeViewModel.errorMessage = "工作目录未成功保存"
             return
         }
 
-        treeViewModel.setDirectory(url) { directory in
-            await gitPanelViewModel.refresh(for: directory, workspaceState: workspaceState)
-        }
+        Task { await fileTreeViewModel.setDirectory(url) }
         triggerWorkspaceLSPBootstrap()
     }
 
     private func triggerWorkspaceLSPBootstrap() {
         let settings = AppSettings.getOrCreate(in: modelContext, persistenceCoordinator: persistenceCoordinator)
-        let workingDirectory = treeViewModel.currentDirectory?.path ?? workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
+        let workingDirectory = fileTreeViewModel.rootDirectory?.path
+            ?? workspaceState.effectiveWorkingDirectory(globalDefault: settings.workingDirectory)
         let selectedFilePath = workspaceState.selectedFile?.standardizedFileURL.path
         Task {
             _ = try? await claudeService.ensureWorkspaceLSPState(
@@ -290,54 +272,21 @@ struct WorkspacePanelView: View {
         }
     }
 
-    @discardableResult
-    private func persistSettingsMutation(userMessage: String, mutation: () -> Void) -> Bool {
-        mutation()
-
-        do {
-            try persistenceCoordinator.save(
-                modelContext,
-                domain: .settings,
-                userMessage: userMessage
-            )
-            return true
-        } catch {
-            treeViewModel.errorMessage = userMessage
-            return false
-        }
-    }
-
-    private func copySelectionRelativePaths() {
-        let relativePaths = treeViewModel.relativePathsForSelection()
-        guard !relativePaths.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(relativePaths.sorted().joined(separator: "\n"), forType: .string)
-    }
-
     private var selectionHintText: String {
-        if let selectionSummaryText = treeViewModel.selectionSummaryText {
-            return selectionSummaryText
+        if let summary = fileTreeViewModel.selectionSummaryText {
+            return summary
         }
-
-        if treeViewModel.currentDirectory == nil {
+        if fileTreeViewModel.rootDirectory == nil {
             return "从\"文件\"菜单打开工作区。"
         }
-
         return "右键文件查看更多操作。"
     }
 
     private var selectionHintSymbol: String {
-        if treeViewModel.hasMultipleSelection {
-            return "checklist"
-        }
-
-        if treeViewModel.hasSelection {
-            return "checkmark.circle"
-        }
-
-        return treeViewModel.currentDirectory == nil ? "folder.badge.questionmark" : "cursorarrow.click"
+        if fileTreeViewModel.hasMultipleSelection { return "checklist" }
+        if fileTreeViewModel.hasSelection { return "checkmark.circle" }
+        return fileTreeViewModel.rootDirectory == nil ? "folder.badge.questionmark" : "cursorarrow.click"
     }
-
 
 }
 

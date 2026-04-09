@@ -82,6 +82,7 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
     // MARK: State
     private var items: [CodeEditorCompletionItem] = []
     private var selectedIndex: Int = 0
+    private var isApplyingProgrammaticSelection = false
     var onAccept: ((CodeEditorCompletionItem) -> Void)?
     var onDismiss: (() -> Void)?
 
@@ -148,7 +149,7 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
         items = session.items
         selectedIndex = session.selectedIndex
         reloadAndResize()
-        tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
+        applySelectionIfNeeded()
         scrollToSelected()
     }
 
@@ -172,16 +173,16 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
     func selectNext() {
         guard !items.isEmpty else { return }
         selectedIndex = (selectedIndex + 1) % items.count
-        tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
         tableView.reloadData()
+        applySelectionIfNeeded()
         scrollToSelected()
     }
 
     func selectPrevious() {
         guard !items.isEmpty else { return }
         selectedIndex = (selectedIndex - 1 + items.count) % items.count
-        tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
         tableView.reloadData()
+        applySelectionIfNeeded()
         scrollToSelected()
     }
 
@@ -203,6 +204,7 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard items.indices.contains(row) else { return nil }
         let id = NSUserInterfaceItemIdentifier("CompletionCell")
         let cell = tableView.makeView(withIdentifier: id, owner: nil) as? CompletionItemRowView
             ?? CompletionItemRowView(frame: .zero)
@@ -217,11 +219,18 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard isApplyingProgrammaticSelection == false else { return }
         let row = tableView.selectedRow
         guard row >= 0, row < items.count else { return }
+        guard row != selectedIndex else { return }
+
+        let previousIndex = selectedIndex
         selectedIndex = row
-        tableView.reloadData()
-        tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
+
+        if items.indices.contains(previousIndex) {
+            tableView.reloadData(forRowIndexes: IndexSet(integer: previousIndex), columnIndexes: IndexSet(integer: 0))
+        }
+        tableView.reloadData(forRowIndexes: IndexSet(integer: selectedIndex), columnIndexes: IndexSet(integer: 0))
     }
 
     // MARK: - Private
@@ -262,5 +271,14 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
     private func scrollToSelected() {
         guard items.indices.contains(selectedIndex) else { return }
         tableView.scrollRowToVisible(selectedIndex)
+    }
+
+    private func applySelectionIfNeeded() {
+        guard items.indices.contains(selectedIndex) else { return }
+        guard tableView.selectedRow != selectedIndex else { return }
+
+        isApplyingProgrammaticSelection = true
+        tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
+        isApplyingProgrammaticSelection = false
     }
 }
