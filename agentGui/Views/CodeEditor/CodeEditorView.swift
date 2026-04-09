@@ -22,6 +22,8 @@ struct CodeEditorView: View {
     var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     /// Agent 变更行级 diff（来自 ChangeReviewProjectionStore，独立于 git diff）
     var agentChangeDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
+    /// Gutter Lane 命中回调（F24 Accept/Reject 动作路由）
+    var onGutterLaneHit: ((CodeEditorGutterHitResult) -> Void)? = nil
     var isBracketPairColorizationEnabled: Bool = false
     var documentSymbols: [LSPDocumentSymbol] = []
     var onSymbolPathChange: (([CodeEditorSymbolPathNode]) -> Void)? = nil
@@ -64,7 +66,8 @@ struct CodeEditorView: View {
         isInlayHintsEnabled: Bool = false,
         isGhostTextEnabled: Bool = false,
         ghostTextClient: (any GhostTextClientProtocol)? = nil,
-        ghostTextModelId: String = "claude-haiku-4-5"
+        ghostTextModelId: String = "claude-haiku-4-5",
+        onGutterLaneHit: ((CodeEditorGutterHitResult) -> Void)? = nil
     ) {
         self._text = text
         self.persistedText = persistedText
@@ -94,6 +97,7 @@ struct CodeEditorView: View {
         self.isGhostTextEnabled = isGhostTextEnabled
         self.ghostTextClient = ghostTextClient
         self.ghostTextModelId = ghostTextModelId
+        self.onGutterLaneHit = onGutterLaneHit
         self._document = State(initialValue: CodeEditorDocument(text: text.wrappedValue, persistedText: persistedText))
     }
 
@@ -112,36 +116,7 @@ struct CodeEditorView: View {
                 )
             }
 
-            CodeEditorTextView(
-                text: $text,
-                document: $document,
-                language: inferredLanguage,
-                focusRequest: focusRequest,
-                revealRequest: revealRequest,
-                hoverPresentation: hoverPresentation,
-                onSelectionChange: onSelectionChange,
-                onVisibleLineRangeChange: { visibleLineRange = $0 },
-                onSemanticIntent: onSemanticIntent,
-                onFindIntent: handleFindIntent,
-                decorations: decorationSnapshot,
-                diagnosticsByLine: diagnosticsByLine,
-                gitDiffByLine: gitDiffByLine,
-                agentChangeDiffByLine: agentChangeDiffByLine,
-                onChangeSet: { change in
-                    onTextChange?(text, change)
-                },
-                highlighter: highlighter,
-                highlightDebounceNanoseconds: highlightDebounceNanoseconds,
-                highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds,
-                isBracketPairColorizationEnabled: isBracketPairColorizationEnabled,
-                indentationStatus: statusBarState.indentation,
-                lspCoordinator: lspCoordinator,
-                isCompletionEnabled: isCompletionEnabled,
-                isInlayHintsEnabled: isInlayHintsEnabled,
-                isGhostTextEnabled: isGhostTextEnabled,
-                ghostTextClient: ghostTextClient,
-                ghostTextModelId: ghostTextModelId
-            )
+            textEditorSection
             .background(Color(NSColor.textBackgroundColor))
 
             Divider()
@@ -189,6 +164,39 @@ struct CodeEditorView: View {
             fileURL: fileURL,
             lspStatus: lspStatus,
             diagnostics: diagnostics
+        )
+    }
+
+    @ViewBuilder
+    private var textEditorSection: some View {
+        CodeEditorTextView(
+            text: $text,
+            document: $document,
+            language: inferredLanguage,
+            focusRequest: focusRequest,
+            revealRequest: revealRequest,
+            hoverPresentation: hoverPresentation,
+            onSelectionChange: onSelectionChange,
+            onVisibleLineRangeChange: { visibleLineRange = $0 },
+            onSemanticIntent: onSemanticIntent,
+            onFindIntent: handleFindIntent,
+            decorations: decorationSnapshot,
+            diagnosticsByLine: diagnosticsByLine,
+            gitDiffByLine: gitDiffByLine,
+            agentChangeDiffByLine: agentChangeDiffByLine,
+            onGutterLaneHit: onGutterLaneHit,
+            onChangeSet: { change in onTextChange?(text, change) },
+            highlighter: highlighter,
+            highlightDebounceNanoseconds: highlightDebounceNanoseconds,
+            highlightExecutionDelayNanoseconds: highlightExecutionDelayNanoseconds,
+            isBracketPairColorizationEnabled: isBracketPairColorizationEnabled,
+            indentationStatus: statusBarState.indentation,
+            lspCoordinator: lspCoordinator,
+            isCompletionEnabled: isCompletionEnabled,
+            isInlayHintsEnabled: isInlayHintsEnabled,
+            isGhostTextEnabled: isGhostTextEnabled,
+            ghostTextClient: ghostTextClient,
+            ghostTextModelId: ghostTextModelId
         )
     }
 

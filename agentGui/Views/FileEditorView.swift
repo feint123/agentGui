@@ -380,7 +380,10 @@ struct FileEditorView: View {
                         isInlayHintsEnabled: runtimeOptions.isInlayHintsEnabled,
                         isGhostTextEnabled: AppSettings.getOrCreate(in: modelContext).enableGhostText,
                         ghostTextClient: claudeService.service.map { AnthropicGhostTextClient(service: $0) },
-                        ghostTextModelId: AppSettings.getOrCreate(in: modelContext).selectedModel
+                        ghostTextModelId: AppSettings.getOrCreate(in: modelContext).selectedModel,
+                        onGutterLaneHit: { hitResult in
+                            handleGutterLaneHit(hitResult, for: url)
+                        }
                     )
                 }
             }
@@ -439,6 +442,56 @@ struct FileEditorView: View {
             .map { UnifiedDiffParser.parse($0.unifiedDiff) }
 
         agentChangeDiffByLine = matchingDiff ?? [:]
+    }
+
+    // MARK: - Gutter Lane Hit Handling（F24）
+
+    private func handleGutterLaneHit(
+        _ hitResult: CodeEditorGutterHitResult,
+        for fileURL: URL
+    ) {
+        guard hitResult.laneID == "changeReviewAction" else { return }
+        let encodedLine = hitResult.lineNumber
+        let isAccept = encodedLine > 0
+        _ = abs(encodedLine)   // 行号（当前按文件维度操作，保留供后续 hunk 级精细化）
+
+        guard let (proposalID, relativePath) = findPendingChange(
+            in: changeReviewStore,
+            fileURL: fileURL
+        ) else { return }
+
+        let applyEngine = ApplyEngine(modelContext: modelContext,
+                                      projectionStore: changeReviewStore)
+        let revertService = DraftRevertService(modelContext: modelContext,
+                                               projectionStore: changeReviewStore)
+        Task { @MainActor in
+            do {
+                if isAccept {
+                    try await applyEngine.apply(proposalID: proposalID, approvedPaths: [relativePath])
+                } else {
+                    try await revertService.revertFiles(proposalID: proposalID, relativePaths: [relativePath])
+                }
+                // 操作成功后刷新 git diff（文件内容已修改）
+                refreshGitDiff(for: fileURL)
+            } catch {
+                // 错误静默处理（后续可接入 sessionController.document.errorMessage）
+            }
+        }
+    }
+
+    private func findPendingChange(
+        in store: ChangeReviewProjectionStore,
+        fileURL: URL
+    ) -> (proposalID: UUID, relativePath: String)? {
+        let standardized = fileURL.standardizedFileURL
+        for snapshot in store.snapshotsByProposalID.values {
+            for fc in snapshot.fileChanges where fc.state.isPendingReview {
+                if URL(fileURLWithPath: fc.absolutePath).standardizedFileURL == standardized {
+                    return (snapshot.proposal.id, fc.relativePath)
+                }
+            }
+        }
+        return nil
     }
 
     private func triggerWorkspaceLSPBootstrap(for url: URL) {

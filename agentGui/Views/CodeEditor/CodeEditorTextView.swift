@@ -17,6 +17,7 @@ struct CodeEditorTextView: NSViewRepresentable {
     var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary] = [:]
     var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     var agentChangeDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
+    var onGutterLaneHit: ((CodeEditorGutterHitResult) -> Void)? = nil
     var onChangeSet: ((EditorChangeSet) -> Void)? = nil
     var highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
@@ -359,6 +360,9 @@ extension CodeEditorTextView {
         func installGutter(for containerView: CodeEditorViewportContainerView) {
             containerView.gutterView.onRequiredWidthChange = { [weak containerView] in
                 containerView?.needsLayout = true
+            }
+            containerView.gutterView.onGutterLaneHit = { [weak self] hitResult in
+                self?.parent.onGutterLaneHit?(hitResult)
             }
         }
 
