@@ -20,6 +20,8 @@ struct CodeEditorView: View {
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
     var highlightExecutionDelayNanoseconds: UInt64 = 0
     var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
+    /// Agent 变更行级 diff（来自 ChangeReviewProjectionStore，独立于 git diff）
+    var agentChangeDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     var isBracketPairColorizationEnabled: Bool = false
     var documentSymbols: [LSPDocumentSymbol] = []
     var onSymbolPathChange: (([CodeEditorSymbolPathNode]) -> Void)? = nil
@@ -53,6 +55,7 @@ struct CodeEditorView: View {
         highlightDebounceNanoseconds: UInt64 = 75_000_000,
         highlightExecutionDelayNanoseconds: UInt64 = 0,
         gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:],
+        agentChangeDiffByLine: [Int: CodeEditorGitDiffKind] = [:],
         isBracketPairColorizationEnabled: Bool = false,
         documentSymbols: [LSPDocumentSymbol] = [],
         onSymbolPathChange: (([CodeEditorSymbolPathNode]) -> Void)? = nil,
@@ -81,6 +84,7 @@ struct CodeEditorView: View {
         self.highlightDebounceNanoseconds = highlightDebounceNanoseconds
         self.highlightExecutionDelayNanoseconds = highlightExecutionDelayNanoseconds
         self.gitDiffByLine = gitDiffByLine
+        self.agentChangeDiffByLine = agentChangeDiffByLine
         self.isBracketPairColorizationEnabled = isBracketPairColorizationEnabled
         self.documentSymbols = documentSymbols
         self.onSymbolPathChange = onSymbolPathChange
@@ -122,6 +126,7 @@ struct CodeEditorView: View {
                 decorations: decorationSnapshot,
                 diagnosticsByLine: diagnosticsByLine,
                 gitDiffByLine: gitDiffByLine,
+                agentChangeDiffByLine: agentChangeDiffByLine,
                 onChangeSet: { change in
                     onTextChange?(text, change)
                 },

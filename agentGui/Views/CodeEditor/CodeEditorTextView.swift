@@ -16,6 +16,7 @@ struct CodeEditorTextView: NSViewRepresentable {
     var decorations: CodeEditorDecorationSnapshot = .empty(version: 0, lineRange: 1...1)
     var diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary] = [:]
     var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
+    var agentChangeDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     var onChangeSet: ((EditorChangeSet) -> Void)? = nil
     var highlighter: any CodeSyntaxHighlighting = CodeSyntaxHighlightingService.shared
     var highlightDebounceNanoseconds: UInt64 = 75_000_000
@@ -763,7 +764,8 @@ extension CodeEditorTextView {
                 cursorLineNumbers: textView.highlightedLineNumbers,
                 lineMetrics: lineMetrics,
                 diagnosticsByLine: parent.diagnosticsByLine,
-                gitDiffByLine: parent.gitDiffByLine
+                gitDiffByLine: parent.gitDiffByLine,
+                agentChangeDiffByLine: parent.agentChangeDiffByLine
             )
             gutterView.updateLayoutState(snapshot)
         }
