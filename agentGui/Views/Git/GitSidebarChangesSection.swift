@@ -186,3 +186,71 @@ struct GitSidebarChangesSection: View {
         }
     }
 }
+
+// MARK: - ChangeRowView
+/// 单个文件变更行：非 hover 时仅显示状态徽章；hover 时显示快捷操作图标。
+private struct ChangeRowView: View {
+    let change: GitFileChange
+    let isSelected: Bool
+    /// SF Symbol 名称，主操作按钮（stage / unstage）。
+    let primarySymbol: String
+    let primaryAction: () -> Void
+    /// 仅 unstaged 区传入（丢弃）；默认 nil。
+    var discardAction: (() -> Void)? = nil
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Text(change.relativePath)
+                .font(.caption)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isHovered {
+                hoverIcons
+            } else {
+                Text(change.status.statusBadgeText)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            isSelected ? Color.accentColor.opacity(0.15) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 4)
+        )
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+        }
+        .onTapGesture {
+            // 行点击逻辑由外部 changeGroup 处理（CL-A1 已实现）
+        }
+    }
+
+    @ViewBuilder
+    private var hoverIcons: some View {
+        HStack(spacing: 4) {
+            if let discardAction {
+                Button(action: discardAction) {
+                    Image(systemName: "trash")
+                        .imageScale(.small)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red)
+                .help("丢弃更改")
+            }
+            Button(action: primaryAction) {
+                Image(systemName: primarySymbol)
+                    .imageScale(.small)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.primary)
+            .help(change.section == .staged ? "取消暂存" : "暂存")
+        }
+    }
+}
