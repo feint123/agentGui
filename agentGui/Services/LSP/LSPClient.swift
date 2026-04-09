@@ -176,6 +176,54 @@ final class LSPClient {
         return parseHoverText(from: result)
     }
 
+    // MARK: - Cancellable Request Variants
+
+    /// Hover 可取消变体：调用方预分配 ID，持有 handle，可随时 cancel。
+    func cancellableHover(uri: String, line: Int, character: Int) -> LSPCancellableRequest<String?> {
+        let requestID = transport.allocateRequestID()
+        let params = documentPositionParams(uri: uri, line: line, character: character)
+        let task = Task<String?, Error> { [transport] in
+            let result = try await transport.sendCancellableRequest(
+                id: requestID,
+                method: "textDocument/hover",
+                params: params
+            )
+            return self.parseHoverText(from: result)
+        }
+        return LSPCancellableRequest(transport: transport, task: task, requestID: requestID)
+    }
+
+    /// Definition 可取消变体。
+    func cancellableDefinition(uri: String, line: Int, character: Int) -> LSPCancellableRequest<LSPSymbolLocation?> {
+        let requestID = transport.allocateRequestID()
+        let params = documentPositionParams(uri: uri, line: line, character: character)
+        let task = Task<LSPSymbolLocation?, Error> { [transport] in
+            let result = try await transport.sendCancellableRequest(
+                id: requestID,
+                method: "textDocument/definition",
+                params: params
+            )
+            return self.parseFirstLocation(from: result)
+        }
+        return LSPCancellableRequest(transport: transport, task: task, requestID: requestID)
+    }
+
+    /// References 可取消变体。
+    func cancellableReferences(uri: String, line: Int, character: Int) -> LSPCancellableRequest<[LSPSymbolLocation]> {
+        let requestID = transport.allocateRequestID()
+        var params = documentPositionParams(uri: uri, line: line, character: character)
+        params["context"] = ["includeDeclaration": true]
+        let task = Task<[LSPSymbolLocation], Error> { [transport] in
+            let result = try await transport.sendCancellableRequest(
+                id: requestID,
+                method: "textDocument/references",
+                params: params
+            )
+            return self.parseLocations(from: result)
+        }
+        return LSPCancellableRequest(transport: transport, task: task, requestID: requestID)
+    }
+
     /// 发送 textDocument/completion 请求并解析返回的补全项列表。
     /// - Returns: 解析后的补全项数组；网络或解析失败时返回空数组（不 throw）。
     func completion(
@@ -832,5 +880,32 @@ extension LSPClient {
     /// For testing only: directly sets the negotiated capabilities.
     func setCapabilitiesForTesting(_ hints: LSPServerCapabilityHints) {
         capabilities = hints
+    }
+}
+
+// MARK: - LSPCancellableRequest
+
+/// LSP 可取消请求句柄。调用方持有此句柄，可在需要时通过 `cancel()` 向服务器发送
+/// `$/cancelRequest` 并中止本地 await。
+final class LSPCancellableRequest<T: Sendable>: Sendable {
+    let requestID: String
+    private let transport: LSPJSONRPCTransport
+    private let task: Task<T, Error>
+
+    init(transport: LSPJSONRPCTransport, task: Task<T, Error>, requestID: String) {
+        self.transport = transport
+        self.task = task
+        self.requestID = requestID
+    }
+
+    /// 等待请求完成并返回结果。若已取消则 throw `CancellationError`。
+    func result() async throws -> T {
+        try await task.value
+    }
+
+    /// 向服务器发送 `$/cancelRequest` 通知，并取消本地 task。
+    func cancel() {
+        try? transport.cancelRequest(id: requestID)
+        task.cancel()
     }
 }
