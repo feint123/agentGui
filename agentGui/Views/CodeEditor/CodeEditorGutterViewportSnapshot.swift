@@ -16,6 +16,11 @@ struct CodeEditorGutterViewportSnapshot: Equatable, Sendable {
     // F13 预留：每行 git diff 状态，F11 阶段始终为空字典
     let gitDiffByLine: [Int: CodeEditorGitDiffKind]
 
+    // MARK: - Agent Change Diff（F24）
+    /// Agent 修改产生的行级 diff，独立于 git diff（不覆盖 gitDiffByLine）。
+    /// 来自 ChangeReviewProjectionStore 中当前文件的 ProposedFileChangeSnapshot.unifiedDiff。
+    let agentChangeDiffByLine: [Int: CodeEditorGitDiffKind]
+
     init(
         lineCount: Int,
         visibleLineRange: ClosedRange<Int>,
@@ -25,7 +30,8 @@ struct CodeEditorGutterViewportSnapshot: Equatable, Sendable {
         diagnosticsByLine: [Int: CodeEditorLineDiagnosticSummary],
         foldableLines: Set<Int> = [],
         foldedLines: Set<Int> = [],
-        gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
+        gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:],
+        agentChangeDiffByLine: [Int: CodeEditorGitDiffKind] = [:]   // ← 新增，有默认值
     ) {
         self.lineCount = lineCount
         self.visibleLineRange = visibleLineRange
@@ -36,6 +42,7 @@ struct CodeEditorGutterViewportSnapshot: Equatable, Sendable {
         self.foldableLines = foldableLines
         self.foldedLines = foldedLines
         self.gitDiffByLine = gitDiffByLine
+        self.agentChangeDiffByLine = agentChangeDiffByLine   // ← 新增
     }
 }
 
