@@ -4,6 +4,8 @@ struct GitSidebarChangesSection: View {
     let sidebarViewModel: GitSidebarViewModel
     let workspaceState: WorkspaceState
 
+    @FocusState private var isListFocused: Bool
+
     var body: some View {
         @Bindable var sidebarViewModel = sidebarViewModel
 
@@ -77,6 +79,35 @@ struct GitSidebarChangesSection: View {
         } message: { change in
             Text(change.relativePath)
         }
+        .focusable()
+        .focused($isListFocused)
+        .onKeyPress(.upArrow) {
+            moveKeyboardSelection(by: -1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            moveKeyboardSelection(by: 1)
+            return .handled
+        }
+    }
+
+    /// 所有变更的统一有序列表（staged → unstaged → untracked），用于键盘 ↑↓ 导航。
+    private var allChangesForKeyboard: [GitFileChange] {
+        sidebarViewModel.filteredStagedChanges
+            + sidebarViewModel.filteredUnstagedChanges
+            + sidebarViewModel.filteredUntrackedChanges
+    }
+
+    private func moveKeyboardSelection(by delta: Int) {
+        let all = allChangesForKeyboard
+        guard !all.isEmpty else { return }
+        let currentID = sidebarViewModel.selectedChangeID
+        let currentIndex = all.firstIndex(where: { $0.id == currentID }) ?? -1
+        let nextIndex = max(0, min(all.count - 1, currentIndex + delta))
+        let nextChange = all[nextIndex]
+        Task {
+            await sidebarViewModel.selectChange(nextChange, workspaceState: workspaceState)
+        }
     }
 
     private func changeGroup(
@@ -111,7 +142,9 @@ struct GitSidebarChangesSection: View {
         secondaryActionTitle: String? = nil,
         secondaryAction: ((GitFileChange) -> Void)? = nil
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let isSelected = sidebarViewModel.selectedChangeID == change.id
+
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(change.relativePath)
                     .font(.caption)
@@ -123,17 +156,6 @@ struct GitSidebarChangesSection: View {
             }
 
             HStack(spacing: 6) {
-                Button("查看 Diff") {
-                    Task {
-                        await sidebarViewModel.panelViewModel.selectDiff(
-                            for: change,
-                            staged: change.section == .staged,
-                            workspaceState: workspaceState
-                        )
-                    }
-                }
-                .buttonStyle(.borderless)
-
                 Button(primaryActionTitle) {
                     primaryAction(change)
                 }
@@ -149,5 +171,18 @@ struct GitSidebarChangesSection: View {
             .font(.caption)
         }
         .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            isSelected
+                ? Color.accentColor.opacity(0.15)
+                : Color.clear,
+            in: RoundedRectangle(cornerRadius: 4)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Task {
+                await sidebarViewModel.selectChange(change, workspaceState: workspaceState)
+            }
+        }
     }
 }
