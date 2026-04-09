@@ -588,8 +588,9 @@ final class LSPClient {
         // signatureHelp
         let sigOpts = capabilities["signatureHelpProvider"] as? [String: Any]
         let supportsSignatureHelp = sigOpts != nil || (capabilities["signatureHelpProvider"] as? Bool ?? false)
-        let sigTriggers: [String] = sigOpts.map { triggerChars("triggerCharacters", in: $0) } ?? []
-        let sigRetriggers: [String] = sigOpts.map { triggerChars("retriggerCharacters", in: $0) } ?? []
+        // 有 sigOpts 时解析，否则用默认值（LSP spec §3.16: triggerCharacters 为可选字段）
+        let sigTriggers: [String] = sigOpts.map { triggerChars("triggerCharacters", in: $0) }.flatMap { $0.isEmpty ? nil : $0 } ?? ["(", ","]
+        let sigRetriggers: [String] = sigOpts.map { triggerChars("retriggerCharacters", in: $0) }.flatMap { $0.isEmpty ? nil : $0 } ?? [",", ")"]
 
         // onTypeFormatting — firstTriggerCharacter + moreTriggerCharacter
         var onTypeTriggers: [String] = []
