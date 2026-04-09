@@ -4,6 +4,16 @@ enum GitChangeSection: String, Codable, Equatable {
     case staged
     case modified
     case untracked
+
+    /// hover 时行尾主操作按钮使用的 SF Symbol 名称。
+    /// staged → 取消暂存（minus.circle）; modified/untracked → 暂存（plus.circle）
+    var hoverActionSymbol: String {
+        switch self {
+        case .staged:    return "minus.circle"
+        case .modified:  return "plus.circle"
+        case .untracked: return "plus.circle"
+        }
+    }
 }
 
 enum GitChangeStatus: String, Codable, Equatable {
@@ -12,6 +22,17 @@ enum GitChangeStatus: String, Codable, Equatable {
     case deleted
     case renamed
     case untracked
+
+    /// 非 hover 状态下行尾显示的短标识（参照 IDEA GitStageTree 节点图标文字）。
+    var statusBadgeText: String {
+        switch self {
+        case .added:     return "A"
+        case .modified:  return "M"
+        case .deleted:   return "D"
+        case .renamed:   return "R"
+        case .untracked: return "??"
+        }
+    }
 }
 
 struct GitFileChange: Identifiable, Equatable {
