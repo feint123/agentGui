@@ -464,6 +464,7 @@ struct CodeEditorTextViewIntegrationTests {
 
         #expect(harness.semanticIntents.isEmpty)
     }
+
 }
 
 private func makeFragments(

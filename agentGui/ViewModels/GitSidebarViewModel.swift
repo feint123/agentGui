@@ -90,6 +90,23 @@ final class GitSidebarViewModel {
         }
     }
 
+    // MARK: - Selection
+
+    /// 当前选中文件 ID，代理自 panelViewModel.selectedChange（单一来源）
+    var selectedChangeID: String? {
+        panelViewModel.selectedChange?.id
+    }
+
+    /// 选中文件行 — 立即触发 diff 加载并更新 WorkspaceState。
+    /// `staged` 语义由 `change.section` 决定；untracked 文件的 staged=false。
+    func selectChange(_ change: GitFileChange, workspaceState: WorkspaceState) async {
+        await panelViewModel.selectDiff(
+            for: change,
+            staged: change.section == .staged,
+            workspaceState: workspaceState
+        )
+    }
+
     private func filter(_ changes: [GitFileChange]) -> [GitFileChange] {
         let query = changeFilterText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return changes }

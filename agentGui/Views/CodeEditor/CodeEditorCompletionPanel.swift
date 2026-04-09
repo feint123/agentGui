@@ -70,12 +70,15 @@ private final class CompletionItemRowView: NSTableCellView {
 /// 持有者（CodeEditorTextView.Coordinator）负责定位和更新。
 /// 对应 VSCode SuggestWidget 的展示职责。
 final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-    static let itemHeight: CGFloat = 22
+    static let itemHeight: CGFloat = 28
     static let maxVisibleItems = 10
     static let panelWidth: CGFloat = 380
+    private static let chromePadding: CGFloat = 8
+    private static let cornerRadius: CGFloat = 14
 
     // MARK: Windowing
     private(set) var panel: NSPanel
+    private let containerView: NSVisualEffectView
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
 
@@ -88,6 +91,16 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
 
     override init() {
         let contentRect = NSRect(x: 0, y: 0, width: Self.panelWidth, height: 0)
+        let container = NSVisualEffectView(frame: contentRect)
+        container.material = .hudWindow
+        container.blendingMode = .behindWindow
+        container.state = .active
+        container.wantsLayer = true
+        container.layer?.cornerRadius = Self.cornerRadius
+        container.layer?.masksToBounds = true
+        container.layer?.borderWidth = 0.5
+        container.layer?.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
+        self.containerView = container
         panel = NSPanel(
             contentRect: contentRect,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -99,17 +112,11 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
         panel.level = .floating
         panel.hasShadow = true
         panel.animationBehavior = .none
+        panel.alphaValue = 0
 
         super.init()
 
         // Container view with visual effect
-        let container = NSVisualEffectView(frame: contentRect)
-        container.material = .popover
-        container.blendingMode = .behindWindow
-        container.state = .active
-        container.wantsLayer = true
-        container.layer?.cornerRadius = 6
-        container.layer?.masksToBounds = true
         panel.contentView = container
 
         // Table setup
@@ -132,13 +139,15 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.backgroundColor = .clear
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrollView)
         NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Self.chromePadding),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Self.chromePadding),
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor, constant: Self.chromePadding),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Self.chromePadding)
         ])
     }
 
@@ -159,13 +168,22 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
         if !panel.isVisible {
             window.addChildWindow(panel, ordered: .above)
             panel.orderFront(nil)
+            panel.animator().alphaValue = 1
+        } else {
+            animateChromeRefresh()
         }
     }
 
     func hide() {
         if panel.isVisible {
-            panel.parent?.removeChildWindow(panel)
-            panel.orderOut(nil)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 0
+            } completionHandler: { [panel] in
+                panel.parent?.removeChildWindow(panel)
+                panel.orderOut(nil)
+            }
         }
         items = []
     }
@@ -212,8 +230,9 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
         let isSelected = row == selectedIndex
         cell.configure(item: items[row], isSelected: isSelected)
         cell.wantsLayer = true
+        cell.layer?.cornerRadius = 8
         cell.layer?.backgroundColor = isSelected
-            ? NSColor.selectedContentBackgroundColor.cgColor
+            ? NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
             : NSColor.clear.cgColor
         return cell
     }
@@ -243,26 +262,29 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
     private func reloadAndResize() {
         tableView.reloadData()
         let visibleCount = min(items.count, Self.maxVisibleItems)
-        let panelHeight = CGFloat(visibleCount) * Self.itemHeight + 4 // top+bottom padding
+        let panelHeight = CGFloat(visibleCount) * Self.itemHeight + (Self.chromePadding * 2)
         var frame = panel.frame
         frame.size = CGSize(width: Self.panelWidth, height: panelHeight)
         panel.setFrame(frame, display: true)
-        panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
+        containerView.frame = NSRect(origin: .zero, size: frame.size)
     }
 
     private func positionPanel(below cursorRect: NSRect, in window: NSWindow) {
         let screenCursorRect = window.convertToScreen(cursorRect)
         let visibleCount = min(max(items.count, 1), Self.maxVisibleItems)
-        let panelHeight = CGFloat(visibleCount) * Self.itemHeight + 4
+        let panelHeight = CGFloat(visibleCount) * Self.itemHeight + (Self.chromePadding * 2)
         var origin = NSPoint(
             x: screenCursorRect.minX,
-            y: screenCursorRect.minY - panelHeight - 2
+            y: screenCursorRect.minY - panelHeight - 4
         )
         // 检查下方空间是否足够，否则显示在光标上方
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             if origin.y < screenFrame.minY {
-                origin.y = screenCursorRect.maxY + 2
+                origin.y = screenCursorRect.maxY + 4
+            }
+            if origin.x + Self.panelWidth > screenFrame.maxX {
+                origin.x = screenFrame.maxX - Self.panelWidth - 8
             }
         }
         panel.setFrameOrigin(origin)
@@ -280,5 +302,19 @@ final class CodeEditorCompletionPanel: NSObject, NSTableViewDataSource, NSTableV
         isApplyingProgrammaticSelection = true
         tableView.selectRowIndexes(IndexSet(integer: selectedIndex), byExtendingSelection: false)
         isApplyingProgrammaticSelection = false
+    }
+
+    private func animateChromeRefresh() {
+        guard panel.isVisible else { return }
+
+        let previousTransform = containerView.layer?.transform
+        containerView.layer?.transform = CATransform3DMakeScale(0.985, 0.985, 1)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            containerView.animator().alphaValue = 1
+        } completionHandler: { [weak containerView] in
+            containerView?.layer?.transform = previousTransform ?? CATransform3DIdentity
+        }
     }
 }

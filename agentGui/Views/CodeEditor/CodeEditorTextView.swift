@@ -1608,8 +1608,12 @@ final class CodeEditorPlatformTextView: NSTextView {
                 completionDelegate.acceptCompletion()
                 return
             case 53: // Esc
+                let preservedRanges = selectedRanges
                 completionDelegate.dismissCompletion()
-                // fall through to super for other Esc handling
+                if preservedRanges.count > 1 {
+                    setSelectedRanges(preservedRanges, affinity: .downstream, stillSelecting: false)
+                }
+                return
             case 125: // ↓
                 completionDelegate.selectNextCompletion()
                 return
