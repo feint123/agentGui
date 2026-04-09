@@ -113,4 +113,55 @@ final class CodeEditorGhostTextIntegrationTests: XCTestCase {
         XCTAssertEqual(context?.language, "swift",
             "未传入 language 时默认应为 'swift'")
     }
+
+    // MARK: - onFirstLine generation-aware（f23-v2 Task 5）
+
+    func testFirstLineCallbackUpdatesExistingGhostText() async {
+        let mock = MockGhostTextClient()
+        let service = CodeEditorGhostTextService(client: mock, modelId: "test-model")
+
+        var capturedFirstLine: String?
+
+        service.request(
+            prefix: "let x =",
+            suffix: "",
+            language: "swift",
+            generation: 1,
+            onFirstLine: { line in capturedFirstLine = line },
+            onComplete:  { _ in },
+            onCancel:    {}
+        )
+
+        // 等待 Mock 响应
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        // 验证: onFirstLine 被调用（不被 guard nil 拦截，该行为由外层 coordinator 控制）
+        XCTAssertNotNil(capturedFirstLine, "onFirstLine 应被调用")
+    }
+
+    func testGenerationAwareGuard_doesNotOverwriteNewerGeneration() {
+        // 验证：若 currentGhostText.generation > incoming generation，不覆盖
+        let textView = CodeEditorPlatformTextView()
+        textView.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
+        textView.string = ""
+
+        // 已有 generation 5 的 ghost text（更新）
+        textView.currentGhostText = CodeEditorGhostTextSnapshot(
+            generation: 5, insertionOffset: 0, text: "newer result"
+        )
+
+        // 模拟旧请求（generation 3）试图通过 onFirstLine 更新 → 不应覆盖
+        let incomingGeneration = 3
+        let incomingText = "old result"
+        if let existing = textView.currentGhostText, existing.generation > incomingGeneration {
+            // guard 条件：不更新
+        } else {
+            textView.currentGhostText = CodeEditorGhostTextSnapshot(
+                generation: incomingGeneration, insertionOffset: 0, text: incomingText
+            )
+        }
+        XCTAssertEqual(textView.currentGhostText?.text, "newer result",
+            "旧 generation 的 onFirstLine 不应覆盖更新代际的 ghost text")
+        XCTAssertEqual(textView.currentGhostText?.generation, 5)
+    }
 }

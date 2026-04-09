@@ -565,7 +565,10 @@ extension CodeEditorTextView {
                 generation: generation,
                 onFirstLine: { [weak textView] firstLine in
                     Task { @MainActor [weak textView] in
-                        guard textView?.currentGhostText == nil else { return }
+                        // 代际感知保护：若已有更新代际的 ghost text，不覆盖（防止旧请求覆盖新结果）
+                        if let existing = textView?.currentGhostText, existing.generation > generation {
+                            return
+                        }
                         textView?.currentGhostText = CodeEditorGhostTextSnapshot(
                             generation: generation,
                             insertionOffset: insertionOffset,
