@@ -23,6 +23,7 @@ final class CodeEditorLSPCoordinator {
     private var pendingChangeSetIsAmbiguous = false
     private var latestHoverGeneration = 0
     private var pendingHoverTask: Task<Void, Never>?
+    private var pendingHoverHandle: LSPCancellableRequest<String?>?
     private var completionGeneration = 0
     private var pendingCompletionTask: Task<Void, Never>?
     private var inlayHintGeneration = 0
@@ -277,15 +278,21 @@ final class CodeEditorLSPCoordinator {
 
         latestHoverGeneration += 1
         let generation = latestHoverGeneration
+
+        // Cancel previous in-flight LSP request (sends $/cancelRequest to server)
+        pendingHoverHandle?.cancel()
+        pendingHoverHandle = nil
+
         pendingHoverTask?.cancel()
         pendingHoverTask = Task { [weak self] in
             guard let self else { return }
             try? await Task.sleep(nanoseconds: debounceNanoseconds)
             guard !Task.isCancelled else { return }
 
-            let hoverText: String?
+            // After debounce, create cancellable LSP request
+            let handle: LSPCancellableRequest<String?>?
             do {
-                hoverText = try await self.manager.hover(
+                handle = try self.manager.cancellableHover(
                     workspaceRoot: self.binding.workspaceRoot,
                     serverID: self.binding.serverID,
                     uri: self.binding.uri,
@@ -293,14 +300,33 @@ final class CodeEditorLSPCoordinator {
                     character: max(position.column - 1, 0)
                 )
             } catch {
+                await MainActor.run { deliver(nil) }
+                return
+            }
+
+            guard let handle else {
+                await MainActor.run { deliver(nil) }
+                return
+            }
+
+            await MainActor.run {
+                self.pendingHoverHandle = handle
+            }
+
+            let hoverText: String?
+            do {
+                hoverText = try await handle.result()
+            } catch is CancellationError {
+                return // Cancelled — don’t deliver
+            } catch {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard self.latestHoverGeneration == generation,
                           self.isOpen else {
                         return
                     }
-
                     self.pendingHoverTask = nil
+                    self.pendingHoverHandle = nil
                     deliver(nil)
                 }
                 return
@@ -318,6 +344,7 @@ final class CodeEditorLSPCoordinator {
                 }
 
                 self.pendingHoverTask = nil
+                self.pendingHoverHandle = nil
                 deliver(CodeEditorHoverPresentation(position: position, markdown: hoverText))
             }
         }
@@ -325,6 +352,8 @@ final class CodeEditorLSPCoordinator {
 
     func cancelHover() {
         latestHoverGeneration += 1
+        pendingHoverHandle?.cancel()
+        pendingHoverHandle = nil
         pendingHoverTask?.cancel()
         pendingHoverTask = nil
     }
