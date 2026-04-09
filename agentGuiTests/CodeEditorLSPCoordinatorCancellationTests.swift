@@ -92,4 +92,79 @@ struct CodeEditorLSPCoordinatorCancellationTests {
 
         #expect(revealRequest?.reason == .definition)
     }
+
+    // MARK: - Task 5: Definition/References cancellation
+
+    @Test
+    func consecutiveDefinitionRequestsCancelPrevious() async throws {
+        let harness = CancellationTrackingHarness()
+        let manager = harness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: .fixtureSourceFile(),
+            debounceNanoseconds: 10_000_000
+        )
+
+        coordinator.activate(initialText: "value", version: 1)
+
+        // Start first definition request
+        let task1 = Task {
+            await coordinator.requestDefinition(
+                at: .init(line: 1, column: 1, utf16Offset: 0, version: 1)
+            )
+        }
+
+        // Give time for request to be in-flight
+        try await Task.sleep(nanoseconds: 10_000_000)
+
+        // Fire second request — should cancel the first
+        let task2 = Task {
+            await coordinator.requestDefinition(
+                at: .init(line: 1, column: 5, utf16Offset: 4, version: 1)
+            )
+        }
+
+        _ = await task1.value
+        _ = await task2.value
+
+        // Give async tasks time to process cancel notifications
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        // At least one cancel request should have been sent
+        #expect(harness.cancelRequestIDs.count >= 1,
+                "Expected at least one $/cancelRequest for consecutive definition requests")
+    }
+
+    @Test
+    func deactivateCancelsAllInFlightRequests() async throws {
+        let harness = CancellationTrackingHarness()
+        let manager = harness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: .fixtureSourceFile(),
+            debounceNanoseconds: 10_000_000
+        )
+
+        coordinator.activate(initialText: "value", version: 1)
+
+        // Start hover (debounce 5ms, then in-flight for 200ms)
+        coordinator.scheduleHover(
+            at: .init(line: 1, column: 1, utf16Offset: 0, version: 1),
+            debounceNanoseconds: 5_000_000
+        ) { _ in }
+
+        // Let debounce pass — request is now in-flight
+        try await Task.sleep(nanoseconds: 30_000_000)
+
+        // Deactivate should cancel everything
+        coordinator.deactivate()
+
+        // Give async tasks time to process cancel notifications
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        #expect(harness.cancelRequestIDs.count >= 1,
+                "deactivate() should cancel in-flight LSP requests")
+    }
 }

@@ -58,8 +58,8 @@ final class CancellationTrackingHarness {
                         return
                     }
 
-                    // Auto-reply with a delay for hover requests (to allow cancellation in-flight)
-                    let delay: UInt64 = method == "textDocument/hover" ? 200_000_000 : 0
+                    // Auto-reply with a delay for hover/definition requests (to allow cancellation in-flight)
+                    let delay: UInt64 = (method == "textDocument/hover" || method == "textDocument/definition") ? 200_000_000 : 0
                     Task { [weak transport] in
                         if delay > 0 {
                             try? await Task.sleep(nanoseconds: delay)

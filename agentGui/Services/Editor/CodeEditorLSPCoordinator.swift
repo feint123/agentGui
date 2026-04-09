@@ -24,6 +24,8 @@ final class CodeEditorLSPCoordinator {
     private var latestHoverGeneration = 0
     private var pendingHoverTask: Task<Void, Never>?
     private var pendingHoverHandle: LSPCancellableRequest<String?>?
+    private var pendingDefinitionHandle: LSPCancellableRequest<LSPSymbolLocation?>?
+    private var pendingReferencesHandle: LSPCancellableRequest<[LSPSymbolLocation]>?
     private var completionGeneration = 0
     private var pendingCompletionTask: Task<Void, Never>?
     private var inlayHintGeneration = 0
@@ -121,7 +123,13 @@ final class CodeEditorLSPCoordinator {
         pendingVersion = nil
         pendingChangeSet = nil
         pendingChangeSetIsAmbiguous = false
+
+        // Cancel all in-flight LSP requests
         cancelHover()
+        pendingDefinitionHandle?.cancel()
+        pendingDefinitionHandle = nil
+        pendingReferencesHandle?.cancel()
+        pendingReferencesHandle = nil
 
         guard isOpen else {
             return
@@ -166,16 +174,26 @@ final class CodeEditorLSPCoordinator {
             return nil
         }
 
+        // Cancel previous in-flight definition request
+        pendingDefinitionHandle?.cancel()
+        pendingDefinitionHandle = nil
+
         do {
-            guard let location = try await manager.definition(
+            let handle = try manager.cancellableDefinition(
                 workspaceRoot: binding.workspaceRoot,
                 serverID: binding.serverID,
                 uri: binding.uri,
                 line: max(position.line - 1, 0),
                 character: max(position.column - 1, 0)
-            ) else {
+            )
+            pendingDefinitionHandle = handle
+
+            guard let location = try await handle.result() else {
+                pendingDefinitionHandle = nil
                 return nil
             }
+
+            pendingDefinitionHandle = nil
 
             guard position.version == latestLocalVersion,
                   let fileURL = localFileURL(for: location.uri) else {
@@ -188,7 +206,11 @@ final class CodeEditorLSPCoordinator {
                 column: location.character + 1,
                 reason: .definition
             )
+        } catch is CancellationError {
+            pendingDefinitionHandle = nil
+            return nil
         } catch {
+            pendingDefinitionHandle = nil
             return nil
         }
     }
@@ -201,14 +223,22 @@ final class CodeEditorLSPCoordinator {
             return nil
         }
 
+        // Cancel previous in-flight references request
+        pendingReferencesHandle?.cancel()
+        pendingReferencesHandle = nil
+
         do {
-            let locations = try await manager.references(
+            let handle = try manager.cancellableReferences(
                 workspaceRoot: binding.workspaceRoot,
                 serverID: binding.serverID,
                 uri: binding.uri,
                 line: max(position.line - 1, 0),
                 character: max(position.column - 1, 0)
             )
+            pendingReferencesHandle = handle
+
+            let locations = try await handle.result()
+            pendingReferencesHandle = nil
 
             guard position.version == latestLocalVersion else {
                 return nil
@@ -235,7 +265,11 @@ final class CodeEditorLSPCoordinator {
             }
 
             return CodeEditorReferencePresentation(queryPosition: position, items: items)
+        } catch is CancellationError {
+            pendingReferencesHandle = nil
+            return nil
         } catch {
+            pendingReferencesHandle = nil
             return nil
         }
     }
