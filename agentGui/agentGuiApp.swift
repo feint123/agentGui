@@ -103,6 +103,8 @@ struct agentGuiApp: App {
         NSWindow.allowsAutomaticWindowTabbing = true
         // 注册内置技能（S-F1/S-F2）
         registerSkillifySkill()
+        // S-F3: verify 内置技能
+        registerVerifySkill()
     }
 
     private let launchOptions = TestLaunchOptions.current
