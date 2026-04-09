@@ -40,6 +40,8 @@ private final class StubGitService: GitServicing {
         if shouldThrow { throw GitServiceError.commandFailed("stub error") }
         return commitsToReturn
     }
+    func stageAll(repositoryRoot: URL) async throws {}
+    func unstageAll(repositoryRoot: URL) async throws {}
 }
 
 // MARK: - Tests

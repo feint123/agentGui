@@ -108,6 +108,18 @@ final class GitPanelViewModel {
         }, workspaceState: workspaceState)
     }
 
+    func stageAll(workspaceState: WorkspaceState? = nil) async {
+        await mutate("正在全部暂存", action: { repositoryRoot in
+            try await gitService.stageAll(repositoryRoot: repositoryRoot)
+        }, workspaceState: workspaceState)
+    }
+
+    func unstageAll(workspaceState: WorkspaceState? = nil) async {
+        await mutate("正在全部取消暂存", action: { repositoryRoot in
+            try await gitService.unstageAll(repositoryRoot: repositoryRoot)
+        }, workspaceState: workspaceState)
+    }
+
     func discard(change: GitFileChange, workspaceState: WorkspaceState? = nil) async {
         await mutate("正在丢弃更改", action: { repositoryRoot in
             try await gitService.discard(change: change, repositoryRoot: repositoryRoot)

@@ -22,6 +22,8 @@ protocol GitServicing {
     func saveStash(message: String?, repositoryRoot: URL) async throws
     func applyStash(id: String, pop: Bool, repositoryRoot: URL) async throws
     func listCommits(repositoryRoot: URL, maxCount: Int, skip: Int) async throws -> [GitCommit]
+    func stageAll(repositoryRoot: URL) async throws
+    func unstageAll(repositoryRoot: URL) async throws
 }
 
 struct GitCommandResult: Equatable {
@@ -119,6 +121,14 @@ final class GitService: GitServicing {
 
     func unstage(change: GitFileChange, repositoryRoot: URL) async throws {
         try await runMutation(["restore", "--staged", "--", change.relativePath], repositoryRoot: repositoryRoot)
+    }
+
+    func stageAll(repositoryRoot: URL) async throws {
+        try await runMutation(["add", "-A"], repositoryRoot: repositoryRoot)
+    }
+
+    func unstageAll(repositoryRoot: URL) async throws {
+        try await runMutation(["restore", "--staged", "."], repositoryRoot: repositoryRoot)
     }
 
     func discard(change: GitFileChange, repositoryRoot: URL) async throws {

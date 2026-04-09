@@ -26,6 +26,10 @@ struct GitSidebarChangesSection: View {
                             primaryActionTitle: "取消暂存",
                             primaryAction: { change in
                                 Task { await sidebarViewModel.panelViewModel.unstage(change: change, workspaceState: workspaceState) }
+                            },
+                            bulkActionTitle: "全部取消暂存",
+                            bulkAction: {
+                                Task { await sidebarViewModel.panelViewModel.unstageAll(workspaceState: workspaceState) }
                             }
                         )
                     }
@@ -41,6 +45,10 @@ struct GitSidebarChangesSection: View {
                             secondaryActionTitle: "丢弃",
                             secondaryAction: { change in
                                 sidebarViewModel.requestDiscard(change)
+                            },
+                            bulkActionTitle: "全部暂存",
+                            bulkAction: {
+                                Task { await sidebarViewModel.panelViewModel.stageAll(workspaceState: workspaceState) }
                             }
                         )
                     }
@@ -52,6 +60,10 @@ struct GitSidebarChangesSection: View {
                             primaryActionTitle: "暂存",
                             primaryAction: { change in
                                 Task { await sidebarViewModel.panelViewModel.stage(change: change, workspaceState: workspaceState) }
+                            },
+                            bulkActionTitle: "全部暂存",
+                            bulkAction: {
+                                Task { await sidebarViewModel.panelViewModel.stageAll(workspaceState: workspaceState) }
                             }
                         )
                     }
@@ -116,12 +128,23 @@ struct GitSidebarChangesSection: View {
         primaryActionTitle: String,
         primaryAction: @escaping (GitFileChange) -> Void,
         secondaryActionTitle: String? = nil,
-        secondaryAction: ((GitFileChange) -> Void)? = nil
+        secondaryAction: ((GitFileChange) -> Void)? = nil,
+        bulkActionTitle: String? = nil,
+        bulkAction: (() -> Void)? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            HStack {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if let bulkActionTitle, let bulkAction {
+                    Button(bulkActionTitle, action: bulkAction)
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             ForEach(changes) { change in
                 ChangeRowView(
