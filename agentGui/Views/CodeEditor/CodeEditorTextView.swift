@@ -299,7 +299,7 @@ extension CodeEditorTextView {
                 isIMEActive: textView.hasMarkedText(),
                 isGhostTextEnabled: parent.isGhostTextEnabled && !completionPanelVisible,
                 contextProvider: { [weak textView] in
-                    textView?.extractGhostTextContext()
+                    textView?.extractGhostTextContext(language: self.parent.language)
                 }
             )
         }
@@ -1470,7 +1470,7 @@ final class CodeEditorPlatformTextView: NSTextView {
     }
 
     /// 提取 ghost text 请求所需的前缀/后缀上下文（各最多 200/20 行）
-    func extractGhostTextContext() -> (prefix: String, suffix: String, language: String)? {
+    func extractGhostTextContext(language: String? = nil) -> (prefix: String, suffix: String, language: String)? {
         guard let storage = textStorage else { return nil }
         let fullText = storage.string
         let cursorPos = selectedRange().location
@@ -1489,7 +1489,7 @@ final class CodeEditorPlatformTextView: NSTextView {
         let prefix = prefixLines.suffix(200).joined(separator: "\n")
         let suffix = suffixLines.prefix(20).joined(separator: "\n")
 
-        return (prefix: prefix, suffix: suffix, language: "swift")
+        return (prefix: prefix, suffix: suffix, language: language ?? "swift")
     }
 
     var appliedLinePresentationFingerprints: [Int: Int] = [:]

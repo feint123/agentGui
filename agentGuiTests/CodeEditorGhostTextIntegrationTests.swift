@@ -91,4 +91,26 @@ final class CodeEditorGhostTextIntegrationTests: XCTestCase {
         XCTAssertNotNil(textView.currentGhostText,
             "光标留在 insertionOffset 不应清除 ghost text")
     }
+
+    // MARK: - 动态语言检测（f23-v2 Task 4）
+
+    func testExtractGhostTextContext_usesLanguageParam() {
+        let textView = CodeEditorPlatformTextView()
+        textView.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
+        textView.string = "let x = 1"
+        textView.setSelectedRange(NSRange(location: 9, length: 0))
+        let context = textView.extractGhostTextContext(language: "python")
+        XCTAssertEqual(context?.language, "python",
+            "提取的上下文 language 应与传入参数一致")
+    }
+
+    func testExtractGhostTextContext_defaultLanguage_isSwift() {
+        let textView = CodeEditorPlatformTextView()
+        textView.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
+        textView.string = "let x = 1"
+        textView.setSelectedRange(NSRange(location: 9, length: 0))
+        let context = textView.extractGhostTextContext(language: nil)
+        XCTAssertEqual(context?.language, "swift",
+            "未传入 language 时默认应为 'swift'")
+    }
 }
