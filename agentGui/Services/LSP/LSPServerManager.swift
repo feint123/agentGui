@@ -221,6 +221,26 @@ final class LSPServerManager {
         return try await session.client.hover(uri: uri, line: line, character: character)
     }
 
+    // MARK: - Cancellable Variants
+
+    func cancellableHover(workspaceRoot: String, serverID: String,
+                          uri: String, line: Int, character: Int) throws -> LSPCancellableRequest<String?> {
+        let session = try sessionRecord(for: workspaceRoot, serverID: serverID)
+        return session.client.cancellableHover(uri: uri, line: line, character: character)
+    }
+
+    func cancellableDefinition(workspaceRoot: String, serverID: String,
+                               uri: String, line: Int, character: Int) throws -> LSPCancellableRequest<LSPSymbolLocation?> {
+        let session = try sessionRecord(for: workspaceRoot, serverID: serverID)
+        return session.client.cancellableDefinition(uri: uri, line: line, character: character)
+    }
+
+    func cancellableReferences(workspaceRoot: String, serverID: String,
+                               uri: String, line: Int, character: Int) throws -> LSPCancellableRequest<[LSPSymbolLocation]> {
+        let session = try sessionRecord(for: workspaceRoot, serverID: serverID)
+        return session.client.cancellableReferences(uri: uri, line: line, character: character)
+    }
+
     func documentSymbols(workspaceRoot: String, serverID: String, uri: String) async throws -> [LSPDocumentSymbol] {
         let session = try sessionRecord(for: workspaceRoot, serverID: serverID)
         return try await session.client.documentSymbols(uri: uri)
