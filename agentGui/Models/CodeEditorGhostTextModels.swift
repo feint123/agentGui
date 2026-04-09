@@ -34,20 +34,38 @@ struct CodeEditorGhostTextSnapshot: Equatable {
             .map { GhostTextDisplayLine(lineOffset: $0.offset, text: $0.element) }
     }
 
-    /// 返回 text 中"下一个词"的 Range，供 ⌘→ 按词接受使用。
-    /// 规则与 Zed `EditPredictionGranularity.Word` 对齐：
-    /// - 若文本以空白开头，先接受连续空白
-    /// - 否则接受连续非空白字符
+    /// 返回 text 中"下一词"的 Range，对齐 Zed `EditPredictionGranularity::Word`。
+    ///
+    /// 规则（参照 Zed editor.rs accept_partial_edit_prediction / VSCode acceptNextWord）：
+    /// 1. 先尝试取连续"词字母"（isLetter || isNumber，即 Unicode 字母数字）
+    /// 2. 若第一字符非词字母（标点 / 空白 / 符号），则取连续的"非词字母"序列
+    ///    - 空白序列：所有空白（不跨换行）归为一个块
+    ///    - 标点序列：每次只取到下一个字母或换行
+    /// 3. 换行符 '\n' 不被跨越（返回 nil 以外的情况均在第一行内发生）
     func nextWordRange() -> Range<String.Index>? {
         guard !text.isEmpty else { return nil }
         let start = text.startIndex
-        let firstChar = text[start]
-        let isWhitespace = firstChar.isWhitespace && firstChar != "\n"
-        let afterFirst = text.index(after: start)
-        let rest = text[afterFirst...]
-        let boundary = rest.firstIndex(where: { char in
-            char.isWhitespace != isWhitespace || char == "\n"
-        }) ?? text.endIndex
-        return start..<boundary
+        guard text[start] != "\n" else { return nil }
+
+        // 阶段 1：取连续字母数字（词核心）
+        var idx = start
+        while idx < text.endIndex, text[idx].isLetter || text[idx].isNumber {
+            idx = text.index(after: idx)
+        }
+        if idx > start {
+            return start..<idx
+        }
+
+        // 阶段 2：首字符非字母数字 → 取连续"非字母数字且非换行"序列
+        idx = start
+        let firstIsWhitespace = text[idx].isWhitespace
+        while idx < text.endIndex {
+            let ch = text[idx]
+            if ch == "\n" { break }
+            if firstIsWhitespace, !ch.isWhitespace { break }
+            if !firstIsWhitespace, ch.isLetter || ch.isNumber { break }
+            idx = text.index(after: idx)
+        }
+        return idx > start ? start..<idx : nil
     }
 }

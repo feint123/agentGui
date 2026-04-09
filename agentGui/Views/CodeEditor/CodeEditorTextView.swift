@@ -1718,18 +1718,19 @@ final class CodeEditorPlatformTextView: NSTextView {
 
     /// 全量接受 ghost text（对应 Tab 键）
     func acceptFullGhostText() {
-        guard let snap = currentGhostText,
-              let storage = textStorage else { return }
+        guard let snap = currentGhostText else { return }
         let insertRange = NSRange(location: snap.insertionOffset, length: 0)
-        storage.replaceCharacters(in: insertRange, with: snap.text)
+        if shouldChangeText(in: insertRange, replacementString: snap.text) {
+            textStorage?.replaceCharacters(in: insertRange, with: snap.text)
+            didChangeText()
+        }
         setSelectedRange(NSRange(location: snap.insertionOffset + snap.text.utf16.count, length: 0))
         currentGhostText = nil
     }
 
     /// 按词接受（对应 ⌘→）
     func acceptNextWordGhostText() {
-        guard let snap = currentGhostText,
-              let storage = textStorage else { return }
+        guard let snap = currentGhostText else { return }
         guard let wordRange = snap.nextWordRange() else {
             currentGhostText = nil
             return
@@ -1738,7 +1739,10 @@ final class CodeEditorPlatformTextView: NSTextView {
         let remaining = String(snap.text[wordRange.upperBound...])
 
         let insertRange = NSRange(location: snap.insertionOffset, length: 0)
-        storage.replaceCharacters(in: insertRange, with: word)
+        if shouldChangeText(in: insertRange, replacementString: word) {
+            textStorage?.replaceCharacters(in: insertRange, with: word)
+            didChangeText()
+        }
         let newOffset = snap.insertionOffset + word.utf16.count
 
         if remaining.isEmpty {

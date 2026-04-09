@@ -65,4 +65,39 @@ final class CodeEditorGhostTextModelsTests: XCTestCase {
         // CRLF: components(separatedBy: "\n") 会产生 "line1\r" 和 "line2"
         XCTAssertLessThanOrEqual(snap.displayLines.count, 3)
     }
+
+    // MARK: - Zed Word 精度（Task f23-v2 Task 1）
+
+    func testNextWordRange_alphaFirst_stopsAtPunctuation() {
+        let snap = CodeEditorGhostTextSnapshot(generation: 1, insertionOffset: 0, text: "foo.bar")
+        let range = snap.nextWordRange()
+        XCTAssertNotNil(range)
+        XCTAssertEqual(String(snap.text[range!]), "foo",
+            "应仅接受字母连续段 'foo'，在 '.' 处停止")
+    }
+
+    func testNextWordRange_punctuationFirst_takesUntilAlpha() {
+        let snap = CodeEditorGhostTextSnapshot(generation: 1, insertionOffset: 0, text: ".bar")
+        let range = snap.nextWordRange()
+        XCTAssertNotNil(range)
+        XCTAssertEqual(String(snap.text[range!]), ".",
+            "首字节为标点时，应只取 '.', 在字母 'b' 处停止")
+    }
+
+    func testNextWordRange_whitespaceFirst_takesWhitespace() {
+        let snap = CodeEditorGhostTextSnapshot(generation: 1, insertionOffset: 0, text: "  bar")
+        let range = snap.nextWordRange()
+        XCTAssertNotNil(range)
+        XCTAssertEqual(String(snap.text[range!]), "  ",
+            "首字节为空白时，应取连续空白 '  '")
+    }
+
+    func testNextWordRange_alphaWithUnderscore() {
+        let snap = CodeEditorGhostTextSnapshot(generation: 1, insertionOffset: 0, text: "foo_bar baz")
+        let range = snap.nextWordRange()
+        XCTAssertNotNil(range)
+        let result = String(snap.text[range!])
+        XCTAssertTrue(result == "foo" || result == "foo_bar",
+            "字母+下划线边界：可接受 'foo' 或 'foo_bar'，实际: \(result)")
+    }
 }
