@@ -30,6 +30,55 @@ final class LSPJSONRPCTransport {
         pendingRequestIDs.contains(id)
     }
 
+    /// 测试辅助：返回当前第一个 pending 请求 ID（用于取消测试）。
+    var firstPendingRequestID: String? {
+        pendingRequestIDs.first
+    }
+
+    /// 预分配一个请求 ID，供 `sendCancellableRequest(id:method:params:)` 使用。
+    func allocateRequestID() -> String {
+        UUID().uuidString
+    }
+
+    /// 发送 LSP 请求（使用调用方预分配的 `id`），返回响应 result。
+    /// 允许调用者在请求发出后通过 `cancelRequest(id:)` 取消。
+    func sendCancellableRequest(id: String, method: String, params: [String: Any]) async throws -> Any? {
+        guard let outgoingDataHandler else {
+            throw TransportError.missingOutgoingDataHandler
+        }
+
+        let message: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params
+        ]
+        let framed = try makeOutgoingData(jsonObject: message)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingContinuations[id] = continuation
+            registerPendingRequest(id: id)
+            outgoingDataHandler(framed)
+        }
+    }
+
+    /// 向服务器发送 `$/cancelRequest` 通知，并以 `CancellationError` 恢复对应的
+    /// pending continuation（如果仍存在）。
+    ///
+    /// 如果指定 ID 没有 pending 请求，则静默忽略（幂等）。
+    func cancelRequest(id: String) throws {
+        guard pendingRequestIDs.contains(id) else { return }
+
+        // 1. 发送 $/cancelRequest notification
+        try sendNotification(method: "$/cancelRequest", params: ["id": id])
+
+        // 2. 本地清理：移除 pending 状态，以 CancellationError 恢复 continuation
+        pendingRequestIDs.remove(id)
+        if let continuation = pendingContinuations.removeValue(forKey: id) {
+            continuation.resume(throwing: CancellationError())
+        }
+    }
+
     func sendRequest(method: String, params: [String: Any]) async throws -> Any? {
         guard let outgoingDataHandler else {
             throw TransportError.missingOutgoingDataHandler
@@ -115,7 +164,12 @@ final class LSPJSONRPCTransport {
                 if let continuation = pendingContinuations.removeValue(forKey: id) {
                     if let errorObject = object["error"] as? [String: Any],
                        let message = errorObject["message"] as? String {
-                        continuation.resume(throwing: TransportError.requestFailed(message))
+                        let code = errorObject["code"] as? Int
+                        if code == -32800 {
+                            continuation.resume(throwing: CancellationError())
+                        } else {
+                            continuation.resume(throwing: TransportError.requestFailed(message))
+                        }
                     } else {
                         continuation.resume(returning: object["result"])
                     }
@@ -127,7 +181,12 @@ final class LSPJSONRPCTransport {
                 if let continuation = pendingContinuations.removeValue(forKey: id) {
                     if let errorObject = object["error"] as? [String: Any],
                        let message = errorObject["message"] as? String {
-                        continuation.resume(throwing: TransportError.requestFailed(message))
+                        let code = errorObject["code"] as? Int
+                        if code == -32800 {
+                            continuation.resume(throwing: CancellationError())
+                        } else {
+                            continuation.resume(throwing: TransportError.requestFailed(message))
+                        }
                     } else {
                         continuation.resume(returning: object["result"])
                     }
