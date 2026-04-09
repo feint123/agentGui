@@ -26,6 +26,9 @@ struct CodeEditorView: View {
     var lspCoordinator: CodeEditorLSPCoordinator? = nil
     var isCompletionEnabled: Bool = false
     var isInlayHintsEnabled: Bool = false
+    var isGhostTextEnabled: Bool = false
+    var ghostTextClient: (any GhostTextClientProtocol)? = nil
+    var ghostTextModelId: String = "claude-haiku-4-5"
 
     @State private var document: CodeEditorDocument
     @State private var findState = CodeEditorFindState.inactive
@@ -55,7 +58,10 @@ struct CodeEditorView: View {
         onSymbolPathChange: (([CodeEditorSymbolPathNode]) -> Void)? = nil,
         lspCoordinator: CodeEditorLSPCoordinator? = nil,
         isCompletionEnabled: Bool = false,
-        isInlayHintsEnabled: Bool = false
+        isInlayHintsEnabled: Bool = false,
+        isGhostTextEnabled: Bool = false,
+        ghostTextClient: (any GhostTextClientProtocol)? = nil,
+        ghostTextModelId: String = "claude-haiku-4-5"
     ) {
         self._text = text
         self.persistedText = persistedText
@@ -81,6 +87,9 @@ struct CodeEditorView: View {
         self.lspCoordinator = lspCoordinator
         self.isCompletionEnabled = isCompletionEnabled
         self.isInlayHintsEnabled = isInlayHintsEnabled
+        self.isGhostTextEnabled = isGhostTextEnabled
+        self.ghostTextClient = ghostTextClient
+        self.ghostTextModelId = ghostTextModelId
         self._document = State(initialValue: CodeEditorDocument(text: text.wrappedValue, persistedText: persistedText))
     }
 
@@ -123,7 +132,10 @@ struct CodeEditorView: View {
                 indentationStatus: statusBarState.indentation,
                 lspCoordinator: lspCoordinator,
                 isCompletionEnabled: isCompletionEnabled,
-                isInlayHintsEnabled: isInlayHintsEnabled
+                isInlayHintsEnabled: isInlayHintsEnabled,
+                isGhostTextEnabled: isGhostTextEnabled,
+                ghostTextClient: ghostTextClient,
+                ghostTextModelId: ghostTextModelId
             )
             .background(Color(NSColor.textBackgroundColor))
 

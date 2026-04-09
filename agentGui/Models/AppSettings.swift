@@ -126,6 +126,16 @@ final class AppSettings {
     /// 文件树 Auto-fold：自动压缩单子目录链（FT-U1）
     var compactFolders: Bool = true
 
+    // MARK: - AI Ghost Text
+
+    /// AI Ghost Text（内联代码补全建议）开关。
+    /// 需要有效 API Key，开启后会将文件内容发送给 Claude。
+    /// 默认关闭，用户需主动开启。
+    var enableGhostText: Bool = false
+
+    /// Ghost Text 触发延迟（毫秒），默认 500ms
+    var ghostTextDebounceMs: Int = 500
+
 
 
     init() {

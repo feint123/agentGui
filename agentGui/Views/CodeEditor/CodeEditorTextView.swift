@@ -26,6 +26,9 @@ struct CodeEditorTextView: NSViewRepresentable {
     var isCompletionEnabled: Bool = false
     var isInlayHintsEnabled: Bool = false
     var isSignatureHelpEnabled: Bool = false
+    var isGhostTextEnabled: Bool = false
+    var ghostTextClient: (any GhostTextClientProtocol)?
+    var ghostTextModelId: String = "claude-haiku-4-5"
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -172,6 +175,10 @@ extension CodeEditorTextView {
         private var lastScheduledInlayHintRange: ClosedRange<Int>?
         private var lastScheduledInlayHintVersion: Int?
 
+        // MARK: - Ghost Text
+        private var ghostTextTrigger: CodeEditorGhostTextTrigger?
+        private var ghostTextService: CodeEditorGhostTextService?
+
         init(_ parent: CodeEditorTextView) {
             self.parent = parent
         }
@@ -285,6 +292,16 @@ extension CodeEditorTextView {
                     retriggerCharacters: caps.signatureHelpRetriggerCharacters
                 )
             }
+
+            // F23: Ghost text trigger（LSP 补全面板未显示时才触发）
+            let completionPanelVisible = completionPanel?.panel.isVisible ?? false
+            ghostTextTrigger?.handleChange(
+                isIMEActive: textView.hasMarkedText(),
+                isGhostTextEnabled: parent.isGhostTextEnabled && !completionPanelVisible,
+                contextProvider: { [weak textView] in
+                    textView?.extractGhostTextContext()
+                }
+            )
         }
 
         func handleCompositionStateChange(in textView: CodeEditorPlatformTextView) {
@@ -378,6 +395,12 @@ extension CodeEditorTextView {
                 installSignatureHelp(for: textView)
             } else {
                 uninstallSignatureHelp(for: textView)
+            }
+
+            if parent.isGhostTextEnabled, let client = parent.ghostTextClient {
+                installGhostText(client: client, modelId: parent.ghostTextModelId, textView: textView)
+            } else {
+                uninstallGhostText(textView: textView)
             }
         }
 
@@ -496,6 +519,75 @@ extension CodeEditorTextView {
             signatureHelpPanel?.onPrevious = nil
             signatureHelpPanel = nil
             signatureHelpTrigger.cancel()
+        }
+
+        // MARK: - Ghost Text Integration
+
+        func installGhostText(
+            client: any GhostTextClientProtocol,
+            modelId: String,
+            textView: CodeEditorPlatformTextView
+        ) {
+            if ghostTextService != nil { return }  // 已安装，跳过
+            let service = CodeEditorGhostTextService(client: client, modelId: modelId)
+            ghostTextService = service
+
+            let trigger = CodeEditorGhostTextTrigger(debounceMs: 500)
+            trigger.onRequestGhostText = { [weak self, weak textView] gen, ctxProvider in
+                guard let self, let textView else { return }
+                self.handleGhostTextRequest(generation: gen, contextProvider: ctxProvider, textView: textView)
+            }
+            ghostTextTrigger = trigger
+        }
+
+        func uninstallGhostText(textView: CodeEditorPlatformTextView) {
+            ghostTextService?.cancel()
+            ghostTextService = nil
+            ghostTextTrigger?.cancel()
+            ghostTextTrigger = nil
+            textView.clearGhostText()
+        }
+
+        func handleGhostTextRequest(
+            generation: Int,
+            contextProvider: CodeEditorGhostTextTrigger.ContextProvider,
+            textView: CodeEditorPlatformTextView
+        ) {
+            guard let service = ghostTextService,
+                  let context = contextProvider() else { return }
+
+            let insertionOffset = textView.selectedRange().location
+
+            service.request(
+                prefix: context.prefix,
+                suffix: context.suffix,
+                language: context.language,
+                generation: generation,
+                onFirstLine: { [weak textView] firstLine in
+                    Task { @MainActor [weak textView] in
+                        guard textView?.currentGhostText == nil else { return }
+                        textView?.currentGhostText = CodeEditorGhostTextSnapshot(
+                            generation: generation,
+                            insertionOffset: insertionOffset,
+                            text: firstLine
+                        )
+                    }
+                },
+                onComplete: { [weak textView] fullText in
+                    Task { @MainActor [weak textView] in
+                        textView?.currentGhostText = CodeEditorGhostTextSnapshot(
+                            generation: generation,
+                            insertionOffset: insertionOffset,
+                            text: fullText
+                        )
+                    }
+                },
+                onCancel: { [weak textView] in
+                    Task { @MainActor [weak textView] in
+                        textView?.clearGhostText()
+                    }
+                }
+            )
         }
 
         // MARK: - Inlay Hints Integration
@@ -1340,6 +1432,46 @@ final class CodeEditorPlatformTextView: NSTextView {
         }
     }
 
+    // MARK: - Ghost Text
+
+    /// 当前 AI ghost text 建议快照（nil = 无建议）。
+    /// 由 Coordinator 在主线程写入，drawBackground 消费（不修改 NSTextStorage）。
+    var currentGhostText: CodeEditorGhostTextSnapshot? {
+        didSet {
+            guard currentGhostText?.generation != oldValue?.generation
+                || currentGhostText?.text != oldValue?.text
+            else { return }
+            needsDisplay = true
+        }
+    }
+
+    func clearGhostText() {
+        currentGhostText = nil
+    }
+
+    /// 提取 ghost text 请求所需的前缀/后缀上下文（各最多 200/20 行）
+    func extractGhostTextContext() -> (prefix: String, suffix: String, language: String)? {
+        guard let storage = textStorage else { return nil }
+        let fullText = storage.string
+        let cursorPos = selectedRange().location
+        guard cursorPos <= fullText.utf16.count else { return nil }
+
+        let utf16 = fullText.utf16
+        guard cursorPos <= utf16.count else { return nil }
+        let prefixEndIdx = utf16.index(utf16.startIndex, offsetBy: cursorPos)
+
+        let prefixUTF16 = String(utf16[utf16.startIndex..<prefixEndIdx]) ?? ""
+        let suffixUTF16 = String(utf16[prefixEndIdx...]) ?? ""
+
+        let prefixLines = prefixUTF16.components(separatedBy: "\n")
+        let suffixLines = suffixUTF16.components(separatedBy: "\n")
+
+        let prefix = prefixLines.suffix(200).joined(separator: "\n")
+        let suffix = suffixLines.prefix(20).joined(separator: "\n")
+
+        return (prefix: prefix, suffix: suffix, language: "swift")
+    }
+
     var appliedLinePresentationFingerprints: [Int: Int] = [:]
     var lastReappliedLines: [Int] = []
     var highlightedLineNumbers: Set<Int> = [] {
@@ -1420,6 +1552,10 @@ final class CodeEditorPlatformTextView: NSTextView {
         drawIndentGuides(in: rect)
         // 绘制 LSP inlay hints（叠层，不修改 TextStorage）
         drawInlayHints(in: rect)
+        // 绘制 AI ghost text（内联建议，不修改 TextStorage）
+        if let ghostText = currentGhostText {
+            drawGhostText(ghostText, in: rect)
+        }
     }
 
     private func drawInlayHints(in rect: NSRect) {
@@ -1520,6 +1656,103 @@ final class CodeEditorPlatformTextView: NSTextView {
         str.draw(at: NSPoint(x: x, y: drawY))
     }
 
+    // MARK: - Ghost Text Rendering
+
+    private func drawGhostText(_ snapshot: CodeEditorGhostTextSnapshot, in rect: NSRect) {
+        // IME 期间不绘制（避免 composition 中出现乱字）
+        guard !hasMarkedText() else { return }
+        guard let layoutManager = self.layoutManager,
+              let textContainer = self.textContainer,
+              let font = self.font else { return }
+
+        let insertionPoint = snapshot.insertionOffset
+        let textLen = textStorage?.length ?? 0
+        guard insertionPoint <= textLen else { return }
+
+        // 找光标插入点对应的 glyph
+        let glyphCount = layoutManager.numberOfGlyphs
+        let glyphIdx: Int
+        if glyphCount == 0 {
+            glyphIdx = 0
+        } else {
+            glyphIdx = min(layoutManager.glyphIndexForCharacter(at: insertionPoint), glyphCount - 1)
+        }
+
+        // 光标矩形（boundingRect for empty range = insertion point position）
+        let cursorGlyphRange = NSRange(location: glyphIdx, length: 0)
+        let cursorRect = layoutManager.boundingRect(
+            forGlyphRange: cursorGlyphRange,
+            in: textContainer
+        ).offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+
+        let lineHeight = layoutManager.defaultLineHeight(for: font)
+
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.tertiaryLabelColor
+        ]
+
+        for displayLine in snapshot.displayLines {
+            let text = displayLine.text
+            guard !text.isEmpty else { continue }
+
+            let yOffset = cursorRect.minY + CGFloat(displayLine.lineOffset) * lineHeight
+            // 只绘制与 dirtyRect 有交集的行
+            let estimatedLineRect = NSRect(x: 0, y: yOffset, width: bounds.width, height: lineHeight)
+            guard rect.intersects(estimatedLineRect) else { continue }
+
+            let drawX: CGFloat
+            if displayLine.lineOffset == 0 {
+                // 插入行：在光标右侧绘制
+                drawX = cursorRect.maxX
+            } else {
+                // 后续行：与光标列对齐（与光标行首字符同列）
+                drawX = cursorRect.minX
+            }
+
+            (text as NSString).draw(at: NSPoint(x: drawX, y: yOffset), withAttributes: attrs)
+        }
+    }
+
+    // MARK: - Ghost Text Acceptance
+
+    /// 全量接受 ghost text（对应 Tab 键）
+    func acceptFullGhostText() {
+        guard let snap = currentGhostText,
+              let storage = textStorage else { return }
+        let insertRange = NSRange(location: snap.insertionOffset, length: 0)
+        storage.replaceCharacters(in: insertRange, with: snap.text)
+        setSelectedRange(NSRange(location: snap.insertionOffset + snap.text.utf16.count, length: 0))
+        currentGhostText = nil
+    }
+
+    /// 按词接受（对应 ⌘→）
+    func acceptNextWordGhostText() {
+        guard let snap = currentGhostText,
+              let storage = textStorage else { return }
+        guard let wordRange = snap.nextWordRange() else {
+            currentGhostText = nil
+            return
+        }
+        let word = String(snap.text[wordRange])
+        let remaining = String(snap.text[wordRange.upperBound...])
+
+        let insertRange = NSRange(location: snap.insertionOffset, length: 0)
+        storage.replaceCharacters(in: insertRange, with: word)
+        let newOffset = snap.insertionOffset + word.utf16.count
+
+        if remaining.isEmpty {
+            currentGhostText = nil
+        } else {
+            currentGhostText = CodeEditorGhostTextSnapshot(
+                generation: snap.generation,
+                insertionOffset: newOffset,
+                text: remaining
+            )
+        }
+        setSelectedRange(NSRange(location: newOffset, length: 0))
+    }
+
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         refreshDisplayedTextState()
@@ -1597,6 +1830,25 @@ final class CodeEditorPlatformTextView: NSTextView {
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let keyCode = event.keyCode
+
+        // MARK: Ghost Text 键盘拦截（优先级高于 LSP completion）
+        if currentGhostText != nil {
+            if keyCode == 48, modifiers.isEmpty {  // Tab → 全量接受
+                acceptFullGhostText()
+                return
+            }
+            if keyCode == 124, modifiers == .command {  // ⌘→ → 按词接受
+                acceptNextWordGhostText()
+                return
+            }
+            if keyCode == 53 {  // Esc → 拒绝，继续传递给多光标/面板关闭等
+                clearGhostText()
+                // fall through 不 return
+            } else {
+                // 任何其他键（非 Tab/⌘→/Esc）：清除 ghost text，让正常输入继续
+                clearGhostText()
+            }
+        }
 
         // Completion panel key handling (when panel is visible, no modifiers)
         if let completionDelegate, completionDelegate.isCompletionPanelVisible, modifiers.isEmpty {

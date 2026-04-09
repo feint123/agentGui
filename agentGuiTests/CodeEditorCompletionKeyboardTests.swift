@@ -25,26 +25,20 @@ struct CodeEditorCompletionKeyboardTests {
     }
 
     @Test
-    func escapeDismissesCompletionWithoutCollapsingMultiCursorSelection() {
+    func escapeDismissesCompletionWithoutBubblingIntoEditorEscapeHandling() {
         let harness = CodeEditorTextViewHarness(text: "alpha\nbeta\ngamma")
         let delegate = CompletionKeyDelegateSpy(isCompletionPanelVisible: true)
         harness.textView.completionDelegate = delegate
-        harness.textView.setSelectedRanges(
-            [
-                NSValue(range: NSRange(location: 1, length: 0)),
-                NSValue(range: NSRange(location: 7, length: 0))
-            ],
-            affinity: .downstream,
-            stillSelecting: false
-        )
-
-        #expect(harness.textView.selectedRanges.count == 2)
+        harness.select(range: NSRange(location: 7, length: 0))
+        harness.clearRecordedCallbacks()
 
         harness.textView.keyDown(with: completionKeyEvent(keyCode: 53, characters: "\u{1b}"))
         harness.pumpRunLoop()
 
         #expect(delegate.dismissCount == 1)
-        #expect(harness.textView.selectedRanges.count == 2)
+        #expect(harness.findIntents.isEmpty)
+        #expect(harness.textView.selectedRange() == NSRange(location: 7, length: 0))
+        #expect(harness.changeSetCount == 0)
     }
 }
 

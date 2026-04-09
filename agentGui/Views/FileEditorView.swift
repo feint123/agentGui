@@ -368,7 +368,10 @@ struct FileEditorView: View {
                         },
                         lspCoordinator: lspCoordinator,
                         isCompletionEnabled: runtimeOptions.isCompletionEnabled,
-                        isInlayHintsEnabled: runtimeOptions.isInlayHintsEnabled
+                        isInlayHintsEnabled: runtimeOptions.isInlayHintsEnabled,
+                        isGhostTextEnabled: AppSettings.getOrCreate(in: modelContext).enableGhostText,
+                        ghostTextClient: claudeService.service.map { AnthropicGhostTextClient(service: $0) },
+                        ghostTextModelId: AppSettings.getOrCreate(in: modelContext).selectedModel
                     )
                 }
             }
