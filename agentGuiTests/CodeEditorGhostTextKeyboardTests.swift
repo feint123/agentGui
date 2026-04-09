@@ -76,4 +76,38 @@ final class CodeEditorGhostTextKeyboardTests: XCTestCase {
         textView.acceptFullGhostText()
         XCTAssertEqual(textView.string, stringBefore)
     }
+
+    // MARK: - 行级接受（f23-v2 Task 2）
+
+    func testCmdReturnAcceptsNextLine_singleLine() {
+        let textView = makeTextView(string: "", cursor: 0)
+        textView.currentGhostText = CodeEditorGhostTextSnapshot(
+            generation: 1, insertionOffset: 0, text: "hello"
+        )
+        textView.acceptNextLineGhostText()
+        XCTAssertNil(textView.currentGhostText, "单行无换行：整行接受后 ghost text 应为 nil")
+        XCTAssertEqual(textView.string, "hello", "文本应插入第一行内容")
+    }
+
+    func testCmdReturnAcceptsNextLine_multiLine() {
+        let textView = makeTextView(string: "", cursor: 0)
+        textView.currentGhostText = CodeEditorGhostTextSnapshot(
+            generation: 1, insertionOffset: 0, text: "line1\nline2\nline3"
+        )
+        textView.acceptNextLineGhostText()
+        let remaining = textView.currentGhostText
+        XCTAssertNotNil(remaining, "多行：接受第一行后应保留剩余行")
+        XCTAssertEqual(remaining?.text, "line2\nline3")
+        XCTAssertEqual(textView.string, "line1\n", "只应插入第一行（含尾部换行）")
+    }
+
+    func testCmdReturnAcceptsNextLine_trailingNewline() {
+        let textView = makeTextView(string: "", cursor: 0)
+        textView.currentGhostText = CodeEditorGhostTextSnapshot(
+            generation: 1, insertionOffset: 0, text: "func foo() {\n    return 42\n}"
+        )
+        textView.acceptNextLineGhostText()
+        XCTAssertEqual(textView.string, "func foo() {\n")
+        XCTAssertEqual(textView.currentGhostText?.text, "    return 42\n}")
+    }
 }

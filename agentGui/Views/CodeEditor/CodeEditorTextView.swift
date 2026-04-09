@@ -1757,6 +1757,44 @@ final class CodeEditorPlatformTextView: NSTextView {
         setSelectedRange(NSRange(location: newOffset, length: 0))
     }
 
+    /// 按行接受（对应 ⌘⏎）
+    /// 规则：取 split_inclusive('\n').first()；若无换行则全量接受。
+    /// 对齐 Zed editor.rs EditPredictionGranularity::Line
+    func acceptNextLineGhostText() {
+        guard let snap = currentGhostText else { return }
+
+        let firstLine: String
+        let remaining: String
+
+        if let newlineRange = snap.text.range(of: "\n") {
+            // 有换行：接受到换行（含换行本身）
+            firstLine = String(snap.text[...newlineRange.lowerBound])
+            remaining = String(snap.text[snap.text.index(after: newlineRange.lowerBound)...])
+        } else {
+            // 无换行：全量接受
+            firstLine = snap.text
+            remaining = ""
+        }
+
+        let insertRange = NSRange(location: snap.insertionOffset, length: 0)
+        if shouldChangeText(in: insertRange, replacementString: firstLine) {
+            textStorage?.replaceCharacters(in: insertRange, with: firstLine)
+            didChangeText()
+        }
+        let newOffset = snap.insertionOffset + firstLine.utf16.count
+
+        if remaining.isEmpty {
+            currentGhostText = nil
+        } else {
+            currentGhostText = CodeEditorGhostTextSnapshot(
+                generation: snap.generation,
+                insertionOffset: newOffset,
+                text: remaining
+            )
+        }
+        setSelectedRange(NSRange(location: newOffset, length: 0))
+    }
+
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         refreshDisplayedTextState()
@@ -1843,6 +1881,10 @@ final class CodeEditorPlatformTextView: NSTextView {
             }
             if keyCode == 124, modifiers == .command {  // ⌘→ → 按词接受
                 acceptNextWordGhostText()
+                return
+            }
+            if keyCode == 36, modifiers == .command {  // ⌘⏎ → 按行接受
+                acceptNextLineGhostText()
                 return
             }
             if keyCode == 53 {  // Esc → 拒绝，继续传递给多光标/面板关闭等
