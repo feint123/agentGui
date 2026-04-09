@@ -141,6 +141,20 @@ private final class SharedHarnessManagedProcess: LSPManagedProcess {
                     "value": "Demo hover"
                 ]
             ]
+        case "textDocument/signatureHelp":
+            return [
+                "signatures": [
+                    [
+                        "label": "demo(a: Int, b: String)",
+                        "parameters": [
+                            ["label": "a: Int"],
+                            ["label": "b: String"]
+                        ]
+                    ]
+                ],
+                "activeSignature": 0,
+                "activeParameter": 0
+            ]
         default:
             return NSNull()
         }

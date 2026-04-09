@@ -280,6 +280,25 @@ final class LSPServerManager {
         )
     }
 
+    func signatureHelp(
+        workspaceRoot: String,
+        serverID: String,
+        uri: String,
+        line: Int,
+        character: Int,
+        context: SignatureHelpTriggerContext
+    ) async -> LSPSignatureHelp? {
+        guard let session = try? sessionRecord(for: workspaceRoot, serverID: serverID) else {
+            return nil
+        }
+        return await session.client.signatureHelp(
+            uri: uri,
+            line: line,
+            character: character,
+            context: context
+        )
+    }
+
     private func sessionRecord(for workspaceRoot: String, serverID: String) throws -> SessionRecord {
         let key = SessionKey(workspaceRoot: workspaceRoot, serverID: serverID)
         guard let session = sessions[key] else {

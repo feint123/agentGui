@@ -432,6 +432,48 @@ final class CodeEditorLSPCoordinator {
         pendingCompletionTask = nil
     }
 
+    // MARK: - Signature Help
+
+    private var signatureHelpGeneration: Int = 0
+    private var pendingSignatureHelpTask: Task<Void, Never>?
+
+    func requestSignatureHelp(
+        context: SignatureHelpTriggerContext,
+        line: Int,
+        character: Int,
+        onResult: @MainActor @escaping (LSPSignatureHelp?) -> Void
+    ) {
+        guard isOpen else {
+            onResult(nil)
+            return
+        }
+        signatureHelpGeneration &+= 1
+        let generation = signatureHelpGeneration
+        pendingSignatureHelpTask?.cancel()
+
+        pendingSignatureHelpTask = Task { [weak self] in
+            guard let self else { return }
+            let result = await self.manager.signatureHelp(
+                workspaceRoot: self.binding.workspaceRoot,
+                serverID: self.binding.serverID,
+                uri: self.binding.uri,
+                line: line,
+                character: character,
+                context: context
+            )
+            guard !Task.isCancelled, self.signatureHelpGeneration == generation else {
+                await onResult(nil)
+                return
+            }
+            await onResult(result)
+        }
+    }
+
+    func cancelSignatureHelp() {
+        pendingSignatureHelpTask?.cancel()
+        pendingSignatureHelpTask = nil
+    }
+
     // MARK: - Inlay Hints
 
     /// 调度一次 inlay hint 请求，300ms 去抖 + 代际取消。

@@ -177,3 +177,40 @@ struct CodeEditorSignatureHelpTriggerTests {
         #expect(lastSession?.activeSignature == 0)
     }
 }
+
+// MARK: - CodeEditorLSPCoordinator signatureHelp integration
+
+@Suite("CodeEditorLSPCoordinator signatureHelp integration")
+@MainActor
+struct CoordinatorSignatureHelpIntegrationTests {
+
+    @Test func requestSignatureHelp_dispatchesToLSPClient() async throws {
+        let harness = SharedLSPServerManagerHarness(settings: .lspFixture(installedProviderIDs: ["python-lsp"]))
+        let manager = harness.makeManager()
+        _ = try await manager.startSession(workspaceRoot: "/tmp", serverID: "python-lsp")
+
+        let coordinator = CodeEditorLSPCoordinator(
+            manager: manager,
+            binding: .fixtureSourceFile(),
+            debounceNanoseconds: 30_000_000
+        )
+        coordinator.activate(initialText: "print(", version: 0)
+
+        let context = SignatureHelpTriggerContext(
+            triggerKind: .triggerCharacter,
+            triggerCharacter: "(",
+            isRetrigger: false,
+            activeSignatureHelp: nil
+        )
+
+        var received: LSPSignatureHelp?
+        coordinator.requestSignatureHelp(context: context, line: 0, character: 6) { result in
+            received = result
+        }
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        // harness returns a valid signatureHelp response
+        #expect(received?.isValid == true)
+        #expect(received?.signatures.first?.label == "demo(a: Int, b: String)")
+    }
+}
