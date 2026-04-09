@@ -25,6 +25,7 @@ struct CodeEditorTextView: NSViewRepresentable {
     var lspCoordinator: CodeEditorLSPCoordinator? = nil
     var isCompletionEnabled: Bool = false
     var isInlayHintsEnabled: Bool = false
+    var isSignatureHelpEnabled: Bool = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -162,6 +163,10 @@ extension CodeEditorTextView {
         private var completionPanel: CodeEditorCompletionPanel?
         private var isInIMEComposition = false
 
+        // MARK: - Signature Help
+        private let signatureHelpTrigger = CodeEditorSignatureHelpTrigger()
+        private var signatureHelpPanel: CodeEditorSignatureHelpPanel?
+
         // MARK: - Inlay Hints
         private weak var installedInlayHintsCoordinator: CodeEditorLSPCoordinator?
         private var lastScheduledInlayHintRange: ClosedRange<Int>?
@@ -265,6 +270,21 @@ extension CodeEditorTextView {
                     triggerCharacters: caps.completionTriggerCharacters
                 )
             }
+
+            // L5: Signature help trigger
+            if parent.isSignatureHelpEnabled,
+               let lspCoordinator = parent.lspCoordinator,
+               let caps = lspCoordinator.capabilities,
+               caps.supportsSignatureHelp {
+                let cursorOffset = textView.selectedRange().location
+                let lastTyped = textView.lastTypedCharacter ?? ""
+                signatureHelpTrigger.handleTyping(
+                    char: lastTyped,
+                    cursorOffset: cursorOffset,
+                    triggerCharacters: caps.signatureHelpTriggerCharacters,
+                    retriggerCharacters: caps.signatureHelpRetriggerCharacters
+                )
+            }
         }
 
         func handleCompositionStateChange(in textView: CodeEditorPlatformTextView) {
@@ -353,6 +373,12 @@ extension CodeEditorTextView {
             } else {
                 uninstallInlayHints(for: textView)
             }
+
+            if parent.isSignatureHelpEnabled {
+                installSignatureHelp(for: textView)
+            } else {
+                uninstallSignatureHelp(for: textView)
+            }
         }
 
         /// 初始化代码补全面板和触发器，连接 LSP coordinator 回调。
@@ -408,6 +434,68 @@ extension CodeEditorTextView {
             completionPanel?.onDismiss = nil
             completionPanel = nil
             completionTrigger.dismiss()
+        }
+
+        // MARK: - Signature Help Integration
+
+        func installSignatureHelp(for textView: CodeEditorPlatformTextView) {
+            if signatureHelpPanel != nil {
+                textView.signatureHelpDelegate = self
+                return
+            }
+
+            let panel = CodeEditorSignatureHelpPanel()
+            signatureHelpPanel = panel
+            textView.signatureHelpDelegate = self
+
+            panel.onNext = { [weak self] in self?.signatureHelpTrigger.next() }
+            panel.onPrevious = { [weak self] in self?.signatureHelpTrigger.previous() }
+
+            // Trigger → Coordinator → LSPClient 桥接
+            signatureHelpTrigger.requestSignatureHelp = { [weak self] context, callback in
+                guard let self,
+                      let coord = self.parent.lspCoordinator else {
+                    callback(nil)
+                    return
+                }
+                // 使用当前光标位置
+                guard let tv = textView as? CodeEditorPlatformTextView else {
+                    callback(nil)
+                    return
+                }
+                let offset = tv.selectedRange().location
+                let position = tv.codePosition(for: offset)
+                coord.requestSignatureHelp(
+                    context: context,
+                    line: position.line,
+                    character: position.character,
+                    onResult: callback
+                )
+            }
+
+            // 状态变化 → 显示或隐藏 panel
+            signatureHelpTrigger.onSessionChange = { [weak self, weak textView, weak panel] help in
+                guard let panel else { return }
+                if let help {
+                    panel.update(help: help)
+                    if let tv = textView, let window = tv.window {
+                        let cursorRect = tv.convert(tv.cursorRect, to: nil)
+                        panel.show(anchoredBelow: cursorRect, in: window)
+                    }
+                } else {
+                    panel.hide()
+                }
+                _ = self
+            }
+        }
+
+        func uninstallSignatureHelp(for textView: CodeEditorPlatformTextView) {
+            textView.signatureHelpDelegate = nil
+            signatureHelpPanel?.hide()
+            signatureHelpPanel?.onNext = nil
+            signatureHelpPanel?.onPrevious = nil
+            signatureHelpPanel = nil
+            signatureHelpTrigger.cancel()
         }
 
         // MARK: - Inlay Hints Integration
@@ -1116,6 +1204,17 @@ protocol CompletionKeyDelegate: AnyObject {
     func selectPrevCompletion()
 }
 
+/// 签名帮助键盘操作协议，由 Coordinator 实现，从 keyDown 桥接调用。
+@MainActor
+protocol SignatureHelpKeyDelegate: AnyObject {
+    var isSignatureHelpPanelVisible: Bool { get }
+    var isSignatureHelpActive: Bool { get }
+    func cancelSignatureHelp()
+    func nextSignatureOverload()
+    func previousSignatureOverload()
+    func invokeSignatureHelp(at offset: Int)
+}
+
 extension CodeEditorTextView.Coordinator: CompletionKeyDelegate {
     var isCompletionPanelVisible: Bool {
         completionPanel?.panel.isVisible ?? false
@@ -1138,6 +1237,32 @@ extension CodeEditorTextView.Coordinator: CompletionKeyDelegate {
 
     func selectPrevCompletion() {
         completionPanel?.selectPrevious()
+    }
+}
+
+extension CodeEditorTextView.Coordinator: SignatureHelpKeyDelegate {
+    var isSignatureHelpPanelVisible: Bool {
+        signatureHelpPanel?.isVisible ?? false
+    }
+
+    var isSignatureHelpActive: Bool {
+        signatureHelpTrigger.isActive
+    }
+
+    func cancelSignatureHelp() {
+        signatureHelpTrigger.cancel()
+    }
+
+    func nextSignatureOverload() {
+        signatureHelpTrigger.next()
+    }
+
+    func previousSignatureOverload() {
+        signatureHelpTrigger.previous()
+    }
+
+    func invokeSignatureHelp(at offset: Int) {
+        signatureHelpTrigger.invoke(cursorOffset: offset)
     }
 }
 
@@ -1197,6 +1322,10 @@ final class CodeEditorPlatformTextView: NSTextView {
     // MARK: - Completion
     /// 键盘操作代理（Coordinator 实现），当面板可见时拦截 Tab/Enter/Esc/↑↓ 键。
     weak var completionDelegate: (any CompletionKeyDelegate)?
+
+    // MARK: - Signature Help
+    /// 签名帮助键盘代理（Coordinator 实现）
+    weak var signatureHelpDelegate: (any SignatureHelpKeyDelegate)?
 
     // MARK: - Inlay Hints
 
@@ -1492,6 +1621,35 @@ final class CodeEditorPlatformTextView: NSTextView {
             }
         }
 
+        // L5: Signature help keyboard shortcuts
+        if let sigDelegate = signatureHelpDelegate, sigDelegate.isSignatureHelpActive, modifiers.isEmpty {
+            switch keyCode {
+            case 53: // Esc
+                sigDelegate.cancelSignatureHelp()
+                // fall through
+            case 126: // ↑ — 切换上一个重载
+                if sigDelegate.isSignatureHelpPanelVisible {
+                    sigDelegate.previousSignatureOverload()
+                    return
+                }
+            case 125: // ↓ — 切换下一个重载
+                if sigDelegate.isSignatureHelpPanelVisible {
+                    sigDelegate.nextSignatureOverload()
+                    return
+                }
+            default:
+                break
+            }
+        }
+        // Cmd+Ctrl+Space → 手动触发签名帮助
+        if modifiers == [.command, .control], keyCode == 49 /* Space */ {
+            if let sigDelegate = signatureHelpDelegate {
+                let offset = selectedRange().location
+                sigDelegate.invokeSignatureHelp(at: offset)
+                return
+            }
+        }
+
         // ⌘⌥↑ — 添加上方光标（keyCode 126 = ↑）
         if keyCode == 126, modifiers.contains(.command), modifiers.contains(.option), !hasMarkedText() {
             let current = selectedRanges.map { $0.rangeValue }
@@ -1685,6 +1843,14 @@ final class CodeEditorPlatformTextView: NSTextView {
             column: location.column,
             utf16Offset: utf16Offset,
             version: currentDocumentVersion
+        )
+    }
+
+    func codePosition(for utf16Offset: Int) -> (line: Int, character: Int) {
+        let location = displayedLineIndex.location(ofUTF16Offset: utf16Offset)
+        return (
+            line: max(0, location.line - 1),
+            character: max(0, location.column - 1)
         )
     }
 
