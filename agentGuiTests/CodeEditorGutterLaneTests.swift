@@ -88,8 +88,8 @@ struct CodeEditorGutterLaneTests {
         // Default: lineNumber lane width + 16pt dot lane
         let lineNumberLane = CodeEditorLineNumberLane()
         let expectedLineNumberWidth = lineNumberLane.preferredWidth(for: snapshot, appearance: nil)
-        // Default lanes: gitDiffStripe(4) + lineNumber + diagnosticDot(16)
-        let expectedTotal = 4 + expectedLineNumberWidth + 16
+        // Default: gitDiffStripe(4) + agentDiffStripe(4) + lineNumber + diagnosticDot(16)
+        let expectedTotal = 4 + 4 + expectedLineNumberWidth + 16
         #expect(view.requiredWidth == expectedTotal)
     }
 
@@ -101,8 +101,8 @@ struct CodeEditorGutterLaneTests {
         let lane2 = FakeLane(id: "diagnosticDot", width: 20)
         view.register(lane: lane1)
         view.register(lane: lane2)
-        // gitDiffStripe(4) + lineNumber(30) + diagnosticDot(20) = 54
-        #expect(view.requiredWidth == 54)
+        // gitDiffStripe(4) + agentDiffStripe(4) + lineNumber(30) + diagnosticDot(20) = 58
+        #expect(view.requiredWidth == 58)
     }
 
     // MARK: - Frame Non-Overlap
@@ -119,10 +119,11 @@ struct CodeEditorGutterLaneTests {
         let frame1 = view.laneFrame(for: lane1)
         let frame2 = view.laneFrame(for: lane2)
 
-        // gitDiffStripe is now leftmost (x=0, width=4)
-        // lineNumber (lane1) starts after gitDiffStripe
-        #expect(frame1.origin.x == 4)
-        #expect(frame2.origin.x == 34)
+        // gitDiffStripe is leftmost (x=0, width=4)
+        // agentDiffStripe is next (x=4, width=4)
+        // lineNumber (lane1) starts after agentDiffStripe
+        #expect(frame1.origin.x == 8)
+        #expect(frame2.origin.x == 38)
         // No overlap: frame1.maxX == frame2.minX
         #expect(frame1.maxX == frame2.minX)
     }
@@ -139,8 +140,8 @@ struct CodeEditorGutterLaneTests {
         let countBefore = view.requiredWidth  // captures combined width
 
         view.register(lane: lane2)
-        // lineNumber replaced: gitDiffStripe(4) + lineNumber(50) + diagnosticDot(16) = 70
-        #expect(view.requiredWidth == 70)
+        // lineNumber replaced: gitDiffStripe(4) + agentDiffStripe(4) + lineNumber(50) + diagnosticDot(16) = 74
+        #expect(view.requiredWidth == 74)
     }
 
     @Test
@@ -150,8 +151,8 @@ struct CodeEditorGutterLaneTests {
         let lane2 = FakeLane(id: "lineNumber", width: 30)
         view.register(lane: lane1)
         view.register(lane: lane2)
-        // lineNumber replaced (not doubled): gitDiffStripe(4) + lineNumber(30) + diagnosticDot(16) = 50
-        #expect(view.requiredWidth == 50)
+        // lineNumber replaced (not doubled): gitDiffStripe(4) + agentDiffStripe(4) + lineNumber(30) + diagnosticDot(16) = 54
+        #expect(view.requiredWidth == 54)
     }
 
     // MARK: - Width Change Callback
