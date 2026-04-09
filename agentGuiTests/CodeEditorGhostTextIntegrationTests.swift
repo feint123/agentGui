@@ -59,4 +59,36 @@ final class CodeEditorGhostTextIntegrationTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 1.0)
         XCTAssertTrue(client.requestCalled)
     }
+
+    // MARK: - 光标偏离失效（f23-v2 Task 3）
+
+    func testGhostTextClearedWhenCursorMovesAway() {
+        let textView = CodeEditorPlatformTextView()
+        textView.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
+        textView.string = "hello world"
+        textView.setSelectedRange(NSRange(location: 5, length: 0))
+        textView.currentGhostText = CodeEditorGhostTextSnapshot(
+            generation: 1, insertionOffset: 5, text: " completion"
+        )
+        XCTAssertNotNil(textView.currentGhostText)
+
+        // 移动光标到 offset 0（不同位置）
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        XCTAssertNil(textView.currentGhostText,
+            "光标离开 insertionOffset 时 ghost text 应自动清除")
+    }
+
+    func testGhostTextPreservedWhenCursorStaysAtInsertionOffset() {
+        let textView = CodeEditorPlatformTextView()
+        textView.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
+        textView.string = "hello world"
+        textView.setSelectedRange(NSRange(location: 5, length: 0))
+        textView.currentGhostText = CodeEditorGhostTextSnapshot(
+            generation: 1, insertionOffset: 5, text: " completion"
+        )
+        // 不移动光标，再次设置到同一位置
+        textView.setSelectedRange(NSRange(location: 5, length: 0))
+        XCTAssertNotNil(textView.currentGhostText,
+            "光标留在 insertionOffset 不应清除 ghost text")
+    }
 }

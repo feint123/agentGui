@@ -1445,6 +1445,26 @@ final class CodeEditorPlatformTextView: NSTextView {
         }
     }
 
+    /// accept 操作进行中时设为 true，防止 setSelectedRanges 重写误清除 ghost text。
+    private var isAcceptingGhostText = false
+
+    /// 光标偏离失效（对齐 Zed update_visible_edit_prediction invalidation_range）。
+    /// 若光标移动到不同于 insertionOffset 的位置，自动清除 ghost text。
+    override func setSelectedRanges(
+        _ ranges: [NSValue],
+        affinity: NSSelectionAffinity,
+        stillSelecting stillSelectingFlag: Bool
+    ) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        guard !isAcceptingGhostText else { return }
+        if let snap = currentGhostText {
+            let cursor = selectedRange().location
+            if cursor != snap.insertionOffset {
+                currentGhostText = nil
+            }
+        }
+    }
+
     func clearGhostText() {
         currentGhostText = nil
     }
@@ -1719,6 +1739,8 @@ final class CodeEditorPlatformTextView: NSTextView {
     /// 全量接受 ghost text（对应 Tab 键）
     func acceptFullGhostText() {
         guard let snap = currentGhostText else { return }
+        isAcceptingGhostText = true
+        defer { isAcceptingGhostText = false }
         let insertRange = NSRange(location: snap.insertionOffset, length: 0)
         if shouldChangeText(in: insertRange, replacementString: snap.text) {
             textStorage?.replaceCharacters(in: insertRange, with: snap.text)
@@ -1731,6 +1753,8 @@ final class CodeEditorPlatformTextView: NSTextView {
     /// 按词接受（对应 ⌘→）
     func acceptNextWordGhostText() {
         guard let snap = currentGhostText else { return }
+        isAcceptingGhostText = true
+        defer { isAcceptingGhostText = false }
         guard let wordRange = snap.nextWordRange() else {
             currentGhostText = nil
             return
@@ -1762,6 +1786,8 @@ final class CodeEditorPlatformTextView: NSTextView {
     /// 对齐 Zed editor.rs EditPredictionGranularity::Line
     func acceptNextLineGhostText() {
         guard let snap = currentGhostText else { return }
+        isAcceptingGhostText = true
+        defer { isAcceptingGhostText = false }
 
         let firstLine: String
         let remaining: String
