@@ -124,67 +124,22 @@ struct GitSidebarChangesSection: View {
                 .foregroundStyle(.secondary)
 
             ForEach(changes) { change in
-                changeRow(
+                ChangeRowView(
                     change: change,
-                    primaryActionTitle: primaryActionTitle,
-                    primaryAction: primaryAction,
-                    secondaryActionTitle: secondaryActionTitle,
-                    secondaryAction: secondaryAction
+                    isSelected: sidebarViewModel.selectedChangeID == change.id,
+                    primarySymbol: change.section.hoverActionSymbol,
+                    primaryAction: { primaryAction(change) },
+                    discardAction: secondaryAction.map { action in { action(change) } }
                 )
-            }
-        }
-    }
-
-    private func changeRow(
-        change: GitFileChange,
-        primaryActionTitle: String,
-        primaryAction: @escaping (GitFileChange) -> Void,
-        secondaryActionTitle: String? = nil,
-        secondaryAction: ((GitFileChange) -> Void)? = nil
-    ) -> some View {
-        let isSelected = sidebarViewModel.selectedChangeID == change.id
-
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(change.relativePath)
-                    .font(.caption)
-                    .lineLimit(2)
-                Spacer(minLength: 0)
-                Text(change.status.rawValue.uppercased())
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 6) {
-                Button(primaryActionTitle) {
-                    primaryAction(change)
-                }
-                .buttonStyle(.borderless)
-
-                if let secondaryActionTitle, let secondaryAction {
-                    Button(secondaryActionTitle, role: .destructive) {
-                        secondaryAction(change)
+                .onTapGesture {
+                    Task {
+                        await sidebarViewModel.selectChange(change, workspaceState: workspaceState)
                     }
-                    .buttonStyle(.borderless)
                 }
-            }
-            .font(.caption)
-        }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 6)
-        .background(
-            isSelected
-                ? Color.accentColor.opacity(0.15)
-                : Color.clear,
-            in: RoundedRectangle(cornerRadius: 4)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            Task {
-                await sidebarViewModel.selectChange(change, workspaceState: workspaceState)
             }
         }
     }
+
 }
 
 // MARK: - ChangeRowView
