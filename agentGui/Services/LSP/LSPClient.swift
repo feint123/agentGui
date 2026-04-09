@@ -176,6 +176,48 @@ final class LSPClient {
         return parseHoverText(from: result)
     }
 
+    // MARK: - Signature Help
+
+    func signatureHelp(
+        uri: String,
+        line: Int,
+        character: Int,
+        context: SignatureHelpTriggerContext
+    ) async -> LSPSignatureHelp? {
+        var contextDict: [String: Any] = [
+            "triggerKind": context.triggerKind.rawValue,
+            "isRetrigger": context.isRetrigger
+        ]
+        if let ch = context.triggerCharacter {
+            contextDict["triggerCharacter"] = ch
+        }
+        // activeSignatureHelp：retrigger 时把前一次结果传回（LSP spec §3.16.0）
+        if let prev = context.activeSignatureHelp, context.isRetrigger {
+            contextDict["activeSignatureHelp"] = [
+                "signatures": prev.signatures.map { sig -> [String: Any] in
+                    var d: [String: Any] = ["label": sig.label]
+                    if let p = sig.activeParameter { d["activeParameter"] = p }
+                    return d
+                },
+                "activeSignature": prev.activeSignature,
+                "activeParameter": prev.activeParameter
+            ]
+        }
+
+        let params: [String: Any] = [
+            "textDocument": ["uri": uri],
+            "position": ["line": line, "character": character],
+            "context": contextDict
+        ]
+
+        guard let result = try? await transport.sendRequest(
+            method: "textDocument/signatureHelp",
+            params: params
+        ) else { return nil }
+
+        return try? LSPClientSignatureHelpParser.parse(raw: result)
+    }
+
     // MARK: - Cancellable Request Variants
 
     /// Hover 可取消变体：调用方预分配 ID，持有 handle，可随时 cancel。
