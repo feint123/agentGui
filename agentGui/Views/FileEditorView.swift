@@ -29,6 +29,7 @@ struct FileEditorView: View {
     @Environment(WorkspaceState.self) private var workspaceState
     @Environment(ClaudeService.self) private var claudeService
     @Environment(\.modelContext) private var modelContext
+    @Environment(ChangeReviewProjectionStore.self) private var changeReviewStore
 
     // MARK: - State
 
@@ -44,6 +45,7 @@ struct FileEditorView: View {
     @State private var currentSymbolPath: [CodeEditorSymbolPathNode] = []
     @State private var isSymbolOutlinePresented: Bool = false
     @State private var gitDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
+    @State private var agentChangeDiffByLine: [Int: CodeEditorGitDiffKind] = [:]
     private let gitDiffService = GitLineDiffService()
     private let launchOptions = TestLaunchOptions.current
 
@@ -63,6 +65,7 @@ struct FileEditorView: View {
             consumePendingRevealRequestIfNeeded(for: fileURL)
             syncLSPCoordinator(for: fileURL)
             refreshGitDiff(for: fileURL)
+            refreshAgentDiff(for: fileURL)
         }
         .onDisappear {
             lspCoordinator?.cancelHover()
@@ -86,7 +89,9 @@ struct FileEditorView: View {
             consumePendingRevealRequestIfNeeded(for: newURL)
             triggerWorkspaceLSPBootstrap(for: newURL)
             gitDiffByLine = [:]
+            agentChangeDiffByLine = [:]
             refreshGitDiff(for: newURL)
+            refreshAgentDiff(for: newURL)
         }
         .onChange(of: sessionController.document.phase) { _, _ in
             syncLSPCoordinator(for: fileURL)
@@ -105,6 +110,9 @@ struct FileEditorView: View {
             if !isDirty {
                 refreshGitDiff(for: fileURL)
             }
+        }
+        .onChange(of: changeReviewStore.snapshotsByProposalID) { _, _ in
+            refreshAgentDiff(for: fileURL)
         }
         .alert("错误", isPresented: Binding(
             get: { sessionController.document.errorMessage != nil },
@@ -361,6 +369,7 @@ struct FileEditorView: View {
                             lspCoordinator?.handleTextChange(text: newValue, change: change)
                         },
                         gitDiffByLine: gitDiffByLine,
+                        agentChangeDiffByLine: agentChangeDiffByLine,
                         isBracketPairColorizationEnabled: AppSettings.getOrCreate(in: modelContext).isBracketPairColorizationEnabled,
                         documentSymbols: rawDocumentSymbols,
                         onSymbolPathChange: { path in
@@ -414,6 +423,22 @@ struct FileEditorView: View {
     private func resolveWorkspaceRoot() -> URL? {
         let settings = AppSettings.getOrCreate(in: modelContext)
         return workspaceState.effectiveWorkingDirectoryURL(globalDefault: settings.workingDirectory)
+    }
+
+    // MARK: - Agent Change Diff（F24）
+
+    private func refreshAgentDiff(for fileURL: URL) {
+        let standardizedURL = fileURL.standardizedFileURL
+        // 遍历 store 中所有 pending 的 fileChanges，找到匹配当前文件的条目
+        let matchingDiff = changeReviewStore.snapshotsByProposalID.values
+            .flatMap { $0.fileChanges }
+            .filter { $0.state.isPendingReview }
+            .first { fc in
+                URL(fileURLWithPath: fc.absolutePath).standardizedFileURL == standardizedURL
+            }
+            .map { UnifiedDiffParser.parse($0.unifiedDiff) }
+
+        agentChangeDiffByLine = matchingDiff ?? [:]
     }
 
     private func triggerWorkspaceLSPBootstrap(for url: URL) {
