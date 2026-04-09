@@ -113,6 +113,7 @@ struct CodeEditorTextView: NSViewRepresentable {
 
         textView.highlightedLineNumber = textView.displayedLocation(ofUTF16Offset: textView.selectedRange().location).line
         context.coordinator.updateGutterState(for: textView)
+        context.coordinator.updateAgentDiff(for: textView)
         context.coordinator.applyCachedHighlightPresentation(to: textView)
         context.coordinator.syncRuntimeIntegrations(for: textView)
 
@@ -381,6 +382,10 @@ extension CodeEditorTextView {
                 textView.emitSemanticIntent(.cancelHover)
                 self.scheduleHighlight(for: textView, dirtyLineRange: nil)
             }
+        }
+
+        func updateAgentDiff(for textView: CodeEditorPlatformTextView) {
+            textView.agentChangeDiffByLine = parent.agentChangeDiffByLine
         }
 
         func syncRuntimeIntegrations(for textView: CodeEditorPlatformTextView) {
@@ -1428,6 +1433,16 @@ final class CodeEditorPlatformTextView: NSTextView {
     /// 签名帮助键盘代理（Coordinator 实现）
     weak var signatureHelpDelegate: (any SignatureHelpKeyDelegate)?
 
+    // MARK: - Agent Change Diff（F24 Inline Background）
+
+    /// Agent 修改的行级 diff，由 Coordinator 更新，drawBackground 消费。
+    var agentChangeDiffByLine: [Int: CodeEditorGitDiffKind] = [:] {
+        didSet {
+            guard agentChangeDiffByLine != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
     // MARK: - Inlay Hints
 
     /// 当前 viewport 的 inlay hints 快照。
@@ -1569,6 +1584,9 @@ final class CodeEditorPlatformTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
 
+        // F24：Agent 变更行内联背景高亮（底层，在其他叠层之前）
+        drawAgentDiffBackground(in: rect)
+
         // 为所有光标行绘制高亮背景
         for line in highlightedLineNumbers {
             if let lineRect = backgroundRect(forLine: line), lineRect.intersects(rect) {
@@ -1584,6 +1602,61 @@ final class CodeEditorPlatformTextView: NSTextView {
         // 绘制 AI ghost text（内联建议，不修改 TextStorage）
         if let ghostText = currentGhostText {
             drawGhostText(ghostText, in: rect)
+        }
+    }
+
+    // MARK: - Agent Diff Background（F24）
+
+    private func drawAgentDiffBackground(in rect: NSRect) {
+        guard !agentChangeDiffByLine.isEmpty,
+              let layoutManager = self.layoutManager,
+              let textContainer = self.textContainer,
+              let textStorage = self.textStorage else { return }
+
+        let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: rect, in: textContainer)
+        guard visibleGlyphRange.length > 0 else { return }
+        let visibleCharRange = layoutManager.characterRange(
+            forGlyphRange: visibleGlyphRange,
+            actualGlyphRange: nil
+        )
+
+        var logicalLine = 1
+        let fullString = textStorage.string as NSString
+        let nsRange = NSRange(location: 0, length: textStorage.length)
+
+        fullString.enumerateSubstrings(in: nsRange, options: [.byLines, .substringNotRequired]) { _, _, enclosingRange, _ in
+            defer { logicalLine += 1 }
+            guard let kind = self.agentChangeDiffByLine[logicalLine] else { return }
+
+            let intersect = NSIntersectionRange(enclosingRange, visibleCharRange)
+            guard intersect.length > 0 || enclosingRange.location == visibleCharRange.location else { return }
+
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: enclosingRange, actualCharacterRange: nil)
+            var lineRect: NSRect = .zero
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { fragmentRect, _, _, _, _ in
+                if lineRect == .zero {
+                    lineRect = fragmentRect
+                } else {
+                    lineRect = lineRect.union(fragmentRect)
+                }
+            }
+            guard lineRect != .zero else { return }
+
+            lineRect.origin.x = 0
+            lineRect.size.width = self.bounds.width
+            guard lineRect.intersects(rect) else { return }
+
+            let color: NSColor
+            switch kind {
+            case .added:
+                color = NSColor.systemPurple.withAlphaComponent(0.08)
+            case .modified:
+                color = NSColor.systemCyan.withAlphaComponent(0.08)
+            case .deleted:
+                return
+            }
+            color.setFill()
+            lineRect.fill()
         }
     }
 
